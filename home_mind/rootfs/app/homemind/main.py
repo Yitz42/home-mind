@@ -11,6 +11,7 @@ from aiohttp import web
 
 from .comfort import Comfort
 from .body import Body
+from .home import Home, plan_action
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -27,7 +28,8 @@ log = logging.getLogger("home_mind")
 
 DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_task.claude_ai_task"}],
             "update_url": "https://raw.githubusercontent.com/Yitz42/home-mind/main/packs/manifest.json",
-            "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info", "comfort": True}
+            "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info", "comfort": True,
+            "home": True, "home_controls": [], "home_fan_max": 100}
 
 
 def load_options():
@@ -85,6 +87,8 @@ class App:
         self.ha = HA(self.models.session)
         self.comfort = Comfort(self.mind, self.ha)
         self.body = Body(self.mind.store, self.ha)
+        self.home = Home(self.mind.store, self.ha, self.opts)
+        self.mind.home = self.home if self.opts.get("home", True) else None
         self.mind.on_test_done = self.test_done
         for r in self.updater.install_bundled():
             log.info("installed bundled pack %s %s", r["id"], r["version"])
@@ -107,6 +111,24 @@ class App:
             t.cancel()
         await self.models.stop()
 
+    async def do(self, text, model=None, source="api"):
+        """A request in words ("dim the desk light to 30%") -> one checked action, planned by a model."""
+        if not self.home.catalog:
+            await self.home.refresh()
+        names = [n for n in self.models.models if n != "mock"]
+        model = model or ("haiku" if "haiku" in names else names[0] if names else None)
+        if not model:
+            return {"error": "no model connected"}
+        things = self.home.controllable()
+        plan = await plan_action(self.models.get(model), text, things)
+        if not plan.get("entity_id"):
+            return {"error": "nothing on the control list fits", "plan": plan}
+        try:
+            return {"plan": plan, "done": await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"),
+                                                              source)}
+        except (ValueError, PermissionError) as e:
+            return {"plan": plan, "error": str(e)}
+
     async def push_counts(self):
         s = self.mind.store.stats()
         await self.ha.sensor("sensor.home_mind_items", s["items"],
@@ -124,7 +146,8 @@ class App:
                               "model": run["model"], "run": run["id"], "seed": run["seed"], **s})
 
     async def upkeep(self):
-        last = {"fade": 0, "packs": 0, "test": time.time(), "counts": 0, "comfort": 0, "body": 0}
+        last = {"fade": 0, "packs": 0, "test": time.time(), "counts": 0, "comfort": 0, "body": 0, "home": 0}
+        home_first = True
         if self.ha.available:
             try:
                 log.info("weigh-ins filed from history: %s", await self.body.backfill())
@@ -132,6 +155,16 @@ class App:
                 log.exception("body backfill")
         while True:
             now = time.time()
+            if self.ha.available and self.mind.home and now - last["home"] > 300:
+                last["home"] = now
+                try:
+                    await self.home.refresh()
+                    n = self.home.log_changes(first=home_first)
+                    if home_first:
+                        log.info("home: %d things, %d filed", len(self.home.catalog), n)
+                    home_first = False
+                except Exception:  # noqa: BLE001
+                    log.exception("home")
             if self.ha.available and now - last["body"] > 60:
                 last["body"] = now
                 try:
@@ -302,6 +335,31 @@ def build(app_state):
     @r.post("/api/updates/apply")
     async def updates_apply(_):
         return J(await A.updater.apply())
+
+    @r.get("/api/home")
+    async def home_status(q):
+        if not A.home.catalog:
+            await A.home.refresh()
+        qs = q.query.get("q")
+        if qs:
+            return J({"now": A.home.now_lines(qs)})
+        return J({"things": [{"entity_id": e, "name": c["name"], "kind": c["kind"], "now": A.home.describe(e),
+                              "controllable": A.home.allowed(e)} for e, c in sorted(A.home.catalog.items())]})
+
+    @r.post("/api/home/act")
+    async def home_act(q):
+        b = await q.json()
+        if not A.home.catalog:
+            await A.home.refresh()
+        try:
+            return J(await A.home.act(b["entity_id"], b["action"], b.get("value"), b.get("source", "api")))
+        except (ValueError, PermissionError) as e:
+            return J({"error": str(e)}, status=400)
+
+    @r.post("/api/do")
+    async def home_do(q):
+        b = await q.json()
+        return J(await A.do(b.get("text", ""), b.get("model"), b.get("source", "api")))
 
     @r.post("/api/body/backfill")
     async def body_backfill(_):

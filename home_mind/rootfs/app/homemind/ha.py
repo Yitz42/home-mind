@@ -40,6 +40,17 @@ class HA:
         except Exception:  # noqa: BLE001
             return None
 
+    async def states(self):
+        if not self.token:
+            return None
+        try:
+            async with self.session.get(f"{SUPERVISOR}/core/api/states",
+                                        headers={"Authorization": f"Bearer {self.token}"},
+                                        timeout=aiohttp.ClientTimeout(total=20)) as r:
+                return await r.json() if r.status == 200 else None
+        except Exception:  # noqa: BLE001
+            return None
+
     async def history(self, entity_ids, start):
         """State history since start (ISO time), one list per entity, with attributes."""
         if not self.token:

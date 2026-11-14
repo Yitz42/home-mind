@@ -58,6 +58,15 @@ TOOLS = [
     ("mind_comfort", "Bedroom comfort. action: status (learned preferences per situation, votes, which body/room "
      "signals are confirmed, recent actions), vote (feeling: cold, hot or ok — stores a snapshot and reacts), or cycle "
      "(run the controller now).", S({"action": STR, "feeling": STR}, ["action"])),
+    ("mind_home", "The house as Home Assistant reports it. With q: the live state of the things a question names. "
+                  "Without: every thing the brain watches, its state, and whether the brain may control it.",
+     S({"q": STR})),
+    ("mind_control", "Control one thing in the house (only things on the control list, only while "
+                     "input_boolean.mind_control_enabled is on). action: on, off, toggle, brightness (1-100), color "
+                     "(name), speed (fan %), humidity (%), run (script/scene). Logged in memory.",
+     S({"entity_id": STR, "action": STR, "value": STR}, ["entity_id", "action"])),
+    ("mind_do", "A request in words ('dim the desk light to 30%'): a connected model picks one action from the "
+                "control list, then it is checked and done like mind_control.", S({"text": STR, "model": STR}, ["text"])),
     ("mind_status", "Counts, version, packs, models.", S({})),
     ("mind_updates", "Check for updates (apply=true installs available packs).", S({"apply": BOOL})),
 ]
@@ -159,6 +168,19 @@ class MCP:
             if act == "cycle":
                 return await app.comfort.cycle(reason="claude")
             return app.comfort.status()
+        if name == "mind_home":
+            if not app.home.catalog:
+                await app.home.refresh()
+            if a.get("q"):
+                return {"now": app.home.now_lines(a["q"]) or "nothing in the house matches"}
+            return {"things": [{"entity_id": e, "now": app.home.describe(e), "controllable": app.home.allowed(e)}
+                               for e in sorted(app.home.catalog)]}
+        if name == "mind_control":
+            if not app.home.catalog:
+                await app.home.refresh()
+            return await app.home.act(a["entity_id"], a["action"], a.get("value"), source="claude")
+        if name == "mind_do":
+            return await app.do(a["text"], a.get("model"), source="claude")
         if name == "mind_status":
             return app.status()
         if name == "mind_updates":

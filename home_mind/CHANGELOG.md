@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+- The house: every 5 minutes the brain reads Home Assistant (lights, Dyson fan, humidifier, heater, switches, scripts, scenes, room and air readings, Steady watch numbers, phone, weather), skipping noise like light segments and connection sensors. Changes are filed as dated notes (home/devices, home/readings), one series per thing.
+- Questions that name something in the house get its live state (HOME NOW) alongside the notes.
+- Controls: mind_control / POST /api/home/act (on, off, toggle, brightness, color, fan speed, humidity, run) and mind_do / POST /api/do (a request in words, planned by a model). Only things on the control list (option home_controls), only while input_boolean.mind_control_enabled is on, with limits (brightness 1-100, fan up to home_fan_max, humidity within mind_humidity_min/max, 20 actions a minute). The heater stays with the comfort driver. Every action is filed in memory (home/actions).
+- GET /api/home lists what the brain watches and what it may control.
+
 ## 0.5.4
 - Fix: weigh-in backfill asked Home Assistant for one day of history instead of ten.
 
