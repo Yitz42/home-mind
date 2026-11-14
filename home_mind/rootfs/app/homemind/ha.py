@@ -44,9 +44,12 @@ class HA:
         """State history since start (ISO time), one list per entity, with attributes."""
         if not self.token:
             return None
+        from datetime import datetime, timezone
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         try:
             async with self.session.get(f"{SUPERVISOR}/core/api/history/period/{start}",
-                                        params={"filter_entity_id": ",".join(entity_ids)},
+                                        # without end_time Home Assistant returns only one day after start
+                                        params={"filter_entity_id": ",".join(entity_ids), "end_time": end},
                                         headers={"Authorization": f"Bearer {self.token}"},
                                         timeout=aiohttp.ClientTimeout(total=30)) as r:
                 if r.status != 200:

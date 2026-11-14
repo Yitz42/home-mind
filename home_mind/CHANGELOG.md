@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.4
+- Fix: weigh-in backfill asked Home Assistant for one day of history instead of ten.
+
 ## 0.5.3
 - POST /api/body/backfill files weigh-ins from Home Assistant history on demand and reports what it found.
 
