@@ -80,7 +80,7 @@ class Body:
     async def backfill(self, days=10):
         """File every weigh-in Home Assistant still has in its history."""
         ids = [self.ent("last_weigh_in")] + [self.ent(k) for k, _, _ in FIELDS]
-        start = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")   # "+" would break the URL
         hist = await self.ha.history(ids, start)
         if not hist:
             return 0

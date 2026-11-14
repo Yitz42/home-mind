@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2
+- Fix: the start-up weigh-in backfill sent a time Home Assistant couldn't read, so only the newest weigh-in was filed.
+- The version shown in the log and status is right again.
+
 ## 0.5.1
 - Weigh-ins from the scale go into memory: each new weigh-in becomes a dated note on the body/weight shelf (weight, body fat, BMI, muscle mass, body water and more), checked every minute. At start-up the last 10 days of Home Assistant history are filed too. Old kg readings are converted to lb.
 - Readings in a series are versions of one thing: the newest comes first, older ones are shown with dates, so "what's my weight?" and "what did I weigh on Nov 11?" both work.
