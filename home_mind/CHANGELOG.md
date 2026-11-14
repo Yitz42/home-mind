@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3 — 2026-11-14
+- What models see: when the question names something and some found facts contain every name, other facts are
+  left out (notes and ideas are kept). Found with qwen 4b, which answered with the "Putan" toolbox's room when
+  asked about the "Pubel" toolbox although the brain had the right note first.
+- Test fix: the locate suite only asks "the idea X gave me" when the note names X (it used to ask regardless, which
+  made some questions unanswerable). Locate numbers before 0.3.3 aren't comparable.
+- With 0.3.2 on 60 changing facts: qwen 9b 100% on two worlds (was 93%); qwen 4b 100% and 98.3% (was 92%).
+
 ## 0.3.2 — 2026-11-14
 - Recall: a note containing every name in the question (capitalized words not starting it) ranks 1.5x higher.
 - Versions of a fact are anchored on a name in the question when there is one (a rare word inside a value, like

@@ -170,13 +170,17 @@ def locate(seed, n=40, synonym_share=0.3):
         seen.add((shelf, h, m, x))
         who = rng.choice(PEOPLE)
         title = f"{_cap(m)} {h} with {x}"
-        body = rng.choice([f"Idea for a {m} {h}; finish it with {x}. {who} suggested it.",
-                           f"Try a {m} {h} using {x}, maybe on {rng.choice(DAYS)}.",
-                           f"Note: {m} {h}, {x} is the key part. Ask {who}."])
+        k = rng.randrange(3)
+        body = [f"Idea for a {m} {h}; finish it with {x}. {who} suggested it.",
+                f"Try a {m} {h} using {x}, maybe on {rng.choice(DAYS)}.",
+                f"Note: {m} {h}, {x} is the key part. Ask {who}."][k]
         events.append({"op": "remember", "ref": f"n{i}", "title": title, "text": body, "shelf": shelf, "kind": "note"})
         hq = SYN[h] if h in SYN and rng.random() < synonym_share else h
-        q = rng.choice([f"Find my note about the {hq} with {x}.", f"What was that {m} {hq} idea?",
-                        f"That {hq} thing with {x} — where is it?", f"The {hq} idea {who} gave me"])
+        asks = [f"Find my note about the {hq} with {x}.", f"What was that {m} {hq} idea?",
+                f"That {hq} thing with {x} — where is it?"]
+        if k != 1:      # only ask by person when the note names them (fixed 0.3.3: it used to ask regardless)
+            asks.append(f"The {hq} idea {who} gave me")
+        q = rng.choice(asks)
         questions.append({"q": q, "gold": title, "ref": f"n{i}", "shelf": shelf, "stale": [],
                           "synonym": hq != h})
         i += 1

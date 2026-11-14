@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 
 from . import suites
-from .store import Store
+from .store import Store, names_in, words
 
 ANSWER_SYSTEM = ("You answer questions using the memory notes given to you. Each note has a date. When two notes give "
                  "different values for the same thing, the newer one is true now; separate notes about different things "
@@ -33,6 +33,19 @@ ORGANIZE_SYSTEM = (
 
 def _ts(t):
     return datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M")
+
+
+def about_names(question, hits):
+    """When the question names something and some found notes contain every such name, keep only those: notes about
+    other named things are noise a small model can confuse with the answer (qwen 4b mixed up 'Pubel' and 'Putan')."""
+    names = names_in(question)
+    if not names:
+        return hits
+    has = [h for h in hits if names <= set(words(" ".join([h.get("title", ""), h.get("body", "")])))]
+    if not has:
+        return hits
+    # only facts are dropped: a note or idea may be what was meant even if it doesn't repeat the name
+    return [h for h in hits if h in has or h.get("kind") != "fact"]
 
 
 def context_lines(hits):
@@ -118,6 +131,7 @@ class Mind:
 
     async def context_for(self, store, question, k=8, shelf=None, model=None, expand=False):
         hits, _ = await self.search(store, question, k, shelf, model, expand)
+        hits = about_names(question, hits)
         procs = [p for p in store.recall(question, kind="procedure", limit=2, touch=False) if p["score"] > 0.5]
         return hits, procs, context_lines(hits)
 
@@ -290,7 +304,7 @@ class Mind:
                 text = (top["title"] + " " + top["body"]) if top else ""
                 d.update(answer=text[:300], correct=bool(top) and contains(text, q["gold"]))
                 return d
-            ctx = context_lines(hits)
+            ctx = context_lines(about_names(q["q"], hits))
             content, sysmsg = f"MEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {q['q']}", ANSWER_SYSTEM
         elif arm == "model+context":
             content, sysmsg = "LOG:\n" + "\n".join(log)[-16000:] + f"\n\nQUESTION: {q['q']}", CONTEXT_SYSTEM
