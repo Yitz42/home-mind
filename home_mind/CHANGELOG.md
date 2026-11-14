@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+- The Mind Journal lives in Home Mind: entries on the journal shelf, a nightly 23:30 summary by Haiku (same instructions as before) saved on journal/summaries. GET /api/journal, POST /api/journal/summarize.
+- Automations can be retired (stop running, Home Assistant copy left off and unlabelled) when their job moves into Home Mind.
+
 ## 0.7.0
 - Home Mind can run your Home Assistant automations itself. They stay written in Home Assistant (edit them there as before); Home Mind reads their configs, follows Home Assistant's events over the websocket, checks triggers and conditions, and calls the services. Templates are rendered by Home Assistant's own engine.
 - Taking one over turns the Home Assistant copy off and labels it "Run by Home Mind". Home Mind never runs one whose Home Assistant copy is on.

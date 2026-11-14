@@ -68,7 +68,7 @@ TOOLS = [
     ("mind_do", "A request in words ('dim the desk light to 30%'): a connected model picks one action from the "
                 "control list, then it is checked and done like mind_control.", S({"text": STR, "model": STR}, ["text"])),
     ("mind_automations", "Home Assistant automations run by Home Mind. action: list (who runs each, last run), "
-                         "takeover (ids, or all=true), release (hand back to Home Assistant; ids or all), run (id, "
+                         "takeover (ids, or all=true), retire (stop running and leave the HA copy off), release (hand back to Home Assistant; ids or all), run (id, "
                          "optional trigger id), reload (re-read configs after editing in Home Assistant).",
      S({"action": STR, "ids": {"type": "array", "items": STR}, "all": BOOL, "id": STR, "trigger": STR}, ["action"])),
     ("mind_status", "Counts, version, packs, models.", S({})),
@@ -196,6 +196,8 @@ class MCP:
                 return await eng.takeover(ids)
             if act == "release":
                 return await eng.release(ids or sorted(eng.owned))
+            if act == "retire":
+                return await eng.retire(ids)
             if act == "run":
                 return await eng.run_now(a["id"], a.get("trigger"))
             if act == "reload":

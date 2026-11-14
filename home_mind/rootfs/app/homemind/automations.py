@@ -259,6 +259,21 @@ class Engine:
         self.save()
         return {"handed_back": out}
 
+    async def retire(self, ids):
+        """Stop running these, and leave the Home Assistant copy off and unlabelled (so the watchdog won't bring it
+        back either): for automations whose job has moved into Home Mind itself."""
+        out = []
+        for eid in ids:
+            self.owned.discard(eid)
+            t = self.running.pop(eid, None)
+            if t:
+                t.cancel()
+            await self._post("services/automation/turn_off", {"entity_id": eid, "stop_actions": True})
+            await self._label(eid, False)
+            out.append(eid)
+        self.save()
+        return {"retired": out}
+
     async def _label(self, eid, add):
         """Labels need the websocket API; best effort."""
         try:

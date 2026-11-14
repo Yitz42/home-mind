@@ -14,6 +14,7 @@ from .comfort import Comfort
 from .body import Body
 from .home import Home, plan_action
 from .automations import Engine
+from .journal import Journal
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -92,6 +93,9 @@ class App:
         self.home = Home(self.mind.store, self.ha, self.opts)
         self.mind.home = self.home if self.opts.get("home", True) else None
         self.engine = Engine(self.mind.store, self.ha, DATA)
+        self.journal = Journal(self.mind.store, self.models)
+        if datetime.now().hour * 60 + datetime.now().minute >= 23 * 60 + 30:
+            self.journal.done_for = datetime.now().date()     # started after 23:30: don't summarize at once
         self.mind.on_test_done = self.test_done
         for r in self.updater.install_bundled():
             log.info("installed bundled pack %s %s", r["id"], r["version"])
@@ -177,6 +181,7 @@ class App:
                                       "device_class": "timestamp",
                                       "automations_run": sorted(e for e in self.engine.owned
                                                                 if self.engine.autos.get(e, {}).get("ha_state") != "on")})
+            await self.journal.tick()
             if self.ha.available and now - last["body"] > 60:
                 last["body"] = now
                 try:
@@ -391,12 +396,27 @@ def build(app_state):
                 return J(await A.engine.release(ids or sorted(A.engine.owned)))
             if op == "run":
                 return J(await A.engine.run_now(b["id"], b.get("trigger")))
+            if op == "retire":
+                return J(await A.engine.retire(ids))
             if op == "reload":
                 await A.engine.load()
                 return J({"loaded": len(A.engine.autos)})
         except (ValueError, RuntimeError) as e:
             return J({"error": str(e)}, status=400)
         return J({"error": f"unknown op {op}"}, status=404)
+
+    @r.post("/api/journal/summarize")
+    async def journal_sum(q):
+        b = await q.json() if q.can_read_body else {}
+        from datetime import date
+        day = date.fromisoformat(b["day"]) if b.get("day") else None
+        return J(await A.journal.summarize(day, b.get("model")))
+
+    @r.get("/api/journal")
+    async def journal_list(q):
+        from datetime import date
+        day = date.fromisoformat(q.query["day"]) if q.query.get("day") else datetime.now().date()
+        return J({"day": str(day), "entries": A.journal.entries(day)})
 
     @r.post("/api/body/backfill")
     async def body_backfill(_):
