@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+- Tests run on every push (GitHub Actions): end to end, comfort, automation engine, privacy, and every brain suite on 20 held-out worlds with a floor each.
+- Model fallback: if the chosen model fails or is slow, the fallbacks (option "fallback", default Haiku) are tried, then the best matching note. Voice questions (voice: true) are capped at "voice_seconds" (8 s), leaving time for the fallback. A model that just failed is skipped for 5 minutes.
+- Secrets: notes pairing a code, password, PIN or combination with a value are marked secret (🔒). Their values, and IP/MAC addresses, are hidden from cloud models and from Jeeves's lookups unless the question asks for that one. Local models see everything. Mark or unmark by hand in the panel.
+- Memory page: recently added items (filter by kind of source and time), a readable item view with other versions, edit, forget/restore, not helpful, and mark secret.
+
 ## 0.8.4
 - Gathered lists come with worked-out lines for small models: which things are in the place asked about, which changed in the stretch asked about, the count (or, for one named thing, how many times it changed), the most recent and the oldest, which have no code yet.
 - A question naming something no note mentions is told so plainly (and whether it was forgotten); other things' notes are no longer grouped as its versions.

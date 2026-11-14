@@ -251,7 +251,7 @@ class Store:
         now = float(at) if at else self.clock()     # at: when it happened, for readings filed afterwards
         m0 = dict(meta or {})
         from .privacy import is_sensitive
-        if "sensitive" not in m0 and is_sensitive(title + " " + text):
+        if "sensitive" not in m0 and kind != "procedure" and is_sensitive(title + " " + text):
             m0["sensitive"] = True
         both = text + " " + title
         if self.LINK_PRONOUNS and ((PRONOUN.search(both) and (OWNER.search(both) or UPDATE_HINT.search(both)))

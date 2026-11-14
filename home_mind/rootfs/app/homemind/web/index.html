@@ -34,6 +34,11 @@
   <div class="card"><h2>Recent activity</h2><table id="events"></table></div>
 </section>
 <section id="memory" class="hide">
+  <div class="card hide" id="itemcard"></div>
+  <div class="card"><div class="row"><h2 style="margin:0">Recently added</h2>
+      <select id="rf" onchange="recent()"><option value="told">Told or learned</option><option value="all">Everything</option><option value="calendar">Calendar</option><option value="house">House readings</option><option value="automations">Automation runs</option><option value="archived">Forgotten</option></select>
+      <select id="rh" onchange="recent()"><option value="24">last day</option><option value="72" selected>last 3 days</option><option value="168">last week</option><option value="720">last 30 days</option></select></div>
+    <table id="recent"></table></div>
   <div class="card"><div class="row"><input id="q" placeholder="Search memory…" style="flex:1"> <label class="mute"><input type="checkbox" id="old"> old versions</label> <button class="go" onclick="search()">Search</button></div>
     <table id="hits"></table></div>
   <div class="card"><h2>Shelves <span class="mute" id="shelfpath"></span></h2><div id="shelves"></div><table id="shelfitems"></table></div>
@@ -41,7 +46,6 @@
     <div class="row"><input id="r_title" placeholder="Title (optional)" style="flex:1"> <input id="r_shelf" placeholder="shelf e.g. projects/pebble"> <input id="r_key" placeholder="key (subject|attribute)"></div>
     <div class="row"><textarea id="r_text" rows="3" style="flex:1" placeholder="What to keep"></textarea></div>
     <div class="row"><button class="go" onclick="remember()">Remember</button> <span id="r_out" class="mute"></span></div></div>
-  <div class="card hide" id="itemcard"><h2>Item</h2><pre id="item"></pre></div>
 </section>
 <section id="tests" class="hide">
   <div class="card"><h2>Run a test</h2>
@@ -84,7 +88,7 @@ async function load(t) {
     const ev = await api('api/events?limit=15');
     $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${e.type}</td><td class="mute">${esc(e.data).slice(0, 140)}</td></tr>`).join('');
   }
-  if (t === 'memory') { browse(''); }
+  if (t === 'memory') { browse(''); recent(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${k}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
     const ms = await api('api/models'); $('#t_model').innerHTML = '<option value="">(model)</option>' + ms.map(m => `<option>${esc(m.name)}</option>`).join('');
@@ -97,7 +101,7 @@ async function load(t) {
   }
 }
 async function search() {
-  const hits = await api('api/recall?q=' + encodeURIComponent($('#q').value) + ($('#old').checked ? '&old=1' : '') + '&touch=0');
+  const hits = await api('api/recall?raw=1&q=' + encodeURIComponent($('#q').value) + ($('#old').checked ? '&old=1' : '') + '&touch=0');
   $('#hits').innerHTML = hits.map(h => `<tr><td class="num mute">${h.score}</td><td><a onclick="item(${h.id})">${esc(h.title)}</a><div class="mute">${esc(h.body).slice(0, 200)}</div></td><td class="mute">${esc(h.shelf)}<br>${h.kind}${h.status !== 'active' ? ' · ' + h.status : ''}</td></tr>`).join('') || '<tr><td class="mute">nothing found</td></tr>';
 }
 $('#q').addEventListener('keydown', e => e.key === 'Enter' && search());
@@ -107,7 +111,29 @@ async function browse(shelf) {
   $('#shelves').innerHTML = (shelf ? `<span class="pill" onclick="browse('${esc(up)}')">↑ up</span>` : '') + b.shelves.map(s => `<span class="pill" onclick="browse('${esc(s.path)}')">${esc(s.name)} · ${s.items}</span>`).join('');
   $('#shelfitems').innerHTML = b.items.map(i => `<tr><td><a onclick="item(${i.id})">${esc(i.title)}</a></td><td class="mute">${i.kind}</td></tr>`).join('');
 }
-async function item(id) { $('#itemcard').classList.remove('hide'); $('#item').textContent = JSON.stringify(await api('api/item/' + id), null, 1); }
+const when = t => new Date(t * 1000).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+async function recent() {
+  const rs = await api('api/recent?filter=' + $('#rf').value + '&hours=' + $('#rh').value + '&limit=150');
+  $('#recent').innerHTML = rs.map(i => `<tr><td class="mute num" style="white-space:nowrap">${when(i.created)}</td><td><a onclick="item(${i.id})">${esc(i.title)}</a>${i.meta && i.meta.sensitive ? ' <span class="pill">🔒</span>' : ''}${i.status !== 'active' ? ` <span class="mute">· ${i.status}</span>` : ''}</td><td class="mute">${esc(i.shelf)}<br>${esc(i.source || '')}</td></tr>`).join('') || '<tr><td class="mute">nothing in this stretch</td></tr>';
+}
+async function item(id) {
+  const d = await api('api/item/' + id), c = $('#itemcard'); c.classList.remove('hide'); c.scrollIntoView({behavior:'smooth'});
+  if (!d) { c.innerHTML = '<span class="mute">not found</span>'; return; }
+  const sens = !!(d.meta && d.meta.sensitive), gone = d.status === 'archived';
+  const vers = (d.versions || []).map(v => `<li><a onclick="item(${v.id})">${esc(v.title)}</a> <span class="mute">${when(v.created)}${v.current ? ' · current' : ''}${v.status !== 'active' ? ' · ' + v.status : ''}</span></li>`).join('');
+  const hist = (d.history || []).map(v => `<li>${esc(v.body)} <span class="mute">${when(v.created)}</span></li>`).join('');
+  c.innerHTML = `<div class="row"><h2 style="margin:0;flex:1">${esc(d.title)}</h2><a onclick="$('#itemcard').classList.add('hide')">close</a></div>
+    <div class="mute" style="margin-bottom:8px">#${d.id} · ${esc(d.shelf)} · ${d.kind} · from ${esc(d.source || '?')} · filed ${when(d.created)}${d.updated && d.updated - d.created > 60 ? ' · changed ' + when(d.updated) : ''} · ${d.status}${d.newer ? ` · <b>replaced by <a onclick="item(${d.newer})">#${d.newer}</a></b>` : ''}${d.superseded_by ? ` · <b>replaced by <a onclick="item(${d.superseded_by})">#${d.superseded_by}</a></b>` : ''}${sens ? ' · 🔒 kept from cloud models unless asked' : ''}</div>
+    <textarea id="e_text" rows="4" style="width:100%">${esc(d.body)}</textarea>
+    <div class="row" style="margin-top:8px"><button class="go" onclick="saveItem(${d.id})">Save edit</button>
+      <button class="go" style="background:var(--bad)" onclick="itemOp(${d.id}, '${gone ? 'restore' : 'forget'}')">${gone ? 'Restore' : 'Forget'}</button>
+      <button class="go" style="background:var(--mute)" onclick="itemOp(${d.id}, 'feedback', {helpful:false})">Not helpful</button>
+      <button class="go" style="background:var(--mute)" onclick="itemOp(${d.id}, 'sensitive', {value:${!sens}})">${sens ? 'Not secret' : 'Mark secret'}</button>
+      <span id="e_out" class="mute"></span></div>
+    ${vers ? `<h2>Other versions</h2><ul>${vers}</ul>` : ''}${hist ? `<h2>Earlier values</h2><ul>${hist}</ul>` : ''}`;
+}
+async function saveItem(id) { const r = await api('api/item/' + id + '/revise', {text: $('#e_text').value}); $('#e_out').textContent = r.error || 'saved'; item(r.id || id); recent(); }
+async function itemOp(id, op, body) { const r = await api('api/item/' + id + '/' + op, body || {}); $('#e_out').textContent = r.error || 'done'; item(id); recent(); }
 async function remember() {
   const r = await api('api/remember', {title: $('#r_title').value, text: $('#r_text').value, shelf: $('#r_shelf').value || 'inbox', key: $('#r_key').value || null, source: 'web'});
   $('#r_out').textContent = r.error ? r.error : `${r.action} #${r.id}` + (r.previous ? ` (replaced #${r.previous.id})` : ''); if (!r.error) { $('#r_text').value = ''; $('#r_title').value = ''; }

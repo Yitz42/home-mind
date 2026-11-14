@@ -315,7 +315,32 @@ def build(app_state):
 
     @r.get("/api/item/{id}")
     async def item(q):
-        return J(st.get(int(q.match_info["id"]), history=True))
+        i = int(q.match_info["id"])
+        d = st.get(i, history=True)
+        if d:
+            # other versions of the same fact, as the brain groups them when searching
+            res = st.recall(d["title"], limit=12, include_old=True, touch=False)
+            mine = next((h for h in res if h["id"] == i), {})
+            head = mine.get("newer") or i
+            d["versions"] = [{"id": h["id"], "title": h["title"], "created": h["created"], "status": h["status"],
+                              "current": not h.get("newer")}
+                             for h in res if h["id"] != i and (h["id"] == head or h.get("newer") == head)]
+            d["newer"] = mine.get("newer")
+        return J(d)
+
+    @r.get("/api/recent")
+    async def recent(q):
+        hours = float(q.query.get("hours", 48))
+        lim = min(500, int(q.query.get("limit", 100)))
+        f = q.query.get("filter", "told")
+        where = {"told": "source NOT IN ('home','calendar','automations') AND source NOT LIKE 'pack:%'", "all": "1=1",
+                 "calendar": "source='calendar'", "house": "source='home'", "automations": "source='automations'",
+                 "archived": "status='archived'"}.get(f, "1=1")
+        col = "updated" if f == "archived" else "created"
+        rows = st.db.execute(f"SELECT * FROM items WHERE {where} AND {col} >= ? ORDER BY {col} DESC LIMIT ?",
+                             (time.time() - hours * 3600, lim)).fetchall()
+        return J([{k: v for k, v in st._row(r).items() if k in ("id", "title", "body", "shelf", "kind", "source",
+                                                                "created", "status", "meta")} for r in rows])
 
     @r.post("/api/item/{id}/{op}")
     async def item_op(q):
@@ -328,6 +353,13 @@ def build(app_state):
             b = await q.json()
             return J(st.revise(i, title=b.get("title"), body=b.get("text"), shelf=b.get("shelf"), tags=b.get("tags"),
                                key=b.get("key"), meta=b.get("meta")))
+        if op == "sensitive":
+            b = await q.json()
+            d = st.get(i)
+            meta = dict(d["meta"] or {}, sensitive=bool(b.get("value")))
+            st.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), i))
+            st.db.commit()
+            return J({"id": i, "sensitive": meta["sensitive"]})
         if op == "feedback":
             b = await q.json()
             return J(st.feedback(i, bool(b.get("helpful")), b.get("note", "")))
