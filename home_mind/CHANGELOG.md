@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.8.3
+- Fix: a note about a whole group ("changed all the cabinet codes") was dropped from the model's context by the name filter, so models saw only the replaced value. It now stays, marked as applying to the thing asked about.
+
 ## 0.8.2
 - Questions about how a reading went ("coldest this week", "last few days") get a per-day low/high/average and the lowest and highest moments, for models and for Jeeves's lookups.
 
