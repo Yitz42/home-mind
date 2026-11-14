@@ -260,7 +260,7 @@ class Mind:
 
     async def _question(self, run, sb, q, refs, log):
         arm, model = run["arm"], run["model"]
-        d = {"q": q["q"], "gold": q["gold"]}
+        d = {"q": q["q"], "gold": q["gold"], "type": q.get("type")}
         if run["suite"] == "tasks":
             p = q["params"]
             open_ = sb.tasks(project=p.get("project"), due_before=p.get("due_before"))
@@ -302,7 +302,16 @@ class Mind:
             if arm == "brain":
                 top = hits[0] if hits else None
                 text = (top["title"] + " " + top["body"]) if top else ""
-                d.update(answer=text[:300], correct=bool(top) and contains(text, q["gold"]))
+                typ = q.get("type")
+                if typ == "unknown":     # nothing about it should come back
+                    ok = not any(q["name"].lower() in (h["title"] + " " + h["body"]).lower() for h in hits)
+                elif typ == "removed":   # the removal note should come first
+                    ok = rank == 1
+                elif typ == "history":   # the old value only has to be there to be found
+                    ok = bool(rank and rank <= 5)
+                else:
+                    ok = bool(top) and contains(text, q["gold"])
+                d.update(answer=text[:300], correct=ok)
                 return d
             ctx = context_lines(about_names(q["q"], hits))
             content, sysmsg = f"MEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {q['q']}", ANSWER_SYSTEM
@@ -311,7 +320,12 @@ class Mind:
         else:
             content, sysmsg = q["q"], ALONE_SYSTEM
         r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
-        right = names_note(r["text"], q["gold"], gold_id) if q.get("shelf") else contains(r["text"], q["gold"])
+        if q.get("unknown"):
+            right = any(w in r["text"].lower().replace("’", "'") for w in suites.UNKNOWN_WORDS)
+        elif q.get("shelf"):
+            right = names_note(r["text"], q["gold"], gold_id)
+        else:
+            right = contains(r["text"], q["gold"])
         # stale: gives an old value instead of the new one (mentioning the old one as replaced is fine)
         stale = not right and any(contains(r["text"], s) and not contains(s, q["gold"]) for s in q.get("stale", []))
         d.update(answer=r["text"][:400], ms=r["ms"], correct=right, stale_answer=stale)
@@ -332,6 +346,10 @@ def summarize(details, run, secs, n_events):
         s["shelf_ok"] = round(sum(xs) / len(xs), 3)
     if any("stale_answer" in d for d in details):
         s["stale_answers"] = round(sum(1 for d in details if d.get("stale_answer")) / n, 3)
+    types = sorted({d["type"] for d in details if d.get("type")})
+    if types:
+        s["by_type"] = {t: round(sum(1 for d in details if d.get("type") == t and d.get("correct")) /
+                                 max(1, sum(1 for d in details if d.get("type") == t)), 3) for t in types}
     ms = [d["ms"] for d in details if d.get("ms")]
     if ms:
         s["ms_avg"] = int(sum(ms) / len(ms))

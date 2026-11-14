@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.4 — 2026-11-14
+- New test suite "tricky": look-alike names, shared names, no names, pronoun updates ("Changed its code to..."),
+  change back, removed things, history ("what was it before?"), never-mentioned things, negation, typos in the
+  question, and chatter. Results broken down per type (summary.by_type).
+
 ## 0.3.3 — 2026-11-14
 - What models see: when the question names something and some found facts contain every name, other facts are
   left out (notes and ideas are kept). Found with qwen 4b, which answered with the "Putan" toolbox's room when

@@ -248,11 +248,163 @@ def tasks(seed, n=18):
     return {"events": events, "questions": questions}
 
 
-SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale}
+# ---- tricky: things meant to trip it up -------------------------------------------------------------------------------
+PLAIN = [("the garage door", "code", lambda r: str(r.randint(1000, 9999))),
+         ("the back gate", "code", lambda r: str(r.randint(1000, 9999))),
+         ("the shed padlock", "combination", lambda r: str(r.randint(100, 999))),
+         ("the guest wifi", "password", lambda r: f"{r.choice(COLORS)}{r.randint(10, 99)}"),
+         ("the office safe", "code", lambda r: str(r.randint(1000, 9999))),
+         ("the storage unit", "code", lambda r: str(r.randint(1000, 9999))),
+         ("the mailbox key", "spot", lambda r: r.choice(SPOTS)),
+         ("the spare car key", "spot", lambda r: r.choice(SPOTS))]
+CHATTER = ["Had leftover pasta for lunch.", "It rained most of the afternoon.", "Watched half a movie and fell asleep.",
+           "Need to call the dentist back sometime.", "The neighbor's dog barked all morning.", "Coffee tasted burnt today.",
+           "Ran out of printer paper.", "Traffic was bad on the way home.", "Started a new book about bridges.",
+           "Forgot my umbrella at the library.", "The kitchen light flickers when the fridge kicks on.",
+           "Thinking about repainting the hallway.", "Got a package with the wrong size shoes.",
+           "Class ran late so I skipped the gym.", "Fixed the squeaky door hinge with some oil."]
+UNKNOWN_WORDS = ("don't know", "do not know", "not sure", "no record", "no information", "not in", "doesn't say",
+                 "does not say", "no longer", "removed", "gone", "unknown", "can't find", "cannot find", "no note",
+                 "not mentioned", "isn't mentioned", "none")
+
+
+def twin(name, rng, used):
+    """A look-alike name: one vowel changed."""
+    vowels = "aeiouy"
+    for _ in range(30):
+        i = rng.choice([k for k, c in enumerate(name) if c.lower() in vowels] or [1])
+        c = rng.choice([v for v in vowels if v != name[i].lower()])
+        t = name[:i] + (c.upper() if i == 0 else c) + name[i + 1:]
+        if t not in used:
+            return t
+    return name + "a"
+
+
+def typo(name, rng):
+    i = rng.randrange(1, len(name) - 1)
+    return name[:i] + name[i + 1:]
+
+
+def tricky(seed, n=4):
+    """Each trip-up type n times, plus chatter. Questions carry a 'type' so results break down per type.
+    Types: plain (control), confusable, shared_name, no_name, pronoun, revert, removed, history, unknown, negation, typo."""
+    rng = random.Random(seed)
+    threads, questions, used = [], [], set()
+
+    def fresh():
+        while True:
+            nm = name(rng)
+            if nm not in used:
+                used.add(nm)
+                return nm
+
+    def facts(tpl_filter=None):
+        fs = [f for f in FACTS if not tpl_filter or tpl_filter(f)]
+        return rng.choice(fs)
+
+    def vals(f, k):
+        out = []
+        while len(out) < k:
+            v = f[2](rng)
+            if v not in out:
+                out.append(v)
+        return out
+
+    def say(f, subj, v, pre=""):
+        return pre + _say(rng, f, subj, v)
+
+    for i in range(n):
+        # plain change (control)
+        f = facts(); subj = f[0](rng, fresh()); a, b = vals(f, 2)
+        threads.append([("plain", say(f, subj, a), None), ("plain", say(f, subj, b, "Update: "), f"plain{i}")])
+        questions.append({"type": "plain", "q": _ask(rng, f, subj), "gold": b, "ref": f"plain{i}", "stale": [a]})
+        # look-alike names
+        f = facts(); nm = fresh(); tw = twin(nm, rng, used); used.add(tw); a, b = vals(f, 2)
+        threads.append([("confusable", say(f, f[0](rng, nm), a), f"conf{i}")])
+        threads.append([("confusable", say(f, f[0](rng, tw), b), None)])
+        questions.append({"type": "confusable", "q": _ask(rng, f, f[0](rng, nm)), "gold": a, "ref": f"conf{i}", "stale": [b]})
+        # same name, different thing
+        nm = fresh(); f1 = facts(); f2 = facts(lambda f: f[1] != f1[1])
+        a = vals(f1, 1)[0]; b = vals(f2, 1)[0]
+        threads.append([("shared_name", say(f1, f1[0](rng, nm), a), f"shared{i}")])
+        threads.append([("shared_name", say(f2, f2[0](rng, nm), b), None)])
+        questions.append({"type": "shared_name", "q": _ask(rng, f1, f1[0](rng, nm)), "gold": a, "ref": f"shared{i}", "stale": [b]})
+        # no names: everyday things
+        subj, attr, mk = PLAIN[(seed + i) % len(PLAIN)]
+        a, b = mk(rng), mk(rng)
+        while b == a:
+            b = mk(rng)
+        threads.append([("no_name", f"The {attr} for {subj} is {a}." if attr != "spot" else f"{_cap(subj)} is {a}.", None),
+                        ("no_name", (f"Changed the {attr} for {subj} to {b}." if attr != "spot" else f"Moved {subj}: it's {b} now."), f"noname{i}")])
+        questions.append({"type": "no_name", "q": (f"What's the {attr} for {subj}?" if attr != "spot" else f"Where is {subj}?"),
+                          "gold": b, "ref": f"noname{i}", "stale": [a]})
+        # pronoun update: the update doesn't repeat the name
+        f = facts(lambda f: f[1] in ("code", "password")); subj = f[0](rng, fresh()); a, b = vals(f, 2)
+        threads.append([("pronoun", say(f, subj, a), None), ("pronoun", f"Went to check on {subj} today.", None),
+                        ("pronoun", f"Changed its {f[1]} to {b}.", f"pron{i}")])
+        questions.append({"type": "pronoun", "q": _ask(rng, f, subj), "gold": b, "ref": f"pron{i}", "stale": [a]})
+        # change back: A -> B -> A
+        f = facts(); subj = f[0](rng, fresh()); a, b = vals(f, 2)
+        threads.append([("revert", say(f, subj, a), None), ("revert", say(f, subj, b, "Change: "), None),
+                        ("revert", say(f, subj, a, "Changed back: "), f"rev{i}")])
+        questions.append({"type": "revert", "q": _ask(rng, f, subj), "gold": a, "ref": f"rev{i}", "stale": [b]})
+        # removed
+        f = facts(lambda f: f[1] in ("code", "password", "location", "hiding spot")); subj = f[0](rng, fresh())
+        a = vals(f, 1)[0]
+        threads.append([("removed", say(f, subj, a), None),
+                        ("removed", f"{_cap(subj)} is gone now. It was removed, so forget its {f[1]}.", f"rem{i}")])
+        questions.append({"type": "removed", "q": _ask(rng, f, subj), "gold": None, "unknown": True, "ref": f"rem{i}",
+                          "stale": [a]})
+        # history: what was it before?
+        f = facts(); subj = f[0](rng, fresh()); a, b = vals(f, 2)
+        threads.append([("history", say(f, subj, a), f"hist{i}"), ("history", say(f, subj, b, "Update: "), None)])
+        questions.append({"type": "history", "q": f"What was the {f[1]} of {subj} before it last changed?", "gold": a,
+                          "ref": f"hist{i}", "stale": [b]})
+        # never mentioned
+        f = facts(); nm = fresh(); subj = f[0](rng, nm)
+        questions.append({"type": "unknown", "q": _ask(rng, f, subj), "gold": None, "unknown": True, "name": nm,
+                          "stale": []})
+        # negation
+        nm = fresh()
+        if rng.random() < 0.5:
+            subj = f"the {nm} toolbox"; a, b = rng.sample(ROOMS, 2)
+            neg = f"{_cap(subj)} is not in the {a} anymore; it's in the {b}."
+        else:
+            subj = f"the {nm} spare key"; a, b = rng.sample(SPOTS, 2)
+            neg = f"{_cap(subj)} is no longer {a}. Now it's {b}."
+        first = f"{_cap(subj)} is in the {a}." if "toolbox" in subj else f"{_cap(subj)} is {a}."
+        threads.append([("negation", first, None), ("negation", neg, f"neg{i}")])
+        questions.append({"type": "negation", "q": f"Where is {subj}?", "gold": b, "ref": f"neg{i}", "stale": [a]})
+        # typo in the question
+        f = facts(); nm = fresh(); subj = f[0](rng, nm); a, b = vals(f, 2)
+        threads.append([("typo", say(f, subj, a), None), ("typo", say(f, subj, b, "Update: "), f"typo{i}")])
+        questions.append({"type": "typo", "q": _ask(rng, f, f[0](rng, typo(nm, rng))), "gold": b, "ref": f"typo{i}",
+                          "stale": [a]})
+    # chatter: about as many lines as there are facts
+    nfacts = sum(len(t) for t in threads)
+    threads += [[("noise", rng.choice(CHATTER), None)] for _ in range(nfacts)]
+    # interleave threads, keeping each thread's order
+    events, live = [], [list(t) for t in threads]
+    k = 0
+    while live:
+        t = rng.choice(live)
+        typ, text, ref = t.pop(0)
+        events.append({"op": "remember", "text": text, "kind": "note" if typ == "noise" else "fact",
+                       "ref": ref or f"x{k}"})
+        k += 1
+        if not t:
+            live.remove(t)
+    rng.shuffle(questions)
+    return {"events": events, "questions": questions}
+
+
+SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky}
 SUITE_INFO = {
     "recall": "facts told once, asked later in other words",
     "update": "facts that change; the newest must win",
     "locate": "notes on shelves found from a vague description",
     "tasks": "a changing task list; what is open, next, how many",
     "scale": "locate with ~400 notes",
+    "tricky": "trip-ups: look-alike names, shared names, no names, pronoun updates, change back, removed, history, "
+              "never mentioned, negation, typos, chatter; scored per type",
 }
