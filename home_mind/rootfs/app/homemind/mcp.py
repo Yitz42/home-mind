@@ -32,6 +32,8 @@ TOOLS = [
      S({"id": INT, "title": STR, "text": STR, "shelf": STR, "tags": {"type": "array", "items": STR}, "key": STR,
         "meta": {"type": "object"}}, ["id"])),
     ("mind_forget", "Archive an item (recoverable; nothing is deleted).", S({"id": INT}, ["id"])),
+    ("mind_forget_about", "Forget everything about a name: archives every note that mentions it, including notes "
+                          "linked to them (recoverable).", S({"name": STR}, ["name"])),
     ("mind_restore", "Bring an archived or faded item back.", S({"id": INT}, ["id"])),
     ("mind_browse", "The shelf tree under a shelf (counts), and the items on that shelf.", S({"shelf": STR})),
     ("mind_tasks", "Tasks (kind 'task', meta due/priority/project/done), soonest first. status: open, done, all.",
@@ -115,6 +117,8 @@ class MCP:
                              tags=a.get("tags"), key=a.get("key"), meta=a.get("meta"))
         if name == "mind_forget":
             return st.set_status(int(a["id"]), "archived")
+        if name == "mind_forget_about":
+            return st.forget_about(str(a["name"]))
         if name == "mind_restore":
             return st.set_status(int(a["id"]), "active")
         if name == "mind_browse":

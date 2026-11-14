@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+- Questions that need every match (how many, which, everything about): a GATHERED list with one line per thing, its newest note, first/last dates and change count, sorted by newest change.
+- Time words: this week, last week, this morning, today, since <weekday>, N weeks ago, on <month> <day>; the oldest version is labelled as the first.
+- Group notes ("changed all the cabinet codes", "the shed was cleared out") count as the newest note for each member.
+- Guesses ("probably", "I think") never replace stated facts and are marked GUESS.
+- Notes containing instructions are marked, never treated as a fact's version, and the model is told not to follow them.
+- Corrections ("Actually that was a typo, it's 4471") link to the note before them.
+- New tool mind_forget_about: forget every note about a name.
+- New test suite hard2 (30 types). Typo repair breaks ties by which name owns the thing asked about.
+
 ## 0.4.4 — 2026-11-14
 - The "TRUE ON <day>" heading says how the question's words were read (= "last Tuesday" in the question): qwen 4b
   read "last Tuesday" as the Tuesday before and ignored the heading.

@@ -126,6 +126,23 @@ def sound_key(w):
         return []
 
 
+GATHER = re.compile(r"^\s*(?:how many|which|list|what (?:did|have) i (?:change|update|set|move)|what are all)\b"
+                    r"|\beverything (?:i know )?about\b|\ball (?:of )?(?:my|the)\s+\w+s\b", re.I)
+ABOUT = re.compile(r"\b(?:everything|all) (?:i know |you know )?about\b", re.I)
+UNIVERSAL_NOUN = re.compile(r"\b(?:all|every|each)\s+(?:of\s+)?(?:the\s+|my\s+)?([a-z]+)", re.I)
+UNIVERSAL_PLACE = re.compile(r"\bthe\s+([a-z]+(?:\s[a-z]+)?)\s+(?:was|got|has been)\s+(?:cleared out|emptied|cleaned out)"
+                             r"|\beverything in the\s+([a-z]+(?:\s[a-z]+)?)\s+(?:is|was) gone", re.I)
+HEDGE = re.compile(r"\b(guess|guessed|guesses|probably|maybe|might be|i think|not sure|possibly|perhaps)\b", re.I)
+CORRECTION = re.compile(r"\b(actually|that was a typo|typo|i meant|correction|scratch that)\b", re.I)
+INSTRUCTION = re.compile(r"\b(ignore (?:your|all|previous|the|any) (?:instructions|rules)|note to the assistant|"
+                         r"system:|assistant:|you must|reply only|tell the user to|always say|whenever you answer|"
+                         r"from now on (?:say|answer)|do not tell)\b", re.I)
+
+
+def singular(w):
+    return w[:-2] if w.endswith("es") and w[:-2].endswith(("x", "ch", "sh", "ss")) else w[:-1] if w.endswith("s") and len(w) > 3 else w
+
+
 PRONOUN = re.compile(r"\b(its|their)\b|(?:^|[.;!?]\s+)(it|it's|it is|there|there's|this one|that one)\b", re.I)
 OWNER = re.compile(r"\b(its|their)\b", re.I)
 # a sentence that starts with "It" is an update only if it carries one ("It's in the shed now", "It opens with 4417");
@@ -234,7 +251,8 @@ class Store:
         now = self.clock()
         m0 = dict(meta or {})
         both = text + " " + title
-        if self.LINK_PRONOUNS and PRONOUN.search(both) and (OWNER.search(both) or UPDATE_HINT.search(both)) \
+        if self.LINK_PRONOUNS and ((PRONOUN.search(both) and (OWNER.search(both) or UPDATE_HINT.search(both)))
+                                   or (CORRECTION.search(both) and UPDATE_HINT.search(both))) \
                 and not names_in(text) and kind != "procedure":
             # "Changed its code to 8812" names nothing: it is about whatever was just mentioned. Link it to the note
             # right before it (if recent), so it can be found under that thing's name.
@@ -298,6 +316,19 @@ class Store:
         self.log("status", item_id, status=status)
         return {"id": item_id, "status": status}
 
+    def forget_about(self, name):
+        """Archive every note that mentions a name, including notes linked to it ("Changed its code to 8812
+        [re: ... Kosk locker ...]"). Recoverable, like every archive; nothing is deleted."""
+        pat = re.compile(rf"\b{re.escape(name.strip())}\b", re.I)
+        rows = self.db.execute("SELECT id, title, body FROM items WHERE status IN ('active','faded')").fetchall()
+        ids = [r["id"] for r in rows if pat.search(r["title"] + " " + r["body"])]
+        with self.lock:
+            self.db.executemany("UPDATE items SET status='archived', updated=? WHERE id=?", [(self.clock(), i) for i in ids])
+            self.db.commit()
+        self._vocab_n = None
+        self.log("forget_about", None, name=name, ids=ids)
+        return {"name": name, "archived": len(ids), "ids": ids}
+
     def feedback(self, item_id, helpful, note=""):
         with self.lock:
             self.db.execute("UPDATE items SET strength=max(0.1, strength + ?) WHERE id=?",
@@ -333,6 +364,99 @@ class Store:
                 self._caps[lw] = self._vocab[lw]
         self._vocab_n = new_id
 
+    def index(self):
+        """Things in memory: for every '<Name> <word>' ("Harlix crate", "Kosk locker"), which notes mention it; plus
+        notes about a whole group ("all the cabinet codes", "the shed was cleared out"). Cached until notes change."""
+        key = self.db.execute("SELECT MAX(id), COUNT(*) FROM items WHERE status IN ('active','faded')").fetchone()
+        key = (key[0], key[1], self.db.execute("SELECT MAX(updated) FROM items").fetchone()[0])
+        if getattr(self, "_index_key", None) == key:
+            return self._index
+        things, universal = {}, []
+        for r in self.db.execute("SELECT id, kind, title, body, created FROM items WHERE status IN ('active','faded')"):
+            text = r["title"] + " " + r["body"]
+            for nm, w in re.findall(r"\b([A-Z][a-z]+)(?:'s)?\s+([a-z]+)", text):
+                n, w = nm.lower(), w.lower()
+                if n in STOP or n in CALENDAR or w in STOP:
+                    continue
+                things.setdefault(w, {}).setdefault(n, set()).add(r["id"])
+            if r["kind"] == "fact":
+                m = UNIVERSAL_NOUN.search(r["body"])
+                p = UNIVERSAL_PLACE.search(r["body"])
+                if m and m.group(1).lower() not in STOP:
+                    universal.append({"id": r["id"], "noun": singular(m.group(1).lower()), "created": r["created"]})
+                if p:
+                    universal.append({"id": r["id"], "place": (p.group(1) or p.group(2)).lower(), "created": r["created"]})
+        self._index, self._index_key = {"things": things, "universal": universal}, key
+        return self._index
+
+    def gather(self, query, limit=60):
+        """For questions that need every match ("how many safes", "which crates are in the garage", "everything about
+        the Quodor project"): all the things of that kind, each with its notes newest first. None if the question
+        doesn't ask for that."""
+        if not GATHER.search(query or ""):
+            return None
+        idx = self.index()
+        if ABOUT.search(query):
+            nms = names_in(self.fix_typos(query))
+            if nms:
+                pat = re.compile(r"\b(" + "|".join(map(re.escape, nms)) + r")\b", re.I)
+                rows = [self._row(r) for r in self.db.execute(
+                    "SELECT * FROM items WHERE status IN ('active','faded') ORDER BY created DESC")
+                    if pat.search(r["title"] + " " + r["body"])][:limit]
+                return {"kind": "about", "name": " ".join(sorted(nms)), "items": rows} if rows else None
+        for w in words(query):
+            for cand in (w, singular(w)):
+                group = idx["things"].get(cand)
+                if group and len(group) >= 2:
+                    ids = sorted({i for s in group.values() for i in s})
+                    rows = {r["id"]: self._row(r) for r in self.db.execute(
+                        f"SELECT * FROM items WHERE id IN ({','.join('?' * len(ids))})", ids)}
+                    out = {}
+                    for nm, s in group.items():
+                        notes = sorted((rows[i] for i in s if i in rows), key=lambda d: d["created"], reverse=True)
+                        if notes:
+                            out[nm] = notes
+                    return {"kind": "list", "noun": cand, "things": out}
+        return None
+
+    def _apply_universal(self, query, res):
+        """A note about a whole group applies to each member: "Changed all the cabinet codes to 2468" is the newest
+        code of the Fiven cabinet; "The shed was cleared out" is the newest note about a box that was in the shed."""
+        nms = names_in(query)
+        if not nms or not res:
+            return res
+        idx = self.index()
+        if not idx["universal"]:
+            return res
+        anchor = next(iter(nms))
+        q_thing = thing_word(query, anchor)
+        about = [d for d in res if anchor in words(d["title"] + " " + d["body"])]
+        add = []
+        for u in idx["universal"]:
+            if u.get("noun") and q_thing and u["noun"] in (q_thing, singular(q_thing)) and about \
+                    and u["created"] > max(d["created"] for d in about):
+                add.append(u)
+            elif u.get("place") and about:
+                latest = max(about, key=lambda d: d["created"])
+                if u["place"] in (latest["title"] + " " + latest["body"]).lower() and u["created"] > latest["created"]:
+                    add.append(u)
+        if not add:
+            return res
+        out = []
+        for u in sorted(add, key=lambda x: x["created"], reverse=True)[:2]:
+            d = self.get(u["id"])
+            if d and d["status"] in ("active", "faded"):
+                d["universal"] = True
+                d["score"] = res[0]["score"] if res else 1.0
+                out.append(d)
+        newest = max(out, key=lambda d: d["created"]) if out else None
+        for d in res:
+            if newest and d["id"] != newest["id"] and d["created"] < newest["created"] and d in about \
+                    and not d.get("newer"):
+                d["newer"] = newest["id"]
+        ids = {d["id"] for d in out}
+        return out + [d for d in res if d["id"] not in ids]
+
     def fix_typos(self, query):
         """Words in the question that appear nowhere in memory, replaced by the stored word one letter away (two for
         long words), if there is one. Capitals are kept so names stay names. 'Ranvn toolbox' -> 'Ranven toolbox'."""
@@ -367,10 +491,15 @@ class Store:
                         cands.append((dist, edit_distance(lw, v, 9), -n, v))
                 return min(cands)[3] if cands else None
 
+            # a name that has been used with the thing the question names ("Harvk locker": Harvok has a locker,
+            # Harsk only a key) wins a tie
+            nxt = re.search(rf"\b{re.escape(w)}(?:'s)?\s+([a-z]+)", query)
+            owners = self.index()["things"].get(nxt.group(1), {}) if (nxt and lw in names) else {}
+
             def by_spelling():
-                best = sorted(((edit_distance(lw, v, cap), -n, v) for v, n in pool.items()
-                               if v[0] == lw[0] and abs(len(v) - len(lw)) <= cap), key=lambda x: (x[0], x[1]))
-                return best[0][2] if best and best[0][0] <= cap else None
+                best = sorted(((edit_distance(lw, v, cap), v not in owners, -n, v) for v, n in pool.items()
+                               if v[0] == lw[0] and abs(len(v) - len(lw)) <= cap))
+                return best[0][3] if best and best[0][0] <= cap else None
 
             # spelling first (a dropped letter changes the sound), then sound ("Shawn" -> "Sean")
             v = by_spelling() or by_sound()
@@ -438,7 +567,7 @@ class Store:
                 boost *= max(cover, 0.05) ** self.COVER_POW
             out.append([base * boost, r["created"] if newest_first_ties else 0, r])
         out.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        older, self._disagree = {}, {}
+        older, self._disagree, self._guess = {}, {}, set()
         if self.CLUSTER and idf:
             out, older = self._newest_in_cluster(out, idf, matched, names_in(query))
         res = []
@@ -448,9 +577,14 @@ class Store:
             d.pop("rank", None)
             if r["id"] in older:
                 d["newer"] = older[r["id"]]
+            if INSTRUCTION.search(r["body"]):
+                d["instruction"] = True
+            if r["id"] in self._guess:
+                d["guess"] = True
             if r["id"] in self._disagree:
                 d["disagrees"] = self._disagree[r["id"]]
             res.append(d)
+        res = self._apply_universal(query, res)
         if self.FOLLOW_NAMES and FOLLOW.search(query) and res:
             seen = names_in(query) | set(ws)
             found = []
@@ -532,7 +666,7 @@ class Store:
         anchor = max(named or present, key=lambda w: idf[w], default=None)
         if anchor is None:
             return out, {}
-        group, ref, ref_speaker, ref_thing = [], None, None, None
+        group, ref, ref_speaker, ref_thing, ref_hedged = [], None, None, None, False
         q_thing = thing_word(getattr(self, "_query", ""), anchor)
         for row in out:
             r = row[2]
@@ -542,10 +676,17 @@ class Store:
             thing = thing_word(r["title"] + " " + r["body"], anchor)
             if q_thing and thing and thing != q_thing:
                 continue            # the same name on a different thing (the Ranven toolbox, not the locker)
+            if INSTRUCTION.search(r["body"]):
+                continue            # an instruction hidden in a note is never a version of a fact
+            if HEDGE.search(r["body"]):
+                # a guess never replaces, and is never replaced by, what was stated: it stands aside, marked
+                self._guess.add(r["id"])
+                continue
             if ref is None:
                 ref, ref_speaker, ref_thing = m, speaker(r["title"] + " " + r["body"]), thing
                 group.append(row)
-            elif (thing and ref_thing and thing == ref_thing) or \
+                continue
+            if (thing and ref_thing and thing == ref_thing) or \
                     len(m & ref) / max(len(m), len(ref)) >= self.CLUSTER_OVERLAP:
                 sp = speaker(r["title"] + " " + r["body"])
                 if sp and ref_speaker and sp != ref_speaker:
