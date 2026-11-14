@@ -2,7 +2,7 @@
 template engine)."""
 import asyncio, sys, tempfile, json, re
 from datetime import datetime, timedelta
-sys.path.insert(0, '/home/claude/home-mind/home_mind/rootfs/app')
+import os; sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'home_mind', 'rootfs', 'app'))
 import jinja2
 from zoneinfo import ZoneInfo
 from homemind.store import Store

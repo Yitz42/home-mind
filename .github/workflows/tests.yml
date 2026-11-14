@@ -1,0 +1,22 @@
+name: tests
+on:
+  push:
+  pull_request:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install aiohttp metaphone==0.6 jinja2
+      - name: End to end (no Home Assistant)
+        run: python tests/test_local.py
+      - name: Comfort model
+        run: python tests/test_comfort.py
+      - name: Automation engine (fake Home Assistant)
+        run: python tests/test_automations.py
+      - name: Brain suites on held-out worlds
+        run: python tests/suites_check.py
