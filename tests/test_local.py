@@ -107,6 +107,16 @@ def main():
         check("unkeyed change: newest first", hits and hits[0]["id"] == nw["id"], [h["title"] for h in hits])
         check("older note marked with the newer id", any(h.get("newer") == nw["id"] for h in hits[1:]), hits)
 
+        # pronoun update is linked to the note before it; typos in a question are repaired
+        call("/api/remember", {"text": "Went to check on the Quillon safe today.", "kind": "fact"})
+        _, pr = call("/api/remember", {"text": "Changed its code to 8812.", "kind": "fact"})
+        _, hits = call("/api/recall?q=What%20is%20the%20code%20for%20the%20Quillon%20safe")
+        check("pronoun update found under the name", any(h["id"] == pr["id"] for h in hits[:2]), [h["title"] for h in hits])
+        _, hits = call("/api/recall?q=Where%20is%20the%20Quilon%20safe")
+        check("typo in a question repaired", hits and "Quillon" in hits[0]["title"], [h["title"] for h in hits])
+        _, nolink = call("/api/remember", {"text": "Idea: pumpkin soup, finish it with lemon.", "kind": "note"})
+        check("'finish it with' is not linked", "[re:" not in (call(f"/api/item/{nolink['id']}")[1]["title"]))
+
         # ask with the mock model
         _, ans = call("/api/ask", {"question": "What is the garage door code?", "model": "mock"})
         check("ask (mock + brain)", "9020" in ans["answer"], ans)

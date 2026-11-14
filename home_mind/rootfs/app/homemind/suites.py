@@ -340,8 +340,9 @@ def tricky(seed, n=4):
                           "gold": b, "ref": f"noname{i}", "stale": [a]})
         # pronoun update: the update doesn't repeat the name
         f = facts(lambda f: f[1] in ("code", "password")); subj = f[0](rng, fresh()); a, b = vals(f, 2)
-        threads.append([("pronoun", say(f, subj, a), None), ("pronoun", f"Went to check on {subj} today.", None),
-                        ("pronoun", f"Changed its {f[1]} to {b}.", f"pron{i}")])
+        # the mention and the pronoun update are said together, as people do (other notes may come before/after)
+        threads.append([("pronoun", say(f, subj, a), None),
+                        ("pronoun", [f"Went to check on {subj} today.", f"Changed its {f[1]} to {b}."], f"pron{i}")])
         questions.append({"type": "pronoun", "q": _ask(rng, f, subj), "gold": b, "ref": f"pron{i}", "stale": [a]})
         # change back: A -> B -> A
         f = facts(); subj = f[0](rng, fresh()); a, b = vals(f, 2)
@@ -389,9 +390,12 @@ def tricky(seed, n=4):
     while live:
         t = rng.choice(live)
         typ, text, ref = t.pop(0)
-        events.append({"op": "remember", "text": text, "kind": "note" if typ == "noise" else "fact",
-                       "ref": ref or f"x{k}"})
-        k += 1
+        texts = text if isinstance(text, list) else [text]
+        for j, tx in enumerate(texts):
+            last = j == len(texts) - 1
+            events.append({"op": "remember", "text": tx, "kind": "note" if typ == "noise" else "fact",
+                           "ref": (ref if last else None) or f"x{k}"})
+            k += 1
         if not t:
             live.remove(t)
     rng.shuffle(questions)

@@ -131,7 +131,7 @@ class Mind:
 
     async def context_for(self, store, question, k=8, shelf=None, model=None, expand=False):
         hits, _ = await self.search(store, question, k, shelf, model, expand)
-        hits = about_names(question, hits)
+        hits = about_names(store.fix_typos(question), hits)
         procs = [p for p in store.recall(question, kind="procedure", limit=2, touch=False) if p["score"] > 0.5]
         return hits, procs, context_lines(hits)
 
@@ -313,7 +313,7 @@ class Mind:
                     ok = bool(top) and contains(text, q["gold"])
                 d.update(answer=text[:300], correct=ok)
                 return d
-            ctx = context_lines(about_names(q["q"], hits))
+            ctx = context_lines(about_names(sb.fix_typos(q["q"]), hits))
             content, sysmsg = f"MEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {q['q']}", ANSWER_SYSTEM
         elif arm == "model+context":
             content, sysmsg = "LOG:\n" + "\n".join(log)[-16000:] + f"\n\nQUESTION: {q['q']}", CONTEXT_SYSTEM

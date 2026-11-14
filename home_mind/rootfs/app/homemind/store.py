@@ -91,6 +91,23 @@ def names_in(text):
     return out
 
 
+# a pronoun that points outside the note: an owner word ("its code"), or a sentence that starts with it ("It's in the
+# shed now."). "Finish it with lemon" points inside its own sentence and doesn't count.
+PRONOUN = re.compile(r"\b(its|their)\b|(?:^|[.;!?]\s+)(it|it's|it is|there|there's|this one|that one)\b", re.I)
+
+
+def edit_distance(a, b, cap=3):
+    if abs(len(a) - len(b)) > cap:
+        return cap + 1
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
 def clean_shelf(shelf):
     parts = [re.sub(r"[^a-z0-9_\-]+", "-", p.strip().lower()).strip("-") for p in (shelf or "inbox").split("/")]
     return "/".join(p for p in parts if p) or "inbox"
@@ -178,6 +195,16 @@ class Store:
         key = (key or "").strip().lower() or None
         shelf, tags = clean_shelf(shelf), clean_tags(tags)
         now = self.clock()
+        m0 = dict(meta or {})
+        if self.LINK_PRONOUNS and PRONOUN.search(text + " " + title) and not names_in(text) and kind != "procedure":
+            # "Changed its code to 8812" names nothing: it is about whatever was just mentioned. Link it to the note
+            # right before it (if recent), so it can be found under that thing's name.
+            prev = self.db.execute("SELECT id, title, created FROM items WHERE kind != 'procedure' "
+                                   "ORDER BY id DESC LIMIT 1").fetchone()
+            if prev and now - prev["created"] <= self.LINK_SECONDS:
+                title = f"{title} [re: {prev['title'][:100]}]"
+                m0["refers_to"] = prev["id"]
+        meta = m0
         with self.lock:
             old = self.active_by_key(key) if key else None
             if old and old["body"].strip().lower() == text.lower() and old["title"].strip().lower() == title.lower():
@@ -240,8 +267,41 @@ class Store:
         return {"id": item_id, "helpful": bool(helpful)}
 
     # ---- finding ------------------------------------------------------------------------------------------------
+    def vocab(self):
+        """Every word stored (cached until an item is added): for repairing typos in questions."""
+        n = self.db.execute("SELECT MAX(id) FROM items").fetchone()[0] or 0
+        if getattr(self, "_vocab_n", None) != n:
+            v = {}
+            for r in self.db.execute("SELECT title, body, tags FROM items WHERE status IN ('active','faded')"):
+                for w in set(words(" ".join(r))):
+                    v[w] = v.get(w, 0) + 1
+            self._vocab, self._vocab_n = v, n
+        return self._vocab
+
+    def fix_typos(self, query):
+        """Words in the question that appear nowhere in memory, replaced by the stored word one letter away (two for
+        long words), if there is one. Capitals are kept so names stay names. 'Ranvn toolbox' -> 'Ranven toolbox'."""
+        if not self.FIX_TYPOS or not query:
+            return query
+        vocab = self.vocab()
+
+        def fix(m):
+            w = m.group(0)
+            lw = w.lower()
+            if lw in STOP or len(lw) < 4 or lw in vocab or not lw.isalpha():
+                return w
+            cap = 1 if len(lw) < 7 else 2
+            best = sorted(((edit_distance(lw, v, cap), -n, v) for v, n in vocab.items()
+                           if v[0] == lw[0] and abs(len(v) - len(lw)) <= cap), key=lambda x: (x[0], x[1]))
+            if not best or best[0][0] > cap:
+                return w
+            v = best[0][2]
+            return v.capitalize() if w[0].isupper() else v
+        return re.sub(r"[A-Za-z]+", fix, query)
+
     def recall(self, query, shelf=None, kind=None, limit=5, include_old=False, touch=True, newest_first_ties=True):
         """Ranked items for a query. Old versions and archived items are left out unless include_old."""
+        query = self.fix_typos(query)
         ws = words(query)
         statuses = ("active", "faded", "superseded") if include_old else ("active", "faded")
         where = [f"i.status IN ({','.join('?' * len(statuses))})"]
@@ -319,6 +379,9 @@ class Store:
 
     # recall settings (class-level so tests can compare with and without)
     BM25 = "4.0, 1.0, 2.0, 1.5"  # weights for title, body, tags, shelf
+    LINK_PRONOUNS = True # a note that says "its"/"it" and names nothing is linked to the note just before it
+    LINK_SECONDS = 7200  # ...if that note is at most this old
+    FIX_TYPOS = True     # a question word found nowhere is matched to a stored word one or two letters away
     NAME_BOOST = 1.5     # how much a note containing every name in the question is lifted
     COVER_POW = 0.0      # weight by distinctive-word coverage (tested: no gain over BM25, so off)
     CLUSTER = True       # newest first among results that match the query on the same distinctive words

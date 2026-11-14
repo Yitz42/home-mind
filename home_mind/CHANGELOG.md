@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.5 — 2026-11-14
+- Typos in questions: a word found nowhere in memory is matched to the stored word one letter away (two for long
+  words), keeping capitals so names stay names.
+- Pronoun updates: a note that says "its"/"their", or starts a sentence with "It"/"There", and names nothing is
+  linked to the note just before it (within 2 hours): "Changed its code to 8812 [re: Went to check on the Kosk
+  locker today]". "Finish it with lemon" is not linked.
+- Tricky test, brain only, held-out: 83% -> 99.9% (typos 19% -> 99%, pronoun updates 0% -> 100%); other suites
+  unchanged.
+- Tricky test: a mention and its pronoun update are now said together (they were scattered among other notes).
+
 ## 0.3.4 — 2026-11-14
 - New test suite "tricky": look-alike names, shared names, no names, pronoun updates ("Changed its code to..."),
   change back, removed things, history ("what was it before?"), never-mentioned things, negation, typos in the
