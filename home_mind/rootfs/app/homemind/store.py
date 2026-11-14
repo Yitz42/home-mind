@@ -537,6 +537,10 @@ class Store:
 
             # spelling first (a dropped letter changes the sound), then sound ("Shawn" -> "Sean")
             v = by_spelling() or by_sound()
+            if v and lw in names and nxt and owners and v not in owners and self.STRICT_THING:
+                # the question says what the thing is ("Orvok fern") and the candidate has no such thing (Harvok
+                # has a locker): an unknown name, not a typo
+                return w
             if v:
                 return v.capitalize() if w[0].isupper() else v
             return w
@@ -654,6 +658,7 @@ class Store:
     NAME_BOOST = 1.5     # how much a note containing every name in the question is lifted
     COVER_POW = 0.0      # weight by distinctive-word coverage (tested: no gain over BM25, so off)
     CLUSTER = True       # newest first among results that match the query on the same distinctive words
+    STRICT_THING = True  # repair a name only to one that has the thing the question names
     CLUSTER_KINDS = ("fact",)  # only facts are replaced by newer ones; notes and ideas add up
     CLUSTER_OVERLAP = 0.6      # share of matched words two facts must have in common to be versions of one thing
     RARE_SHARE = 0.1     # a word is distinctive if it is in at most this share of items (or at most 3)
