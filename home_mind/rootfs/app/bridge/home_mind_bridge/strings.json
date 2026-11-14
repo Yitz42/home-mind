@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {"user": {"title": "Home Mind Bridge", "description": "Connect to the Home Mind app and make an address Claude can link to."}},
+    "error": {"no_app": "The Home Mind app isn't installed or hasn't started yet.", "cannot_connect": "Couldn't reach the Home Mind app. Is it running?"},
+    "abort": {"single_instance_allowed": "Already set up."}
+  },
+  "services": {
+    "remember": {"name": "Remember", "description": "Store something in Home Mind.",
+      "fields": {"text": {"name": "Text", "description": "What to keep."}, "title": {"name": "Title", "description": "Short title."},
+        "shelf": {"name": "Shelf", "description": "Where it belongs, like projects/pebble."}, "key": {"name": "Key", "description": "subject|attribute, so a new value replaces the old one."},
+        "kind": {"name": "Kind", "description": "note, fact, task, procedure or episode."}, "tags": {"name": "Tags", "description": "Words to find it by."}}},
+    "recall": {"name": "Recall", "description": "Find things in Home Mind.",
+      "fields": {"query": {"name": "Query", "description": "What to look for."}, "shelf": {"name": "Shelf", "description": "Only this shelf."}, "limit": {"name": "Limit", "description": "How many."}}},
+    "show_link": {"name": "Show link", "description": "Show the address to link Claude to Home Mind again."}
+  }
+}

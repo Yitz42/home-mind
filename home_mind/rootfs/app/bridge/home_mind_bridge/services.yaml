@@ -1,0 +1,14 @@
+remember:
+  fields:
+    text: {required: true, selector: {text: {multiline: true}}}
+    title: {selector: {text: {}}}
+    shelf: {example: "projects/pebble", selector: {text: {}}}
+    key: {example: "garage door|code", selector: {text: {}}}
+    kind: {example: note, selector: {select: {options: [note, fact, task, procedure, episode]}}}
+    tags: {selector: {text: {multiple: true}}}
+recall:
+  fields:
+    query: {required: true, selector: {text: {}}}
+    shelf: {selector: {text: {}}}
+    limit: {default: 5, selector: {number: {min: 1, max: 25}}}
+show_link: {}

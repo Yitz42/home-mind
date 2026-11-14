@@ -1,0 +1,310 @@
+"""Home Mind server: web UI (through HA ingress), REST API, MCP endpoint, and background upkeep."""
+import asyncio
+import json
+import logging
+import os
+import random
+import secrets
+import time
+
+from aiohttp import web
+
+from .ha import HA
+from .mcp import MCP
+from .mind import Mind
+from .models import Models
+from .suites import SUITE_INFO
+from .updater import Updater
+from .version import VERSION
+
+DATA = os.environ.get("HOME_MIND_DATA", "/data")
+PORT = int(os.environ.get("HOME_MIND_PORT", "8099"))
+INGRESS_IPS = {"172.30.32.2"}
+WEB = os.path.join(os.path.dirname(__file__), "web")
+log = logging.getLogger("home_mind")
+
+DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_task.claude_ai_task"}],
+            "update_url": "https://raw.githubusercontent.com/Yitz42/home-mind/main/packs/manifest.json",
+            "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info"}
+
+
+def load_options():
+    path = os.environ.get("HOME_MIND_OPTIONS", os.path.join(DATA, "options.json"))
+    opts = dict(DEFAULTS)
+    try:
+        with open(path) as f:
+            opts.update({k: v for k, v in json.load(f).items() if v is not None})
+    except (OSError, ValueError):
+        pass
+    return opts
+
+
+def load_token():
+    path = os.path.join(DATA, "token")
+    try:
+        with open(path) as f:
+            t = f.read().strip()
+            if t:
+                return t
+    except OSError:
+        pass
+    t = secrets.token_urlsafe(32)
+    os.makedirs(DATA, exist_ok=True)
+    with open(path, "w") as f:
+        f.write(t)
+    return t
+
+
+class App:
+    def __init__(self):
+        self.opts = load_options()
+        logging.basicConfig(level=getattr(logging, str(self.opts.get("log_level", "info")).upper(), logging.INFO),
+                            format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+        self.token = load_token()
+        self.models = Models(self.opts.get("models"))
+        self.mind = Mind(DATA, self.models)
+        self.updater = Updater(self.mind.store, self.opts.get("update_url"))
+        self.mcp = MCP(self)
+        self.ha = None
+        self.bridge = None
+        self.started = time.time()
+        self.tasks = []
+
+    def status(self):
+        return {"version": VERSION, "uptime_s": int(time.time() - self.started), **self.mind.store.stats(),
+                "packs": self.updater.installed(), "models": [m["name"] for m in self.models.list()],
+                "bridge": self.bridge, "in_home_assistant": bool(self.ha and self.ha.available),
+                "updates": self.updater.last and {k: v for k, v in self.updater.last.items() if k != "manifest"}}
+
+    # ---- lifecycle --------------------------------------------------------------------------------------------
+    async def on_start(self, _app):
+        await self.models.start()
+        self.ha = HA(self.models.session)
+        self.mind.on_test_done = self.test_done
+        for r in self.updater.install_bundled():
+            log.info("installed bundled pack %s %s", r["id"], r["version"])
+        try:
+            self.bridge = self.ha.install_bridge(self.token, PORT)
+        except Exception as e:  # noqa: BLE001
+            self.bridge = f"error: {e}"
+        if self.bridge in ("installed", "updated"):
+            await self.ha.notify("Home Mind", "The **Home Mind Bridge** integration was " + self.bridge +
+                                 ". Restart Home Assistant, then add it under Settings > Devices & services > Add "
+                                 "integration > Home Mind Bridge. It will show the address to link Claude to.",
+                                 "home_mind_bridge")
+        self.tasks = [asyncio.create_task(self.upkeep())]
+        log.info("Home Mind %s up on port %s (bridge: %s)", VERSION, PORT, self.bridge)
+
+    async def on_stop(self, _app):
+        for t in self.tasks:
+            t.cancel()
+        await self.models.stop()
+
+    async def push_counts(self):
+        s = self.mind.store.stats()
+        await self.ha.sensor("sensor.home_mind_items", s["items"],
+                             {"friendly_name": "Home Mind items", "icon": "mdi:brain", "unit_of_measurement": "items",
+                              "state_class": "measurement", "shelves": s["shelves"], "faded": s["faded"],
+                              "versions": s["versions"], "by_kind": s["by_kind"]})
+
+    async def test_done(self, run):
+        if run["status"] != "done":
+            return
+        s = run["summary"]
+        await self.ha.sensor(f"sensor.home_mind_test_{run['suite']}", round(100 * s.get("accuracy", 0), 1),
+                             {"friendly_name": f"Home Mind test {run['suite']}", "unit_of_measurement": "%",
+                              "state_class": "measurement", "icon": "mdi:test-tube", "arm": run["arm"],
+                              "model": run["model"], "run": run["id"], "seed": run["seed"], **s})
+
+    async def upkeep(self):
+        last = {"fade": 0, "packs": 0, "test": time.time(), "counts": 0}
+        while True:
+            now = time.time()
+            try:
+                if now - last["counts"] > 600:
+                    last["counts"] = now
+                    await self.push_counts()
+                if now - last["fade"] > 86400:
+                    last["fade"] = now
+                    self.mind.store.fade(int(self.opts.get("fade_days") or 0))
+                if now - last["packs"] > 12 * 3600:
+                    last["packs"] = now
+                    await (self.updater.apply() if self.opts.get("auto_update_packs") else self.updater.check())
+                h = int(self.opts.get("auto_test_hours") or 0)
+                if h and now - last["test"] > h * 3600:
+                    last["test"] = now
+                    for suite in ("recall", "update", "locate", "tasks"):
+                        await self.mind.run_test_now(suite, "brain", seed=random.randint(1, 99999))
+            except Exception:  # noqa: BLE001
+                log.exception("upkeep")
+            await asyncio.sleep(60)
+
+
+# ---- HTTP ------------------------------------------------------------------------------------------------------
+def build(app_state):
+    @web.middleware
+    async def auth(request, handler):
+        if request.method == "OPTIONS":
+            return web.Response(status=204)
+        peer = request.remote or ""
+        tok = request.headers.get("X-Home-Mind-Token") or request.headers.get("Authorization", "").removeprefix("Bearer ")
+        if peer in INGRESS_IPS or (tok and secrets.compare_digest(tok, app_state.token)):
+            return await handler(request)
+        if os.environ.get("HOME_MIND_OPEN") == "1" and peer in ("127.0.0.1", "::1"):
+            return await handler(request)
+        return web.json_response({"error": "not allowed"}, status=401)
+
+    @web.middleware
+    async def errors(request, handler):
+        try:
+            return await handler(request)
+        except web.HTTPException:
+            raise
+        except (ValueError, KeyError) as e:
+            return web.json_response({"error": str(e)}, status=400)
+        except Exception as e:  # noqa: BLE001
+            log.exception("request failed")
+            return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=500)
+
+    A, st = app_state, app_state.mind.store
+    J = lambda x, status=200: web.json_response(x, status=status, dumps=lambda o: json.dumps(o, default=str))
+    r = web.RouteTableDef()
+
+    @r.get("/")
+    async def index(_):
+        return web.FileResponse(os.path.join(WEB, "index.html"))
+
+    @r.get("/api/status")
+    async def status(_):
+        return J(A.status())
+
+    @r.get("/api/recall")
+    async def recall(q):
+        p = q.query
+        return J(st.recall(p.get("q", ""), shelf=p.get("shelf"), kind=p.get("kind"), limit=int(p.get("limit", 10)),
+                           include_old=p.get("old") == "1", touch=p.get("touch", "1") == "1"))
+
+    @r.post("/api/remember")
+    async def remember(q):
+        b = await q.json()
+        return J(st.remember(text=b.get("text", ""), title=b.get("title", ""), kind=b.get("kind", "note"),
+                             shelf=b.get("shelf", "inbox"), tags=b.get("tags"), key=b.get("key"), meta=b.get("meta"),
+                             source=b.get("source", "api")))
+
+    @r.get("/api/browse")
+    async def browse(q):
+        return J(st.browse(q.query.get("shelf")))
+
+    @r.get("/api/item/{id}")
+    async def item(q):
+        return J(st.get(int(q.match_info["id"]), history=True))
+
+    @r.post("/api/item/{id}/{op}")
+    async def item_op(q):
+        i, op = int(q.match_info["id"]), q.match_info["op"]
+        if op == "forget":
+            return J(st.set_status(i, "archived"))
+        if op == "restore":
+            return J(st.set_status(i, "active"))
+        if op == "revise":
+            b = await q.json()
+            return J(st.revise(i, title=b.get("title"), body=b.get("text"), shelf=b.get("shelf"), tags=b.get("tags"),
+                               key=b.get("key"), meta=b.get("meta")))
+        if op == "feedback":
+            b = await q.json()
+            return J(st.feedback(i, bool(b.get("helpful")), b.get("note", "")))
+        raise web.HTTPNotFound()
+
+    @r.get("/api/tasks")
+    async def tasks(q):
+        return J(st.tasks(project=q.query.get("project"), status=q.query.get("status", "open")))
+
+    @r.get("/api/models")
+    async def models(_):
+        return J(A.models.list())
+
+    @r.post("/api/models/check")
+    async def models_check(_):
+        return J(await A.models.check_all())
+
+    @r.post("/api/ask")
+    async def ask(q):
+        b = await q.json()
+        res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True))
+        res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
+        return J(res)
+
+    @r.post("/api/organize")
+    async def organize(q):
+        b = await q.json()
+        return J(await A.mind.organize(b["text"], b["model"], source="api"))
+
+    @r.get("/api/suites")
+    async def suites_(_):
+        return J(SUITE_INFO)
+
+    @r.post("/api/tests")
+    async def tests(q):
+        b = await q.json()
+        run = A.mind.start_test(b["suite"], b.get("arm", "brain"), b.get("model") or None, b.get("seed"),
+                                b.get("n"), b.get("ingest", "raw"), bool(b.get("keyed")))
+        return J({"id": run["id"], "status": run["status"], "seed": run["seed"]})
+
+    @r.get("/api/runs")
+    async def runs(q):
+        return J(st.runs(limit=int(q.query.get("limit", 50)), suite=q.query.get("suite")))
+
+    @r.get("/api/runs/{id}")
+    async def run(q):
+        return J(st.run(q.match_info["id"]))
+
+    @r.get("/api/trend")
+    async def trend(q):
+        return J(st.trend(q.query["suite"], q.query.get("name", "accuracy"), q.query.get("arm")))
+
+    @r.get("/api/events")
+    async def events(q):
+        rows = st.db.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?", (int(q.query.get("limit", 100)),))
+        return J([dict(x) for x in rows])
+
+    @r.get("/api/updates")
+    async def updates(_):
+        return J(await A.updater.check())
+
+    @r.post("/api/updates/apply")
+    async def updates_apply(_):
+        return J(await A.updater.apply())
+
+    @r.post("/mcp")
+    async def mcp_post(q):
+        try:
+            msg = await q.json()
+        except ValueError:
+            return J({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}, 400)
+        out = await A.mcp.handle(msg)
+        if out is None:
+            return web.Response(status=202)
+        return J(out)
+
+    @r.get("/mcp")
+    async def mcp_get(_):
+        return web.Response(status=405, headers={"Allow": "POST"})
+
+    @r.delete("/mcp")
+    async def mcp_delete(_):
+        return web.Response(status=204)
+
+    app = web.Application(middlewares=[auth, errors], client_max_size=8 * 1024 * 1024)
+    app.add_routes(r)
+    app.on_startup.append(A.on_start)
+    app.on_cleanup.append(A.on_stop)
+    return app
+
+
+def main():
+    state = App()
+    web.run_app(build(state), host="0.0.0.0", port=PORT, access_log=None)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Mind</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1c1f24; --mute:#68707c; --line:#e3e6ea; --acc:#3b6fd8; --ok:#1f8a4c; --bad:#c2410c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111317; --card:#1b1e24; --ink:#e8eaee; --mute:#9aa3ae; --line:#2b3039; --acc:#7aa2ff; --ok:#4ade80; --bad:#fb923c; } }
+  * { box-sizing:border-box } body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink) }
+  header { display:flex; gap:18px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0 }
+  header h1 { font-size:17px; margin:0 12px 0 0 } nav button { background:none; border:0; color:var(--mute); font:inherit; padding:6px 2px; cursor:pointer; border-bottom:2px solid transparent }
+  nav button.on { color:var(--ink); border-color:var(--acc) } main { padding:20px; max-width:1100px; margin:0 auto }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px }
+  .stat b { display:block; font-size:24px; font-weight:600 } .stat span { color:var(--mute); font-size:12px }
+  h2 { font-size:14px; margin:0 0 10px } table { width:100%; border-collapse:collapse } td,th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top }
+  th { color:var(--mute); font-weight:500; font-size:12px } input,select,textarea { font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink) }
+  button.go { background:var(--acc); color:#fff; border:0; border-radius:7px; padding:7px 14px; font:inherit; cursor:pointer } button.go:disabled { opacity:.5 }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px } .mute { color:var(--mute) } .ok { color:var(--ok) } .bad { color:var(--bad) }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; background:var(--bg); border:1px solid var(--line); font-size:12px; margin:0 4px 4px 0; cursor:pointer }
+  pre { white-space:pre-wrap; background:var(--bg); padding:10px; border-radius:7px; max-height:360px; overflow:auto; font-size:12px }
+  .hide { display:none } a { color:var(--acc); cursor:pointer } .num { font-variant-numeric:tabular-nums }
+</style>
+</head>
+<body>
+<header><h1>🧠 Home Mind</h1>
+  <nav><button data-t="overview" class="on">Overview</button> <button data-t="memory">Memory</button> <button data-t="tests">Tests</button> <button data-t="models">Models</button> <button data-t="updates">Updates</button></nav>
+  <span class="mute" id="ver" style="margin-left:auto"></span></header>
+<main>
+<section id="overview">
+  <div class="grid" id="stats"></div>
+  <div class="card"><h2>Latest test results</h2><table id="latest"></table></div>
+  <div class="card"><h2>Recent activity</h2><table id="events"></table></div>
+</section>
+<section id="memory" class="hide">
+  <div class="card"><div class="row"><input id="q" placeholder="Search memory…" style="flex:1"> <label class="mute"><input type="checkbox" id="old"> old versions</label> <button class="go" onclick="search()">Search</button></div>
+    <table id="hits"></table></div>
+  <div class="card"><h2>Shelves <span class="mute" id="shelfpath"></span></h2><div id="shelves"></div><table id="shelfitems"></table></div>
+  <div class="card"><h2>Remember something</h2>
+    <div class="row"><input id="r_title" placeholder="Title (optional)" style="flex:1"> <input id="r_shelf" placeholder="shelf e.g. projects/pebble"> <input id="r_key" placeholder="key (subject|attribute)"></div>
+    <div class="row"><textarea id="r_text" rows="3" style="flex:1" placeholder="What to keep"></textarea></div>
+    <div class="row"><button class="go" onclick="remember()">Remember</button> <span id="r_out" class="mute"></span></div></div>
+  <div class="card hide" id="itemcard"><h2>Item</h2><pre id="item"></pre></div>
+</section>
+<section id="tests" class="hide">
+  <div class="card"><h2>Run a test</h2>
+    <div class="row"><select id="t_suite"></select>
+      <select id="t_arm"><option value="brain">brain (no model)</option><option value="model+brain">model + brain</option><option value="model+context">model + whole log</option><option value="model">model alone</option></select>
+      <select id="t_model"><option value="">(model)</option></select>
+      <select id="t_ingest"><option value="raw">store as given</option><option value="model">model files each item</option></select>
+      <label class="mute"><input type="checkbox" id="t_keyed"> keyed facts</label>
+      <input id="t_seed" placeholder="seed" style="width:80px"> <input id="t_n" placeholder="size" style="width:70px">
+      <button class="go" onclick="runTest()">Run</button></div>
+    <div class="mute" id="t_info"></div></div>
+  <div class="card"><h2>Runs</h2><table id="runs"></table></div>
+  <div class="card hide" id="runcard"><h2>Run <span id="runid"></span></h2><pre id="run"></pre></div>
+</section>
+<section id="models" class="hide">
+  <div class="card"><div class="row"><h2 style="margin:0">Connected models</h2> <button class="go" onclick="checkModels()">Check all</button></div><table id="mlist"></table>
+  <p class="mute">Add or change models in Settings › Apps › Home Mind › Configuration.</p></div>
+  <div class="card"><h2>Ask</h2><div class="row"><select id="a_model"></select> <label class="mute"><input type="checkbox" id="a_brain" checked> use brain</label></div>
+    <div class="row"><input id="a_q" placeholder="Question" style="flex:1"> <button class="go" onclick="ask()">Ask</button></div><pre id="a_out" class="hide"></pre></div>
+</section>
+<section id="updates" class="hide">
+  <div class="card"><div class="row"><button class="go" onclick="checkUpd()">Check for updates</button> <button class="go" onclick="applyUpd()">Install packs</button></div><pre id="upd">…</pre></div>
+</section>
+</main>
+<script>
+const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function api(path, body) { const r = await fetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); return r.json(); }
+const ago = t => { const s = Date.now()/1000 - t; return s < 90 ? Math.round(s)+'s ago' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
+const pct = v => v === undefined ? '' : Math.round(v*100)+'%';
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => { document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b)); document.querySelectorAll('main section').forEach(s => s.classList.toggle('hide', s.id !== b.dataset.t)); load(b.dataset.t); });
+
+async function load(t) {
+  if (t === 'overview') {
+    const s = await api('api/status'); $('#ver').textContent = 'v' + s.version;
+    $('#stats').innerHTML = [['items', s.items], ['shelves', s.shelves], ['old versions', s.versions - s.items], ['faded', s.faded], ['events', s.events], ['test runs', s.runs], ['bridge', s.bridge || '—']]
+      .map(([k, v]) => `<div class="card stat"><b class="num">${esc(v)}</b><span>${k}</span></div>`).join('');
+    const runs = await api('api/runs?limit=200'), seen = {}, rows = [];
+    for (const r of runs) { const k = r.suite + '|' + r.arm + '|' + (r.model || ''); if (!seen[k] && r.status === 'done') { seen[k] = 1; rows.push(r); } }
+    $('#latest').innerHTML = '<tr><th>suite</th><th>arm</th><th>model</th><th>accuracy</th><th>found first</th><th>stale on top</th><th>when</th></tr>' + rows.map(r => `<tr><td>${r.suite}</td><td>${r.arm}</td><td>${esc(r.model || '')}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.stale_above)}</td><td class="mute">${ago(r.ts)}</td></tr>`).join('');
+    const ev = await api('api/events?limit=15');
+    $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${e.type}</td><td class="mute">${esc(e.data).slice(0, 140)}</td></tr>`).join('');
+  }
+  if (t === 'memory') { browse(''); }
+  if (t === 'tests') {
+    const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${k}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
+    const ms = await api('api/models'); $('#t_model').innerHTML = '<option value="">(model)</option>' + ms.map(m => `<option>${esc(m.name)}</option>`).join('');
+    runs();
+  }
+  if (t === 'models') {
+    const ms = await api('api/models');
+    $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${m.type}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('');
+    $('#a_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join('');
+  }
+}
+async function search() {
+  const hits = await api('api/recall?q=' + encodeURIComponent($('#q').value) + ($('#old').checked ? '&old=1' : '') + '&touch=0');
+  $('#hits').innerHTML = hits.map(h => `<tr><td class="num mute">${h.score}</td><td><a onclick="item(${h.id})">${esc(h.title)}</a><div class="mute">${esc(h.body).slice(0, 200)}</div></td><td class="mute">${esc(h.shelf)}<br>${h.kind}${h.status !== 'active' ? ' · ' + h.status : ''}</td></tr>`).join('') || '<tr><td class="mute">nothing found</td></tr>';
+}
+$('#q').addEventListener('keydown', e => e.key === 'Enter' && search());
+async function browse(shelf) {
+  const b = await api('api/browse?shelf=' + encodeURIComponent(shelf)); const up = shelf.includes('/') ? shelf.slice(0, shelf.lastIndexOf('/')) : '';
+  $('#shelfpath').textContent = b.shelf;
+  $('#shelves').innerHTML = (shelf ? `<span class="pill" onclick="browse('${esc(up)}')">↑ up</span>` : '') + b.shelves.map(s => `<span class="pill" onclick="browse('${esc(s.path)}')">${esc(s.name)} · ${s.items}</span>`).join('');
+  $('#shelfitems').innerHTML = b.items.map(i => `<tr><td><a onclick="item(${i.id})">${esc(i.title)}</a></td><td class="mute">${i.kind}</td></tr>`).join('');
+}
+async function item(id) { $('#itemcard').classList.remove('hide'); $('#item').textContent = JSON.stringify(await api('api/item/' + id), null, 1); }
+async function remember() {
+  const r = await api('api/remember', {title: $('#r_title').value, text: $('#r_text').value, shelf: $('#r_shelf').value || 'inbox', key: $('#r_key').value || null, source: 'web'});
+  $('#r_out').textContent = r.error ? r.error : `${r.action} #${r.id}` + (r.previous ? ` (replaced #${r.previous.id})` : ''); if (!r.error) { $('#r_text').value = ''; $('#r_title').value = ''; }
+}
+async function runTest() {
+  const b = {suite: $('#t_suite').value, arm: $('#t_arm').value, model: $('#t_model').value, ingest: $('#t_ingest').value, keyed: $('#t_keyed').checked};
+  if ($('#t_seed').value) b.seed = +$('#t_seed').value; if ($('#t_n').value) b.n = +$('#t_n').value;
+  const r = await api('api/tests', b); if (r.error) return alert(r.error); runs(); poll(r.id);
+}
+async function poll(id) { for (let i = 0; i < 400; i++) { await new Promise(r => setTimeout(r, 3000)); const r = await api('api/runs/' + id); if (r && r.status !== 'running') { runs(); return; } } }
+async function runs() {
+  const rs = await api('api/runs?limit=60');
+  $('#runs').innerHTML = '<tr><th>when</th><th>suite</th><th>arm</th><th>model</th><th>ingest</th><th>accuracy</th><th>found first</th><th>in top 5</th><th>stale on top</th><th>status</th></tr>' + rs.map(r => `<tr><td class="mute">${ago(r.ts)}</td><td>${r.suite}</td><td>${r.arm}</td><td>${esc(r.model || '')}</td><td class="mute">${r.config.ingest}${r.config.keyed ? ' · keyed' : ''}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.hit5)}</td><td class="num">${pct(r.summary.stale_above)}</td><td><a onclick="showRun('${r.id}')" class="${r.status === 'error' ? 'bad' : ''}">${r.status}</a></td></tr>`).join('');
+}
+async function showRun(id) { const r = await api('api/runs/' + id); $('#runcard').classList.remove('hide'); $('#runid').textContent = id; $('#run').textContent = JSON.stringify({summary: r.summary, config: r.config, seed: r.seed, wrong: r.details.filter(d => !d.correct)}, null, 1); }
+async function checkModels() { const rs = await api('api/models/check', {}); rs.forEach(r => { const el = document.getElementById('chk_' + r.name); if (el) el.innerHTML = r.ok ? `<span class="ok">ok</span> <span class="mute">${r.ms} ms</span>` : `<span class="bad">${esc(r.error)}</span>`; }); }
+async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); $('#a_out').textContent = r.error || (r.answer + '\n\n— ' + (r.ms || '') + ' ms; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ')); }
+async function checkUpd() { $('#upd').textContent = '…'; const r = await api('api/updates'); delete r.manifest; $('#upd').textContent = JSON.stringify(r, null, 1); }
+async function applyUpd() { $('#upd').textContent = '…'; $('#upd').textContent = JSON.stringify(await api('api/updates/apply', {}), null, 1); }
+load('overview'); setInterval(() => !$('#overview').classList.contains('hide') && load('overview'), 30000);
+</script>
+</body>
+</html>

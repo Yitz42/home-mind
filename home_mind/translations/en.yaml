@@ -1,0 +1,22 @@
+configuration:
+  models:
+    name: Models
+    description: >-
+      Models Home Mind can use. type ha_ai_task uses a Home Assistant AI Task entity (your Haiku, no extra key);
+      ollama / openai use a computer on your network (url like http://192.168.1.50:11434, plus model name);
+      anthropic calls Claude directly (needs api_key and model).
+  update_url:
+    name: Update manifest
+    description: Where to look for new knowledge packs.
+  auto_update_packs:
+    name: Install new packs automatically
+  auto_test_hours:
+    name: Run brain tests every N hours
+    description: 0 = off. Runs the no-model tests on a schedule to track the trend.
+  fade_days:
+    name: Fade unused notes after N days
+    description: Unused notes and episodes are ranked lower (never deleted). 0 = off.
+  log_level:
+    name: Log level
+network:
+  8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.

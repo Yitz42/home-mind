@@ -1,0 +1,23 @@
+{
+  "id": "core",
+  "version": "0.1.0",
+  "written_by": "Claude Opus 5.5 (large model), Nov 14 2026. First draft, not yet checked against small-model results.",
+  "about": "Short procedures a small model can follow. Kept few and general on purpose: retrieving too many hurts small models.",
+  "procedures": [
+    {"id": "newest-wins", "title": "When memory notes disagree",
+     "body": "Notes about the same thing can disagree because things change. Trust the note with the latest date. Mention the older value only if asked what it used to be.",
+     "tags": ["conflict", "update", "answer"]},
+    {"id": "say-unknown", "title": "When the answer is not in memory",
+     "body": "If no note states the answer, say you don't know. Do not guess a value. If a note is close but about a different thing, say so.",
+     "tags": ["answer", "unknown"]},
+    {"id": "file-a-note", "title": "How to file something new",
+     "body": "Give it a short title naming the thing. Put it on an existing shelf if one fits (area/topic); make a new shelf only for a new area. If it states one value of one thing that can change (a code, a place, a date, a setting), give it a key 'thing|attribute' so a later value replaces it.",
+     "tags": ["organize", "shelf", "key", "store"]},
+    {"id": "task-list", "title": "Answering about tasks",
+     "body": "Only count tasks that are still open. The next task is the open one due soonest; if two are due the same day, the higher priority goes first. A moved task counts at its new date.",
+     "tags": ["tasks", "next", "due", "count"]},
+    {"id": "find-again", "title": "Finding something that was stored",
+     "body": "Search with the most specific words first (names, numbers, unusual words). If nothing fits, try other words for the same thing, then browse the shelf it would be on.",
+     "tags": ["recall", "search", "browse", "find"]}
+  ]
+}

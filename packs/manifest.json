@@ -1,0 +1,11 @@
+{
+ "app_latest": "0.1.0",
+ "packs": [
+  {
+   "id": "core",
+   "version": "0.1.0",
+   "url": "core.json",
+   "sha256": "9f53d58441ed0e14c812239312ab262beaebce0e03aaf15777cd8d6b657b7c13"
+  }
+ ]
+}

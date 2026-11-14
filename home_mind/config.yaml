@@ -1,0 +1,48 @@
+name: Home Mind
+version: "0.1.0"
+slug: home_mind
+description: A brain for small models — memory, model connections, updates and tests
+url: https://github.com/Yitz42/home-mind
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:brain
+panel_title: Home Mind
+homeassistant_api: true
+backup: hot
+map:
+  - type: homeassistant_config
+    read_only: false
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Direct API for other computers (token required). Leave empty unless needed.
+options:
+  models:
+    - name: haiku
+      type: ha_ai_task
+      entity_id: ai_task.claude_ai_task
+  update_url: https://raw.githubusercontent.com/Yitz42/home-mind/main/packs/manifest.json
+  auto_update_packs: true
+  auto_test_hours: 0
+  fade_days: 60
+  log_level: info
+schema:
+  models:
+    - name: str
+      type: list(ha_ai_task|ha_conversation|ollama|openai|anthropic|mock)
+      url: str?
+      model: str?
+      api_key: password?
+      entity_id: str?
+      timeout: int(5,900)?
+  update_url: str
+  auto_update_packs: bool
+  auto_test_hours: int(0,168)
+  fade_days: int(0,3650)
+  log_level: list(debug|info|warning|error)
