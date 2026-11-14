@@ -80,7 +80,9 @@ def asked_time(question, now):
             day = today - timedelta(days=back)
     if day is None:
         return None
-    return (day + timedelta(days=1)).timestamp(), day.strftime("%a %b %d")
+    said = re.search(r"\b(yesterday|(?:\d+|one|two|three|four|five|six|seven) days? ago|(?:last|on|this past) "
+                     r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b", q)
+    return (day + timedelta(days=1)).timestamp(), day.strftime("%a %b %d"), said.group(1) if said else ""
 
 
 def context_lines(hits, question=None, now=None):
@@ -100,7 +102,7 @@ def context_lines(hits, question=None, now=None):
     mark = None
     at = asked_time(question, now) if question and now else None
     if at:
-        cutoff, label = at
+        cutoff, label = at[0], at[1]
         groups = [[h] + leads.get(h["id"], []) for h in hits if not h.get("newer")]
         mark = {}
         for g in groups:
@@ -128,7 +130,8 @@ def context_lines(hits, question=None, now=None):
     if any(h.get("disagrees") for h in hits):
         cur.insert(0, "DISAGREEMENT: different people said different things below. Give each value and who said it.")
     if top:     # a question about a day: what was true then goes first, under its own heading
-        cur = [f"TRUE ON {at[1].upper()} (the day the question asks about):"] + top + ["", "ALL NOTES:"] + cur
+        said = f' (= "{at[2]}" in the question)' if at[2] else ""
+        cur = [f"TRUE ON {at[1].upper()}{said}: use this for the answer"] + top + ["", "ALL NOTES:"] + cur
     if not old:
         return "\n".join(cur)
     return "\n".join(cur) + "\n\nREPLACED (older versions of the facts above, newest first; use only if asked what " \

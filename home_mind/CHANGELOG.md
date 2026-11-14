@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 — 2026-11-14
+- The "TRUE ON <day>" heading says how the question's words were read (= "last Tuesday" in the question): qwen 4b
+  read "last Tuesday" as the Tuesday before and ignored the heading.
+
 ## 0.4.3 — 2026-11-14
 - Days and months ("Tuesday", "Oct") are no longer taken for names, so the name filter works on questions about a
   day (it was letting other lockers through).
