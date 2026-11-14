@@ -6,6 +6,7 @@
 - Older-fact marker now reads "(maybe an older version of #N)"; answer instructions say only different values for
   the same thing replace each other.
 - When a model files a note it also chooses its kind (fact or note).
+- Answer instructions: notes may use other words than the question for the same thing.
 - Locate scoring accepts an answer that gives the note's id or all of its title words. "Shelf found" is not
   reported when the model filed the notes (its shelf names are its own).
 
