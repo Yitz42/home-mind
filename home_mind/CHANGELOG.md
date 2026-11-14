@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.1 — 2026-11-14
+- Comfort: the first press of a never-pressed vote button (state "unknown") now counts as a vote.
+
 ## 0.3.0 — 2026-11-14
 - Bedroom comfort brain (comfort.py). Votes (cold / hot / ok) from input_buttons pressed by Jeeves, the watch or
   a dashboard are stored with a snapshot: room temperature and humidity, target, heater/fan state, situation

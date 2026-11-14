@@ -270,8 +270,8 @@ class Comfort:
         out = []
         for feeling, ent in VOTE_BUTTONS.items():
             s = await self.ha.state(ent)
-            if not s or s.get("state") in (None, "unknown", "unavailable"):
-                continue
+            if not s or s.get("state") in (None, "unavailable"):
+                continue                        # can't see it right now: decide nothing
             if seen.get(ent) is None:
                 seen[ent] = s["state"]          # first sight: remember, don't count the old press
                 continue

@@ -20,7 +20,8 @@ class FakeHA:
                   "input_number.steady_hrv": {"state": "38"}, "sensor.yitz_weight": {"state": "167.8"},
                   "input_boolean.mind_comfort_enabled": {"state": "on"}, "input_number.mind_temp_min": {"state": "64"},
                   "input_number.mind_temp_max": {"state": "76"}, "input_number.mind_humidity_min": {"state": "40"},
-                  "input_number.mind_humidity_max": {"state": "50"}, "input_button.comfort_cold": {"state": "2026-11-14T10:00:00"}}
+                  "input_number.mind_humidity_max": {"state": "50"}, "input_button.comfort_cold": {"state": "2026-11-14T10:00:00"},
+                  "input_button.comfort_ok": {"state": "unknown"}}
         self.calls, self.notes = [], []
 
     async def state(self, e):
@@ -81,6 +82,9 @@ async def main():
     out = await c.poll_buttons()
     check("a new button press is a vote", len(out) == 1 and out[0]["snapshot"]["feeling"] == "cold")
     check("old press at first sight is not a vote", len(c.votes()) == 3, len(c.votes()))
+    ha.s["input_button.comfort_ok"] = {"state": "2026-11-14T15:21:00"}
+    out = await c.poll_buttons()
+    check("first ever press of a never-pressed button is a vote", len(out) == 1 and out[0]["snapshot"]["feeling"] == "ok")
     # breaking point
     ha.s["climate.bedroom_temp"]["attributes"]["current_temperature"] = 58
     t["now"] += 7200      # past the vote nudge
