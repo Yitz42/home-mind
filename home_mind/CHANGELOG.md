@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 — 2026-11-14
+- Sound-alike names: a name in a question that isn't stored is matched to a stored name one or two letters away,
+  or else one that sounds the same (Double Metaphone): "Shawn" -> "Sean", "Covoc" -> "Kovok", "Jon" -> "John".
+  Names are only repaired to stored names ("Jon" no longer becomes "Join").
+- Numbers: thousands separators in questions are ignored ("4,417" finds "4417").
+- Two facts combined: for "whoever runs X" / "the person who..." questions, the name in the best first result is
+  searched too, and that result is placed second and kept for the model.
+- Conflicting people: notes attributed to different people ("Marisol says...", "Tobiah told me...") are never
+  treated as versions of each other; the model is told to give both and who said each.
+- Models get TODAY's date, and note dates show the weekday, so "until Friday" can be judged.
+- New test suite "tricky2": sound-alikes, sound-alike pairs, temporary facts, most recent, conflicting people,
+  number formats, two facts combined. Brain only, held-out: 78% -> 100%; "tricky" still 100%; other suites unchanged.
+
 ## 0.3.6 — 2026-11-14
 - Answer instructions: if the newest note says a thing was removed or is gone, say so instead of an old value.
 - Typo repair also handles short capitalized names ("Lsk" -> "Losk").

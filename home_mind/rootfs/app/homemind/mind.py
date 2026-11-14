@@ -19,7 +19,9 @@ ANSWER_SYSTEM = ("You answer questions using the memory notes given to you. Each
                  "different values for the same thing, the newer one is true now; separate notes about different things "
                  "do not replace each other. Notes may use other words than the question for the same thing (a planter is "
                  "a flower box; 'ask X' means X is involved). If the newest note says a thing was removed, is gone or "
-                 "should be forgotten, say that instead of giving an old value. If the notes do not hold the answer, say "
+                 "should be forgotten, say that instead of giving an old value. If different people's notes disagree "
+                 "(\"X says ...\", \"Y told me ...\"), give both values and who said each. Use TODAY to judge anything "
+                 "that is only true until a date. If the notes do not hold the answer, say "
                  "you don't know. "
                  "Answer in one short sentence and include the exact value, name or title asked for.")
 CONTEXT_SYSTEM = ("You answer questions using the log of things you were told, oldest first. Later entries replace "
@@ -34,7 +36,7 @@ ORGANIZE_SYSTEM = (
 
 
 def _ts(t):
-    return datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M")
+    return datetime.fromtimestamp(t).strftime("%a %Y-%m-%d %H:%M")
 
 
 def about_names(question, hits):
@@ -47,7 +49,7 @@ def about_names(question, hits):
     if not has:
         return hits
     # only facts are dropped: a note or idea may be what was meant even if it doesn't repeat the name
-    return [h for h in hits if h in has or h.get("kind") != "fact"]
+    return [h for h in hits if h in has or h.get("kind") != "fact" or h.get("hop")]
 
 
 def context_lines(hits):
@@ -145,7 +147,8 @@ class Mind:
         sysmsg = system or (ANSWER_SYSTEM if use_brain else ALONE_SYSTEM)
         if procs:
             sysmsg += "\n\nProcedures you know:\n" + "\n".join(f"- {p['title']}: {p['body']}" for p in procs)
-        content = (f"MEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {question}") if use_brain else question
+        content = (f"TODAY: {_ts(store.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {question}") \
+            if use_brain else question
         r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
         store.log("ask", None, question=question, model=model, ids=[h["id"] for h in hits], answer=r["text"][:500],
                   ms=r["ms"])
@@ -222,9 +225,15 @@ class Mind:
         arm, model = run["arm"], run["model"]
         try:
             # 1. tell it the world (events an hour apart, so newer means newer)
+            refs["__until__"] = {}
             for ev in world["events"]:
                 clock["t"] += 3600
-                log.append(ev["text"])
+                if "{until}" in ev["text"]:
+                    q = next((q for q in world["questions"] if q.get("ref") == ev["ref"] and q.get("temporal")), None)
+                    until = clock["t"] + (q["temporal"]["days"] if q else 1) * 86400
+                    refs["__until__"][ev["ref"]] = until
+                    ev = dict(ev, text=ev["text"].replace("{until}", _ts(until)))
+                log.append(f"[{_ts(clock['t'])}] {ev['text']}")
                 if arm in ("model", "model+context"):
                     continue
                 if ev["op"] == "remember":
@@ -285,7 +294,13 @@ class Mind:
             d.update(answer=r["text"][:400], ms=r["ms"],
                      correct=any(contains(r["text"], g) for g in [q["gold"]] + q.get("also", [])))
             return d
-        # recall / update / locate / scale
+        # recall / update / locate / scale / tricky
+        if q.get("temporal"):    # which value is right depends on whether the temporary one has run out
+            t = q["temporal"]
+            until = refs.get("__until__", {}).get(q["ref"], 0)
+            q = dict(q, gold=t["during"] if sb.clock() < until else t["after"],
+                     stale=[t["after"] if sb.clock() < until else t["during"]])
+            d["gold"] = q["gold"]
         gold_id = refs.get(q.get("ref"))
         stale_ids = {refs.get(x) for x in q.get("stale_refs", [])} - {None}
         if arm in ("brain", "model+brain"):
@@ -311,19 +326,27 @@ class Mind:
                     ok = rank == 1
                 elif typ == "history":   # the old value only has to be there to be found
                     ok = bool(rank and rank <= 5)
+                elif q.get("refs"):      # conflicts and two-fact questions: every note needed must be found
+                    need = {refs.get(x) for x in q["refs"]}
+                    ok = need <= set(ids[:3 if typ == "conflict" else 5])
+                elif typ == "temporary": # the temporary note (which says until when) must come first
+                    ok = rank == 1
                 else:
                     ok = bool(top) and contains(text, q["gold"])
                 d.update(answer=text[:300], correct=ok)
                 return d
             ctx = context_lines(about_names(sb.fix_typos(q["q"]), hits))
-            content, sysmsg = f"MEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {q['q']}", ANSWER_SYSTEM
+            content, sysmsg = f"TODAY: {_ts(sb.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {q['q']}", ANSWER_SYSTEM
         elif arm == "model+context":
-            content, sysmsg = "LOG:\n" + "\n".join(log)[-16000:] + f"\n\nQUESTION: {q['q']}", CONTEXT_SYSTEM
+            content, sysmsg = (f"TODAY: {_ts(sb.clock())}\n\nLOG:\n" + "\n".join(log)[-16000:] + f"\n\nQUESTION: {q['q']}",
+                               CONTEXT_SYSTEM)
         else:
             content, sysmsg = q["q"], ALONE_SYSTEM
         r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
         if q.get("unknown"):
             right = any(w in r["text"].lower().replace("’", "'") for w in suites.UNKNOWN_WORDS)
+        elif q.get("both"):      # conflicting people: both values must be given
+            right = all(contains(r["text"], v) for v in q["both"])
         elif q.get("shelf"):
             right = names_note(r["text"], q["gold"], gold_id)
         else:

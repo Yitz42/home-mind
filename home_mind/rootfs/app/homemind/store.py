@@ -93,6 +93,23 @@ def names_in(text):
 
 # a pronoun that points outside the note: an owner word ("its code"), or a sentence that starts with it ("It's in the
 # shed now."). "Finish it with lemon" points inside its own sentence and doesn't count.
+SPEAKER = re.compile(r"\b([A-Z][a-z]+)\s+(?:says|said|thinks|thought|told me|mentioned|claims|reckons)\b")
+FOLLOW = re.compile(r"\b(whoever|whose|of the (?:person|one|guy|woman|man)|(?:person|one|guy|woman|man) who)\b", re.I)
+
+
+def speaker(text):
+    m = SPEAKER.search(text or "")
+    return m.group(1).lower() if m else None
+
+
+def sound_key(w):
+    try:
+        from metaphone import doublemetaphone
+        return [k for k in doublemetaphone(w) if k]
+    except ImportError:
+        return []
+
+
 PRONOUN = re.compile(r"\b(its|their)\b|(?:^|[.;!?]\s+)(it|it's|it is|there|there's|this one|that one)\b", re.I)
 
 
@@ -271,11 +288,13 @@ class Store:
         """Every word stored (cached until an item is added): for repairing typos in questions."""
         n = self.db.execute("SELECT MAX(id) FROM items").fetchone()[0] or 0
         if getattr(self, "_vocab_n", None) != n:
-            v = {}
+            v, caps = {}, set()
             for r in self.db.execute("SELECT title, body, tags FROM items WHERE status IN ('active','faded')"):
                 for w in set(words(" ".join(r))):
                     v[w] = v.get(w, 0) + 1
+                caps.update(w.lower().split("'")[0] for w in re.findall(r"\b[A-Z][a-z]+(?:'s)?", r[0] + " " + r[1]))
             self._vocab, self._vocab_n = v, n
+            self._caps = {w: v[w] for w in caps if w in v and w not in STOP}
         return self._vocab
 
     def fix_typos(self, query):
@@ -284,25 +303,47 @@ class Store:
         if not self.FIX_TYPOS or not query:
             return query
         vocab = self.vocab()
+        names = names_in(query)      # capitalized words that don't start a sentence
 
         def fix(m):
             w = m.group(0)
             lw = w.lower()
-            short = 3 if w[0].isupper() else 4      # names can be short ("Lsk" for "Losk")
+            short = 3 if lw in names else 4         # names can be short ("Lsk" for "Losk")
             if lw in STOP or len(lw) < short or lw in vocab or not lw.isalpha():
                 return w
             cap = 1 if len(lw) < 7 else 2
-            best = sorted(((edit_distance(lw, v, cap), -n, v) for v, n in vocab.items()
-                           if v[0] == lw[0] and abs(len(v) - len(lw)) <= cap), key=lambda x: (x[0], x[1]))
-            if not best or best[0][0] > cap:
-                return w
-            v = best[0][2]
-            return v.capitalize() if w[0].isupper() else v
+
+            pool = self._caps if lw in names and self._caps else vocab   # a name is repaired to a stored name
+
+            def by_sound():
+                keys = sound_key(lw)
+                if not (self.FIX_SOUNDS and lw in names and keys):
+                    return None
+                cands = []
+                for v, n in pool.items():
+                    if abs(len(v) - len(lw)) > 3 or not v.isalpha():
+                        continue
+                    vk = sound_key(v)
+                    dist = min((0 if x == y else edit_distance(x, y, 1)) for x in keys for y in vk) if vk else 9
+                    if dist == 0 or (dist == 1 and min(len(keys[0]), len(vk[0])) >= 2):
+                        cands.append((dist, edit_distance(lw, v, 9), -n, v))
+                return min(cands)[3] if cands else None
+
+            def by_spelling():
+                best = sorted(((edit_distance(lw, v, cap), -n, v) for v, n in pool.items()
+                               if v[0] == lw[0] and abs(len(v) - len(lw)) <= cap), key=lambda x: (x[0], x[1]))
+                return best[0][2] if best and best[0][0] <= cap else None
+
+            # spelling first (a dropped letter changes the sound), then sound ("Shawn" -> "Sean")
+            v = by_spelling() or by_sound()
+            if v:
+                return v.capitalize() if w[0].isupper() else v
+            return w
         return re.sub(r"[A-Za-z]+", fix, query)
 
     def recall(self, query, shelf=None, kind=None, limit=5, include_old=False, touch=True, newest_first_ties=True):
         """Ranked items for a query. Old versions and archived items are left out unless include_old."""
-        query = self.fix_typos(query)
+        query = re.sub(r"(?<=\d)[,_](?=\d{3}\b)", "", self.fix_typos(query or ""))   # 4,417 -> 4417
         ws = words(query)
         statuses = ("active", "faded", "superseded") if include_old else ("active", "faded")
         where = [f"i.status IN ({','.join('?' * len(statuses))})"]
@@ -369,6 +410,21 @@ class Store:
             if r["id"] in older:
                 d["newer"] = older[r["id"]]
             res.append(d)
+        if self.FOLLOW_NAMES and FOLLOW.search(query) and res:
+            seen = names_in(query) | set(ws)
+            found = []
+            for d in res[:1]:        # only the best answer to the first part leads on
+                for nm in names_in(d["title"] + " " + d["body"]) | {w.lower() for w in re.findall(r"\b[A-Z][a-z]+", d["body"])[:1]}:
+                    if nm not in seen and nm not in found and nm not in STOP:
+                        found.append(nm)
+            if found:
+                rest = " ".join(w for w in ws if w not in ("whoever", "runs", "run", "person", "one"))
+                more = self.recall(" ".join(n.capitalize() for n in found[:2]) + " " + rest, shelf=shelf, kind=kind,
+                                   limit=3, include_old=include_old, touch=False)
+                hop = [dict(d, hop=True) for d in more[:2] if d["id"] != res[0]["id"]]
+                hop_ids = {d["id"] for d in hop}
+                # the first answer, then what its name leads to, then the rest
+                res = ([res[0]] + hop + [d for d in res[1:] if d["id"] not in hop_ids])[:limit]
         if touch and res:
             with self.lock:
                 self.db.executemany("UPDATE items SET use_count=use_count+1, last_used=?, "
@@ -382,6 +438,8 @@ class Store:
     BM25 = "4.0, 1.0, 2.0, 1.5"  # weights for title, body, tags, shelf
     LINK_PRONOUNS = True # a note that says "its"/"it" and names nothing is linked to the note just before it
     LINK_SECONDS = 7200  # ...if that note is at most this old
+    FIX_SOUNDS = True    # ...or to a stored word that sounds the same
+    FOLLOW_NAMES = True  # "whoever runs X": the name found in the first result is searched too
     FIX_TYPOS = True     # a question word found nowhere is matched to a stored word one or two letters away
     NAME_BOOST = 1.5     # how much a note containing every name in the question is lifted
     COVER_POW = 0.0      # weight by distinctive-word coverage (tested: no gain over BM25, so off)
@@ -436,9 +494,12 @@ class Store:
             if r["kind"] not in self.CLUSTER_KINDS or anchor not in m:
                 continue
             if ref is None:
-                ref = m
+                ref, ref_speaker = m, speaker(r["title"] + " " + r["body"])
                 group.append(row)
             elif len(m & ref) / max(len(m), len(ref)) >= self.CLUSTER_OVERLAP:
+                sp = speaker(r["title"] + " " + r["body"])
+                if sp and ref_speaker and sp != ref_speaker:
+                    continue        # what two different people said: both stand, neither replaces the other
                 group.append(row)
         if len(group) < 2:
             return out, {}

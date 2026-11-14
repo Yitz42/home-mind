@@ -402,7 +402,128 @@ def tricky(seed, n=4):
     return {"events": events, "questions": questions}
 
 
-SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky}
+# ---- tricky2: sound-alikes, time, conflicts, numbers, two facts -----------------------------------------------------
+SOUNDALIKE = [("Sean", "Shawn"), ("Kate", "Cait"), ("Zoe", "Zoey"), ("Jon", "John"), ("Katherine", "Kathryn"),
+              ("Steven", "Stephen"), ("Aidan", "Aiden"), ("Kristen", "Christen"), ("Brian", "Bryan"),
+              ("Geoff", "Jeff"), ("Phillip", "Filip"), ("Sara", "Sarah"), ("Cathy", "Kathy"), ("Marc", "Mark"),
+              ("Allan", "Alan")]
+OWNED = [("locker code", lambda r: str(r.randint(1000, 9999))), ("bike color", lambda r: r.choice(COLORS)),
+         ("wifi password", lambda r: f"{r.choice(COLORS)}{r.randint(10, 99)}"),
+         ("parking spot", lambda r: f"{r.choice('ABCDEF')}{r.randint(1, 40)}"),
+         ("desk extension", lambda r: str(r.randint(100, 899)))]
+
+
+def respell(nm, rng):
+    """The same sound, spelled differently: k<->c, i<->y, f<->ph."""
+    rules = [("k", "c"), ("c", "k"), ("i", "y"), ("y", "i"), ("f", "ph"), ("ph", "f")]
+    rng.shuffle(rules)
+    low = nm.lower()
+    for a, b in rules:
+        if a in low[1:] or (a in "kc" and low.startswith(a)):
+            i = low.find(a, 0 if a in "kc" else 1)
+            if a == "c" and i + 1 < len(low) and low[i + 1] in "eiy":
+                continue           # c before e/i/y sounds like s
+            if a == "k" and i + 1 < len(low) and low[i + 1] in "eiy":
+                continue           # k before e/i/y would become a soft c
+            out = low[:i] + b + low[i + len(a):]
+            return out.capitalize()
+    return None
+
+
+def tricky2(seed, n=4):
+    """Types: plain, soundalike, soundalike_pair, temporary, recent, conflict, number_format, two_hop."""
+    rng = random.Random(seed)
+    threads, questions, used = [], [], set()
+    people = list(PEOPLE)
+    rng.shuffle(people)
+
+    def fresh():
+        while True:
+            nm = name(rng)
+            if nm not in used:
+                used.add(nm)
+                return nm
+
+    sounds = list(SOUNDALIKE)
+    rng.shuffle(sounds)
+    for i in range(n):
+        # plain change (control)
+        f = rng.choice(FACTS); subj = f[0](rng, fresh()); a = f[2](rng); b = f[2](rng)
+        while b == a:
+            b = f[2](rng)
+        threads.append([("plain", _say(rng, f, subj, a), None), ("plain", "Update: " + _say(rng, f, subj, b), f"plain{i}")])
+        questions.append({"type": "plain", "q": _ask(rng, f, subj), "gold": b, "ref": f"plain{i}", "stale": [a]})
+        # sounds the same, spelled differently in the question (real names, then made-up ones)
+        what, mk = rng.choice(OWNED); v = mk(rng)
+        if i % 2 == 0:
+            stored, asked = sounds[i % len(sounds)]
+            if rng.random() < 0.5:
+                stored, asked = asked, stored
+        else:
+            stored = fresh(); asked = respell(stored, rng)
+            while not asked:
+                stored = fresh(); asked = respell(stored, rng)
+        used.update({stored, asked})
+        threads.append([("soundalike", f"{stored}'s {what} is {v}.", f"sound{i}")])
+        questions.append({"type": "soundalike", "q": f"What's {asked}'s {what}?", "gold": v, "ref": f"sound{i}", "stale": []})
+        # a sound-alike pair: both exist, asked by exact spelling
+        x, y = sounds[(i + n) % len(sounds)]
+        what, mk = rng.choice(OWNED); vx = mk(rng); vy = mk(rng)
+        while vy == vx:
+            vy = mk(rng)
+        threads.append([("soundalike_pair", f"{x}'s {what} is {vx}.", f"spair{i}")])
+        threads.append([("soundalike_pair", f"{y}'s {what} is {vy}.", None)])
+        questions.append({"type": "soundalike_pair", "q": f"What's {x}'s {what}?", "gold": vx, "ref": f"spair{i}",
+                          "stale": [vy]})
+        # temporary: true until a date, then back to the old value (the runner works out which applies)
+        subj = f"the {fresh()} locker"; a, b = str(rng.randint(1000, 9999)), str(rng.randint(1000, 9999))
+        days = rng.choice([1, 2, 4, 8])
+        threads.append([("temporary", f"The code for {subj} is {a}.", None),
+                        ("temporary", f"Temporary change: the code for {subj} is {b} until {{until}}, then it goes back to {a}.",
+                         f"temp{i}")])
+        questions.append({"type": "temporary", "q": f"What is the code for {subj} right now?", "ref": f"temp{i}",
+                          "temporal": {"days": days, "during": b, "after": a}, "gold": None, "stale": []})
+        # conflicting people
+        f = rng.choice([x for x in FACTS if x[1] in ("code", "password", "location")]); subj = f[0](rng, fresh())
+        a = f[2](rng); b = f[2](rng)
+        while b == a:
+            b = f[2](rng)
+        p1, p2 = people[(2 * i) % len(people)], people[(2 * i + 1) % len(people)]
+        threads.append([("conflict", f"{p1} says {_say(rng, f, subj, a)[0].lower() + _say(rng, f, subj, a)[1:]}", f"confA{i}")])
+        threads.append([("conflict", f"{p2} told me {_say(rng, f, subj, b)[0].lower() + _say(rng, f, subj, b)[1:]}", f"confB{i}")])
+        questions.append({"type": "conflict", "q": _ask(rng, f, subj), "gold": a, "both": [a, b],
+                          "refs": [f"confA{i}", f"confB{i}"], "ref": f"confA{i}", "stale": []})
+        # number written differently in the question
+        nm = fresh(); code = str(rng.randint(1000, 9999))
+        threads.append([("number_format", f"The {nm} locker opens with {code}.", f"num{i}")])
+        questions.append({"type": "number_format", "q": f"Which locker opens with {code[0]},{code[1:]}?", "gold": nm,
+                          "ref": f"num{i}", "stale": []})
+        # two facts combined
+        proj = fresh(); who = people[(2 * n + i) % len(people)]; ext = str(rng.randint(100, 899))
+        threads.append([("two_hop", f"The {proj} project is run by {who}.", f"hopA{i}")])
+        threads.append([("two_hop", f"{who}'s desk extension is {ext}.", f"hopB{i}")])
+        questions.append({"type": "two_hop", "q": f"What's the desk extension of whoever runs the {proj} project?",
+                          "gold": ext, "refs": [f"hopA{i}", f"hopB{i}"], "ref": f"hopB{i}", "stale": []})
+    nfacts = sum(len(t) for t in threads)
+    threads += [[("noise", rng.choice(CHATTER), None)] for _ in range(nfacts)]
+    events, live, k = [], [list(t) for t in threads], 0
+    while live:
+        t = rng.choice(live)
+        typ, text, ref = t.pop(0)
+        events.append({"op": "remember", "text": text, "kind": "note" if typ == "noise" else "fact", "ref": ref or f"x{k}"})
+        k += 1
+        if not t:
+            live.remove(t)
+    # most recent: one last update at the very end
+    for j in range(max(1, n // 2)):
+        f = rng.choice(FACTS); nm = fresh(); subj = f[0](rng, nm)
+        events.append({"op": "remember", "text": "Update: " + _say(rng, f, subj, f[2](rng)), "kind": "fact", "ref": f"last{j}"})
+    questions.append({"type": "recent", "q": "What was the last thing I updated?", "gold": nm, "ref": f"last{j}", "stale": []})
+    rng.shuffle(questions)
+    return {"events": events, "questions": questions}
+
+
+SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2}
 SUITE_INFO = {
     "recall": "facts told once, asked later in other words",
     "update": "facts that change; the newest must win",
@@ -411,4 +532,6 @@ SUITE_INFO = {
     "scale": "locate with ~400 notes",
     "tricky": "trip-ups: look-alike names, shared names, no names, pronoun updates, change back, removed, history, "
               "never mentioned, negation, typos, chatter; scored per type",
+    "tricky2": "sound-alike names, sound-alike pairs, temporary facts, most recent, conflicting people, number formats, "
+               "two facts combined; scored per type",
 }
