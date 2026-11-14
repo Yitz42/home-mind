@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.3 — 2026-11-14
+- Days and months ("Tuesday", "Oct") are no longer taken for names, so the name filter works on questions about a
+  day (it was letting other lockers through).
+- For a question about a day, the version true then is shown first under "TRUE ON <day>" (qwen 4b took the newest
+  value when the right one was only marked in the replaced list).
+- hard test with 0.4.2, fresh world: brain alone 100%, Haiku + brain 100% (whole log 48%), qwen 4b + brain 96%
+  (whole log 30%).
+
 ## 0.4.2 — 2026-11-14
 - Versions of a fact are grouped by the name plus the word right after it ("Bexbel locker", "Nimsk fern"), so
   differently worded updates stay together and the same name on another thing stays apart. Brain only, held-out:

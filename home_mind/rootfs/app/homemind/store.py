@@ -80,13 +80,19 @@ def words(text):
     return [w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if w not in STOP and len(w) > 1]
 
 
+CALENDAR = set("monday tuesday wednesday thursday friday saturday sunday january february march april may june july "
+               "august september october november december mon tue wed thu fri sat sun jan feb mar apr jun jul aug sep "
+               "sept oct nov dec today yesterday tomorrow".split())
+
+
 def names_in(text):
-    """Lower-cased words written with a capital letter anywhere but at the start of a sentence: likely names."""
+    """Lower-cased words written with a capital letter anywhere but at the start of a sentence: likely names.
+    Days and months are capitalized but aren't names."""
     out = set()
     for sent in re.split(r"[.!?]\s+", text or ""):
         toks = re.findall(r"[A-Za-z0-9][A-Za-z0-9']*", sent)
         for t in toks[1:]:
-            if t[0].isupper() and t.lower() not in STOP:
+            if t[0].isupper() and t.lower() not in STOP and t.lower().split("'")[0] not in CALENDAR:
                 out.add(t.lower().split("'")[0])
     return out
 

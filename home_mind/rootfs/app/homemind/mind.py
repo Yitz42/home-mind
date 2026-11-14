@@ -110,11 +110,12 @@ def context_lines(hits, question=None, now=None):
     def partly(h):
         body = (h.get("body") or "").strip().rstrip(".")
         return bool(re.search(r"\band\b|;|\.\s+\S", body))
-    cur, old = [], []
+    cur, old, top = [], [], []
     for h in hits:
         line = note_line(h)
         if mark and h["id"] in mark:
             line += f"  <- this was the current note on {mark[h['id']]}"
+            top.append(line)
         if h.get("newer") and partly(h):
             line = line.replace(f"  (replaced by #{h['newer']})",
                                 f"  (partly updated by #{h['newer']}; details #{h['newer']} doesn't mention still hold)")
@@ -126,6 +127,8 @@ def context_lines(hits, question=None, now=None):
             cur.append(line)
     if any(h.get("disagrees") for h in hits):
         cur.insert(0, "DISAGREEMENT: different people said different things below. Give each value and who said it.")
+    if top:     # a question about a day: what was true then goes first, under its own heading
+        cur = [f"TRUE ON {at[1].upper()} (the day the question asks about):"] + top + ["", "ALL NOTES:"] + cur
     if not old:
         return "\n".join(cur)
     return "\n".join(cur) + "\n\nREPLACED (older versions of the facts above, newest first; use only if asked what " \
