@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.8.2
+- Questions about how a reading went ("coldest this week", "last few days") get a per-day low/high/average and the lowest and highest moments, for models and for Jeeves's lookups.
+
 ## 0.8.1
 - Searches that name a day (what Jeeves sends for "what do I have Monday?") get that day's calendar events first.
 

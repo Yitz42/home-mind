@@ -303,6 +303,56 @@ class Home:
         scored.sort(reverse=True)
         return [e for _, e in scored[:limit]]
 
+    RANGE = re.compile(r"\b(last|past|over|this|few|recent|lately|trend|history|since|coldest|warmest|hottest|"
+                       r"highest|lowest|most|least|average|min|max|peak|days?|week|nights?|changed?)\b", re.I)
+
+    def series_lines(self, question, days=14, limit=3):
+        """For a question about how a reading went over time ("last few days", "coldest", "this week"): per-day low,
+        high and average from the dated notes, plus the lowest and highest moments."""
+        if not self.RANGE.search(question or ""):
+            return ""
+        import json as _json
+        from collections import defaultdict
+        ids = [e for e in self.matching(question) if self.catalog[e]["kind"] == "reading"][:limit]
+        out = []
+        since = time.time() - days * 86400
+        for eid in ids:
+            c = self.catalog[eid]
+            rows = self.store.db.execute(
+                "SELECT created, meta, body FROM items WHERE source='home' AND status IN ('active','faded') AND "
+                "created >= ? AND meta LIKE ?", (since, f'%"entity_id": "{eid}"%')).fetchall()
+            pts = []
+            for r in rows:
+                m = _json.loads(r["meta"] or "{}")
+                if m.get("daily"):
+                    continue
+                v = _f(m.get("state"))
+                if v is not None:
+                    pts.append((r["created"], v))
+            cur = _f(c["state"])
+            if cur is not None:
+                pts.append((time.time(), cur))
+            if len(pts) < 2:
+                continue
+            pts.sort()
+            byday = defaultdict(list)
+            for t, v in pts:
+                byday[datetime.fromtimestamp(t).date()].append((t, v))
+            u = f" {c['unit']}" if c["unit"] else ""
+            fmt = lambda x: f"{x:.1f}".rstrip("0").rstrip(".")
+            lines = [f"{c['name']} by day (low / high / average of the readings filed):"]
+            for d in sorted(byday)[-10:]:
+                vs = [v for _, v in byday[d]]
+                lo_t = min(byday[d], key=lambda x: x[1])[0]
+                lines.append(f"- {d:%a %b %d}: low {fmt(min(vs))}{u} (at {datetime.fromtimestamp(lo_t):%I:%M %p}), "
+                             f"high {fmt(max(vs))}{u}, average {fmt(sum(vs) / len(vs))}{u}")
+            lo = min(pts, key=lambda x: x[1])
+            hi = max(pts, key=lambda x: x[1])
+            lines.append(f"Lowest: {fmt(lo[1])}{u} on {datetime.fromtimestamp(lo[0]):%a %b %d at %I:%M %p}. "
+                         f"Highest: {fmt(hi[1])}{u} on {datetime.fromtimestamp(hi[0]):%a %b %d at %I:%M %p}.")
+            out.append("\n".join(lines))
+        return ("HISTORY (from the dated readings in memory):\n" + "\n\n".join(out)) if out else ""
+
     def now_lines(self, question):
         ids = self.matching(question)
         if not ids:

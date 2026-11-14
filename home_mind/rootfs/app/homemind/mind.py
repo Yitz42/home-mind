@@ -328,6 +328,9 @@ class Mind:
         home = getattr(self, "home", None)
         if home and store is self.store and home.catalog:
             live = home.now_lines(question)
+            hist = home.series_lines(question)
+            if hist:
+                live = (live + "\n\n" if live else "") + hist
             if live:
                 ctx = live + "\n\nMEMORY NOTES:\n" + (ctx or "(none)")
         cal = getattr(self, "calendars", None)

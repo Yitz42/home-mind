@@ -284,6 +284,12 @@ def build(app_state):
             if evs:
                 ids = {e["id"] for e in evs}
                 res = [dict(e, score=99.0) for e in evs] + [h for h in res if h["id"] not in ids]
+            # a question about how a reading went ("coldest this week") gets a summary of its dated readings
+            if A.home.catalog:
+                hist = A.home.series_lines(p.get("q", ""))
+                if hist:
+                    res = [{"id": 0, "title": "Reading history", "body": hist, "shelf": "home/history", "kind": "note",
+                            "updated": time.time(), "score": 98.0}] + res
         return J(res)
 
     @r.post("/api/remember")
