@@ -36,6 +36,9 @@ options:
   home: true
   home_controls: []
   home_fan_max: 100
+  fallback:
+    - haiku
+  voice_seconds: 8
 schema:
   models:
     - name: str
@@ -55,3 +58,6 @@ schema:
   home_controls:
     - str
   home_fan_max: int(0,100)
+  fallback:
+    - str
+  voice_seconds: int(2,60)

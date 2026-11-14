@@ -33,7 +33,8 @@ log = logging.getLogger("home_mind")
 DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_task.claude_ai_task"}],
             "update_url": "https://raw.githubusercontent.com/Yitz42/home-mind/main/packs/manifest.json",
             "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info", "comfort": True,
-            "home": True, "home_controls": [], "home_fan_max": 100}
+            "home": True, "home_controls": [], "home_fan_max": 100,
+            "fallback": ["haiku"], "voice_seconds": 8}
 
 
 def load_options():
@@ -94,6 +95,8 @@ class App:
         self.home = Home(self.mind.store, self.ha, self.opts)
         self.mind.home = self.home if self.opts.get("home", True) else None
         self.engine = Engine(self.mind.store, self.ha, DATA)
+        self.mind.FALLBACK = list(self.opts.get("fallback") or [])
+        self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
         self.journal = Journal(self.mind.store, self.models)
         self.calendars = Calendars(self.mind.store, self.ha)
         self.mind.calendars = self.calendars
@@ -339,7 +342,8 @@ def build(app_state):
     async def ask(q):
         b = await q.json()
         res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
-                               expand=bool(b.get("expand")))
+                               expand=bool(b.get("expand")), voice=bool(b.get("voice")),
+                               deadline=b.get("deadline"), fallback=b.get("fallback", True))
         res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
         return J(res)
 

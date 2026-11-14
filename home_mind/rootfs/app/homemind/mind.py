@@ -390,20 +390,72 @@ class Mind:
                 ctx = days + "\n\n" + (ctx or "")
         return about_names(store.fix_typos(question), hits), procs, ctx
 
-    async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False):
+    FALLBACK = ["haiku"]        # set from the app's "fallback" option
+    VOICE_SECONDS = 8.0
+    DOWN_SECONDS = 300          # a model that just failed is skipped for this long
+
+    def _chain(self, model):
+        """The requested model, then the fallbacks that exist; models that failed in the last few minutes go last."""
+        names = list(self.models.models)
+        chain = [m for m in [model] + list(self.FALLBACK) if m and m in names]
+        chain = list(dict.fromkeys(chain))
+        down = getattr(self, "_down", {})
+        now = time.time()
+        return [m for m in chain if now - down.get(m, 0) > self.DOWN_SECONDS] + \
+            [m for m in chain if now - down.get(m, 0) <= self.DOWN_SECONDS]
+
+    async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False,
+                  voice=False, deadline=None, fallback=True):
+        """Answer with a model. If it fails or is too slow, try the fallbacks (option "fallback", default Haiku through
+        Home Assistant), and if none answers, give the best matching note. voice=True caps the whole answer at
+        VOICE_SECONDS so a voice question never hangs."""
         store = store or self.store
+        t0 = time.time()
+        if voice and deadline is None:
+            deadline = self.VOICE_SECONDS
         hits, procs, ctx = (await self.context_for(store, question, k, shelf, model, expand)) if use_brain else ([], [], "")
         if model is None:
             return {"answer": hits[0]["body"] if hits else None, "hits": hits, "model": None}
+        chain = self._chain(model) if fallback else [model]
+        if not chain:
+            chain = [model]
         sysmsg = system or (ANSWER_SYSTEM if use_brain else ALONE_SYSTEM)
         if procs:
             sysmsg += "\n\nProcedures you know:\n" + "\n".join(f"- {p['title']}: {p['body']}" for p in procs)
         content = (f"TODAY: {_ts(store.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {asked(store, question)}") \
             if use_brain else question
-        r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
-        store.log("ask", None, question=question, model=model, ids=[h["id"] for h in hits], answer=r["text"][:500],
-                  ms=r["ms"])
-        return {"answer": r["text"], "hits": hits, "procedures": [p["id"] for p in procs], "model": model, "ms": r["ms"]}
+        errors, r, used = [], None, None
+        self._down = getattr(self, "_down", {})
+        for i, m in enumerate(chain):
+            left = None if deadline is None else deadline - (time.time() - t0)
+            if left is not None and left <= 0.5:
+                errors.append(f"{m}: out of time")
+                break
+            if left is not None and i < len(chain) - 1:
+                left *= 0.6         # leave the fallbacks time to answer
+            try:
+                coro = self.models.get(m).chat(sysmsg, [{"role": "user", "content": content}])
+                r = await (asyncio.wait_for(coro, left) if left is not None else coro)
+                used = m
+                break
+            except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
+                errors.append(f"{m}: {type(e).__name__} {e}"[:200])
+                self._down[m] = time.time()
+        if r is None:
+            best = hits[0] if hits else None
+            ans = (f"No model answered, so here is the best matching note: {best['body']}" if best
+                   else "No model answered, and nothing in memory matched.")
+            store.log("ask", None, question=question, model=None, ids=[h["id"] for h in hits], answer=ans[:500],
+                      errors=errors)
+            return {"answer": ans, "hits": hits, "procedures": [p["id"] for p in procs], "model": None,
+                    "ms": int((time.time() - t0) * 1000), "errors": errors, "fallback": "brain"}
+        self._down.pop(used, None)
+        store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=r["text"][:500],
+                  ms=r["ms"], errors=errors or None)
+        out = {"answer": r["text"], "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"]}
+        if used != model:
+            out.update(asked_model=model, errors=errors, fallback=used)
+        return out
 
     async def organize(self, text, model, store=None, source="organize"):
         store = store or self.store

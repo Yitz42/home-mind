@@ -31,5 +31,11 @@ configuration:
     description: Entity ids (or domain.* like script.*). Empty = main lights, Dyson fan, humidifier, desk outlets, scripts, scenes. Controls only work while input_boolean.mind_control_enabled is on.
   home_fan_max:
     name: Highest fan speed the brain may set (%)
+  fallback:
+    name: Fallback models
+    description: Names of models to try, in order, when the chosen one fails or is too slow. If none answers, Home Mind gives the best matching note.
+  voice_seconds:
+    name: Voice time limit (seconds)
+    description: The longest a voice question may take before Home Mind falls back.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.
