@@ -6,12 +6,14 @@ import os
 import random
 import secrets
 import time
+from datetime import datetime
 
 from aiohttp import web
 
 from .comfort import Comfort
 from .body import Body
 from .home import Home, plan_action
+from .automations import Engine
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -89,6 +91,7 @@ class App:
         self.body = Body(self.mind.store, self.ha)
         self.home = Home(self.mind.store, self.ha, self.opts)
         self.mind.home = self.home if self.opts.get("home", True) else None
+        self.engine = Engine(self.mind.store, self.ha, DATA)
         self.mind.on_test_done = self.test_done
         for r in self.updater.install_bundled():
             log.info("installed bundled pack %s %s", r["id"], r["version"])
@@ -104,6 +107,8 @@ class App:
         # build the word list for typo/sound repair now, so the first question doesn't wait for it
         await asyncio.get_running_loop().run_in_executor(None, self.mind.store.vocab)
         self.tasks = [asyncio.create_task(self.upkeep())]
+        if self.ha.available:
+            self.tasks.append(asyncio.create_task(self.engine.run_forever()))
         log.info("Home Mind %s up on port %s (bridge: %s)", VERSION, PORT, self.bridge)
 
     async def on_stop(self, _app):
@@ -165,6 +170,13 @@ class App:
                     home_first = False
                 except Exception:  # noqa: BLE001
                     log.exception("home")
+            if self.ha.available and now - last.get("beat", 0) > 60:
+                last["beat"] = now
+                await self.ha.sensor("sensor.home_mind_heartbeat", datetime.now().astimezone().isoformat(timespec="seconds"),
+                                     {"friendly_name": "Home Mind heartbeat", "icon": "mdi:heart-pulse",
+                                      "device_class": "timestamp",
+                                      "automations_run": sorted(e for e in self.engine.owned
+                                                                if self.engine.autos.get(e, {}).get("ha_state") != "on")})
             if self.ha.available and now - last["body"] > 60:
                 last["body"] = now
                 try:
@@ -360,6 +372,31 @@ def build(app_state):
     async def home_do(q):
         b = await q.json()
         return J(await A.do(b.get("text", ""), b.get("model"), b.get("source", "api")))
+
+    @r.get("/api/automations")
+    async def autos_list(_):
+        return J({"automations": A.engine.summary(), "recent": A.engine.log[-30:]})
+
+    @r.post("/api/automations/{op}")
+    async def autos_op(q):
+        b = await q.json() if q.can_read_body else {}
+        op = q.match_info["op"]
+        ids = b.get("ids") or []
+        if ids == "all" or b.get("all"):
+            ids = [e for e, a in A.engine.autos.items() if a["ha_state"] == "on" or e in A.engine.owned]
+        try:
+            if op == "takeover":
+                return J(await A.engine.takeover(ids))
+            if op == "release":
+                return J(await A.engine.release(ids or sorted(A.engine.owned)))
+            if op == "run":
+                return J(await A.engine.run_now(b["id"], b.get("trigger")))
+            if op == "reload":
+                await A.engine.load()
+                return J({"loaded": len(A.engine.autos)})
+        except (ValueError, RuntimeError) as e:
+            return J({"error": str(e)}, status=400)
+        return J({"error": f"unknown op {op}"}, status=404)
 
     @r.post("/api/body/backfill")
     async def body_backfill(_):

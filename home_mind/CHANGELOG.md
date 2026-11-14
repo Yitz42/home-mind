@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+- Home Mind can run your Home Assistant automations itself. They stay written in Home Assistant (edit them there as before); Home Mind reads their configs, follows Home Assistant's events over the websocket, checks triggers and conditions, and calls the services. Templates are rendered by Home Assistant's own engine.
+- Taking one over turns the Home Assistant copy off and labels it "Run by Home Mind". Home Mind never runs one whose Home Assistant copy is on.
+- sensor.home_mind_heartbeat updates every minute, for the "Home Mind watchdog" automation in Home Assistant, which hands everything back to Home Assistant if Home Mind stops.
+- Every run is filed in memory (home/automations) with what it did; each automation's description is kept as a note.
+- GET /api/automations, POST /api/automations/takeover|release|run|reload, MCP tool mind_automations.
+
 ## 0.6.0
 - The house: every 5 minutes the brain reads Home Assistant (lights, Dyson fan, humidifier, heater, switches, scripts, scenes, room and air readings, Steady watch numbers, phone, weather), skipping noise like light segments and connection sensors. Changes are filed as dated notes (home/devices, home/readings), one series per thing.
 - Questions that name something in the house get its live state (HOME NOW) alongside the notes.

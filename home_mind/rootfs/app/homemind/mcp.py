@@ -67,6 +67,10 @@ TOOLS = [
      S({"entity_id": STR, "action": STR, "value": STR}, ["entity_id", "action"])),
     ("mind_do", "A request in words ('dim the desk light to 30%'): a connected model picks one action from the "
                 "control list, then it is checked and done like mind_control.", S({"text": STR, "model": STR}, ["text"])),
+    ("mind_automations", "Home Assistant automations run by Home Mind. action: list (who runs each, last run), "
+                         "takeover (ids, or all=true), release (hand back to Home Assistant; ids or all), run (id, "
+                         "optional trigger id), reload (re-read configs after editing in Home Assistant).",
+     S({"action": STR, "ids": {"type": "array", "items": STR}, "all": BOOL, "id": STR, "trigger": STR}, ["action"])),
     ("mind_status", "Counts, version, packs, models.", S({})),
     ("mind_updates", "Check for updates (apply=true installs available packs).", S({"apply": BOOL})),
 ]
@@ -181,6 +185,23 @@ class MCP:
             return await app.home.act(a["entity_id"], a["action"], a.get("value"), source="claude")
         if name == "mind_do":
             return await app.do(a["text"], a.get("model"), source="claude")
+        if name == "mind_automations":
+            eng, act = app.engine, a.get("action", "list")
+            if act == "list":
+                return {"automations": eng.summary(), "recent": eng.log[-15:]}
+            ids = a.get("ids") or []
+            if a.get("all"):
+                ids = [e for e, x in eng.autos.items() if x["ha_state"] == "on" or e in eng.owned]
+            if act == "takeover":
+                return await eng.takeover(ids)
+            if act == "release":
+                return await eng.release(ids or sorted(eng.owned))
+            if act == "run":
+                return await eng.run_now(a["id"], a.get("trigger"))
+            if act == "reload":
+                await eng.load()
+                return {"loaded": len(eng.autos)}
+            raise ValueError(f"unknown action {act}")
         if name == "mind_status":
             return app.status()
         if name == "mind_updates":
