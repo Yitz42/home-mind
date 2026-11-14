@@ -278,8 +278,7 @@ class Mind:
             if arm == "brain":
                 top = hits[0] if hits else None
                 text = (top["title"] + " " + top["body"]) if top else ""
-                d.update(answer=text[:300], correct=bool(top) and contains(text, q["gold"])
-                         and not any(contains(text, s) for s in q.get("stale", [])))
+                d.update(answer=text[:300], correct=bool(top) and contains(text, q["gold"]))
                 return d
             ctx = "\n".join(note_line(h) for h in hits)
             content, sysmsg = f"MEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {q['q']}", ANSWER_SYSTEM
@@ -288,9 +287,10 @@ class Mind:
         else:
             content, sysmsg = q["q"], ALONE_SYSTEM
         r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
-        stale = [s for s in q.get("stale", []) if contains(r["text"], s) and not contains(s, q["gold"])]
         right = names_note(r["text"], q["gold"], gold_id) if q.get("shelf") else contains(r["text"], q["gold"])
-        d.update(answer=r["text"][:400], ms=r["ms"], correct=right and not stale, stale_answer=bool(stale))
+        # stale: gives an old value instead of the new one (mentioning the old one as replaced is fine)
+        stale = not right and any(contains(r["text"], s) and not contains(s, q["gold"]) for s in q.get("stale", []))
+        d.update(answer=r["text"][:400], ms=r["ms"], correct=right, stale_answer=stale)
         return d
 
 

@@ -306,6 +306,7 @@ class Store:
     COVER_POW = 0.0      # weight by distinctive-word coverage (tested: no gain over BM25, so off)
     CLUSTER = True       # newest first among results that match the query on the same distinctive words
     CLUSTER_KINDS = ("fact",)  # only facts are replaced by newer ones; notes and ideas add up
+    CLUSTER_OVERLAP = 0.6      # share of matched words two facts must have in common to be versions of one thing
     RARE_SHARE = 0.1     # a word is distinctive if it is in at most this share of items (or at most 3)
     COMMON_SHARE = 0.25  # words in more than this share of items are left out of the cluster key
 
@@ -335,30 +336,36 @@ class Store:
         return idf, matched
 
     def _newest_in_cluster(self, out, idf, matched):
-        """Results that match the query on exactly the same distinctive words are most likely about the same thing.
-        Within such a group the newest goes first (it takes the group's best place); older ones follow, marked with
-        the id of the newer one. Nothing is merged or hidden: only the order changes."""
-        groups, order = {}, []
+        """Facts that are versions of the same thing should come newest first. The thing is pinned by the query's most
+        distinctive word that any result contains (usually a name): facts containing it whose matched words overlap
+        the best such fact's by at least CLUSTER_OVERLAP are taken as versions of it. The newest takes the best place;
+        older ones follow, marked with the newer id. Other results keep their order. Nothing is merged or hidden."""
+        anchor = max((w for w in idf if any(w in matched.get(r[2]["id"], ()) for r in out)), key=lambda w: idf[w],
+                     default=None)
+        if anchor is None:
+            return out, {}
+        group, ref = [], None
         for row in out:
-            m = matched.get(row[2]["id"], set())
-            key = frozenset(m - self._common)
-            if not (key & self._rare) or row[2]["kind"] not in self.CLUSTER_KINDS:
-                order.append([row])
+            r = row[2]
+            m = matched.get(r["id"], set()) - self._common
+            if r["kind"] not in self.CLUSTER_KINDS or anchor not in m:
                 continue
-            if key not in groups:
-                groups[key] = []
-                order.append(groups[key])
-            groups[key].append(row)
-        res, older = [], {}
-        for g in order:
-            if len(g) > 1:
-                best = g[0][0]
-                g = sorted(g, key=lambda x: x[2]["created"], reverse=True)
-                for k, row in enumerate(g):
-                    row[0] = best - 1e-6 * k
-                    if k:
-                        older[row[2]["id"]] = g[0][2]["id"]
-            res += g
+            if ref is None:
+                ref = m
+                group.append(row)
+            elif len(m & ref) / max(len(m), len(ref)) >= self.CLUSTER_OVERLAP:
+                group.append(row)
+        if len(group) < 2:
+            return out, {}
+        best = group[0][0]
+        ordered = sorted(group, key=lambda x: x[2]["created"], reverse=True)
+        older = {row[2]["id"]: ordered[0][2]["id"] for row in ordered[1:]}
+        for k, row in enumerate(ordered):
+            row[0] = best - 1e-6 * k
+        ids = {id(x) for x in group}
+        rest = [x for x in out if id(x) not in ids]
+        first = out.index(group[0])
+        res = [x for x in out[:first] if id(x) not in ids] + ordered + [x for x in rest if out.index(x) > first]
         return res, older
 
     def browse(self, shelf=None, limit=50):

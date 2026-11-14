@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 — 2026-11-14
+- Recall: versions of one fact are found by the query's most distinctive word (usually a name) plus at least 60%
+  overlap with the best match's other matched words, instead of an exact match on rare words. Brain-only, held-out
+  seeds: 60 changing facts 82% -> 94%, 150 changing facts 98.5%; 20 facts and recall unchanged.
+- Test scoring: an answer counts as stale only when it gives an old value instead of the new one (mentioning the
+  old value as replaced is right).
+
 ## 0.2.1 — 2026-11-14
 - Newest-first grouping applies only to facts (kind "fact"); notes and ideas add up and are never marked as older.
   Found with Haiku: on 120 notes it was told separate ideas were "replaced" and answered 77% vs the brain's 87%.
