@@ -279,6 +279,13 @@ def build(app_state):
         p = q.query
         res = st.recall(p.get("q", ""), shelf=p.get("shelf"), kind=p.get("kind"), limit=int(p.get("limit", 10)),
                         include_old=p.get("old") == "1", touch=p.get("touch", "1") == "1")
+        if p.get("raw") != "1":
+            # what leaves through this lookup goes to Jeeves (Claude in the cloud): hide secrets not asked for
+            from . import privacy as sec
+            from .store import words, names_in
+            qq = st.fix_typos(p.get("q", ""))
+            res = [dict(h, body=sec.mask(h.get("body") or "", qq, words, names_in),
+                        title=sec.mask(h.get("title") or "", qq, words, names_in)) for h in res]
         if not p.get("shelf") and not p.get("kind"):
             # a question about a day ("what do I have Monday?") gets that day's calendar events first
             from .calendars import asked_days

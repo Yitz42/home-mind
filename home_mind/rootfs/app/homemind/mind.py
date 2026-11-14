@@ -218,6 +218,14 @@ def gathered_lines(store, question, now):
     return "\n".join(out), ids
 
 
+def cloud_safe(text, question, model, store):
+    """Hide secret values and device addresses that the question doesn't ask for, if the model is in the cloud."""
+    from . import privacy as sec
+    if not sec.is_cloud(model):
+        return text
+    return sec.mask(text, store.fix_typos(question), words, names_in)
+
+
 def build_context(store, question, hits):
     """Everything the model sees for a question: the gathered list (if the question needs every match), then the
     notes found."""
@@ -426,7 +434,9 @@ class Mind:
             if use_brain else question
         errors, r, used = [], None, None
         self._down = getattr(self, "_down", {})
+        plain = content
         for i, m in enumerate(chain):
+            content = cloud_safe(plain, question, self.models.get(m), store) if use_brain else plain
             left = None if deadline is None else deadline - (time.time() - t0)
             if left is not None and left <= 0.5:
                 errors.append(f"{m}: out of time")
@@ -674,7 +684,7 @@ class Mind:
                     ok = bool(top) and contains(text, q["gold"])
                 d.update(answer=text[:300], correct=ok)
                 return d
-            ctx = ctx_text
+            ctx = cloud_safe(ctx_text, q["q"], self.models.get(model), sb)
             content, sysmsg = (f"TODAY: {_ts(sb.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {asked(sb, q['q'])}",
                                ANSWER_SYSTEM)
         elif arm == "model+context":
