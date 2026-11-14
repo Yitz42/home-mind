@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 — 2026-11-14
+- Models see disagreements spelled out: a DISAGREEMENT line and "(disagrees with #N)" on each note, when different
+  people said different things about one thing (qwen 4b gave only one value with both notes in front of it).
+- Models are told how memory spells a name the brain matched: "(in memory this is spelled: ...)" (qwen 4b refused
+  "Cathy" when the note said "Kathy").
+- tricky2 with 0.4.0, fresh world: brain alone 100%, Haiku + brain 100%, qwen 4b + brain 90%.
+
 ## 0.4.0 — 2026-11-14
 - Sound-alike names: a name in a question that isn't stored is matched to a stored name one or two letters away,
   or else one that sounds the same (Double Metaphone): "Shawn" -> "Sean", "Covoc" -> "Kovok", "Jon" -> "John".

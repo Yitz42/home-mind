@@ -399,7 +399,7 @@ class Store:
                 boost *= max(cover, 0.05) ** self.COVER_POW
             out.append([base * boost, r["created"] if newest_first_ties else 0, r])
         out.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        older = {}
+        older, self._disagree = {}, {}
         if self.CLUSTER and idf:
             out, older = self._newest_in_cluster(out, idf, matched, names_in(query))
         res = []
@@ -409,6 +409,8 @@ class Store:
             d.pop("rank", None)
             if r["id"] in older:
                 d["newer"] = older[r["id"]]
+            if r["id"] in self._disagree:
+                d["disagrees"] = self._disagree[r["id"]]
             res.append(d)
         if self.FOLLOW_NAMES and FOLLOW.search(query) and res:
             seen = names_in(query) | set(ws)
@@ -487,7 +489,7 @@ class Store:
         anchor = max(named or present, key=lambda w: idf[w], default=None)
         if anchor is None:
             return out, {}
-        group, ref = [], None
+        group, ref, ref_speaker = [], None, None
         for row in out:
             r = row[2]
             m = matched.get(r["id"], set()) - self._common
@@ -499,7 +501,10 @@ class Store:
             elif len(m & ref) / max(len(m), len(ref)) >= self.CLUSTER_OVERLAP:
                 sp = speaker(r["title"] + " " + r["body"])
                 if sp and ref_speaker and sp != ref_speaker:
-                    continue        # what two different people said: both stand, neither replaces the other
+                    # what two different people said: both stand, neither replaces the other
+                    self._disagree[r["id"]] = group[0][2]["id"]
+                    self._disagree.setdefault(group[0][2]["id"], r["id"])
+                    continue
                 group.append(row)
         if len(group) < 2:
             return out, {}

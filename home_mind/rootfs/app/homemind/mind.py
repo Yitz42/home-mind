@@ -52,11 +52,20 @@ def about_names(question, hits):
     return [h for h in hits if h in has or h.get("kind") != "fact" or h.get("hop")]
 
 
+def asked(store, question):
+    """The question as the model sees it: if the brain matched a misspelled or sound-alike name, say how memory
+    spells it (qwen 4b refused 'Cathy' when the note said 'Kathy')."""
+    fixed = store.fix_typos(question)
+    return question if fixed == question else f"{question} (in memory this is spelled: {fixed})"
+
+
 def context_lines(hits):
     """Current notes first. Notes the brain takes to be older versions of a fact go in their own section, marked
     replaced, so a small model can't pick an old value by mistake (Haiku didn't need this; qwen 4b/9b did)."""
     cur = [note_line(h) for h in hits if not h.get("newer")]
     old = [note_line(h) for h in hits if h.get("newer")]
+    if any(h.get("disagrees") for h in hits):
+        cur.insert(0, "DISAGREEMENT: different people said different things below. Give each value and who said it.")
     if not old:
         return "\n".join(cur)
     return "\n".join(cur) + "\n\nREPLACED (older versions of the facts above; use only if asked what it used to be):\n" + "\n".join(old)
@@ -68,6 +77,8 @@ def note_line(h):
         line += f" — {h['body']}"
     if h.get("newer"):
         line += f"  (replaced by #{h['newer']})"
+    if h.get("disagrees"):
+        line += f"  (disagrees with #{h['disagrees']})"
     return line
 
 
@@ -147,7 +158,7 @@ class Mind:
         sysmsg = system or (ANSWER_SYSTEM if use_brain else ALONE_SYSTEM)
         if procs:
             sysmsg += "\n\nProcedures you know:\n" + "\n".join(f"- {p['title']}: {p['body']}" for p in procs)
-        content = (f"TODAY: {_ts(store.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {question}") \
+        content = (f"TODAY: {_ts(store.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {asked(store, question)}") \
             if use_brain else question
         r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
         store.log("ask", None, question=question, model=model, ids=[h["id"] for h in hits], answer=r["text"][:500],
@@ -336,7 +347,8 @@ class Mind:
                 d.update(answer=text[:300], correct=ok)
                 return d
             ctx = context_lines(about_names(sb.fix_typos(q["q"]), hits))
-            content, sysmsg = f"TODAY: {_ts(sb.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {q['q']}", ANSWER_SYSTEM
+            content, sysmsg = (f"TODAY: {_ts(sb.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {asked(sb, q['q'])}",
+                               ANSWER_SYSTEM)
         elif arm == "model+context":
             content, sysmsg = (f"TODAY: {_ts(sb.clock())}\n\nLOG:\n" + "\n".join(log)[-16000:] + f"\n\nQUESTION: {q['q']}",
                                CONTEXT_SYSTEM)
