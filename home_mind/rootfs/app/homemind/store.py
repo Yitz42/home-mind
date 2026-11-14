@@ -244,7 +244,7 @@ class Store:
         rows = []
         if ws and self.fts:
             q = " OR ".join(f'"{w}"*' for w in dict.fromkeys(ws))
-            sql = (f"SELECT i.*, bm25(items_fts, 4.0, 1.0, 2.0, 1.5) AS rank FROM items_fts JOIN items i ON i.id = items_fts.rowid "
+            sql = (f"SELECT i.*, bm25(items_fts, {self.BM25}) AS rank FROM items_fts JOIN items i ON i.id = items_fts.rowid "
                    f"WHERE items_fts MATCH ? AND {' AND '.join(where)} ORDER BY rank LIMIT ?")
             try:
                 rows = self.db.execute(sql, [q] + args + [max(limit * 6, 30)]).fetchall()
@@ -264,6 +264,8 @@ class Store:
                                    args + [limit]).fetchall()
             scored = [(1.0, r) for r in cand]
         now = self.clock()
+        idf, matched = self._term_stats(ws, [r for _, r in scored]) if ws else ({}, {})
+        total = sum(idf.values()) or 1.0
         out = []
         for base, r in scored:
             age_days = max(0.0, (now - r["created"]) / 86400.0)
@@ -273,13 +275,22 @@ class Store:
                 boost *= 0.7
             if r["status"] == "superseded":
                 boost *= 0.5
-            out.append((base * boost, r["created"] if newest_first_ties else 0, r))
+            if idf and self.COVER_POW:
+                # how much of the query's distinctive weight this item matches (rare words count for more)
+                cover = sum(idf[w] for w in matched.get(r["id"], ())) / total
+                boost *= max(cover, 0.05) ** self.COVER_POW
+            out.append([base * boost, r["created"] if newest_first_ties else 0, r])
         out.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        older = {}
+        if self.CLUSTER and idf:
+            out, older = self._newest_in_cluster(out, idf, matched)
         res = []
         for score, _, r in out[:limit]:
             d = self._row(r)
             d["score"] = round(score, 4)
             d.pop("rank", None)
+            if r["id"] in older:
+                d["newer"] = older[r["id"]]
             res.append(d)
         if touch and res:
             with self.lock:
@@ -289,6 +300,65 @@ class Store:
                 self.db.commit()
         self.log("recall", None, query=query, shelf=shelf, kind=kind, ids=[d["id"] for d in res])
         return res
+
+    # recall settings (class-level so tests can compare with and without)
+    BM25 = "4.0, 1.0, 2.0, 1.5"  # weights for title, body, tags, shelf
+    COVER_POW = 0.0      # weight by distinctive-word coverage (tested: no gain over BM25, so off)
+    CLUSTER = True       # newest first among results that match the query on the same distinctive words
+    RARE_SHARE = 0.1     # a word is distinctive if it is in at most this share of items (or at most 3)
+    COMMON_SHARE = 0.25  # words in more than this share of items are left out of the cluster key
+
+    def _term_stats(self, ws, rows):
+        """For each query word: how rare it is (IDF over all items) and which candidate items contain it."""
+        n = max(1, self.db.execute("SELECT COUNT(*) FROM items").fetchone()[0])
+        ids = {r["id"] for r in rows}
+        idf, matched, dfs = {}, {}, {}
+        for w in dict.fromkeys(ws):
+            if self.fts:
+                try:
+                    hit = {x[0] for x in self.db.execute("SELECT rowid FROM items_fts WHERE items_fts MATCH ?",
+                                                          (f'"{w}"*',))}
+                except sqlite3.OperationalError:
+                    continue
+            else:
+                hit = {r["id"] for r in rows if w in words(" ".join([r["title"], r["body"], r["tags"], r["shelf"]]))}
+            df = len(hit)
+            if not df:
+                continue
+            dfs[w] = df
+            idf[w] = math.log(1 + (n - df + 0.5) / (df + 0.5))
+            for i in hit & ids:
+                matched.setdefault(i, set()).add(w)
+        self._rare = {w for w, df in dfs.items() if df <= max(3, self.RARE_SHARE * n)}
+        self._common = {w for w, df in dfs.items() if df > self.COMMON_SHARE * n}
+        return idf, matched
+
+    def _newest_in_cluster(self, out, idf, matched):
+        """Results that match the query on exactly the same distinctive words are most likely about the same thing.
+        Within such a group the newest goes first (it takes the group's best place); older ones follow, marked with
+        the id of the newer one. Nothing is merged or hidden: only the order changes."""
+        groups, order = {}, []
+        for row in out:
+            m = matched.get(row[2]["id"], set())
+            key = frozenset(m - self._common)
+            if not (key & self._rare):
+                order.append([row])
+                continue
+            if key not in groups:
+                groups[key] = []
+                order.append(groups[key])
+            groups[key].append(row)
+        res, older = [], {}
+        for g in order:
+            if len(g) > 1:
+                best = g[0][0]
+                g = sorted(g, key=lambda x: x[2]["created"], reverse=True)
+                for k, row in enumerate(g):
+                    row[0] = best - 1e-6 * k
+                    if k:
+                        older[row[2]["id"]] = g[0][2]["id"]
+            res += g
+        return res, older
 
     def browse(self, shelf=None, limit=50):
         """The shelf tree (with counts) under a shelf, and the items kept directly on it."""

@@ -230,7 +230,8 @@ def build(app_state):
     @r.post("/api/ask")
     async def ask(q):
         b = await q.json()
-        res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True))
+        res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
+                               expand=bool(b.get("expand")))
         res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
         return J(res)
 
@@ -247,7 +248,8 @@ def build(app_state):
     async def tests(q):
         b = await q.json()
         run = A.mind.start_test(b["suite"], b.get("arm", "brain"), b.get("model") or None, b.get("seed"),
-                                b.get("n"), b.get("ingest", "raw"), bool(b.get("keyed")))
+                                b.get("n"), b.get("ingest", "raw"), bool(b.get("keyed")),
+                                bool(b.get("expand")))
         return J({"id": run["id"], "status": run["status"], "seed": run["seed"]})
 
     @r.get("/api/runs")

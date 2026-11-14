@@ -49,7 +49,7 @@
       <select id="t_arm"><option value="brain">brain (no model)</option><option value="model+brain">model + brain</option><option value="model+context">model + whole log</option><option value="model">model alone</option></select>
       <select id="t_model"><option value="">(model)</option></select>
       <select id="t_ingest"><option value="raw">store as given</option><option value="model">model files each item</option></select>
-      <label class="mute"><input type="checkbox" id="t_keyed"> keyed facts</label>
+      <label class="mute"><input type="checkbox" id="t_keyed"> keyed facts</label> <label class="mute"><input type="checkbox" id="t_expand"> model suggests search words</label>
       <input id="t_seed" placeholder="seed" style="width:80px"> <input id="t_n" placeholder="size" style="width:70px">
       <button class="go" onclick="runTest()">Run</button></div>
     <div class="mute" id="t_info"></div></div>
@@ -113,14 +113,14 @@ async function remember() {
   $('#r_out').textContent = r.error ? r.error : `${r.action} #${r.id}` + (r.previous ? ` (replaced #${r.previous.id})` : ''); if (!r.error) { $('#r_text').value = ''; $('#r_title').value = ''; }
 }
 async function runTest() {
-  const b = {suite: $('#t_suite').value, arm: $('#t_arm').value, model: $('#t_model').value, ingest: $('#t_ingest').value, keyed: $('#t_keyed').checked};
+  const b = {suite: $('#t_suite').value, arm: $('#t_arm').value, model: $('#t_model').value, ingest: $('#t_ingest').value, keyed: $('#t_keyed').checked, expand: $('#t_expand').checked};
   if ($('#t_seed').value) b.seed = +$('#t_seed').value; if ($('#t_n').value) b.n = +$('#t_n').value;
   const r = await api('api/tests', b); if (r.error) return alert(r.error); runs(); poll(r.id);
 }
 async function poll(id) { for (let i = 0; i < 400; i++) { await new Promise(r => setTimeout(r, 3000)); const r = await api('api/runs/' + id); if (r && r.status !== 'running') { runs(); return; } } }
 async function runs() {
   const rs = await api('api/runs?limit=60');
-  $('#runs').innerHTML = '<tr><th>when</th><th>suite</th><th>arm</th><th>model</th><th>ingest</th><th>accuracy</th><th>found first</th><th>in top 5</th><th>stale on top</th><th>status</th></tr>' + rs.map(r => `<tr><td class="mute">${ago(r.ts)}</td><td>${r.suite}</td><td>${r.arm}</td><td>${esc(r.model || '')}</td><td class="mute">${r.config.ingest}${r.config.keyed ? ' · keyed' : ''}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.hit5)}</td><td class="num">${pct(r.summary.stale_above)}</td><td><a onclick="showRun('${r.id}')" class="${r.status === 'error' ? 'bad' : ''}">${r.status}</a></td></tr>`).join('');
+  $('#runs').innerHTML = '<tr><th>when</th><th>suite</th><th>arm</th><th>model</th><th>ingest</th><th>accuracy</th><th>found first</th><th>in top 5</th><th>stale on top</th><th>status</th></tr>' + rs.map(r => `<tr><td class="mute">${ago(r.ts)}</td><td>${r.suite}</td><td>${r.arm}</td><td>${esc(r.model || '')}</td><td class="mute">${r.config.ingest}${r.config.keyed ? ' · keyed' : ''}${r.config.expand ? ' · expand' : ''}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.hit5)}</td><td class="num">${pct(r.summary.stale_above)}</td><td><a onclick="showRun('${r.id}')" class="${r.status === 'error' ? 'bad' : ''}">${r.status}</a></td></tr>`).join('');
 }
 async function showRun(id) { const r = await api('api/runs/' + id); $('#runcard').classList.remove('hide'); $('#runid').textContent = id; $('#run').textContent = JSON.stringify({summary: r.summary, config: r.config, seed: r.seed, wrong: r.details.filter(d => !d.correct)}, null, 1); }
 async function checkModels() { const rs = await api('api/models/check', {}); rs.forEach(r => { const el = document.getElementById('chk_' + r.name); if (el) el.innerHTML = r.ok ? `<span class="ok">ok</span> <span class="mute">${r.ms} ms</span>` : `<span class="bad">${esc(r.error)}</span>`; }); }

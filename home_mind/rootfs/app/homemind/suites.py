@@ -221,18 +221,22 @@ def tasks(seed, n=18):
         xs = [x for x in state.values() if not x["done"] and (p is None or x["project"] == p)]
         return sorted(xs, key=lambda x: (x["due"], -x["priority"], x["title"]))
 
+    def _tied(xs):
+        # other open tasks that tie with the first on due day and priority: just as right an answer
+        return [x["title"] for x in xs[1:] if (x["due"], x["priority"]) == (xs[0]["due"], xs[0]["priority"])]
+
     questions = []
     for p in projects:
         xs = open_in(p)
         if xs:
             questions.append({"q": f"What is the next open task (soonest due) for {p}?", "gold": xs[0]["title"],
-                              "params": {"type": "next", "project": p}, "stale": []})
+                              "params": {"type": "next", "project": p}, "stale": [], "also": _tied(xs)})
         questions.append({"q": f"How many open tasks are there for {p}?", "gold": str(len(xs)),
                           "params": {"type": "count", "project": p}, "stale": []})
     xs = open_in()
     if xs:
         questions.append({"q": "Which open task is due soonest overall?", "gold": xs[0]["title"],
-                          "params": {"type": "next"}, "stale": []})
+                          "params": {"type": "next"}, "stale": [], "also": _tied(xs)})
     d = rng.randint(3, 9)
     due = [x["title"] for x in xs if x["due"] < d]
     questions.append({"q": f"How many open tasks are due before day {d}?", "gold": str(len(due)),

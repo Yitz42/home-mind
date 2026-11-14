@@ -39,14 +39,16 @@ TOOLS = [
     ("mind_feedback", "Say whether a recalled item was useful (it ranks higher or lower afterwards).",
      S({"id": INT, "helpful": BOOL, "note": STR}, ["id", "helpful"])),
     ("mind_ask", "Answer a question with one of the connected models, using the brain's memory (use_brain false: the "
-     "model alone).", S({"question": STR, "model": STR, "use_brain": BOOL, "shelf": STR}, ["question", "model"])),
+     "model alone).", S({"question": STR, "model": STR, "use_brain": BOOL, "shelf": STR, "expand": BOOL}, ["question", "model"])),
     ("mind_organize", "Let a connected model choose title, shelf, tags and key for a note, then store it.",
      S({"text": STR, "model": STR}, ["text", "model"])),
     ("mind_models", "List connected models; check=true pings each one.", S({"check": BOOL})),
     ("mind_run_test", "Start a test. suite: " + ", ".join(f"{k} ({v})" for k, v in suites.SUITE_INFO.items())
      + ". arm: brain (no model), model+brain, model+context (model reads the whole log), model (alone). ingest: raw, "
-     "or model (the model files each item itself). keyed: facts come with keys. Returns a run id.",
-     S({"suite": STR, "arm": STR, "model": STR, "seed": INT, "n": INT, "ingest": STR, "keyed": BOOL}, ["suite"])),
+     "or model (the model files each item itself). keyed: facts come with keys. expand: in model+brain, the model also "
+     "suggests other search words. Returns a run id.",
+     S({"suite": STR, "arm": STR, "model": STR, "seed": INT, "n": INT, "ingest": STR, "keyed": BOOL, "expand": BOOL},
+       ["suite"])),
     ("mind_test_results", "A run's results by id (details=true for every question), or the latest runs.",
      S({"id": STR, "details": BOOL, "limit": INT, "suite": STR})),
     ("mind_trend", "How a test number moved over time. name: accuracy, hit1, hit5, mrr, stale_above, shelf_ok.",
@@ -119,7 +121,8 @@ class MCP:
         if name == "mind_feedback":
             return st.feedback(int(a["id"]), bool(a["helpful"]), a.get("note", ""))
         if name == "mind_ask":
-            r = await app.mind.ask(a["question"], a["model"], use_brain=a.get("use_brain", True), shelf=a.get("shelf"))
+            r = await app.mind.ask(a["question"], a["model"], use_brain=a.get("use_brain", True), shelf=a.get("shelf"),
+                                   expand=bool(a.get("expand")))
             r["hits"] = [{"id": h["id"], "title": h["title"], "score": h["score"]} for h in r["hits"]]
             return r
         if name == "mind_organize":
@@ -128,7 +131,8 @@ class MCP:
             return await app.mind.models.check_all() if a.get("check") else app.mind.models.list()
         if name == "mind_run_test":
             run = app.mind.start_test(a["suite"], a.get("arm") or "brain", a.get("model"), a.get("seed"), a.get("n"),
-                                      a.get("ingest") or "raw", bool(a.get("keyed")))
+                                      a.get("ingest") or "raw", bool(a.get("keyed")),
+                                      bool(a.get("expand")))
             return {"id": run["id"], "status": run["status"], "seed": run["seed"],
                     "note": "call mind_test_results with this id when it's done"}
         if name == "mind_test_results":

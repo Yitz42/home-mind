@@ -33,6 +33,20 @@ def _ts(t):
     return datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M")
 
 
+def note_line(h):
+    line = f"[{_ts(h['created'])} | {h['shelf']} | #{h['id']}] {h['title']}"
+    if h.get("body") and h["body"] != h["title"]:
+        line += f" — {h['body']}"
+    if h.get("newer"):
+        line += f"  (older note: #{h['newer']} is newer on the same thing)"
+    return line
+
+
+EXPAND_SYSTEM = ("You help search a personal memory that matches words, not meaning. Reply with JSON only: "
+                 '{"words": [4 to 8 search words]}: the most specific words from the question, plus other common words '
+                 "for the same things (e.g. sensor for detector). No sentences.")
+
+
 def norm(s):
     return re.sub(r"[^a-z0-9]+", " ", str(s).lower()).strip()
 
@@ -60,16 +74,35 @@ class Mind:
         self.jobs = {}
 
     # ---- using the brain --------------------------------------------------------------------------------------------
-    def context_for(self, store, question, k=8, shelf=None):
+    async def search(self, store, question, k=8, shelf=None, model=None, expand=False):
+        """The brain's search, optionally helped by a model that suggests other words for the same things. The two
+        result lists are fused by rank (each item scores 1/(rank+20) in each list)."""
         hits = store.recall(question, shelf=shelf, limit=k)
-        procs = [p for p in store.recall(question, kind="procedure", limit=2, touch=False) if p["score"] > 0.5]
-        lines = [f"[{_ts(h['created'])} | {h['shelf']} | #{h['id']}] {h['title']}"
-                 + (f" — {h['body']}" if h["body"] and h["body"] != h["title"] else "") for h in hits]
-        return hits, procs, "\n".join(lines)
+        if not (expand and model):
+            return hits, None
+        r = await self.models.get(model).chat(EXPAND_SYSTEM, [{"role": "user", "content": question}], max_tokens=80,
+                                              temperature=0)
+        plan = parse_json(r["text"]) or {}
+        extra = " ".join(str(w) for w in (plan.get("words") or []))[:300]
+        if not extra.strip():
+            return hits, extra
+        more = store.recall(extra, shelf=shelf, limit=k, touch=False)
+        fused, rows = {}, {}
+        for lst in (hits, more):
+            for i, h in enumerate(lst):
+                fused[h["id"]] = fused.get(h["id"], 0) + 1 / (i + 20)
+                rows.setdefault(h["id"], h)
+        out = sorted(rows.values(), key=lambda h: (fused[h["id"]], h["created"]), reverse=True)[:k]
+        return out, extra
 
-    async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None):
+    async def context_for(self, store, question, k=8, shelf=None, model=None, expand=False):
+        hits, _ = await self.search(store, question, k, shelf, model, expand)
+        procs = [p for p in store.recall(question, kind="procedure", limit=2, touch=False) if p["score"] > 0.5]
+        return hits, procs, "\n".join(note_line(h) for h in hits)
+
+    async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False):
         store = store or self.store
-        hits, procs, ctx = self.context_for(store, question, k, shelf) if use_brain else ([], [], "")
+        hits, procs, ctx = (await self.context_for(store, question, k, shelf, model, expand)) if use_brain else ([], [], "")
         if model is None:
             return {"answer": hits[0]["body"] if hits else None, "hits": hits, "model": None}
         sysmsg = system or (ANSWER_SYSTEM if use_brain else ALONE_SYSTEM)
@@ -99,7 +132,7 @@ class Mind:
         return out
 
     # ---- tests --------------------------------------------------------------------------------------------------------
-    def start_test(self, suite, arm="brain", model=None, seed=None, n=None, ingest="raw", keyed=False):
+    def start_test(self, suite, arm="brain", model=None, seed=None, n=None, ingest="raw", keyed=False, expand=False):
         if suite not in suites.SUITES:
             raise ValueError(f"unknown suite {suite}; have {', '.join(suites.SUITES)}")
         if arm not in ("brain", "model+brain", "model+context", "model"):
@@ -111,7 +144,7 @@ class Mind:
         seed = int(seed) if seed is not None else int(time.time()) % 100000
         run = {"id": uuid.uuid4().hex[:10], "ts": time.time(), "suite": suite, "arm": arm,
                "model": model if arm != "brain" or ingest == "model" else None, "seed": seed, "status": "running",
-               "config": {"n": n, "ingest": ingest, "keyed": keyed}, "summary": {}, "details": []}
+               "config": {"n": n, "ingest": ingest, "keyed": keyed, "expand": bool(expand)}, "summary": {}, "details": []}
         self.store.save_run(run)
         task = asyncio.get_running_loop().create_task(self._run_test(run))
         self.jobs[run["id"]] = {"task": task, "run": run}
@@ -198,7 +231,8 @@ class Mind:
             open_ = sb.tasks(project=p.get("project"), due_before=p.get("due_before"))
             if arm == "brain":
                 ans = (open_[0]["title"] if open_ else "none") if p["type"] == "next" else str(len(open_))
-                d.update(answer=ans, correct=contains(ans, q["gold"]) if p["type"] == "next" else ans == q["gold"])
+                golds = [q["gold"]] + q.get("also", [])
+                d.update(answer=ans, correct=any(contains(ans, g) for g in golds) if p["type"] == "next" else ans == q["gold"])
                 return d
             if arm == "model+brain":
                 allopen = sb.tasks()
@@ -211,13 +245,17 @@ class Mind:
             else:
                 content, sysmsg = q["q"], ALONE_SYSTEM
             r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
-            d.update(answer=r["text"][:400], ms=r["ms"], correct=contains(r["text"], q["gold"]))
+            d.update(answer=r["text"][:400], ms=r["ms"],
+                     correct=any(contains(r["text"], g) for g in [q["gold"]] + q.get("also", [])))
             return d
         # recall / update / locate / scale
         gold_id = refs.get(q.get("ref"))
         stale_ids = {refs.get(x) for x in q.get("stale_refs", [])} - {None}
         if arm in ("brain", "model+brain"):
-            hits = sb.recall(q["q"], limit=8, include_old=False)
+            if arm == "model+brain" and run["config"].get("expand"):
+                hits, d["expanded"] = await self.search(sb, q["q"], 8, model=model, expand=True)
+            else:
+                hits = sb.recall(q["q"], limit=8, include_old=False)
             ids = [h["id"] for h in hits]
             # with model-organized storage the gold item has its own id; it may have superseded the old ones
             rank = ids.index(gold_id) + 1 if gold_id in ids else None
@@ -232,8 +270,7 @@ class Mind:
                 d.update(answer=text[:300], correct=bool(top) and contains(text, q["gold"])
                          and not any(contains(text, s) for s in q.get("stale", [])))
                 return d
-            ctx = "\n".join(f"[{_ts(h['created'])} | {h['shelf']} | #{h['id']}] {h['title']}"
-                            + (f" — {h['body']}" if h["body"] != h["title"] else "") for h in hits)
+            ctx = "\n".join(note_line(h) for h in hits)
             content, sysmsg = f"MEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {q['q']}", ANSWER_SYSTEM
         elif arm == "model+context":
             content, sysmsg = "LOG:\n" + "\n".join(log)[-16000:] + f"\n\nQUESTION: {q['q']}", CONTEXT_SYSTEM
