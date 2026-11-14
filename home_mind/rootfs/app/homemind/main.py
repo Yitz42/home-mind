@@ -99,6 +99,7 @@ class App:
         self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
         self.journal = Journal(self.mind.store, self.models)
         self.calendars = Calendars(self.mind.store, self.ha)
+        self._mark_secrets()
         self.mind.calendars = self.calendars
         if datetime.now().hour * 60 + datetime.now().minute >= 23 * 60 + 30:
             self.journal.done_for = datetime.now().date()     # started after 23:30: don't summarize at once
@@ -125,6 +126,21 @@ class App:
         for t in self.tasks:
             t.cancel()
         await self.models.stop()
+
+    def _mark_secrets(self):
+        """Notes filed before secrets were flagged get the flag once (by the same guess as new notes)."""
+        from .privacy import is_sensitive
+        st = self.mind.store
+        n = 0
+        for r in st.db.execute("SELECT id, kind, title, body, meta FROM items WHERE meta NOT LIKE '%\"sensitive\"%'").fetchall():
+            if r["kind"] != "procedure" and is_sensitive(r["title"] + " " + r["body"]):
+                m = json.loads(r["meta"] or "{}")
+                m["sensitive"] = True
+                st.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(m), r["id"]))
+                n += 1
+        st.db.commit()
+        if n:
+            log.info("marked %d older notes as secret", n)
 
     async def do(self, text, model=None, source="api"):
         """A request in words ("dim the desk light to 30%") -> one checked action, planned by a model."""
