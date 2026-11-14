@@ -82,6 +82,7 @@ class Body:
         ids = [self.ent("last_weigh_in")] + [self.ent(k) for k, _, _ in FIELDS]
         start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")   # "+" would break the URL
         hist = await self.ha.history(ids, start)
+        self.debug = {"start": start, "series": len(hist or []), "error": getattr(self.ha, "last_error", None)}
         if not hist:
             return 0
         rows = {}
@@ -107,6 +108,7 @@ class Body:
                 if cand and t_in - max(cand)[0] < 6 * 3600:
                     t, v, u = max(cand)
                     vals[k] = _num(v, u)
+            self.debug.setdefault("weigh_ins", []).append({"ts": ts, "vals": vals})
             if self.file(ts, vals):
                 n += 1
         return n

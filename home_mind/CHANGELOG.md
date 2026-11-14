@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.3
+- POST /api/body/backfill files weigh-ins from Home Assistant history on demand and reports what it found.
+
 ## 0.5.2
 - Fix: the start-up weigh-in backfill sent a time Home Assistant couldn't read, so only the newest weigh-in was filed.
 - The version shown in the log and status is right again.

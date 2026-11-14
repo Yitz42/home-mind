@@ -303,6 +303,11 @@ def build(app_state):
     async def updates_apply(_):
         return J(await A.updater.apply())
 
+    @r.post("/api/body/backfill")
+    async def body_backfill(_):
+        n = await A.body.backfill()
+        return J({"filed": n, "debug": getattr(A.body, "debug", None)})
+
     @r.get("/api/comfort")
     async def comfort_status(_):
         return J(A.comfort.status())

@@ -49,8 +49,12 @@ class HA:
                                         params={"filter_entity_id": ",".join(entity_ids)},
                                         headers={"Authorization": f"Bearer {self.token}"},
                                         timeout=aiohttp.ClientTimeout(total=30)) as r:
-                return await r.json() if r.status == 200 else None
-        except Exception:  # noqa: BLE001
+                if r.status != 200:
+                    self.last_error = f"history {r.status}: {(await r.text())[:200]}"
+                    return None
+                return await r.json()
+        except Exception as e:  # noqa: BLE001
+            self.last_error = f"history: {e!r}"
             return None
 
     async def call(self, domain, service, data):
