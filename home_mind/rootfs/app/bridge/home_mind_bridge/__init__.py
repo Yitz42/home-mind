@@ -81,7 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             conn = await _conn(hass)
         except OSError:
             return web.json_response({"error": "Home Mind app not found"}, status=503)
-        if request.method == "GET":
+        if request.method in ("GET", "HEAD"):
             return web.Response(status=405, headers={"Allow": "POST"})
         headers = {k: request.headers[k] for k in PASS_IN if k in request.headers}
         headers["X-Home-Mind-Token"] = conn["token"]
@@ -97,7 +97,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return web.json_response({"error": f"Home Mind app unreachable: {e}"}, status=502)
 
     webhook.async_register(hass, DOMAIN, "Home Mind", wid, handle, local_only=False,
-                           allowed_methods=["POST", "GET", "DELETE"])
+                           allowed_methods=["POST", "GET", "HEAD"])
     entry.async_on_unload(lambda: webhook.async_unregister(hass, wid))
 
     async def remember(call: ServiceCall):
