@@ -53,6 +53,9 @@ TOOLS = [
      S({"id": STR, "details": BOOL, "limit": INT, "suite": STR})),
     ("mind_trend", "How a test number moved over time. name: accuracy, hit1, hit5, mrr, stale_above, shelf_ok.",
      S({"suite": STR, "name": STR, "arm": STR}, ["suite"])),
+    ("mind_comfort", "Bedroom comfort. action: status (learned preferences per situation, votes, which body/room "
+     "signals are confirmed, recent actions), vote (feeling: cold, hot or ok — stores a snapshot and reacts), or cycle "
+     "(run the controller now).", S({"action": STR, "feeling": STR}, ["action"])),
     ("mind_status", "Counts, version, packs, models.", S({})),
     ("mind_updates", "Check for updates (apply=true installs available packs).", S({"apply": BOOL})),
 ]
@@ -145,6 +148,13 @@ class MCP:
             return st.runs(limit=int(a.get("limit") or 20), suite=a.get("suite"))
         if name == "mind_trend":
             return st.trend(a["suite"], a.get("name") or "accuracy", a.get("arm"))
+        if name == "mind_comfort":
+            act = a.get("action", "status")
+            if act == "vote":
+                return await app.comfort.vote(a.get("feeling", ""), source="claude")
+            if act == "cycle":
+                return await app.comfort.cycle(reason="claude")
+            return app.comfort.status()
         if name == "mind_status":
             return app.status()
         if name == "mind_updates":

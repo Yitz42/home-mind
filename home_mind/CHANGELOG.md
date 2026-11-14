@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-11-14
+- Bedroom comfort brain (comfort.py). Votes (cold / hot / ok) from input_buttons pressed by Jeeves, the watch or
+  a dashboard are stored with a snapshot: room temperature and humidity, target, heater/fan state, situation
+  (night / morning / day), Steady watch numbers (HRV, resting HR, sleep, readiness, steps) and scale numbers.
+- Learns a preferred temperature per situation (exact convex fit of the votes, weak pull to the old fixed values).
+- Tests each body/room signal by fitting it together with the preferences and checking held-out votes (5-fold);
+  used only when confirmed. Simulated person, 20 held-out seeds: uncomfortable moments 42% -> 17% vs fixed settings;
+  real sleep effect found 9 of 11 times; 1 false signal in 200 tests.
+- Control only through HA variables (input_number.mind_target_temp, mind_fan_speed, mind_humidity_target,
+  sleep_temperature, wake_temperature), clamped to limit variables; input_boolean.mind_comfort_enabled is the
+  switch and breaking point (also turned off automatically if the room is >3°F outside the limits for 30 min).
+- API /api/comfort, /api/comfort/vote; MCP tool mind_comfort; sensor.home_mind_comfort.
+
 ## 0.2.2 — 2026-11-14
 - Recall: versions of one fact are found by the query's most distinctive word (usually a name) plus at least 60%
   overlap with the best match's other matched words, instead of an exact match on rare words. Brain-only, held-out

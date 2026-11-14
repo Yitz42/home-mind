@@ -59,6 +59,17 @@ Numbers recorded: accuracy, found first (hit@1), in top 5, MRR, how often an old
 (stale on top), shelf found, time per answer. Results are kept for trends and pushed to Home Assistant as
 `sensor.home_mind_test_<suite>` and `sensor.home_mind_items`.
 
+## Bedroom comfort
+
+Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press
+`input_button.comfort_cold` / `_hot` / `_ok`. Each vote is saved with a snapshot of the room, your watch and your
+scale. Home Mind learns what you like at night, in the morning and during the day, tests which body signals matter
+(only confirmed ones are used), and writes **variables**: `input_number.mind_target_temp`, `mind_fan_speed`,
+`mind_humidity_target`, `sleep_temperature`, `wake_temperature`. The **Home Mind comfort driver** automation is
+the only thing that touches the heater, fan and humidifier, clamped to `mind_temp_min/max` and
+`mind_humidity_min/max`. Turn `input_boolean.mind_comfort_enabled` off to stop it; it also turns itself off if the
+room is more than 3°F outside your limits for 30 minutes.
+
 ## Updates
 
 - App code: Settings › Apps › Home Mind › Update (or turn on auto-update).

@@ -29,6 +29,20 @@ class HA:
                                      timeout=aiohttp.ClientTimeout(total=15)) as r:
             return r.status
 
+    async def state(self, entity_id):
+        if not self.token:
+            return None
+        try:
+            async with self.session.get(f"{SUPERVISOR}/core/api/states/{entity_id}",
+                                        headers={"Authorization": f"Bearer {self.token}"},
+                                        timeout=aiohttp.ClientTimeout(total=10)) as r:
+                return await r.json() if r.status == 200 else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def call(self, domain, service, data):
+        return await self._post(f"services/{domain}/{service}", data)
+
     async def sensor(self, entity_id, state, attrs=None):
         try:
             return await self._post(f"states/{entity_id}", {"state": state, "attributes": attrs or {}})

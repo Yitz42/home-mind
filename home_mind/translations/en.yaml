@@ -18,5 +18,10 @@ configuration:
     description: Unused notes and episodes are ranked lower (never deleted). 0 = off.
   log_level:
     name: Log level
+  comfort:
+    name: Bedroom comfort brain
+    description: >-
+      Learn from cold/hot/just-right votes and write the comfort variables (mind_target_temp, sleep and wake
+      temperature, fan, humidity). It only acts while input_boolean.mind_comfort_enabled is on.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.

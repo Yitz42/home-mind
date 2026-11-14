@@ -9,6 +9,7 @@ import time
 
 from aiohttp import web
 
+from .comfort import Comfort
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -25,7 +26,7 @@ log = logging.getLogger("home_mind")
 
 DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_task.claude_ai_task"}],
             "update_url": "https://raw.githubusercontent.com/Yitz42/home-mind/main/packs/manifest.json",
-            "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info"}
+            "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info", "comfort": True}
 
 
 def load_options():
@@ -66,6 +67,7 @@ class App:
         self.updater = Updater(self.mind.store, self.opts.get("update_url"))
         self.mcp = MCP(self)
         self.ha = None
+        self.comfort = None
         self.bridge = None
         self.started = time.time()
         self.tasks = []
@@ -80,6 +82,7 @@ class App:
     async def on_start(self, _app):
         await self.models.start()
         self.ha = HA(self.models.session)
+        self.comfort = Comfort(self.mind, self.ha)
         self.mind.on_test_done = self.test_done
         for r in self.updater.install_bundled():
             log.info("installed bundled pack %s %s", r["id"], r["version"])
@@ -117,9 +120,17 @@ class App:
                               "model": run["model"], "run": run["id"], "seed": run["seed"], **s})
 
     async def upkeep(self):
-        last = {"fade": 0, "packs": 0, "test": time.time(), "counts": 0}
+        last = {"fade": 0, "packs": 0, "test": time.time(), "counts": 0, "comfort": 0}
         while True:
             now = time.time()
+            if self.opts.get("comfort") and self.ha.available:
+                try:
+                    await self.comfort.poll_buttons()
+                    if now - last["comfort"] > 300:
+                        last["comfort"] = now
+                        await self.comfort.cycle()
+                except Exception:  # noqa: BLE001
+                    log.exception("comfort")
             try:
                 if now - last["counts"] > 600:
                     last["counts"] = now
@@ -137,7 +148,7 @@ class App:
                         await self.mind.run_test_now(suite, "brain", seed=random.randint(1, 99999))
             except Exception:  # noqa: BLE001
                 log.exception("upkeep")
-            await asyncio.sleep(60)
+            await asyncio.sleep(20)
 
 
 # ---- HTTP ------------------------------------------------------------------------------------------------------
@@ -276,6 +287,19 @@ def build(app_state):
     @r.post("/api/updates/apply")
     async def updates_apply(_):
         return J(await A.updater.apply())
+
+    @r.get("/api/comfort")
+    async def comfort_status(_):
+        return J(A.comfort.status())
+
+    @r.post("/api/comfort/vote")
+    async def comfort_vote(q):
+        b = await q.json()
+        return J(await A.comfort.vote(b["feeling"], b.get("source", "api")))
+
+    @r.post("/api/comfort/cycle")
+    async def comfort_cycle(_):
+        return J(await A.comfort.cycle(reason="asked"))
 
     @r.post("/mcp")
     async def mcp_post(q):

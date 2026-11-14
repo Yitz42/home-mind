@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.2.2"
+version: "0.3.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -32,6 +32,7 @@ options:
   auto_test_hours: 0
   fade_days: 60
   log_level: info
+  comfort: true
 schema:
   models:
     - name: str
@@ -46,3 +47,4 @@ schema:
   auto_test_hours: int(0,168)
   fade_days: int(0,3650)
   log_level: list(debug|info|warning|error)
+  comfort: bool
