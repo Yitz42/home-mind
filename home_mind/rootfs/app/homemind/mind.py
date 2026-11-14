@@ -15,9 +15,10 @@ from datetime import datetime
 from . import suites
 from .store import Store
 
-ANSWER_SYSTEM = ("You answer questions using the memory notes given to you. Each note has a date. When notes disagree, "
-                 "the newest note is the one that is true now. If the notes do not hold the answer, say you don't know. "
-                 "Answer in one short sentence and include the exact value, name or title asked for.")
+ANSWER_SYSTEM = ("You answer questions using the memory notes given to you. Each note has a date. When two notes give "
+                 "different values for the same thing, the newer one is true now; separate notes about different things "
+                 "do not replace each other. If the notes do not hold the answer, say you don't know. Answer in one short "
+                 "sentence and include the exact value, name or title asked for.")
 CONTEXT_SYSTEM = ("You answer questions using the log of things you were told, oldest first. Later entries replace "
                   "earlier ones about the same thing. If the log does not hold the answer, say you don't know. Answer in "
                   "one short sentence and include the exact value, name or title asked for.")
@@ -25,8 +26,8 @@ ALONE_SYSTEM = "Answer the question in one short sentence. If you don't know, sa
 ORGANIZE_SYSTEM = (
     "You file notes into a personal memory. Reply with JSON only, no other text: "
     '{"title": short title, "shelf": a path like "area/topic" (reuse an existing shelf if one fits), '
-    '"tags": [up to 4 words], "key": "subject|attribute" if the note states one value of one thing that could change '
-    'later (e.g. "the garage door|code"), else null}.')
+    '"tags": [up to 4 words], "kind": "fact" if it states one value of one thing that could change later, else "note", '
+    '"key": "subject|attribute" for a fact (e.g. "the garage door|code"), else null}.')
 
 
 def _ts(t):
@@ -38,7 +39,7 @@ def note_line(h):
     if h.get("body") and h["body"] != h["title"]:
         line += f" — {h['body']}"
     if h.get("newer"):
-        line += f"  (older note: #{h['newer']} is newer on the same thing)"
+        line += f"  (maybe an older version of #{h['newer']})"
     return line
 
 
@@ -53,6 +54,15 @@ def norm(s):
 
 NUM_WORDS = {"zero": "0", "none": "0", "no": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
              "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10", "eleven": "11", "twelve": "12"}
+
+
+def names_note(answer, gold, item_id=None):
+    """A locate answer is right if it gives the note's id or every content word of its title."""
+    from .store import words
+    if item_id is not None and re.search(rf"#{item_id}\b", answer or ""):
+        return True
+    gw, aw = set(words(gold)), set(words(answer))
+    return bool(gw) and gw <= aw or contains(answer, gold)
 
 
 def contains(answer, gold):
@@ -126,7 +136,7 @@ class Mind:
         plan = parse_json(r["text"]) or {}
         out = store.remember(text=text, title=str(plan.get("title") or "")[:120], shelf=plan.get("shelf") or "inbox",
                              tags=plan.get("tags") or [], key=plan.get("key") or None, source=source,
-                             kind="note")
+                             kind="fact" if plan.get("kind") == "fact" else "note")
         out["plan"] = plan
         out["ms"] = r["ms"]
         return out
@@ -262,7 +272,7 @@ class Mind:
             d.update(rank=rank, hit1=rank == 1, hit5=bool(rank and rank <= 5), mrr=1.0 / rank if rank else 0.0)
             stale_above = any(i in stale_ids for i in ids[:(rank - 1) if rank else len(ids)])
             d["stale_above"] = stale_above
-            if q.get("shelf") and hits:
+            if q.get("shelf") and hits and run["config"].get("ingest") != "model":
                 d["shelf_ok"] = hits[0]["shelf"] == q["shelf"]
             if arm == "brain":
                 top = hits[0] if hits else None
@@ -278,8 +288,8 @@ class Mind:
             content, sysmsg = q["q"], ALONE_SYSTEM
         r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
         stale = [s for s in q.get("stale", []) if contains(r["text"], s) and not contains(s, q["gold"])]
-        d.update(answer=r["text"][:400], ms=r["ms"], correct=contains(r["text"], q["gold"]) and not stale,
-                 stale_answer=bool(stale))
+        right = names_note(r["text"], q["gold"], gold_id) if q.get("shelf") else contains(r["text"], q["gold"])
+        d.update(answer=r["text"][:400], ms=r["ms"], correct=right and not stale, stale_answer=bool(stale))
         return d
 
 

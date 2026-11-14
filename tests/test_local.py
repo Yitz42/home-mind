@@ -100,9 +100,9 @@ def main():
         call(f"/api/item/{b['id']}/restore", {})
 
         # unkeyed change: newest first, older marked
-        call("/api/remember", {"text": "The Vellum shed padlock is set to 3381.", "shelf": "house"})
+        call("/api/remember", {"text": "The Vellum shed padlock is set to 3381.", "shelf": "house", "kind": "fact"})
         call("/api/remember", {"text": "Garden hose is in the shed."})
-        _, nw = call("/api/remember", {"text": "Change: Vellum shed padlock now opens with 5512.", "shelf": "house"})
+        _, nw = call("/api/remember", {"text": "Change: Vellum shed padlock now opens with 5512.", "shelf": "house", "kind": "fact"})
         _, hits = call("/api/recall?q=Vellum%20shed%20padlock")
         check("unkeyed change: newest first", hits and hits[0]["id"] == nw["id"], [h["title"] for h in hits])
         check("older note marked with the newer id", any(h.get("newer") == nw["id"] for h in hits[1:]), hits)

@@ -305,6 +305,7 @@ class Store:
     BM25 = "4.0, 1.0, 2.0, 1.5"  # weights for title, body, tags, shelf
     COVER_POW = 0.0      # weight by distinctive-word coverage (tested: no gain over BM25, so off)
     CLUSTER = True       # newest first among results that match the query on the same distinctive words
+    CLUSTER_KINDS = ("fact",)  # only facts are replaced by newer ones; notes and ideas add up
     RARE_SHARE = 0.1     # a word is distinctive if it is in at most this share of items (or at most 3)
     COMMON_SHARE = 0.25  # words in more than this share of items are left out of the cluster key
 
@@ -341,7 +342,7 @@ class Store:
         for row in out:
             m = matched.get(row[2]["id"], set())
             key = frozenset(m - self._common)
-            if not (key & self._rare):
+            if not (key & self._rare) or row[2]["kind"] not in self.CLUSTER_KINDS:
                 order.append([row])
                 continue
             if key not in groups:
