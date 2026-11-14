@@ -10,7 +10,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from . import suites
 from .store import Store, names_in, words
@@ -59,16 +59,77 @@ def asked(store, question):
     return question if fixed == question else f"{question} (in memory this is spelled: {fixed})"
 
 
-def context_lines(hits):
-    """Current notes first. Notes the brain takes to be older versions of a fact go in their own section, marked
-    replaced, so a small model can't pick an old value by mistake (Haiku didn't need this; qwen 4b/9b did)."""
-    cur = [note_line(h) for h in hits if not h.get("newer")]
-    old = [note_line(h) for h in hits if h.get("newer")]
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def asked_time(question, now):
+    """The moment a question asks about, if it names one: 'yesterday', 'last/on <weekday>', 'N days ago'. Returns the
+    end of that day (as a timestamp) and a label, or None."""
+    q = (question or "").lower()
+    today = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0)
+    nums = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+    day = None
+    if re.search(r"\byesterday\b", q):
+        day = today - timedelta(days=1)
+    m = re.search(r"\b(\d+|one|two|three|four|five|six|seven) days? ago\b", q)
+    if m:
+        day = today - timedelta(days=int(nums.get(m.group(1), m.group(1))))
+    for i, wd in enumerate(WEEKDAYS):
+        if re.search(rf"\b(?:last|on|this past) {wd}\b", q):
+            back = (today.weekday() - i) % 7 or 7
+            day = today - timedelta(days=back)
+    if day is None:
+        return None
+    return (day + timedelta(days=1)).timestamp(), day.strftime("%a %b %d")
+
+
+def context_lines(hits, question=None, now=None):
+    """What the model sees, built so a small model can't pick the wrong version:
+      - current notes first; older versions of a fact in a REPLACED section, counted ("2 changes ago");
+      - an older note with more than one detail ("in the garage and its code is 4417") stays current, marked as
+        partly updated, since the newer note may only change one of its details;
+      - if the question asks about a day ("yesterday", "last Tuesday"), the version current then is marked."""
+    leads = {}
+    for h in hits:
+        if h.get("newer"):
+            leads.setdefault(h["newer"], []).append(h)
+    for olds in leads.values():
+        olds.sort(key=lambda h: h["created"], reverse=True)
+        for k, h in enumerate(olds, 1):
+            h["_ago"] = k
+    mark = None
+    at = asked_time(question, now) if question and now else None
+    if at:
+        cutoff, label = at
+        groups = [[h] + leads.get(h["id"], []) for h in hits if not h.get("newer")]
+        mark = {}
+        for g in groups:
+            before = [h for h in g if h["created"] < cutoff]
+            if before and len(g) > 1:      # only versions of one fact need telling apart
+                mark[max(before, key=lambda h: h["created"])["id"]] = label
+    def partly(h):
+        body = (h.get("body") or "").strip().rstrip(".")
+        return bool(re.search(r"\band\b|;|\.\s+\S", body))
+    cur, old = [], []
+    for h in hits:
+        line = note_line(h)
+        if mark and h["id"] in mark:
+            line += f"  <- this was the current note on {mark[h['id']]}"
+        if h.get("newer") and partly(h):
+            line = line.replace(f"  (replaced by #{h['newer']})",
+                                f"  (partly updated by #{h['newer']}; details #{h['newer']} doesn't mention still hold)")
+            cur.append(line)
+        elif h.get("newer"):
+            old.append(line.replace(f"  (replaced by #{h['newer']})",
+                                    f"  (replaced by #{h['newer']}; {h['_ago']} change{'s' if h['_ago'] > 1 else ''} ago)"))
+        else:
+            cur.append(line)
     if any(h.get("disagrees") for h in hits):
         cur.insert(0, "DISAGREEMENT: different people said different things below. Give each value and who said it.")
     if not old:
         return "\n".join(cur)
-    return "\n".join(cur) + "\n\nREPLACED (older versions of the facts above; use only if asked what it used to be):\n" + "\n".join(old)
+    return "\n".join(cur) + "\n\nREPLACED (older versions of the facts above, newest first; use only if asked what " \
+        "it was before or on an earlier day):\n" + "\n".join(old)
 
 
 def note_line(h):
@@ -148,7 +209,7 @@ class Mind:
         hits, _ = await self.search(store, question, k, shelf, model, expand)
         hits = about_names(store.fix_typos(question), hits)
         procs = [p for p in store.recall(question, kind="procedure", limit=2, touch=False) if p["score"] > 0.5]
-        return hits, procs, context_lines(hits)
+        return hits, procs, context_lines(hits, question, store.clock())
 
     async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False):
         store = store or self.store
@@ -236,9 +297,10 @@ class Mind:
         arm, model = run["arm"], run["model"]
         try:
             # 1. tell it the world (events an hour apart, so newer means newer)
-            refs["__until__"] = {}
+            refs["__until__"], refs["__time__"] = {}, {}
             for ev in world["events"]:
                 clock["t"] += 3600
+                refs["__time__"][ev.get("ref")] = clock["t"]
                 if "{until}" in ev["text"]:
                     q = next((q for q in world["questions"] if q.get("ref") == ev["ref"] and q.get("temporal")), None)
                     until = clock["t"] + (q["temporal"]["days"] if q else 1) * 86400
@@ -312,6 +374,9 @@ class Mind:
             q = dict(q, gold=t["during"] if sb.clock() < until else t["after"],
                      stale=[t["after"] if sb.clock() < until else t["during"]])
             d["gold"] = q["gold"]
+        if q.get("timeq"):
+            q = dict(q, **time_truth(q, refs["__time__"], sb.clock()))
+            d["q"], d["gold"] = q["q"], q["gold"]
         gold_id = refs.get(q.get("ref"))
         stale_ids = {refs.get(x) for x in q.get("stale_refs", [])} - {None}
         if arm in ("brain", "model+brain"):
@@ -342,11 +407,15 @@ class Mind:
                     ok = need <= set(ids[:3 if typ == "conflict" else 5])
                 elif typ == "temporary": # the temporary note (which says until when) must come first
                     ok = rank == 1
+                elif typ == "when_changed":  # the newest change must come first (its date is the answer)
+                    ok = rank == 1
+                elif typ in ("yesterday", "past_day", "many_back", "partial_code"):
+                    ok = bool(rank and rank <= 5)   # the right version must be there; picking it needs dates/counting
                 else:
                     ok = bool(top) and contains(text, q["gold"])
                 d.update(answer=text[:300], correct=ok)
                 return d
-            ctx = context_lines(about_names(sb.fix_typos(q["q"]), hits))
+            ctx = context_lines(about_names(sb.fix_typos(q["q"]), hits), q["q"], sb.clock())
             content, sysmsg = (f"TODAY: {_ts(sb.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {asked(sb, q['q'])}",
                                ANSWER_SYSTEM)
         elif arm == "model+context":
@@ -362,11 +431,34 @@ class Mind:
         elif q.get("shelf"):
             right = names_note(r["text"], q["gold"], gold_id)
         else:
-            right = contains(r["text"], q["gold"])
+            right = any(contains(r["text"], g) for g in [q["gold"]] + q.get("also", []))
         # stale: gives an old value instead of the new one (mentioning the old one as replaced is fine)
         stale = not right and any(contains(r["text"], s) and not contains(s, q["gold"]) for s in q.get("stale", []))
         d.update(answer=r["text"][:400], ms=r["ms"], correct=right, stale_answer=stale)
         return d
+
+
+def time_truth(q, times, now):
+    """The right answer to a time question, from when each version was actually stored."""
+    t = q["timeq"]
+    today = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0)
+    if t["kind"] == "when":
+        when = datetime.fromtimestamp(times[t["ref"]])
+        golds = [when.strftime("%A"), when.strftime("%b %d").replace(" 0", " "), when.strftime("%Y-%m-%d")]
+        days = (today - when.replace(hour=0, minute=0, second=0, microsecond=0)).days
+        golds += ["today"] if days == 0 else ["yesterday"] if days == 1 else []
+        return {"gold": golds[0], "also": golds[1:], "stale": []}
+    if t["kind"] == "yesterday":
+        cutoff, q_text = today, q["q"]
+    else:
+        day = today - timedelta(days=t["back"])
+        cutoff, q_text = day + timedelta(days=1), q["q"].replace("{weekday}", "last " + day.strftime("%A"))
+    vals = [(times[r], v, r) for r, v in t["versions"]]
+    before = [x for x in vals if x[0] < cutoff.timestamp()]
+    if not before:
+        return {"q": q_text, "gold": None, "unknown": True, "stale": [v for _, v, _ in vals]}
+    tt, v, r = max(before)
+    return {"q": q_text, "gold": v, "ref": r, "stale": [x[1] for x in vals if x[1] != v]}
 
 
 def summarize(details, run, secs, n_events):

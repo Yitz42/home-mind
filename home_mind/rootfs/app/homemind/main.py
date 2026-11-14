@@ -95,6 +95,8 @@ class App:
                                  ". Restart Home Assistant, then add it under Settings > Devices & services > Add "
                                  "integration > Home Mind Bridge. It will show the address to link Claude to.",
                                  "home_mind_bridge")
+        # build the word list for typo/sound repair now, so the first question doesn't wait for it
+        await asyncio.get_running_loop().run_in_executor(None, self.mind.store.vocab)
         self.tasks = [asyncio.create_task(self.upkeep())]
         log.info("Home Mind %s up on port %s (bridge: %s)", VERSION, PORT, self.bridge)
 

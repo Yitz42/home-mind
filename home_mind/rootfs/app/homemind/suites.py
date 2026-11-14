@@ -523,7 +523,103 @@ def tricky2(seed, n=4):
     return {"events": events, "questions": questions}
 
 
-SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2}
+# ---- hard: time, many versions, partial updates, details, long gaps ------------------------------------------------
+LOCKER_SAY = ["The code for the {s} is {v}.", "The {s} opens with {v}.", "Set the {s} combination to {v}.",
+              "Changed the {s} code to {v}.", "New code for the {s}: {v}."]
+
+
+def hard(seed, n=3, noise=300):
+    """Types: yesterday, past_day, when_changed, many_now, many_back, partial_code, partial_where, by_detail,
+    long_gap. Answers that depend on time are worked out by the runner from when each note was stored
+    (q['timeq']). Events: early ones are placed at the start, 'today' ones near the end, the rest mixed with chatter."""
+    rng = random.Random(seed)
+    used, early, late, middle, questions = set(), [], [], [], []
+    rooms = list(ROOMS)
+    rng.shuffle(rooms)
+
+    def fresh():
+        while True:
+            nm = name(rng)
+            if nm not in used:
+                used.add(nm)
+                return nm
+
+    def code(prev=()):
+        while True:
+            c = str(rng.randint(1000, 9999))
+            if c not in prev:
+                return c
+
+    def ev(text, ref):
+        return {"op": "remember", "text": text, "kind": "fact", "ref": ref}
+
+    for i in range(n):
+        # yesterday: an old value early, changed again near the end ("today")
+        s = f"{fresh()} locker"; a = code(); b = code([a])
+        early.append(ev(LOCKER_SAY[0].format(s=s, v=a), f"yA{i}"))
+        late.append(ev("Update: " + LOCKER_SAY[3].format(s=s, v=b), f"yB{i}"))
+        questions.append({"type": "yesterday", "q": f"What was the code for the {s} yesterday?", "gold": None,
+                          "timeq": {"kind": "yesterday", "versions": [[f"yA{i}", a], [f"yB{i}", b]]}, "stale": [],
+                          "ref": f"yA{i}"})
+        # a past day: four versions spread over the days
+        s = f"{fresh()} locker"; vals = []
+        for j in range(4):
+            vals.append(code(vals))
+        thread = [ev(LOCKER_SAY[j % len(LOCKER_SAY)].format(s=s, v=v), f"pd{i}v{j}") for j, v in enumerate(vals)]
+        middle.append(thread)
+        questions.append({"type": "past_day", "q": f"What was the code for the {s} {{weekday}}?", "gold": None,
+                          "timeq": {"kind": "weekday", "back": rng.randint(2, 6),
+                                    "versions": [[f"pd{i}v{j}", v] for j, v in enumerate(vals)]},
+                          "stale": [], "ref": f"pd{i}v0"})
+        # when did it last change?
+        s = f"{fresh()} locker"; a = code(); b = code([a])
+        middle.append([ev(LOCKER_SAY[0].format(s=s, v=a), f"wcA{i}"), ev("Update: " + LOCKER_SAY[3].format(s=s, v=b), f"wcB{i}")])
+        questions.append({"type": "when_changed", "q": f"When did I last change the code for the {s}?", "gold": None,
+                          "timeq": {"kind": "when", "ref": f"wcB{i}"}, "stale": [], "ref": f"wcB{i}"})
+        # many versions
+        s = f"{fresh()} locker"; vals = []
+        for j in range(15):
+            vals.append(code(vals))
+        middle.append([ev(("Update: " if j else "") + LOCKER_SAY[j % len(LOCKER_SAY)].format(s=s, v=v), f"mv{i}v{j}")
+                       for j, v in enumerate(vals)])
+        questions.append({"type": "many_now", "q": f"What is the code for the {s}?", "gold": vals[-1],
+                          "ref": f"mv{i}v14", "stale": vals[:-1]})
+        questions.append({"type": "many_back", "q": f"What was the code for the {s} three changes ago?",
+                          "gold": vals[-4], "ref": f"mv{i}v11", "stale": [vals[-1], vals[-2], vals[-3]]})
+        # partial update: one note with two details, then only one of them changes
+        s = f"{fresh()} locker"; r1, r2 = rooms.pop(), rooms.pop(); c = code()
+        middle.append([ev(f"The {s} is in the {r1} and its code is {c}.", f"pt{i}a"), ev(f"Moved the {s} to the {r2}.", f"pt{i}b")])
+        questions.append({"type": "partial_code", "q": f"What is the code for the {s}?", "gold": c, "ref": f"pt{i}a",
+                          "stale": []})
+        questions.append({"type": "partial_where", "q": f"Where is the {s} now?", "gold": r2, "ref": f"pt{i}b",
+                          "stale": [r1]})
+        # found by a detail, no name in the question
+        s = f"{fresh()} locker"; r = rooms.pop(); c = code()
+        middle.append([ev(f"The {s} in the {r} opens with {c}.", f"bd{i}")])
+        questions.append({"type": "by_detail", "q": f"What opens the locker in the {r}?", "gold": c, "ref": f"bd{i}",
+                          "stale": []})
+        # long gap: told first, asked after everything else
+        s = f"{fresh()} locker"; c = code()
+        early.insert(0, ev(LOCKER_SAY[1].format(s=s, v=c), f"lg{i}"))
+        questions.append({"type": "long_gap", "q": f"What number opens the {s}?", "gold": c, "ref": f"lg{i}", "stale": []})
+    # similar facts about other lockers, and chatter
+    for k in range(noise // 6):
+        middle.append([ev(LOCKER_SAY[k % len(LOCKER_SAY)].format(s=f"{fresh()} locker", v=code()), f"sim{k}")])
+    for k in range(noise - noise // 6):
+        middle.append([{"op": "remember", "text": rng.choice(CHATTER), "kind": "note", "ref": f"ch{k}"}])
+    mixed, live = [], [list(t) for t in middle]
+    while live:
+        t = rng.choice(live)
+        mixed.append(t.pop(0))
+        if not t:
+            live.remove(t)
+    rng.shuffle(late)
+    events = early + mixed + late
+    rng.shuffle(questions)
+    return {"events": events, "questions": questions}
+
+
+SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard}
 SUITE_INFO = {
     "recall": "facts told once, asked later in other words",
     "update": "facts that change; the newest must win",
@@ -534,4 +630,6 @@ SUITE_INFO = {
               "never mentioned, negation, typos, chatter; scored per type",
     "tricky2": "sound-alike names, sound-alike pairs, temporary facts, most recent, conflicting people, number formats, "
                "two facts combined; scored per type",
+    "hard": "time (yesterday, a past day, when it changed), 15 versions, partial updates, found by a detail, a long gap "
+            "with ~300 other notes; scored per type",
 }

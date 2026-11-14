@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.2 — 2026-11-14
+- Versions of a fact are grouped by the name plus the word right after it ("Bexbel locker", "Nimsk fern"), so
+  differently worded updates stay together and the same name on another thing stays apart. Brain only, held-out:
+  recall 99.7% -> 100%, 20 changing facts 97% -> 100%.
+- Models see version counts ("replaced by #N; 2 changes ago"), and for questions about a day ("yesterday",
+  "last Tuesday", "3 days ago") the version current then is marked.
+- An older note with two details ("in the garage and its code is 4417") is shown as partly updated, not replaced,
+  when a newer note changes only one of them.
+- Typo repair no longer changes ordinary words whose start is known ("changes" was becoming "changed").
+- Pronoun linking: a sentence starting with "It" links only if it carries an update ("It rained" no longer links).
+- Speed at 50,000 notes: questions 13-41 ms; a typo question after a new note 639 ms -> 19 ms (the word list is
+  updated as notes arrive and built at start-up).
+- New test suite "hard": yesterday, a past day, when it changed, 15 versions, partial updates, found by a detail,
+  a long gap among ~300 notes. Brain only, held-out: 77% -> 99%. tests/scale.py measures speed and accuracy at N notes.
+
 ## 0.4.1 — 2026-11-14
 - Models see disagreements spelled out: a DISAGREEMENT line and "(disagrees with #N)" on each note, when different
   people said different things about one thing (qwen 4b gave only one value with both notes in front of it).

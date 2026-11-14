@@ -97,6 +97,16 @@ SPEAKER = re.compile(r"\b([A-Z][a-z]+)\s+(?:says|said|thinks|thought|told me|men
 FOLLOW = re.compile(r"\b(whoever|whose|of the (?:person|one|guy|woman|man)|(?:person|one|guy|woman|man) who)\b", re.I)
 
 
+def thing_word(text, anchor):
+    """The word right after a name ("Bexbel locker", "Nimsk fern's", "Kate's bike"): what the name is attached to.
+    Notes that share the name and this word are about the same thing, however they're worded."""
+    m = re.search(rf"\b{re.escape(anchor)}(?:'s)?\s+([A-Za-z]+)", text or "", re.I)
+    if not m:
+        return None
+    w = m.group(1).lower()
+    return None if w in STOP else w
+
+
 def speaker(text):
     m = SPEAKER.search(text or "")
     return m.group(1).lower() if m else None
@@ -111,6 +121,10 @@ def sound_key(w):
 
 
 PRONOUN = re.compile(r"\b(its|their)\b|(?:^|[.;!?]\s+)(it|it's|it is|there|there's|this one|that one)\b", re.I)
+OWNER = re.compile(r"\b(its|their)\b", re.I)
+# a sentence that starts with "It" is an update only if it carries one ("It's in the shed now", "It opens with 4417");
+# "It rained all afternoon" is not
+UPDATE_HINT = re.compile(r"\d|\b(now|moved|changed|set|updated|switched|replaced|opens|is in|is at|is on|lives)\b", re.I)
 
 
 def edit_distance(a, b, cap=3):
@@ -213,7 +227,9 @@ class Store:
         shelf, tags = clean_shelf(shelf), clean_tags(tags)
         now = self.clock()
         m0 = dict(meta or {})
-        if self.LINK_PRONOUNS and PRONOUN.search(text + " " + title) and not names_in(text) and kind != "procedure":
+        both = text + " " + title
+        if self.LINK_PRONOUNS and PRONOUN.search(both) and (OWNER.search(both) or UPDATE_HINT.search(both)) \
+                and not names_in(text) and kind != "procedure":
             # "Changed its code to 8812" names nothing: it is about whatever was just mentioned. Link it to the note
             # right before it (if recent), so it can be found under that thing's name.
             prev = self.db.execute("SELECT id, title, created FROM items WHERE kind != 'procedure' "
@@ -239,6 +255,7 @@ class Store:
             if old:
                 self.db.execute("UPDATE items SET status='superseded', updated=? WHERE id=?", (now, old["id"]))
             self.db.commit()
+        self._vocab_add(title, text, tags, new_id)
         out = {"id": new_id, "action": "updated" if old else "created", "shelf": shelf}
         if old:
             out["previous"] = {"id": old["id"], "title": old["title"], "body": old["body"]}
@@ -297,6 +314,19 @@ class Store:
             self._caps = {w: v[w] for w in caps if w in v and w not in STOP}
         return self._vocab
 
+    def _vocab_add(self, title, body, tags, new_id):
+        """Keep the cached word list current as notes arrive, instead of rebuilding it (at 50,000 notes a rebuild
+        after every new note cost ~0.6 s on the next question)."""
+        if getattr(self, "_vocab", None) is None or self._vocab_n != new_id - 1:
+            return
+        for w in set(words(" ".join([title, body, tags]))):
+            self._vocab[w] = self._vocab.get(w, 0) + 1
+        for w in re.findall(r"\b[A-Z][a-z]+(?:'s)?", title + " " + body):
+            lw = w.lower().split("'")[0]
+            if lw in self._vocab and lw not in STOP:
+                self._caps[lw] = self._vocab[lw]
+        self._vocab_n = new_id
+
     def fix_typos(self, query):
         """Words in the question that appear nowhere in memory, replaced by the stored word one letter away (two for
         long words), if there is one. Capitals are kept so names stay names. 'Ranvn toolbox' -> 'Ranven toolbox'."""
@@ -311,6 +341,8 @@ class Store:
             short = 3 if lw in names else 4         # names can be short ("Lsk" for "Losk")
             if lw in STOP or len(lw) < short or lw in vocab or not lw.isalpha():
                 return w
+            if lw not in names and any(v.startswith(lw[:4]) for v in vocab):
+                return w        # an ordinary word with a known start ("changes", "changed"): search matches endings
             cap = 1 if len(lw) < 7 else 2
 
             pool = self._caps if lw in names and self._caps else vocab   # a name is repaired to a stored name
@@ -344,6 +376,7 @@ class Store:
     def recall(self, query, shelf=None, kind=None, limit=5, include_old=False, touch=True, newest_first_ties=True):
         """Ranked items for a query. Old versions and archived items are left out unless include_old."""
         query = re.sub(r"(?<=\d)[,_](?=\d{3}\b)", "", self.fix_typos(query or ""))   # 4,417 -> 4417
+        self._query = query
         ws = words(query)
         statuses = ("active", "faded", "superseded") if include_old else ("active", "faded")
         where = [f"i.status IN ({','.join('?' * len(statuses))})"]
@@ -459,14 +492,18 @@ class Store:
         for w in dict.fromkeys(ws):
             if self.fts:
                 try:
-                    # whole words only: a prefix ("log" in "Logor") must not look like a rare match
-                    hit = {x[0] for x in self.db.execute("SELECT rowid FROM items_fts WHERE items_fts MATCH ?",
-                                                          (f'"{w}"',))}
+                    # whole words only: a prefix ("log" in "Logor") must not look like a rare match.
+                    # Count all notes with the word, but fetch ids only among the candidates (fast at 50,000 notes).
+                    df_all = self.db.execute("SELECT COUNT(*) FROM items_fts WHERE items_fts MATCH ?",
+                                             (f'"{w}"',)).fetchone()[0]
+                    hit = {x[0] for x in self.db.execute(
+                        f"SELECT rowid FROM items_fts WHERE items_fts MATCH ? AND rowid IN ({','.join('?' * len(ids))})",
+                        [f'"{w}"'] + list(ids))} if ids and df_all else set()
                 except sqlite3.OperationalError:
                     continue
             else:
                 hit = {r["id"] for r in rows if w in words(" ".join([r["title"], r["body"], r["tags"], r["shelf"]]))}
-            df = len(hit)
+            df = df_all if self.fts else len(hit)
             if not df:
                 continue
             dfs[w] = df
@@ -489,16 +526,21 @@ class Store:
         anchor = max(named or present, key=lambda w: idf[w], default=None)
         if anchor is None:
             return out, {}
-        group, ref, ref_speaker = [], None, None
+        group, ref, ref_speaker, ref_thing = [], None, None, None
+        q_thing = thing_word(getattr(self, "_query", ""), anchor)
         for row in out:
             r = row[2]
             m = matched.get(r["id"], set()) - self._common
             if r["kind"] not in self.CLUSTER_KINDS or anchor not in m:
                 continue
+            thing = thing_word(r["title"] + " " + r["body"], anchor)
+            if q_thing and thing and thing != q_thing:
+                continue            # the same name on a different thing (the Ranven toolbox, not the locker)
             if ref is None:
-                ref, ref_speaker = m, speaker(r["title"] + " " + r["body"])
+                ref, ref_speaker, ref_thing = m, speaker(r["title"] + " " + r["body"]), thing
                 group.append(row)
-            elif len(m & ref) / max(len(m), len(ref)) >= self.CLUSTER_OVERLAP:
+            elif (thing and ref_thing and thing == ref_thing) or \
+                    len(m & ref) / max(len(m), len(ref)) >= self.CLUSTER_OVERLAP:
                 sp = speaker(r["title"] + " " + r["body"])
                 if sp and ref_speaker and sp != ref_speaker:
                     # what two different people said: both stand, neither replaces the other
