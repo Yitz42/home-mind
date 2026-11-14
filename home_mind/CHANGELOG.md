@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.4
+- Gathered lists come with worked-out lines for small models: which things are in the place asked about, which changed in the stretch asked about, the count (or, for one named thing, how many times it changed), the most recent and the oldest, which have no code yet.
+- A question naming something no note mentions is told so plainly (and whether it was forgotten); other things' notes are no longer grouped as its versions.
+- Typo repair leaves forgotten names alone instead of turning them into other names.
+
 ## 0.8.3
 - Fix: a note about a whole group ("changed all the cabinet codes") was dropped from the model's context by the name filter, so models saw only the replaced value. It now stays, marked as applying to the thing asked about.
 

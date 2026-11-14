@@ -313,6 +313,7 @@ class Store:
         with self.lock:
             self.db.execute("UPDATE items SET status=?, updated=? WHERE id=?", (status, self.clock(), item_id))
             self.db.commit()
+        self._vocab_n = None        # the word list changes when something is archived or restored
         self.log("status", item_id, status=status)
         return {"id": item_id, "status": status}
 
@@ -349,6 +350,12 @@ class Store:
                 caps.update(w.lower().split("'")[0] for w in re.findall(r"\b[A-Z][a-z]+(?:'s)?", r[0] + " " + r[1]))
             self._vocab, self._vocab_n = v, n
             self._caps = {w: v[w] for w in caps if w in v and w not in STOP}
+            # names that only appear in forgotten notes: a question naming one is about that (forgotten) thing,
+            # not a typo for some other name
+            gone = set()
+            for r in self.db.execute("SELECT title, body FROM items WHERE status='archived'"):
+                gone.update(w.lower().split("'")[0] for w in re.findall(r"\b[A-Z][a-z]+(?:'s)?", r[0] + " " + r[1]))
+            self._gone = {w for w in gone if w not in v and w not in STOP}
         return self._vocab
 
     def _vocab_add(self, title, body, tags, new_id):
@@ -493,7 +500,7 @@ class Store:
             w = m.group(0)
             lw = w.lower()
             short = 3 if lw in names else 4         # names can be short ("Lsk" for "Losk")
-            if lw in STOP or len(lw) < short or lw in vocab or not lw.isalpha():
+            if lw in STOP or len(lw) < short or lw in vocab or not lw.isalpha() or lw in getattr(self, "_gone", ()):
                 return w
             if lw not in names and any(v.startswith(lw[:4]) for v in vocab):
                 return w        # an ordinary word with a known start ("changes", "changed"): search matches endings
@@ -688,6 +695,8 @@ class Store:
         # a name in the question (a capitalized word that doesn't start it) is what the question is about; a rare
         # word that is part of a value ("laundry room") is not. Names first, then the rarest word.
         named = [w for w in present if w in names]
+        if names and not named:
+            return out, {}      # the question names something no result mentions: nothing here is a version of it
         anchor = max(named or present, key=lambda w: idf[w], default=None)
         if anchor is None:
             return out, {}

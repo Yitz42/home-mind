@@ -173,9 +173,49 @@ def gathered_lines(store, question, now):
         rows.append((newest["created"], line))
         ids += [h["id"] for h in notes]
     rows.sort(reverse=True)
+    # worked out here so a small model doesn't have to filter, count or compare by reading
+    facts = []
+    named = {nm: notes for nm, notes in things.items() if [h for h in notes if not h.get("instruction")]}
+    newest = {nm: [h for h in notes if not h.get("instruction")][0] for nm, notes in named.items()}
+    first = {nm: [h for h in notes if not h.get("instruction")][-1] for nm, notes in named.items()}
+    cap = lambda xs: ", ".join(x.capitalize() for x in xs) or "none"
+    ql = question.lower()
+    m = re.search(r"\b(?:in|at|on) the ([a-z]+(?: [a-z]+)?)\b", ql)
+    if m and m.group(1) not in (g["noun"], g["noun"] + "s"):
+        place = m.group(1)
+        inside = [nm for nm, h in newest.items() if re.search(rf"\b{re.escape(place)}\b", (h["body"] or "").lower())]
+        facts.append(f"Whose newest note puts it in the {place}: {cap(inside)}. "
+                     f"Everything else is somewhere else now: {cap([n for n in newest if n not in inside])}.")
+    if rng:
+        changed = [nm for nm, notes in named.items()
+                   if any(rng[0] <= h["created"] < rng[1] for h in notes if h is not notes[-1])]
+        noted = [nm for nm, notes in named.items() if any(rng[0] <= h["created"] < rng[1] for h in notes)]
+        facts.append(f"Changed {rng[2]} (a later note, not the first one): {cap(changed)}. Not changed {rng[2]}: "
+                     f"{cap([n for n in named if n not in changed])}." + (
+                         f" Any note at all {rng[2]}: {cap(noted)}." if noted != changed else ""))
+    asked_names = [n for n in names_in(store.fix_typos(question)) if n in named]
+    if re.search(r"\bhow many\b", ql) and asked_names:
+        for n in asked_names:
+            k = len(named[n])
+            facts.append(f"The {n.capitalize()} {g['noun']} has {k} note{'s' if k != 1 else ''}: the first set it, so it "
+                         f"was changed {k - 1} time{'s' if k - 1 != 1 else ''} after that.")
+    elif re.search(r"\bhow many\b", ql):
+        facts.append(f"Count: {len(named)} {g['noun']}{'s' if len(named) != 1 else ''} ({cap(named)}).")
+    if re.search(r"\b(most recent|most recently|latest|last)\b", ql) and newest:
+        nm = max(newest, key=lambda n: newest[n]["created"])
+        facts.append(f"Most recently changed: {nm.capitalize()} ({_ts(newest[nm]['created'])}).")
+    if re.search(r"\b(longest ago|oldest|first|earliest)\b", ql) and first:
+        nm = min(first, key=lambda n: first[n]["created"])
+        facts.append(f"Noted longest ago: {nm.capitalize()} (first noted {_ts(first[nm]['created'])}).")
+    if re.search(r"\b(don'?t|do not|doesn'?t|without|no)\b.*\b(code|password)\b", ql):
+        lack = [nm for nm, h in newest.items() if re.search(r"\bno (code|password)|not set|none yet\b", h["body"].lower())]
+        facts.append(f"Newest note says no {('code' if 'code' in ql else 'password')} yet: {cap(lack)}.")
     head = (f"GATHERED: all {len(rows)} things called \"<name> {g['noun']}\" in memory, most recently changed first"
             + (f"; the question asks about {rng[2]}" if rng else "") + ":")
-    return "\n".join([head] + [r for _, r in rows]), ids
+    out = [head] + [r for _, r in rows]
+    if facts:
+        out = ["WORKED OUT FROM THE LIST BELOW (use these):"] + ["- " + f for f in facts] + [""] + out
+    return "\n".join(out), ids
 
 
 def build_context(store, question, hits):
@@ -183,7 +223,15 @@ def build_context(store, question, hits):
     notes found."""
     now = store.clock()
     gtext, gids = gathered_lines(store, question, now)
-    ctx = context_lines(about_names(store.fix_typos(question), hits), question, now)
+    fixed = store.fix_typos(question)
+    ctx = context_lines(about_names(fixed, hits), question, now)
+    missing = [n for n in names_in(fixed)
+               if not any(n in words(h.get("title", "") + " " + h.get("body", "")) for h in hits)]
+    if missing:
+        gone = getattr(store, "_gone", set())
+        ctx = (f"NOTHING in memory mentions {', '.join(n.capitalize() for n in missing)}"
+               + (" (it was forgotten)" if any(n in gone for n in missing) else "")
+               + ". The notes below are about other things: do not answer from them.\n\n" + (ctx or ""))
     if gtext:
         ctx = gtext + "\n\nNOTES FOUND:\n" + (ctx or "(none)")
     return ctx, gids
