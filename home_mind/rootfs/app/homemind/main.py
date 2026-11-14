@@ -16,6 +16,7 @@ from .home import Home, plan_action
 from .automations import Engine
 from .journal import Journal
 from .calendars import Calendars
+from .morning import Morning
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -34,7 +35,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "update_url": "https://raw.githubusercontent.com/Yitz42/home-mind/main/packs/manifest.json",
             "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info", "comfort": True,
             "home": True, "home_controls": [], "home_fan_max": 100,
-            "fallback": ["haiku"], "voice_seconds": 8}
+            "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": ""}
 
 
 def load_options():
@@ -100,6 +101,11 @@ class App:
         self.journal = Journal(self.mind.store, self.models)
         self.calendars = Calendars(self.mind.store, self.ha)
         self._mark_secrets()
+        self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
+                               self.opts.get("morning_notify") or "")
+        mt = self.morning.at
+        if (datetime.now().hour, datetime.now().minute) >= mt:
+            self.morning.done_for = datetime.now().date()      # started after the time: wait for tomorrow
         self.mind.calendars = self.calendars
         if datetime.now().hour * 60 + datetime.now().minute >= 23 * 60 + 30:
             self.journal.done_for = datetime.now().date()     # started after 23:30: don't summarize at once
@@ -204,6 +210,8 @@ class App:
                                       "automations_run": sorted(e for e in self.engine.owned
                                                                 if self.engine.autos.get(e, {}).get("ha_state") != "on")})
             await self.journal.tick()
+            if self.ha.available:
+                await self.morning.tick()
             if self.ha.available and now - last.get("cal", 0) > 3600:
                 last["cal"] = now
                 try:
@@ -495,6 +503,14 @@ def build(app_state):
         except (ValueError, RuntimeError) as e:
             return J({"error": str(e)}, status=400)
         return J({"error": f"unknown op {op}"}, status=404)
+
+    @r.get("/api/morning")
+    async def morning_preview(q):
+        return J({"text": A.morning.build(float(q.query.get("hours", 24)))})
+
+    @r.post("/api/morning/send")
+    async def morning_send(_):
+        return J(await A.morning.send())
 
     @r.post("/api/journal/summarize")
     async def journal_sum(q):

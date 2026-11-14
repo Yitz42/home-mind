@@ -39,6 +39,8 @@ options:
   fallback:
     - haiku
   voice_seconds: 8
+  morning_time: "07:30"
+  morning_notify: ""
 schema:
   models:
     - name: str
@@ -61,3 +63,5 @@ schema:
   fallback:
     - str
   voice_seconds: int(2,60)
+  morning_time: str
+  morning_notify: str?

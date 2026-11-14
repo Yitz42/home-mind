@@ -37,5 +37,11 @@ configuration:
   voice_seconds:
     name: Voice time limit (seconds)
     description: The longest a voice question may take before Home Mind falls back.
+  morning_time:
+    name: Morning summary time
+    description: When to send the daily summary of what was filed (HH:MM, 24-hour).
+  morning_notify:
+    name: Morning summary goes to
+    description: A notify service such as notify.mobile_app_my_phone. Empty = your first phone in the Home Assistant app.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.
