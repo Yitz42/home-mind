@@ -18,7 +18,9 @@ from .store import Store, names_in, words
 ANSWER_SYSTEM = ("You answer questions using the memory notes given to you. Each note has a date. When two notes give "
                  "different values for the same thing, the newer one is true now; separate notes about different things "
                  "do not replace each other. Notes may use other words than the question for the same thing (a planter is "
-                 "a flower box; 'ask X' means X is involved). If the notes do not hold the answer, say you don't know. "
+                 "a flower box; 'ask X' means X is involved). If the newest note says a thing was removed, is gone or "
+                 "should be forgotten, say that instead of giving an old value. If the notes do not hold the answer, say "
+                 "you don't know. "
                  "Answer in one short sentence and include the exact value, name or title asked for.")
 CONTEXT_SYSTEM = ("You answer questions using the log of things you were told, oldest first. Later entries replace "
                   "earlier ones about the same thing. If the log does not hold the answer, say you don't know. Answer in "

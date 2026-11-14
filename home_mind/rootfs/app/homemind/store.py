@@ -288,7 +288,8 @@ class Store:
         def fix(m):
             w = m.group(0)
             lw = w.lower()
-            if lw in STOP or len(lw) < 4 or lw in vocab or not lw.isalpha():
+            short = 3 if w[0].isupper() else 4      # names can be short ("Lsk" for "Losk")
+            if lw in STOP or len(lw) < short or lw in vocab or not lw.isalpha():
                 return w
             cap = 1 if len(lw) < 7 else 2
             best = sorted(((edit_distance(lw, v, cap), -n, v) for v, n in vocab.items()

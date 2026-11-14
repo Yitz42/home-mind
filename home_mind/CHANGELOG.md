@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.6 — 2026-11-14
+- Answer instructions: if the newest note says a thing was removed or is gone, say so instead of an old value.
+- Typo repair also handles short capitalized names ("Lsk" -> "Losk").
+- Tricky test: qwen 4b + brain 82% -> 97.7% on two worlds with 0.3.5; brain alone 100% on held-out worlds.
+
 ## 0.3.5 — 2026-11-14
 - Typos in questions: a word found nowhere in memory is matched to the stored word one letter away (two for long
   words), keeping capitals so names stay names.
