@@ -274,8 +274,17 @@ def build(app_state):
     @r.get("/api/recall")
     async def recall(q):
         p = q.query
-        return J(st.recall(p.get("q", ""), shelf=p.get("shelf"), kind=p.get("kind"), limit=int(p.get("limit", 10)),
-                           include_old=p.get("old") == "1", touch=p.get("touch", "1") == "1"))
+        res = st.recall(p.get("q", ""), shelf=p.get("shelf"), kind=p.get("kind"), limit=int(p.get("limit", 10)),
+                        include_old=p.get("old") == "1", touch=p.get("touch", "1") == "1")
+        if not p.get("shelf") and not p.get("kind"):
+            # a question about a day ("what do I have Monday?") gets that day's calendar events first
+            from .calendars import asked_days
+            days = asked_days(p.get("q", ""), datetime.now().date())
+            evs = [e for d in days for e in A.calendars.events_on(d)]
+            if evs:
+                ids = {e["id"] for e in evs}
+                res = [dict(e, score=99.0) for e in evs] + [h for h in res if h["id"] not in ids]
+        return J(res)
 
     @r.post("/api/remember")
     async def remember(q):

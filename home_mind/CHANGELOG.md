@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.8.1
+- Searches that name a day (what Jeeves sends for "what do I have Monday?") get that day's calendar events first.
+
 ## 0.8.0
 - Calendars: every hour Home Mind reads your Home Assistant calendars (14 days back, 60 ahead) into calendar/<name> notes, written with full weekday and date. Changed events are rewritten, cancelled ones archived, duplicates across calendars kept once. Questions naming a day (today, tomorrow, Tuesday, Nov 20, this week, upcoming) get that day's events in order. GET /api/calendar, POST /api/calendar/sync.
 - History: once per thing, Home Mind files what Home Assistant still has from before it was watching: the last 10 days of changes (same rules as live) and, for sensors with long-term statistics, one note per day (average, low, high) for up to a year (home/daily).
