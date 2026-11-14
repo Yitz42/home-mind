@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1
+- Morning summary at 07:30 (options morning_time, morning_notify): what was remembered, learned, journaled and weighed, automation runs and failures, calendar changes and today's events, to your phone and as a Home Assistant notification. GET /api/morning to preview.
+- Unknown names: a name is only typo-repaired to one that has the thing the question names ("Orvok fern" no longer becomes Harvok, who has a locker). More unanswerable questions now get the plain "nothing in memory mentions it" line. (A score cutoff was measured and doesn't separate unanswerable questions: they often score higher than answerable ones.)
+- Follow-up questions: ask with a conversation_id and "And the Bexbel one?", "Where is it?", "And its code?", "And in the garage?" are rewritten from the question before (kept 10 minutes). New suite followup: 100% with rewriting (without it: "where is it?" 18%, "and its code?" 53%).
+
 ## 0.9.0
 - Tests run on every push (GitHub Actions): end to end, comfort, automation engine, privacy, and every brain suite on 20 held-out worlds with a floor each.
 - Model fallback: if the chosen model fails or is slow, the fallbacks (option "fallback", default Haiku) are tried, then the best matching note. Voice questions (voice: true) are capped at "voice_seconds" (8 s), leaving time for the fallback. A model that just failed is skipped for 5 minutes.

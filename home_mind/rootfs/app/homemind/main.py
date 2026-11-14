@@ -406,7 +406,8 @@ def build(app_state):
         b = await q.json()
         res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
                                expand=bool(b.get("expand")), voice=bool(b.get("voice")),
-                               deadline=b.get("deadline"), fallback=b.get("fallback", True))
+                               deadline=b.get("deadline"), fallback=b.get("fallback", True),
+                               conversation_id=b.get("conversation_id"))
         res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
         return J(res)
 

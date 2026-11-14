@@ -41,7 +41,8 @@ TOOLS = [
     ("mind_feedback", "Say whether a recalled item was useful (it ranks higher or lower afterwards).",
      S({"id": INT, "helpful": BOOL, "note": STR}, ["id", "helpful"])),
     ("mind_ask", "Answer a question with one of the connected models, using the brain's memory (use_brain false: the "
-     "model alone).", S({"question": STR, "model": STR, "use_brain": BOOL, "shelf": STR, "expand": BOOL, "voice": BOOL},
+     "model alone).", S({"question": STR, "model": STR, "use_brain": BOOL, "shelf": STR, "expand": BOOL, "voice": BOOL,
+        "conversation_id": STR},
        ["question", "model"])),
     ("mind_organize", "Let a connected model choose title, shelf, tags and key for a note, then store it.",
      S({"text": STR, "model": STR}, ["text", "model"])),
@@ -143,7 +144,8 @@ class MCP:
             return st.feedback(int(a["id"]), bool(a["helpful"]), a.get("note", ""))
         if name == "mind_ask":
             r = await app.mind.ask(a["question"], a["model"], use_brain=a.get("use_brain", True), shelf=a.get("shelf"),
-                                   expand=bool(a.get("expand")), voice=bool(a.get("voice")))
+                                   expand=bool(a.get("expand")), voice=bool(a.get("voice")),
+                                   conversation_id=a.get("conversation_id"))
             r["hits"] = [{"id": h["id"], "title": h["title"], "score": h["score"]} for h in r["hits"]]
             return r
         if name == "mind_organize":

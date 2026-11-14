@@ -218,6 +218,78 @@ def gathered_lines(store, question, now):
     return "\n".join(out), ids
 
 
+ATTR_Q = {"code": "What is the code for {t}?", "combination": "What is the code for {t}?",
+          "password": "What is the password for {t}?", "location": "Where is {t}?", "where": "Where is {t}?",
+          "color": "What color is {t}?", "lead": "Who leads {t}?", "owner": "Who owns {t}?"}
+PRONOUN_IT = re.compile(r"\b(it|its|it's|that one|this one|that|them|they|their|there)\b", re.I)
+FOLLOW_HEAD = re.compile(r"^\s*(?:and|or|but|also|then)?\s*(?:what about|how about|and|what of|same for|same with)\s+(.+?)\s*\??\s*$", re.I)
+
+
+def thing_phrase(store, question):
+    """'the Kosk locker' from 'What is the code for the Kosk locker?'; else the last 'the X' phrase."""
+    from .store import thing_word
+    q = store.fix_typos(question)
+    m = re.search(r"\b(?:the |my )?([A-Z][a-z]+)(?:'s)?\s+([a-z]+(?: [a-z]+)?)", q)
+    for nm in names_in(q):
+        tw = thing_word(q, nm)
+        if tw:
+            mm = re.search(rf"\b({nm})(?:'s)?\s+({tw}(?:\s+(?:box|key|room))?)\b", q, re.I)
+            if mm:
+                return f"the {mm.group(1).capitalize()} {mm.group(2)}"
+        return f"the {nm.capitalize()}" if not m else f"the {m.group(1)} {m.group(2)}"
+    m = re.findall(r"\b(?:the|my) ([a-z]+(?: [a-z]+)?)\b", q)
+    return f"the {m[-1]}" if m else None
+
+
+def followup(question, prev, store):
+    """Turn a short follow-up into a full question using the one before it:
+    'And the Bexbel one?' after 'What is the code for the Kosk locker?' -> '...for the Bexbel locker?';
+    'Where is it?' -> 'Where is the Kosk locker?'; 'And in the garage?' after 'Which crates are in the attic?' ->
+    'Which crates are in the garage?'. Questions that stand on their own are left alone."""
+    if not prev or not question:
+        return question
+    q, p = question.strip(), prev.strip()
+    fq, fp = store.fix_typos(q), store.fix_typos(p)
+    q_names, p_names = names_in(fq), names_in(fp)
+    thing = thing_phrase(store, p)
+    m = FOLLOW_HEAD.match(q)
+    if m:
+        x = re.sub(r"^(?:the|my)\s+", "", m.group(1)).strip()
+        x = re.sub(r"\s+one$", "", x)
+        from .store import STOP, CALENDAR
+        x_names = {w.lower() for w in re.findall(r"\b[A-Z][a-z]+\b", store.fix_typos(x))
+                   if w.lower() not in STOP and w.lower() not in CALENDAR}
+        if x_names and p_names:                       # another named thing of the same kind
+            old = next(iter(p_names))
+            new = next(iter(x_names))
+            return re.sub(rf"\b{old}\b", new.capitalize(), fp, count=1, flags=re.I)
+        mm = re.match(r"(?:in|at|on|for|from)\s+(?:the\s+|my\s+)?(.+)$", x)
+        if mm:                                        # another place: swap the place in the earlier question
+            place = mm.group(1)
+            pm = re.search(r"\b(in|at|on|for|from) (?:the |my )?([a-z]+(?: [a-z]+)?)(?=\?|$| [a-z]+\?)", fp)
+            if pm:
+                return fp[:pm.start(2)] + place + fp[pm.end(2):]
+        key = x.lower().rstrip("s")
+        for a, tpl in ATTR_Q.items():                 # another attribute of the same thing: "and its code?"
+            if re.search(rf"\b{a}\b", key) and thing:
+                return tpl.format(t=thing)
+        last = re.findall(r"\b(?:the|my) ([a-z]+)\b", fp)
+        if last:                                      # swap the last thing named: "and the shed?"
+            i = fp.rfind(last[-1])
+            return fp[:i] + x + fp[i + len(last[-1]):]
+        return f"{fp.rstrip('?')} — and {x}?"
+    if not q_names and thing and PRONOUN_IT.search(q):  # "where is it?", "when did I change its code?"
+        def sub(mt):
+            w = mt.group(1).lower()
+            if w in ("its", "their"):
+                return thing + "'s"
+            if w == "there":
+                return mt.group(0)
+            return thing
+        return PRONOUN_IT.sub(sub, q, count=1)
+    return question
+
+
 def cloud_safe(text, question, model, store):
     """Hide secret values and device addresses that the question doesn't ask for, if the model is in the cloud."""
     from . import privacy as sec
@@ -412,13 +484,30 @@ class Mind:
         return [m for m in chain if now - down.get(m, 0) > self.DOWN_SECONDS] + \
             [m for m in chain if now - down.get(m, 0) <= self.DOWN_SECONDS]
 
+    FOLLOW_SECONDS = 600       # a question can follow up on the one before it for this long
+
+    def resolve(self, question, conversation_id, store=None):
+        """Rewrite a follow-up ("and the shed?") into a full question using the last one in the same conversation."""
+        store = store or self.store
+        convs = self.__dict__.setdefault("_convs", {})
+        now = time.time()
+        for k in [k for k, v in convs.items() if now - v["t"] > self.FOLLOW_SECONDS]:
+            convs.pop(k)
+        prev = convs.get(conversation_id, {}).get("q") if conversation_id else None
+        full = followup(question, prev, store) if prev else question
+        if conversation_id:
+            convs[conversation_id] = {"q": full, "t": now}
+        return full
+
     async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False,
-                  voice=False, deadline=None, fallback=True):
+                  voice=False, deadline=None, fallback=True, conversation_id=None):
         """Answer with a model. If it fails or is too slow, try the fallbacks (option "fallback", default Haiku through
         Home Assistant), and if none answers, give the best matching note. voice=True caps the whole answer at
         VOICE_SECONDS so a voice question never hangs."""
         store = store or self.store
         t0 = time.time()
+        original = question
+        question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS
         hits, procs, ctx = (await self.context_for(store, question, k, shelf, model, expand)) if use_brain else ([], [], "")
@@ -463,6 +552,8 @@ class Mind:
         store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=r["text"][:500],
                   ms=r["ms"], errors=errors or None)
         out = {"answer": r["text"], "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"]}
+        if question != original:
+            out["understood_as"] = question
         if used != model:
             out.update(asked_model=model, errors=errors, fallback=used)
         return out
@@ -579,7 +670,8 @@ class Mind:
                         r = sb.remember(text=ev["text"], title=ev.get("title", ""), kind=ev.get("kind", "note"),
                                         shelf=ev.get("shelf", "inbox"),
                                         key=ev.get("key") if cfg.get("keyed") else None, source="test")
-                    refs[ev["ref"]] = r["id"]
+                    if ev.get("ref"):
+                        refs[ev["ref"]] = r["id"]
                 elif ev["op"] == "task_add":
                     r = sb.remember(text=ev["text"], title=ev["title"], kind="task", shelf=f"tasks/{ev['project']}",
                                     meta={"project": ev["project"], "due": ev["due"], "priority": ev["priority"],
@@ -606,6 +698,11 @@ class Mind:
 
     async def _question(self, run, sb, q, refs, log):
         arm, model = run["arm"], run["model"]
+        if q.get("prev"):     # a follow-up: the brain rewrites it from the question before; without it, both are given
+            if arm in ("brain", "model+brain"):
+                q = dict(q, asked=q["q"], q=followup(q["q"], q["prev"], sb))
+            else:
+                q = dict(q, asked=q["q"], q=f"(My previous question was: {q['prev']}) {q['q']}")
         d = {"q": q["q"], "gold": q["gold"], "type": q.get("type")}
         if run["suite"] == "tasks":
             p = q["params"]

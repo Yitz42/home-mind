@@ -874,8 +874,73 @@ def hard2(seed, n=2, day0=None):
     return {"events": slots, "questions": questions, "spacing": SPACING_H * 3600, "day0": day0.isoformat()}
 
 
-SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard, "hard2": hard2}
+def followup(seed, n=4):
+    """Follow-up questions that only make sense after the one before: another named thing ("And the Bexbel one?"),
+    another detail of the same thing ("Where is it?", "And its code?"), another place ("And in the garage?").
+    Each question carries 'prev', the question asked just before it."""
+    rng = random.Random(seed)
+    used, events, questions = set(), [], []
+
+    def fresh():
+        while True:
+            nm = name(rng)
+            if nm not in used:
+                used.add(nm)
+                return nm
+    kinds = [("locker", "code", lambda: str(rng.randint(1000, 9999))), ("toolbox", "code", lambda: str(rng.randint(1000, 9999))),
+             ("safe", "code", lambda: str(rng.randint(1000, 9999)))]
+    things = []
+    for i in range(n * 3):
+        noun, _, val = kinds[i % len(kinds)]
+        nm = fresh()
+        code, room = val(), rng.choice(ROOMS)
+        events.append({"op": "remember", "text": rng.choice([f"The code for the {nm} {noun} is {code}.",
+                                                               f"Set the {nm} {noun} combination to {code}."]),
+                       "kind": "fact", "ref": f"c_{nm}"})
+        events.append({"op": "remember", "text": rng.choice([f"The {nm} {noun} is in the {room}.",
+                                                               f"I keep the {nm} {noun} in the {room}."]),
+                       "kind": "fact", "ref": f"r_{nm}"})
+        things.append((nm, noun, code, room))
+    crates = {}
+    for room in ("attic", "garage", "basement"):
+        crates[room] = []
+        for _ in range(2):
+            nm = fresh()
+            crates[room].append(nm)
+            events.append({"op": "remember", "text": f"The {nm} crate is in the {room}.", "kind": "fact", "ref": f"k_{nm}"})
+    for _ in range(25):
+        events.append({"op": "remember", "text": rng.choice(CHATTER), "kind": "note"})
+    rng.shuffle(events)
+    same = {}
+    for t in things:
+        same.setdefault(t[1], []).append(t)
+    for i in range(n):
+        a, b = rng.sample(same[things[i % len(things)][1]], 2)
+        prev = f"What is the code for the {a[0]} {a[1]}?"
+        q = rng.choice([f"And the {b[0]} one?", f"What about {b[0]}?", f"And the {b[0]} {b[1]}?", f"How about {b[0]}?"])
+        questions.append({"type": "other_name", "prev": prev, "q": q, "gold": b[2], "needs": [f"c_{b[0]}"]})
+        t = things[(i + 3) % len(things)]
+        prev = f"What is the code for the {t[0]} {t[1]}?"
+        q = rng.choice(["Where is it?", "And where is it kept?", "Which room is it in?", "Where do I keep it?"])
+        questions.append({"type": "pronoun", "prev": prev, "q": q, "gold": t[3], "needs": [f"r_{t[0]}"]})
+        t = things[(i + 5) % len(things)]
+        prev = f"Where is the {t[0]} {t[1]}?"
+        q = rng.choice(["And its code?", "What about the code?", "And the combination?", "What's its code?"])
+        questions.append({"type": "attribute", "prev": prev, "q": q, "gold": t[2], "needs": [f"c_{t[0]}"]})
+        r1, r2 = rng.sample(list(crates), 2)
+        prev = f"Which crates are in the {r1}?"
+        q = rng.choice([f"And in the {r2}?", f"What about the {r2}?", f"How about in the {r2}?"])
+        questions.append({"type": "place", "prev": prev, "q": q, "gold": ", ".join(c.capitalize() for c in crates[r2]),
+                          "all": [c.capitalize() for c in crates[r2]],
+                          "none": [c.capitalize() for c in crates[r1]], "needs": [f"k_{c}" for c in crates[r2]]})
+        questions.append({"type": "standalone", "prev": f"What is the code for the {a[0]} {a[1]}?",
+                          "q": f"Where is the {b[0]} {b[1]}?", "gold": b[3], "needs": [f"r_{b[0]}"]})
+    return {"events": events, "questions": questions}
+
+
+SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard, "hard2": hard2, "followup": followup}
 SUITE_INFO = {
+    "followup": "short follow-ups that need the question before them (another name, 'where is it?', another place)",
     "recall": "facts told once, asked later in other words",
     "update": "facts that change; the newest must win",
     "locate": "notes on shelves found from a vague description",

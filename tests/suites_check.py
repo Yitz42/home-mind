@@ -16,7 +16,8 @@ from homemind.mind import Mind  # noqa: E402
 
 # suite: (questions per type, floor). Floors sit at the current scores; raise them when a suite improves.
 SUITES = {"recall": (None, 1.0), "update": (None, 0.98), "locate": (None, 0.8), "tasks": (None, 1.0),
-          "tricky": (4, 1.0), "tricky2": (4, 1.0), "hard": (3, 1.0), "hard2": (2, 1.0)}
+          "tricky": (4, 1.0), "tricky2": (4, 1.0), "hard": (3, 1.0), "hard2": (2, 1.0),
+          "followup": (4, 1.0)}
 
 
 async def main():
