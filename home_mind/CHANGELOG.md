@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+- Weigh-ins from the scale go into memory: each new weigh-in becomes a dated note on the body/weight shelf (weight, body fat, BMI, muscle mass, body water and more), checked every minute. At start-up the last 10 days of Home Assistant history are filed too. Old kg readings are converted to lb.
+- Readings in a series are versions of one thing: the newest comes first, older ones are shown with dates, so "what's my weight?" and "what did I weigh on Nov 11?" both work.
+- /api/remember accepts "at" (when it happened).
+
 ## 0.5.0
 - Questions that need every match (how many, which, everything about): a GATHERED list with one line per thing, its newest note, first/last dates and change count, sorted by newest change.
 - Time words: this week, last week, this morning, today, since <weekday>, N weeks ago, on <month> <day>; the oldest version is labelled as the first.

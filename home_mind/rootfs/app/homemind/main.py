@@ -10,6 +10,7 @@ import time
 from aiohttp import web
 
 from .comfort import Comfort
+from .body import Body
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -83,6 +84,7 @@ class App:
         await self.models.start()
         self.ha = HA(self.models.session)
         self.comfort = Comfort(self.mind, self.ha)
+        self.body = Body(self.mind.store, self.ha)
         self.mind.on_test_done = self.test_done
         for r in self.updater.install_bundled():
             log.info("installed bundled pack %s %s", r["id"], r["version"])
@@ -122,9 +124,20 @@ class App:
                               "model": run["model"], "run": run["id"], "seed": run["seed"], **s})
 
     async def upkeep(self):
-        last = {"fade": 0, "packs": 0, "test": time.time(), "counts": 0, "comfort": 0}
+        last = {"fade": 0, "packs": 0, "test": time.time(), "counts": 0, "comfort": 0, "body": 0}
+        if self.ha.available:
+            try:
+                log.info("weigh-ins filed from history: %s", await self.body.backfill())
+            except Exception:  # noqa: BLE001
+                log.exception("body backfill")
         while True:
             now = time.time()
+            if self.ha.available and now - last["body"] > 60:
+                last["body"] = now
+                try:
+                    await self.body.poll()
+                except Exception:  # noqa: BLE001
+                    log.exception("body")
             if self.opts.get("comfort") and self.ha.available:
                 try:
                     await self.comfort.poll_buttons()
@@ -202,7 +215,7 @@ def build(app_state):
         b = await q.json()
         return J(st.remember(text=b.get("text", ""), title=b.get("title", ""), kind=b.get("kind", "note"),
                              shelf=b.get("shelf", "inbox"), tags=b.get("tags"), key=b.get("key"), meta=b.get("meta"),
-                             source=b.get("source", "api")))
+                             source=b.get("source", "api"), at=b.get("at")))
 
     @r.get("/api/browse")
     async def browse(q):

@@ -238,7 +238,7 @@ class Store:
             "SELECT * FROM items WHERE key=? AND status IN ('active','faded') ORDER BY id DESC LIMIT 1", (key,)).fetchone())
 
     # ---- writing ----------------------------------------------------------------------------------------------
-    def remember(self, text="", title="", kind="note", shelf="inbox", tags=None, key=None, source="", meta=None):
+    def remember(self, text="", title="", kind="note", shelf="inbox", tags=None, key=None, source="", meta=None, at=None):
         """Keep something. With a key (e.g. 'tavrin locker|code'), a different value for the same key supersedes
         the old item (kept as history); the same value just strengthens it."""
         text, title = (text or "").strip(), (title or "").strip()
@@ -248,7 +248,7 @@ class Store:
             title = text.split("\n")[0][:90]
         key = (key or "").strip().lower() or None
         shelf, tags = clean_shelf(shelf), clean_tags(tags)
-        now = self.clock()
+        now = float(at) if at else self.clock()     # at: when it happened, for readings filed afterwards
         m0 = dict(meta or {})
         both = text + " " + title
         if self.LINK_PRONOUNS and ((PRONOUN.search(both) and (OWNER.search(both) or UPDATE_HINT.search(both)))
@@ -419,6 +419,30 @@ class Store:
                     return {"kind": "list", "noun": cand, "things": out}
         return None
 
+    def _series(self, res):
+        """Readings of one series (meta "series", e.g. weigh-ins from the scale) are versions of one thing: the newest
+        goes where the best of them was, older ones follow, marked with the newest id."""
+        groups = {}
+        for d in res:
+            s = (d.get("meta") or {}).get("series")
+            if s:
+                groups.setdefault(s, []).append(d)
+        if not groups:
+            return res
+        for g in groups.values():
+            g.sort(key=lambda d: d["created"], reverse=True)
+            for d in g[1:]:
+                d["newer"] = g[0]["id"]
+        out, placed = [], set()
+        for d in res:
+            s = (d.get("meta") or {}).get("series")
+            if not s:
+                out.append(d)
+            elif s not in placed:
+                placed.add(s)
+                out += groups[s]
+        return out
+
     def _apply_universal(self, query, res):
         """A note about a whole group applies to each member: "Changed all the cabinet codes to 2468" is the newest
         code of the Fiven cabinet; "The shed was cleared out" is the newest note about a box that was in the shed."""
@@ -585,6 +609,7 @@ class Store:
                 d["disagrees"] = self._disagree[r["id"]]
             res.append(d)
         res = self._apply_universal(query, res)
+        res = self._series(res)
         if self.FOLLOW_NAMES and FOLLOW.search(query) and res:
             seen = names_in(query) | set(ws)
             found = []
