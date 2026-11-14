@@ -15,6 +15,7 @@ from .body import Body
 from .home import Home, plan_action
 from .automations import Engine
 from .journal import Journal
+from .calendars import Calendars
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -94,6 +95,8 @@ class App:
         self.mind.home = self.home if self.opts.get("home", True) else None
         self.engine = Engine(self.mind.store, self.ha, DATA)
         self.journal = Journal(self.mind.store, self.models)
+        self.calendars = Calendars(self.mind.store, self.ha)
+        self.mind.calendars = self.calendars
         if datetime.now().hour * 60 + datetime.now().minute >= 23 * 60 + 30:
             self.journal.done_for = datetime.now().date()     # started after 23:30: don't summarize at once
         self.mind.on_test_done = self.test_done
@@ -182,6 +185,20 @@ class App:
                                       "automations_run": sorted(e for e in self.engine.owned
                                                                 if self.engine.autos.get(e, {}).get("ha_state") != "on")})
             await self.journal.tick()
+            if self.ha.available and now - last.get("cal", 0) > 3600:
+                last["cal"] = now
+                try:
+                    log.info("calendars: %s", await self.calendars.sync())
+                except Exception:  # noqa: BLE001
+                    log.exception("calendars")
+            if self.ha.available and not last.get("backfilled") and self.home.catalog and \
+                    getattr(self.engine, "_ws", None):
+                last["backfilled"] = True
+                try:
+                    log.info("home history: %s", await self.home.backfill(self.engine.ws_call,
+                                                                         path=os.path.join(DATA, "home_backfill.json")))
+                except Exception:  # noqa: BLE001
+                    log.exception("home backfill")
             if self.ha.available and now - last["body"] > 60:
                 last["body"] = now
                 try:
@@ -417,6 +434,18 @@ def build(app_state):
         from datetime import date
         day = date.fromisoformat(q.query["day"]) if q.query.get("day") else datetime.now().date()
         return J({"day": str(day), "entries": A.journal.entries(day)})
+
+    @r.get("/api/calendar")
+    async def cal_day(q):
+        from datetime import date
+        if q.query.get("q"):
+            return J({"text": A.calendars.lines_for(q.query["q"])})
+        day = date.fromisoformat(q.query["day"]) if q.query.get("day") else datetime.now().date()
+        return J({"day": str(day), "events": [e["body"] for e in A.calendars.events_on(day)], "last_sync": A.calendars.last})
+
+    @r.post("/api/calendar/sync")
+    async def cal_sync(_):
+        return J(await A.calendars.sync())
 
     @r.post("/api/body/backfill")
     async def body_backfill(_):

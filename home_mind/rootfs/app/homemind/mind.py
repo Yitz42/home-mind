@@ -330,6 +330,11 @@ class Mind:
             live = home.now_lines(question)
             if live:
                 ctx = live + "\n\nMEMORY NOTES:\n" + (ctx or "(none)")
+        cal = getattr(self, "calendars", None)
+        if cal and store is self.store:
+            days = cal.lines_for(question)
+            if days:
+                ctx = days + "\n\n" + (ctx or "")
         return about_names(store.fix_typos(question), hits), procs, ctx
 
     async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False):

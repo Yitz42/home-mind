@@ -40,6 +40,17 @@ class HA:
         except Exception:  # noqa: BLE001
             return None
 
+    async def get_json(self, path, params=None):
+        if not self.token:
+            return None
+        try:
+            async with self.session.get(f"{SUPERVISOR}/core/api/{path}", params=params or {},
+                                        headers={"Authorization": f"Bearer {self.token}"},
+                                        timeout=aiohttp.ClientTimeout(total=30)) as r:
+                return await r.json() if r.status == 200 else None
+        except Exception:  # noqa: BLE001
+            return None
+
     async def states(self):
         if not self.token:
             return None

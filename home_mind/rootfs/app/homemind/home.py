@@ -101,9 +101,9 @@ class Home:
         self.catalog = cat
         return len(cat)
 
-    def describe(self, eid):
+    def describe(self, eid, state=None, attrs=None):
         c = self.catalog[eid]
-        st, a = c["state"], c["attrs"]
+        st, a = (state, attrs or {}) if state is not None else (c["state"], c["attrs"])
         extra = []
         if c["domain"] == "light" and st == "on" and a.get("brightness") is not None:
             extra.append(f"brightness {round(a['brightness'] / 2.55)}%")
@@ -179,6 +179,114 @@ class Home:
         start = datetime.now().replace(hour=0, minute=0, second=0).timestamp()
         return self.store.db.execute("SELECT 1 FROM items WHERE source='home' AND meta LIKE ? AND created >= ?",
                                      (f'%"entity_id": "{eid}"%', start)).fetchone() is not None
+
+    # ---- history from before Home Mind was watching ------------------------------------------------------------
+    async def backfill(self, ws_call=None, days=10, path=None):
+        """File what Home Assistant still remembers: the last `days` of state changes (same rules as live: every
+        device change, readings when they move enough and at most every 30 minutes), then, for sensors with long-term
+        statistics, one note per day before that (average, low, high). Runs once per entity."""
+        import json as _json
+        import os as _os
+        done = {}
+        if path and _os.path.exists(path):
+            try:
+                done = _json.load(open(path))
+            except ValueError:
+                done = {}
+        if not self.catalog:
+            await self.refresh()
+        first_live = {}
+        for r in self.store.db.execute("SELECT meta, MIN(created) c FROM items WHERE source='home' AND "
+                                       "meta NOT LIKE '%\"backfill\"%' GROUP BY json_extract(meta, '$.entity_id')"):
+            m = _json.loads(r["meta"] or "{}")
+            if m.get("entity_id"):
+                first_live[m["entity_id"]] = r["c"]
+        todo = [e for e, c in self.catalog.items() if c["kind"] != "run" and not done.get(e, {}).get("history")]
+        start = (datetime.utcnow() - __import__("datetime").timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        filed = 0
+        for i in range(0, len(todo), 15):
+            chunk = todo[i:i + 15]
+            hist = await self.ha.history(chunk, start) or []
+            for series in hist:
+                if not series:
+                    continue
+                eid = series[0]["entity_id"]
+                c = self.catalog.get(eid)
+                if not c:
+                    continue
+                stop = first_live.get(eid, time.time())
+                prev = None
+                for r in series:
+                    st, a = r.get("state"), r.get("attributes") or {}
+                    t = datetime.fromisoformat(r["last_changed"].replace("Z", "+00:00")).timestamp()
+                    if t >= stop - 60 or st in ("unavailable", "unknown", None):
+                        continue
+                    if c["kind"] == "device":
+                        sig = st + ("" if c["domain"] != "climate" else f"/{a.get('temperature')}")
+                        if prev and prev[0] == sig:
+                            continue
+                        prev = (sig, t)
+                    else:
+                        v = _f(st)
+                        if prev is not None:
+                            pv, pt = prev
+                            if t - pt < 1800:
+                                continue
+                            if v is not None and _f(pv) is not None and abs(v - _f(pv)) < max(self._step(c), 1e-9):
+                                continue
+                            if v is None and pv == st:
+                                continue
+                        prev = (st, t)
+                    when = datetime.fromtimestamp(t).strftime("%a %b %d %Y %I:%M %p").replace(" 0", " ")
+                    desc = self.describe(eid, st, a)
+                    self.store.remember(text=f"{when}: {desc}.", title=f"{c['name']}: {desc.split(': ', 1)[1]}",
+                                        kind="fact", shelf="home/" + ("devices" if c["kind"] == "device" else "readings"),
+                                        tags=["home", c["domain"]], source="home", at=t,
+                                        meta={"series": "home:" + eid, "entity_id": eid, "state": st, "backfill": True})
+                    filed += 1
+            for e in chunk:
+                done.setdefault(e, {})["history"] = True
+        daily = 0
+        if ws_call:
+            sensors = [e for e, c in self.catalog.items() if c["domain"] == "sensor" and c["kind"] == "reading"
+                       and not done.get(e, {}).get("daily")]
+            end = (datetime.utcnow() - __import__("datetime").timedelta(days=days)).strftime("%Y-%m-%dT00:00:00Z")
+            begin = (datetime.utcnow() - __import__("datetime").timedelta(days=365)).strftime("%Y-%m-%dT00:00:00Z")
+            for i in range(0, len(sensors), 20):
+                chunk = sensors[i:i + 20]
+                try:
+                    res = await ws_call({"type": "recorder/statistics_during_period", "start_time": begin,
+                                         "end_time": end, "statistic_ids": chunk, "period": "day",
+                                         "types": ["mean", "min", "max"]}) or {}
+                except Exception as e:  # noqa: BLE001
+                    log.warning("statistics: %s", e)
+                    res = {}
+                for eid, rows in res.items():
+                    c = self.catalog.get(eid)
+                    if not c:
+                        continue
+                    for r in rows:
+                        if r.get("mean") is None:
+                            continue
+                        s = r["start"] / 1000 if isinstance(r["start"], (int, float)) else \
+                            datetime.fromisoformat(str(r["start"]).replace("Z", "+00:00")).timestamp()
+                        day = datetime.fromtimestamp(s)
+                        u = f" {c['unit']}" if c["unit"] else ""
+                        fmt = lambda x: f"{x:.1f}".rstrip("0").rstrip(".")
+                        text = (f"{day:%A %b %d %Y}".replace(" 0", " ") + f": {c['name']} averaged {fmt(r['mean'])}{u}"
+                                + (f" (low {fmt(r['min'])}, high {fmt(r['max'])})" if r.get("min") is not None else "")
+                                + ".")
+                        self.store.remember(text=text, title=f"{c['name']} on {day:%a %b %d}: avg {fmt(r['mean'])}{u}",
+                                            kind="fact", shelf="home/daily", tags=["home", "daily"], source="home",
+                                            at=s + 86399, meta={"series": "home:" + eid, "entity_id": eid,
+                                                                "daily": True, "backfill": True})
+                        daily += 1
+                for e in chunk:
+                    done.setdefault(e, {})["daily"] = True
+        if path:
+            with open(path, "w") as f:
+                _json.dump(done, f)
+        return {"history_notes": filed, "daily_notes": daily}
 
     # ---- live state for questions ----------------------------------------------------------------------------------
     def matching(self, question, limit=8):
