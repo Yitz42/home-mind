@@ -57,10 +57,13 @@ class Morning:
             lines.append(f"Calendar: {len(cal_new)} new or changed events")
         today = self.cal.events_on(datetime.now().date()) if self.cal else []
         if today:
-            lines.append("Today: " + "; ".join(re.sub(r"^Calendar \([^)]*\): ", "", e["body"]).split(", at ")[0]
-                                               .replace(datetime.now().strftime("%A %b %d %Y").replace(" 0", " ") + ", ",
-                                                        "")
-                                               for e in today[:4]) + (" …" if len(today) > 4 else ""))
+            def brief(e):
+                t = e["meta"].get("summary") or e["title"]
+                if e["meta"].get("all_day"):
+                    return f"{t} (all day)"
+                s = datetime.fromisoformat(e["meta"]["start"])
+                return f"{s:%I:%M %p}".lstrip("0") + f" {t}"
+            lines.append("Today: " + "; ".join(brief(e) for e in today[:5]) + (" …" if len(today) > 5 else ""))
         if not lines:
             lines.append("Nothing new was filed in the last day.")
         return "\n".join(lines)

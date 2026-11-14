@@ -43,5 +43,8 @@ configuration:
   morning_notify:
     name: Morning summary goes to
     description: A notify service such as notify.mobile_app_my_phone. Empty = your first phone in the Home Assistant app.
+  calendar_quiet:
+    name: Calendars to leave out
+    description: Calendars kept in memory but left out of answers and the morning summary unless a question is about them.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.

@@ -79,10 +79,16 @@ def asked_days(question, today):
     return days[:8]
 
 
+QUIET_ASK = re.compile(r"\b(hebcal|jewish|shabbat|shabbos|havdalah|candle|parash|parasha|parashat|holiday|holidays|"
+                       r"yom tov|rosh|chanukah|hanukkah|pesach|passover|sukkot|purim|torah)\b", re.I)
+
+
 class Calendars:
-    def __init__(self, store, ha):
+    def __init__(self, store, ha, quiet=None):
         self.store, self.ha = store, ha
         self.last = None
+        # calendars left out of answers and summaries unless the question is about them (kept in memory regardless)
+        self.quiet = set(quiet or [])
 
     def _key(self, cal, ev):
         start, _ = _when(ev.get("start"))
@@ -162,7 +168,7 @@ class Calendars:
                      "changed": changed, "cancelled": gone}
         return self.last
 
-    def events_on(self, day):
+    def events_on(self, day, question=None):
         lo = datetime.combine(day, datetime.min.time())
         hi = lo + timedelta(days=1)
         out = []
@@ -170,6 +176,8 @@ class Calendars:
             d = self.store._row(r)
             st = d["meta"].get("start")
             if not st:
+                continue
+            if d["meta"].get("calendar") in self.quiet and not QUIET_ASK.search(question or ""):
                 continue
             s = datetime.fromisoformat(st)
             if d["meta"].get("all_day"):
@@ -189,7 +197,7 @@ class Calendars:
             return ""
         parts = []
         for d in days:
-            evs = self.events_on(d)
+            evs = self.events_on(d, question)
             body = "\n".join("- " + re.sub(r"^Calendar \(", "(", e["body"]) for e in evs) or "- nothing on the calendars"
             parts.append(f"{_fmt_day(datetime.combine(d, datetime.min.time()))}:\n{body}")
         return "CALENDAR (from your calendars, synced hourly):\n" + "\n".join(parts)

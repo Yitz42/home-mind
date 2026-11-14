@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import re
 import secrets
 import time
 from datetime import datetime
@@ -35,7 +36,9 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "update_url": "https://raw.githubusercontent.com/Yitz42/home-mind/main/packs/manifest.json",
             "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info", "comfort": True,
             "home": True, "home_controls": [], "home_fan_max": 100,
-            "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": ""}
+            "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": "",
+            "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
+                               "calendar.jewish_holidays"]}
 
 
 def load_options():
@@ -99,8 +102,9 @@ class App:
         self.mind.FALLBACK = list(self.opts.get("fallback") or [])
         self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
         self.journal = Journal(self.mind.store, self.models)
-        self.calendars = Calendars(self.mind.store, self.ha)
+        self.calendars = Calendars(self.mind.store, self.ha, self.opts.get("calendar_quiet"))
         self._mark_secrets()
+        self._fix_kg_backfill()
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         mt = self.morning.at
@@ -132,6 +136,32 @@ class App:
         for t in self.tasks:
             t.cancel()
         await self.models.stop()
+
+    def _fix_kg_backfill(self):
+        """0.8.x filed the scale's early kilogram readings with 'lb'. Rewrite them once, converted."""
+        st = self.mind.store
+        if st.kv_get("fixed_kg_backfill"):
+            return
+        cutoff = datetime.fromisoformat("2026-11-11T19:26:55-05:00").timestamp()
+        n = 0
+        for r in st.db.execute("SELECT id FROM items WHERE source='home' AND created < ? AND status='active' AND "
+                               "meta LIKE '%\"backfill\": true%' AND meta LIKE '%sensor.yitz_%'", (cutoff,)).fetchall():
+            d = st.get(r["id"])
+            eid, v = d["meta"].get("entity_id", ""), d["meta"].get("state")
+            if not re.search(r"weight|mass", eid) or v is None:
+                continue
+            try:
+                lb = float(v) * 2.20462
+            except ValueError:
+                continue
+            body = re.sub(r": [\d.]+ lb\.$", f": {lb:.1f} lb.", d["body"])
+            title = re.sub(r": [\d.]+ lb$", f": {lb:.1f} lb", d["title"])
+            st.db.execute("UPDATE items SET body=?, title=? WHERE id=?", (body, title, r["id"]))
+            n += 1
+        st.db.commit()
+        st.kv_set("fixed_kg_backfill", True)
+        if n:
+            log.info("converted %d early kilogram readings to lb", n)
 
     def _mark_secrets(self):
         """Notes filed before secrets were flagged get the flag once (by the same guess as new notes)."""
@@ -314,7 +344,7 @@ def build(app_state):
             # a question about a day ("what do I have Monday?") gets that day's calendar events first
             from .calendars import asked_days
             days = asked_days(p.get("q", ""), datetime.now().date())
-            evs = [e for d in days for e in A.calendars.events_on(d)]
+            evs = [e for d in days for e in A.calendars.events_on(d, p.get("q", ""))]
             if evs:
                 ids = {e["id"] for e in evs}
                 res = [dict(e, score=99.0) for e in evs] + [h for h in res if h["id"] not in ids]

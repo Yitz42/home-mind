@@ -238,6 +238,9 @@ class Home:
                                 continue
                         prev = (st, t)
                     when = datetime.fromtimestamp(t).strftime("%a %b %d %Y %I:%M %p").replace(" 0", " ")
+                    unit_then = a.get("unit_of_measurement")
+                    if unit_then == "kg" and c["unit"] == "lb" and _f(st) is not None:
+                        st = f"{_f(st) * 2.20462:.2f}"      # the scale reported kg before the unit was switched
                     desc = self.describe(eid, st, a)
                     self.store.remember(text=f"{when}: {desc}.", title=f"{c['name']}: {desc.split(': ', 1)[1]}",
                                         kind="fact", shelf="home/" + ("devices" if c["kind"] == "device" else "readings"),

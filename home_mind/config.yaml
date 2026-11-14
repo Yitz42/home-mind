@@ -41,6 +41,11 @@ options:
   voice_seconds: 8
   morning_time: "07:30"
   morning_notify: ""
+  calendar_quiet:
+    - calendar.hebcal_baltimore
+    - calendar.hebcal_baltimore_2
+    - calendar.hebcal_baltimore_3
+    - calendar.jewish_holidays
 schema:
   models:
     - name: str
@@ -65,3 +70,5 @@ schema:
   voice_seconds: int(2,60)
   morning_time: str
   morning_notify: str?
+  calendar_quiet:
+    - str
