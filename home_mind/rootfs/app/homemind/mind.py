@@ -35,12 +35,22 @@ def _ts(t):
     return datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M")
 
 
+def context_lines(hits):
+    """Current notes first. Notes the brain takes to be older versions of a fact go in their own section, marked
+    replaced, so a small model can't pick an old value by mistake (Haiku didn't need this; qwen 4b/9b did)."""
+    cur = [note_line(h) for h in hits if not h.get("newer")]
+    old = [note_line(h) for h in hits if h.get("newer")]
+    if not old:
+        return "\n".join(cur)
+    return "\n".join(cur) + "\n\nREPLACED (older versions of the facts above; use only if asked what it used to be):\n" + "\n".join(old)
+
+
 def note_line(h):
     line = f"[{_ts(h['created'])} | {h['shelf']} | #{h['id']}] {h['title']}"
     if h.get("body") and h["body"] != h["title"]:
         line += f" — {h['body']}"
     if h.get("newer"):
-        line += f"  (maybe an older version of #{h['newer']})"
+        line += f"  (replaced by #{h['newer']})"
     return line
 
 
@@ -109,7 +119,7 @@ class Mind:
     async def context_for(self, store, question, k=8, shelf=None, model=None, expand=False):
         hits, _ = await self.search(store, question, k, shelf, model, expand)
         procs = [p for p in store.recall(question, kind="procedure", limit=2, touch=False) if p["score"] > 0.5]
-        return hits, procs, "\n".join(note_line(h) for h in hits)
+        return hits, procs, context_lines(hits)
 
     async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False):
         store = store or self.store
@@ -280,7 +290,7 @@ class Mind:
                 text = (top["title"] + " " + top["body"]) if top else ""
                 d.update(answer=text[:300], correct=bool(top) and contains(text, q["gold"]))
                 return d
-            ctx = "\n".join(note_line(h) for h in hits)
+            ctx = context_lines(hits)
             content, sysmsg = f"MEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {q['q']}", ANSWER_SYSTEM
         elif arm == "model+context":
             content, sysmsg = "LOG:\n" + "\n".join(log)[-16000:] + f"\n\nQUESTION: {q['q']}", CONTEXT_SYSTEM

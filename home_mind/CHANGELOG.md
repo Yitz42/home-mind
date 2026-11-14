@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2 — 2026-11-14
+- Recall: a note containing every name in the question (capitalized words not starting it) ranks 1.5x higher.
+- Versions of a fact are anchored on a name in the question when there is one (a rare word inside a value, like
+  "laundry room", no longer becomes the anchor), and rare-word counts use whole words only ("log" no longer
+  matches "Logor").
+- Models see current notes first and older versions in a separate REPLACED section. Found with qwen 4b/9b: in
+  most of their misses the brain had the newest note first and the model picked an older one anyway.
+- Brain-only, held-out seeds: recall 95% -> 99.7%; changing facts 77% -> 97% (20), 94% -> 99.1% (60),
+  98.5% -> 99.3% (150); finding notes 89.5% -> 87.8%.
+
 ## 0.3.1 — 2026-11-14
 - Comfort: the first press of a never-pressed vote button (state "unknown") now counts as a vote.
 

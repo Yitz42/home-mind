@@ -80,6 +80,17 @@ def words(text):
     return [w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if w not in STOP and len(w) > 1]
 
 
+def names_in(text):
+    """Lower-cased words written with a capital letter anywhere but at the start of a sentence: likely names."""
+    out = set()
+    for sent in re.split(r"[.!?]\s+", text or ""):
+        toks = re.findall(r"[A-Za-z0-9][A-Za-z0-9']*", sent)
+        for t in toks[1:]:
+            if t[0].isupper() and t.lower() not in STOP:
+                out.add(t.lower().split("'")[0])
+    return out
+
+
 def clean_shelf(shelf):
     parts = [re.sub(r"[^a-z0-9_\-]+", "-", p.strip().lower()).strip("-") for p in (shelf or "inbox").split("/")]
     return "/".join(p for p in parts if p) or "inbox"
@@ -266,6 +277,7 @@ class Store:
         now = self.clock()
         idf, matched = self._term_stats(ws, [r for _, r in scored]) if ws else ({}, {})
         total = sum(idf.values()) or 1.0
+        qnames = names_in(query) & set(idf)
         out = []
         for base, r in scored:
             age_days = max(0.0, (now - r["created"]) / 86400.0)
@@ -275,6 +287,10 @@ class Store:
                 boost *= 0.7
             if r["status"] == "superseded":
                 boost *= 0.5
+            if qnames and self.NAME_BOOST != 1:
+                # the question names something: notes that contain every name come first
+                if qnames <= matched.get(r["id"], set()):
+                    boost *= self.NAME_BOOST
             if idf and self.COVER_POW:
                 # how much of the query's distinctive weight this item matches (rare words count for more)
                 cover = sum(idf[w] for w in matched.get(r["id"], ())) / total
@@ -283,7 +299,7 @@ class Store:
         out.sort(key=lambda x: (x[0], x[1]), reverse=True)
         older = {}
         if self.CLUSTER and idf:
-            out, older = self._newest_in_cluster(out, idf, matched)
+            out, older = self._newest_in_cluster(out, idf, matched, names_in(query))
         res = []
         for score, _, r in out[:limit]:
             d = self._row(r)
@@ -303,6 +319,7 @@ class Store:
 
     # recall settings (class-level so tests can compare with and without)
     BM25 = "4.0, 1.0, 2.0, 1.5"  # weights for title, body, tags, shelf
+    NAME_BOOST = 1.5     # how much a note containing every name in the question is lifted
     COVER_POW = 0.0      # weight by distinctive-word coverage (tested: no gain over BM25, so off)
     CLUSTER = True       # newest first among results that match the query on the same distinctive words
     CLUSTER_KINDS = ("fact",)  # only facts are replaced by newer ones; notes and ideas add up
@@ -318,8 +335,9 @@ class Store:
         for w in dict.fromkeys(ws):
             if self.fts:
                 try:
+                    # whole words only: a prefix ("log" in "Logor") must not look like a rare match
                     hit = {x[0] for x in self.db.execute("SELECT rowid FROM items_fts WHERE items_fts MATCH ?",
-                                                          (f'"{w}"*',))}
+                                                          (f'"{w}"',))}
                 except sqlite3.OperationalError:
                     continue
             else:
@@ -335,13 +353,16 @@ class Store:
         self._common = {w for w, df in dfs.items() if df > self.COMMON_SHARE * n}
         return idf, matched
 
-    def _newest_in_cluster(self, out, idf, matched):
+    def _newest_in_cluster(self, out, idf, matched, names=()):
         """Facts that are versions of the same thing should come newest first. The thing is pinned by the query's most
         distinctive word that any result contains (usually a name): facts containing it whose matched words overlap
         the best such fact's by at least CLUSTER_OVERLAP are taken as versions of it. The newest takes the best place;
         older ones follow, marked with the newer id. Other results keep their order. Nothing is merged or hidden."""
-        anchor = max((w for w in idf if any(w in matched.get(r[2]["id"], ()) for r in out)), key=lambda w: idf[w],
-                     default=None)
+        present = [w for w in idf if any(w in matched.get(r[2]["id"], ()) for r in out)]
+        # a name in the question (a capitalized word that doesn't start it) is what the question is about; a rare
+        # word that is part of a value ("laundry room") is not. Names first, then the rarest word.
+        named = [w for w in present if w in names]
+        anchor = max(named or present, key=lambda w: idf[w], default=None)
         if anchor is None:
             return out, {}
         group, ref = [], None
