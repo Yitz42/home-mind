@@ -57,6 +57,7 @@ SHELF = {
     "macaroni and cheese": (365, 365, 365), "macaroni": (730, 730, 730), "grits": (365, 365, 365),
     "mix": (365, 365, 365), "cocoa mix": (730, 730, 730), "hot cocoa": (730, 730, 730), "rice a roni": (365, 365, 365), "pasta roni": (365, 365, 365), "hamburger helper": (365, 365, 365),
     "instant lunch": (365, 365, 365), "cup noodles": (365, 365, 365), "kraft dinner": (365, 365, 365),
+    "oatmeal": (365, 365, 365), "popcorn": (240, 240, 240),
     "mango": (7, 300, 5), "peach": (5, 300, 3), "pear": (10, 300, 5), "pineapple": (5, 300, 3), "kiwi": (14, None, 5),
     "melon": (5, None, 5), "watermelon": (5, None, 7), "lasagna": (4, 270, None), "meatballs": (4, 120, None),
     "enchiladas": (4, 270, None), "dinner": (4, 270, None), "meal": (4, 270, None), "burrito": (4, 270, None),
@@ -221,7 +222,8 @@ class Pantry:
         self.store.db.commit()
         d = datetime.fromtimestamp(ub)
         return {"id": iid, "name": name, "location": loc,
-                "use_by": d.strftime("%a %b %d") if ub - now < 300 * 86400 else d.strftime("%b %Y")}
+                "use_by": ("past its date (" + d.strftime("%b %d %Y") + ")") if ub < now else
+                d.strftime("%a %b %d") if ub - now < 300 * 86400 else d.strftime("%b %Y")}
 
     def remove(self, iid):
         """Delete a line entered by mistake (used or tossed keep a record; this doesn't)."""

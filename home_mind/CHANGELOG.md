@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.11
+- Pantry: adding something already past its printed date says so, with the year, instead of a weekday that reads like a future date. Oatmeal and popcorn added to the shelf-life table.
+
 ## 0.11.10
 - Pantry: boxed products named by brand (Rice-A-Roni, Hamburger Helper, Instant Lunch) keep like boxed food; macaroni and cheese, grits, hot cocoa and other mixes added.
 
