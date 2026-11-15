@@ -281,11 +281,12 @@ class App:
             if self.ha.available and now - last.get("patterns", 0) > 240:
                 last["patterns"] = now
                 try:
-                    if not self.mind.store.kv_get("patterns_backfilled"):
+                    if self.mind.store.kv_get("patterns_backfilled") != 2:      # 2: rebuilt without re-sent fog values
+                        self.mind.store.db.execute("DELETE FROM days")
                         n = await self.patterns.refresh(10)
                         for i in range(1, 11):
                             self.patterns.file_weather(date.today() - timedelta(days=i))
-                        self.mind.store.kv_set("patterns_backfilled", True)
+                        self.mind.store.kv_set("patterns_backfilled", 2)
                         log.info("patterns: %d days from history", n)
                     await self.patterns.tick()
                 except Exception:  # noqa: BLE001

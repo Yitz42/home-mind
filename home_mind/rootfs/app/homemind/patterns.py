@@ -146,6 +146,18 @@ class Series:
             acc, tot = acc + v * w, tot + w
         return acc / tot if tot else pts[-1][1]
 
+    def changed(self, a, b):
+        """The last value in [a, b) that differs from the one before it. Steady re-sends the same fog rating on
+        every sync and Home Assistant restart, so a repeat is not a new rating."""
+        prev, out = None, None
+        for t, v in self.pts:
+            if t >= b:
+                break
+            if t >= a and isinstance(v, float) and v != prev:
+                out = v
+            prev = v
+        return out
+
     def times(self, a, b):
         return [t for t, _ in self.within(a, b)]
 
@@ -192,7 +204,7 @@ class Patterns:
         t, h, p, c = col("temperature"), col("humidity"), col("pressure"), col("cloud_coverage")
         if not t and not p:
             return {}
-        conds = [r.get("condition") for r in rows if r.get("condition")]
+        conds = [r.get("condition") for r in rows if r.get("condition") not in (None, "unavailable", "unknown")]
         return {"temp_min": min(t) if t else None, "temp_max": max(t) if t else None,
                 "humidity": round(stats.mean(h)) if h else None, "pressure": round(stats.mean(p), 2) if p else None,
                 "cloud": round(stats.mean(c)) if c else None,
@@ -215,7 +227,7 @@ class Patterns:
         d0 = datetime.combine(day, datetime.min.time())
         h = lambda x: d0 + timedelta(hours=x)  # noqa: E731
         row = {"day": day.isoformat()}
-        fog = S["fog"].last(h(5), h(28))
+        fog = S["fog"].changed(h(5), h(28))
         ans = self._answer(day, "fog")
         row["fog"] = ans if ans is not None else fog
         sleep = self._answer(day, "sleep")
@@ -227,10 +239,10 @@ class Patterns:
         row["bedtime"] = round(_hours(bt[-1], day - timedelta(days=1)), 2) if bt else None
         wk = S["wake"].times(h(4), h(13))
         row["wake"] = round(_hours(wk[0], day), 2) if wk else None
-        row["steps_prev"] = S["steps"].max(h(-24), h(0))
-        row["steps_prev2"] = S["steps"].max(h(-48), h(-24))
-        row["stress_prev"] = S["stress"].max(h(-24), h(0))
-        row["calm_prev"] = S["calm"].last(h(-24), h(0))
+        row["steps_prev"] = S["steps"].max(h(-24), h(0)) or None             # 0 steps = the watch didn't sync
+        row["steps_prev2"] = S["steps"].max(h(-48), h(-24)) or None
+        row["calm_prev"] = S["calm"].last(h(-24), h(0)) or None
+        row["stress_prev"] = S["stress"].max(h(-24), h(0)) if (row["steps_prev"] or row["calm_prev"]) else None
         t = S["room_temp"].mean(h(-1), h(7))
         row["room_night_temp"] = round(t, 1) if t is not None else None
         hu = S["room_hum"].mean(h(-1), h(7))
@@ -550,7 +562,8 @@ class Patterns:
         if what == "fog":
             acts = [{"action": f"HM_FOG_{i}", "title": t} for i, t in
                     enumerate(["0 clear", "1", "2", "3", "4", "5 heavy fog"])]
-            await self._notify("How's your head today?", "Brain fog 0 (clear) to 5 (heavy). Tap one.", "hm_fog", acts)
+            await self._notify("How's your head today?", "Brain fog 0 (clear) to 5 (heavy). Tap one, even if it's "
+                               "the same as yesterday.", "hm_fog", acts)
         else:
             acts = [{"action": f"HM_SLEEP_{v}", "title": t} for v, t in
                     (("4.5", "under 5 h"), ("5.5", "5-6 h"), ("6.5", "6-7 h"), ("7.5", "7-8 h"), ("8.5", "8+ h"))]

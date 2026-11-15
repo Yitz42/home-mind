@@ -76,6 +76,11 @@ async def main():
     assert row["fog"] == 3.0 and row["sleep_h"] == 5.4 and row["readiness"] == 41, row
     assert row["steps_prev"] == 11000 and abs(row["bedtime"] - 24.67) < 0.02, row
     assert 67.9 < row["room_night_temp"] < 70.1 and row["temp_min"] == 42 and row["temp_max"] == 54, row
+    stale = Series(rows(E["fog"], [(y0 + timedelta(hours=9), 3.0), (d0 + timedelta(hours=10), 3.0)]))
+    n0_ = d0.replace(tzinfo=None)
+    assert stale.changed(n0_ + timedelta(hours=5), n0_ + timedelta(hours=28)) is None      # re-sent, not a rating
+    fresh = Series(rows(E["fog"], [(y0 + timedelta(hours=9), 3.0), (d0 + timedelta(hours=10), 2.0)]))
+    assert fresh.changed(n0_ + timedelta(hours=5), n0_ + timedelta(hours=28)) == 2.0
     s = Series(rows(E["room_temp"], [(d0, 60.0), (d0 + timedelta(hours=6), 70.0)]))
     n0 = d0.replace(tzinfo=None)
     assert abs(s.mean(n0, n0 + timedelta(hours=8)) - 62.5) < 0.01          # time-weighted, not 65
