@@ -64,6 +64,17 @@ class Morning:
                 s = datetime.fromisoformat(e["meta"]["start"])
                 return f"{s:%I:%M %p}".lstrip("0") + f" {t}"
             lines.append("Today: " + "; ".join(brief(e) for e in today[:5]) + (" …" if len(today) > 5 else ""))
+        pantry = getattr(self, "pantry", None)
+        if pantry:
+            soon = pantry.soon(2)
+            past = [i for i in soon if i["days_left"] < 0]
+            use = [i for i in soon if i["days_left"] >= 0]
+            if use:
+                lines.append("Use soon: " + ", ".join(f"{i['name']} ({'today' if i['days_left'] < 1 else str(round(i['days_left'])) + 'd'})"
+                                                     for i in use[:6]))
+            if past:
+                lines.append("Past their date, still have them? " + ", ".join(i["name"] for i in past[:6])
+                             + " (tell Jeeves \"I used…\" or \"I tossed…\")")
         if not lines:
             lines.append("Nothing new was filed in the last day.")
         return "\n".join(lines)

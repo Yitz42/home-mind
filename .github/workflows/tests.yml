@@ -22,5 +22,7 @@ jobs:
         run: python tests/test_privacy.py
       - name: Extraction bench scoring
         run: python tests/test_extract.py
+      - name: Pantry
+        run: python tests/test_pantry.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py

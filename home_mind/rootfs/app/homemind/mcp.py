@@ -73,6 +73,12 @@ TOOLS = [
                          "takeover (ids, or all=true), retire (stop running and leave the HA copy off), release (hand back to Home Assistant; ids or all), run (id, "
                          "optional trigger id), reload (re-read configs after editing in Home Assistant).",
      S({"action": STR, "ids": {"type": "array", "items": STR}, "all": BOOL, "id": STR, "trigger": STR}, ["action"])),
+    ("mind_pantry", "The pantry. action: list (what's in the house with days left), add (text like 'chicken, 2 lb ground "
+                    "beef and eggs', optional location fridge/freezer/pantry), used or tossed (text), goals (show), "
+                    "today (tired day? weight trend).", S({"action": STR, "text": STR, "location": STR}, ["action"])),
+    ("mind_meals", "Meal ideas from what's in the house: uses what expires first, fits today (tired days lower-carb) and "
+                   "the goals (more protein, fewer calories). meal: breakfast/lunch/dinner/snack; request: anything extra.",
+     S({"meal": STR, "request": STR, "model": STR}, [])),
     ("mind_status", "Counts, version, packs, models.", S({})),
     ("mind_updates", "Check for updates (apply=true installs available packs).", S({"apply": BOOL})),
 ]
@@ -207,6 +213,21 @@ class MCP:
                 await eng.load()
                 return {"loaded": len(eng.autos)}
             raise ValueError(f"unknown action {act}")
+        if name == "mind_pantry":
+            pa, act = app.pantry, a.get("action", "list")
+            if act == "list":
+                return {"items": pa.items(), "text": pa.lines()}
+            if act == "add":
+                return {"added": [pa.add(n, am, a.get("location"), source="claude") for n, am in pa.parse_list(a["text"])]}
+            if act in ("used", "tossed"):
+                return {"done": [pa.use(n, "used" if act == "used" else "tossed") for n, _ in pa.parse_list(a["text"])]}
+            if act == "goals":
+                return pa.goals()
+            if act == "today":
+                return await pa.today()
+            raise ValueError(f"unknown action {act}")
+        if name == "mind_meals":
+            return await app.pantry.suggest(a.get("meal"), a.get("model"), 3, a.get("request", ""))
         if name == "mind_status":
             return app.status()
         if name == "mind_updates":

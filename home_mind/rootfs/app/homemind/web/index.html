@@ -25,7 +25,7 @@
 </head>
 <body>
 <header><h1>🧠 Home Mind</h1>
-  <nav><button data-t="overview" class="on">Overview</button> <button data-t="memory">Memory</button> <button data-t="tests">Tests</button> <button data-t="models">Models</button> <button data-t="updates">Updates</button></nav>
+  <nav><button data-t="overview" class="on">Overview</button> <button data-t="memory">Memory</button> <button data-t="pantry">Pantry</button> <button data-t="tests">Tests</button> <button data-t="models">Models</button> <button data-t="updates">Updates</button></nav>
   <span class="mute" id="ver" style="margin-left:auto"></span></header>
 <main>
 <section id="overview">
@@ -46,6 +46,22 @@
     <div class="row"><input id="r_title" placeholder="Title (optional)" style="flex:1"> <input id="r_shelf" placeholder="shelf e.g. projects/pebble"> <input id="r_key" placeholder="key (subject|attribute)"></div>
     <div class="row"><textarea id="r_text" rows="3" style="flex:1" placeholder="What to keep"></textarea></div>
     <div class="row"><button class="go" onclick="remember()">Remember</button> <span id="r_out" class="mute"></span></div></div>
+</section>
+<section id="pantry" class="hide">
+  <div class="card"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
+      <select id="m_meal"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select>
+      <input id="m_req" placeholder="anything else? (quick, no cooking…)" style="width:240px"> <button class="go" onclick="meals()">Suggest</button></div>
+    <div id="m_today" class="mute"></div><div id="m_out"></div></div>
+  <div class="card"><div class="row"><h2 style="margin:0;flex:1">In the house</h2>
+      <label class="go" style="background:var(--acc);color:#fff;border-radius:7px;padding:7px 14px;cursor:pointer">📷 Add from photo<input type="file" accept="image/*" capture="environment" id="p_photo" class="hide" onchange="photo(this)"></label></div>
+    <div class="row"><input id="p_text" placeholder="e.g. chicken, 2 lb ground beef and a dozen eggs" style="flex:1">
+      <select id="p_loc"><option value="">where? (guess)</option><option>fridge</option><option>freezer</option><option>pantry</option></select>
+      <button class="go" onclick="padd()">Add</button> <span id="p_out" class="mute"></span></div>
+    <table id="p_items"></table></div>
+  <div class="card"><h2>Goals</h2>
+    <div class="row"><textarea id="g_goals" rows="2" style="flex:1" placeholder="one goal per line"></textarea></div>
+    <div class="row"><input id="g_tired" style="flex:1" placeholder="on tired days"></div>
+    <div class="row"><input id="g_avoid" style="flex:1" placeholder="foods to avoid, comma separated"> <button class="go" onclick="saveGoals()">Save</button> <span id="g_out" class="mute"></span></div></div>
 </section>
 <section id="tests" class="hide">
   <div class="card"><h2>Run a test</h2>
@@ -89,6 +105,7 @@ async function load(t) {
     $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${e.type}</td><td class="mute">${esc(e.data).slice(0, 140)}</td></tr>`).join('');
   }
   if (t === 'memory') { browse(''); recent(); }
+  if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${k}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
     const ms = await api('api/models'); $('#t_model').innerHTML = '<option value="">(model)</option>' + ms.map(m => `<option>${esc(m.name)}</option>`).join('');
@@ -132,6 +149,35 @@ async function item(id) {
       <span id="e_out" class="mute"></span></div>
     ${vers ? `<h2>Other versions</h2><ul>${vers}</ul>` : ''}${hist ? `<h2>Earlier values</h2><ul>${hist}</ul>` : ''}`;
 }
+async function pantry() {
+  const r = await api('api/pantry');
+  $('#p_items').innerHTML = '<tr><th>item</th><th>where</th><th>use within</th><th></th></tr>' + r.items.map(i => {
+    const d = i.days_left, cls = d === null ? '' : d < 0 ? 'bad' : d < 2 ? 'bad' : d < 4 ? '' : 'ok';
+    const when = d === null ? '' : d < 0 ? 'past its date' : d < 1 ? 'today' : Math.round(d) + (Math.round(d) === 1 ? ' day' : ' days');
+    return `<tr><td>${esc(i.name)} <span class="mute">${esc(i.amount || '')}</span></td><td class="mute">${i.location}</td><td class="${cls}">${when}</td>
+      <td><a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','used')">used</a> · <a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','tossed')">tossed</a></td></tr>`; }).join('') || '<tr><td class="mute">nothing yet: add from a photo or type what you bought</td></tr>';
+  const g = r.goals; $('#g_goals').value = (g.goals || []).join('\n'); $('#g_tired').value = g.tired_days || ''; $('#g_avoid').value = (g.avoid || []).join(', ');
+}
+async function padd() { const r = await api('api/pantry/add', {text: $('#p_text').value, location: $('#p_loc').value || null, source: 'web'}); $('#p_out').textContent = r.error || ('added ' + (r.added || []).map(a => a.name).join(', ')); $('#p_text').value = ''; pantry(); }
+async function puse(name, op) { await api('api/pantry/' + op, {name}); pantry(); }
+async function photo(inp) {
+  if (!inp.files.length) return; $('#p_out').textContent = 'reading the photo…';
+  const fd = new FormData(); fd.append('photo', inp.files[0]);
+  const r = await (await fetch('api/pantry/photo', {method: 'POST', body: fd})).json(); inp.value = '';
+  $('#p_out').textContent = r.error || `read ${r.read}, added ${r.added.map(a => a.name).join(', ') || 'nothing'}`; pantry();
+}
+async function meals() {
+  $('#m_out').innerHTML = '<span class="mute">thinking…</span>';
+  const r = await api('api/pantry/suggest', {meal: $('#m_meal').value || null, request: $('#m_req').value});
+  if (r.error) { $('#m_out').textContent = r.error; return; }
+  const t = r.today || {}; $('#m_today').textContent = (r.focus || '') + (t.tired ? ' · tired day: ' + t.tired_why.join(', ') : '');
+  const missing = [].concat(...(r.meals || []).map(m => m.missing || []));
+  $('#m_out').innerHTML = (r.meals || []).map(m => `<div style="margin:10px 0"><b>${esc(m.name)}</b> <span class="mute">${esc(m.meal || '')} · ~${m.protein_g ?? '?'} g protein · ~${m.calories ?? '?'} kcal (estimates)</span>
+      <div>${esc(m.why || '')}</div><div class="mute">uses ${esc((m.uses || []).join(', '))}${(m.missing || []).length ? ' · need ' + esc(m.missing.join(', ')) : ''}</div><div class="mute">${esc(m.steps || '')}</div></div>`).join('') || `<pre>${esc(r.raw || 'no ideas')}</pre>`;
+  if (missing.length) $('#m_out').innerHTML += `<button class="go" onclick='shop(${JSON.stringify(missing)})'>Add ${missing.length} missing to the shopping list</button>`;
+}
+async function shop(items) { const r = await api('api/pantry/shop', {items}); alert('Added: ' + r.added.join(', ')); }
+async function saveGoals() { const r = await api('api/pantry/goals', {goals: $('#g_goals').value.split('\n').map(s => s.trim()).filter(Boolean), tired_days: $('#g_tired').value, avoid: $('#g_avoid').value.split(',').map(s => s.trim()).filter(Boolean)}); $('#g_out').textContent = r.error || 'saved'; }
 async function saveItem(id) { const r = await api('api/item/' + id + '/revise', {text: $('#e_text').value}); $('#e_out').textContent = r.error || 'saved'; item(r.id || id); recent(); }
 async function itemOp(id, op, body) { const r = await api('api/item/' + id + '/' + op, body || {}); $('#e_out').textContent = r.error || 'done'; item(id); recent(); }
 async function remember() {

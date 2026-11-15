@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0
+- Pantry: what food is in the house (fridge, freezer, pantry) with a use-by estimated from typical shelf life when none is given. Add from a photo (receipt, fridge, shelf; read by Claude through Home Assistant's AI Task), by typing or telling Jeeves, or by ticking items off the shopping list (they move into the pantry). Mark used or tossed.
+- Meal ideas (Pantry tab, mind_meals, POST /api/pantry/suggest): from what's in the house, soonest-to-expire first, fitted to today (the Steady watch decides tired days: lower-carb, steady energy) and your goals (more protein, fewer calories). Rough protein and calorie estimates; missing ingredients go to the shopping list in one tap.
+- Goals and foods to avoid are editable in the Pantry tab (defaults: more protein, fewer calories, lower-carb on tired days; no mushy vegetables, very spicy food or mushrooms).
+- Morning summary: "use soon" and "past their date, still have them?" lines.
+- Jeeves's lookups about food get the pantry list. The app now maps Home Assistant's media folder (for photos).
+
 ## 0.10.2
 - Overnight duplicates: facts about different names or numbers are never treated as the same fact (two toolboxes in the laundry room were being merged).
 

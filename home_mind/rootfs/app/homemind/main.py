@@ -19,6 +19,7 @@ from .journal import Journal
 from .calendars import Calendars
 from .morning import Morning
 from .overnight import ConvLog, Overnight
+from .pantry import Pantry
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -112,6 +113,8 @@ class App:
                                    self.opts.get("overnight_model") or None)
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
+        self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
+        self.morning.pantry = self.pantry
         mt = self.morning.at
         if (datetime.now().hour, datetime.now().minute) >= mt:
             self.morning.done_for = datetime.now().date()      # started after the time: wait for tomorrow
@@ -246,6 +249,14 @@ class App:
                                                                 if self.engine.autos.get(e, {}).get("ha_state") != "on")})
             await self.journal.tick()
             await self.overnight.tick()
+            if self.ha.available and now - last.get("shop", 0) > 300:
+                last["shop"] = now
+                try:
+                    n = await self.pantry.sync_shopping()
+                    if n:
+                        log.info("pantry: %d items from the shopping list", n)
+                except Exception:  # noqa: BLE001
+                    log.exception("shopping list sync")
             if self.ha.available and now - last.get("conv", 0) > 60 and getattr(self.engine, "_ws", None):
                 last["conv"] = now
                 try:
@@ -362,6 +373,11 @@ def build(app_state):
             if evs:
                 ids = {e["id"] for e in evs}
                 res = [dict(e, score=99.0) for e in evs] + [h for h in res if h["id"] not in ids]
+            # a question about food at home gets the pantry
+            if re.search(r"\b(pantry|fridge|freezer|groceries|food|eat|cook|make for|dinner|lunch|breakfast|snack|"
+                         r"expire|expiring|go bad|going bad|do i have|have any|left in)\b", p.get("q", ""), re.I):
+                res = [{"id": 0, "title": "Pantry", "body": A.pantry.lines(), "shelf": "pantry", "kind": "note",
+                        "updated": time.time(), "score": 97.0}] + res
             # a question about how a reading went ("coldest this week") gets a summary of its dated readings
             if A.home.catalog:
                 hist = A.home.series_lines(p.get("q", ""))
@@ -548,6 +564,41 @@ def build(app_state):
         except (ValueError, RuntimeError) as e:
             return J({"error": str(e)}, status=400)
         return J({"error": f"unknown op {op}"}, status=404)
+
+    @r.get("/api/pantry")
+    async def pantry_list(q):
+        return J({"items": A.pantry.items(q.query.get("status", "in")), "goals": A.pantry.goals()})
+
+    @r.post("/api/pantry/{op}")
+    async def pantry_op(q):
+        op = q.match_info["op"]
+        if op == "photo":
+            reader = await q.multipart()
+            part = await reader.next()
+            data = await part.read(decode=False)
+            return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
+        b = await q.json() if q.can_read_body else {}
+        try:
+            if op == "add":
+                if b.get("text"):
+                    return J({"added": [A.pantry.add(n, a, b.get("location"), source=b.get("source", "api"))
+                                        for n, a in A.pantry.parse_list(b["text"])]})
+                return J(A.pantry.add(b["name"], b.get("amount", ""), b.get("location"), b.get("use_by"),
+                                      source=b.get("source", "api")))
+            if op in ("used", "tossed"):
+                names = [n for n, _ in A.pantry.parse_list(b["text"])] if b.get("text") else [b["name"]]
+                return J({"done": [A.pantry.use(n, "used" if op == "used" else "tossed") for n in names]})
+            if op == "suggest":
+                return J(await A.pantry.suggest(b.get("meal"), b.get("model"), int(b.get("n", 3)), b.get("request", "")))
+            if op == "shop":
+                return J({"added": await A.pantry.add_to_shopping(b.get("items") or [])})
+            if op == "goals":
+                return J(A.pantry.set_goals(b))
+            if op == "today":
+                return J(await A.pantry.today())
+        except (ValueError, KeyError, RuntimeError) as e:
+            return J({"error": str(e)}, status=400)
+        raise web.HTTPNotFound()
 
     @r.get("/api/overnight")
     async def overnight_status(_):
