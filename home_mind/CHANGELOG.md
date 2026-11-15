@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.19.1
+- Structure is read only from the user's own notes. Notes Home Mind writes itself (nutrition studies, morning and journal summaries, weather, readings, meals, check-ins) were being read too, so a study's "daily" became something repeating every day and the morning summary's "Due:" would have listed them. A one-time pass takes that off the notes it was put on.
+
 ## 0.19.0
 - Jeeves's lookup (/api/recall) and Claude's mind_recall return the worked-out lines and the profile first (id 0), and use the same search as answers (past days, "my partner").
 - Notes filed before 0.19 have their structure read once at start-up.

@@ -500,6 +500,39 @@ def due_lines(store, now):
     return out
 
 
+# Notes Home Mind writes itself (summaries, studies, readings) are not things the user said: a study's "daily" is not
+# a chore, and a summary's "weekly" is not a repeating event.
+SYSTEM_SOURCES = {"home", "calendar", "automations", "scale", "nutrition-tracker", "morning", "patterns", "weather",
+                  "check-in", "journal-summary", "summary", "tidy", "usage"}
+SYSTEM_SHELVES = ("summaries/", "journal/summaries", "nutrition/", "home/", "body/weight", "body/meals", "comfort/")
+
+
+def wanted(source, shelf):
+    """Whether a note is the user's own words (so its sentences are read for structure)."""
+    src, sh = (source or ""), (shelf or "")
+    return not (src in SYSTEM_SOURCES or src.startswith("pack:") or sh.startswith(SYSTEM_SHELVES))
+
+
+DERIVED = ("valid_from", "recur", "chore", "place", "fields", "type", "alias")
+
+
+def unread_system(store):
+    """Take structure off notes Home Mind wrote itself (read by mistake before 0.19.1). Returns how many."""
+    import json
+    n = 0
+    for r in store.db.execute("SELECT id, meta, source, shelf FROM items").fetchall():
+        if wanted(r["source"], r["shelf"]):
+            continue
+        m = json.loads(r["meta"] or "{}")
+        if any(k in m for k in DERIVED):
+            for k in DERIVED:
+                m.pop(k, None)
+            store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(m), r["id"]))
+            n += 1
+    store.db.commit()
+    return n
+
+
 def backfill(store):
     """Read structure from notes filed before 0.19 (once): the same rules as filing, dated by when each was filed."""
     n = 0
@@ -508,6 +541,8 @@ def backfill(store):
                             "('home','calendar','automations','scale') AND source NOT LIKE 'pack:%'").fetchall()
     import json
     for r in rows:
+        if not wanted(r["source"], r["shelf"]):
+            continue
         m = json.loads(r["meta"] or "{}")
         if any(k in m for k in ("valid_from", "recur", "chore", "place", "fields", "alias")):
             continue

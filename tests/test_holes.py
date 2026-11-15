@@ -173,6 +173,26 @@ async def main():
           (n, st4.get(x["id"])["meta"]))
     check("... once", await ov.read_structure(mind.models.get("oracle")) == 0)
 
+    # ---- notes Home Mind writes itself are not read for structure ----------------------------------------------------
+    import tempfile as _tf
+    from homemind.store import Store as _Store
+    from homemind import structure as _S
+    sx = _Store(_tf.mktemp())
+    study = sx.remember(text="5 servings a day was linked to lower mortality. Takeaway: two fruits and three vegetables "
+                             "daily.", title="Nutrition study: 5 a day", shelf="nutrition/evidence",
+                        source="nutrition-tracker")
+    summ = sx.remember(text="Remembered 5 this week. Automations ran weekly.", title="Morning summary",
+                       shelf="summaries/morning", source="morning")
+    mine = sx.remember(text="I take my vitamins every day.", title="Vitamins")
+    import json as _json
+    meta = lambda i: _json.loads(sx.db.execute("SELECT meta FROM items WHERE id=?", (i,)).fetchone()["meta"] or "{}")
+    check("a study's 'daily' is not a repeating thing", "recur" not in meta(study["id"]), meta(study["id"]))
+    check("a summary's 'weekly' is not either", "recur" not in meta(summ["id"]), meta(summ["id"]))
+    check("the user's own 'every day' still is", "recur" in meta(mine["id"]), meta(mine["id"]))
+    sx.db.execute("UPDATE items SET meta=? WHERE id=?", (_json.dumps({"recur": {"kind": "interval", "days": 1}}),
+                                                       study["id"]))
+    check("structure read by mistake is taken off", _S.unread_system(sx) == 1 and "recur" not in meta(study["id"])
+          and "recur" in meta(mine["id"]))
     print("HOLES OK" if not FAILS else f"HOLES FAILED: {FAILS}")
     sys.exit(1 if FAILS else 0)
 

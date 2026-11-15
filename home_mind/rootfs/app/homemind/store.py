@@ -274,8 +274,8 @@ class Store:
             if prev and now - prev["created"] <= self.LINK_SECONDS:
                 title = f"{title} [re: {prev['title'][:100]}]"
                 m0["refers_to"] = prev["id"]
-        if kind not in ("procedure", "task") and self.STRUCTURE:
-            from . import structure
+        from . import structure
+        if kind not in ("procedure", "task") and self.STRUCTURE and structure.wanted(source, shelf):
             for k, v in structure.annotate(text, title, now).items():
                 m0.setdefault(k, v)
             if "alias" in m0 and shelf == "inbox":
