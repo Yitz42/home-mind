@@ -46,7 +46,13 @@ SHELF = {
     "protein powder": (None, None, 365), "chips": (None, None, 60), "crackers": (None, None, 120),
     "soup": (4, 180, 730), "sauce": (21, 180, 365), "salsa": (14, 60, 365), "ketchup": (180, None, 365),
     "frozen": (None, 240, None), "ice cream": (None, 60, None), "pizza": (4, 60, None),
+    "mango": (7, 300, 5), "peach": (5, 300, 3), "pear": (10, 300, 5), "pineapple": (5, 300, 3), "kiwi": (14, None, 5),
+    "melon": (5, None, 5), "watermelon": (5, None, 7), "lasagna": (4, 270, None), "meatballs": (4, 120, None),
+    "enchiladas": (4, 270, None), "dinner": (4, 270, None), "meal": (4, 270, None), "burrito": (4, 270, None),
+    "canned": (None, None, 730), "can": (None, None, 730), "cans": (None, None, 730), "peas": (5, 300, 2),
 }
+COMBOS = ("peas and carrots", "mac and cheese", "macaroni and cheese", "rice and beans", "salt and pepper",
+          "peanut butter and jelly", "sour cream and onion", "franks and beans", "pork and beans")
 DEFAULT_DAYS = {"fridge": 7, "freezer": 120, "pantry": 180}
 LOCATIONS = ("fridge", "freezer", "pantry")
 FRIDGE_FIRST = ("chicken", "beef", "pork", "turkey", "fish", "salmon", "shrimp", "milk", "yogurt", "cheese", "eggs",
@@ -87,9 +93,21 @@ def estimate(name, location):
     n = _norm(name)
     idx = {"fridge": 0, "freezer": 1, "pantry": 2}.get(location, 0)
     best = None
-    for k, v in SHELF.items():
-        if re.search(rf"\b{re.escape(k)}s?\b", n) and (best is None or len(k) > len(best[0])):
-            best = (k, v)
+    if location == "pantry" and re.search(r"\b(canned|can|cans|jar|jarred|dried|dry)\b", n):
+        return 730
+    words = n.split()
+    # the last word names the food ("strawberry banana yogurt" is yogurt), so try the end of the name first
+    for size in range(len(words), 0, -1):
+        tail = " ".join(words[-size:])
+        for k, v in SHELF.items():
+            if re.fullmatch(rf"(?:.*\b)?{re.escape(k)}s?", tail) and (best is None or len(k) > len(best[0])):
+                best = (k, v)
+        if best:
+            break
+    if best is None:                  # "chicken breast": the food word isn't last
+        for k, v in SHELF.items():
+            if re.search(rf"\b{re.escape(k)}s?\b", n) and (best is None or len(k) > len(best[0])):
+                best = (k, v)
     if best and best[1][idx] is not None:
         return best[1][idx]
     if best and best[1][idx] is None and location == "pantry":
@@ -197,7 +215,10 @@ class Pantry:
 
     def parse_list(self, text):
         """'chicken, 2 lb ground beef and a dozen eggs' -> [(name, amount)]."""
-        parts = re.split(r",|\band\b|\n|;", text or "")
+        text = text or ""
+        for c in COMBOS:                      # "peas and carrots" is one food
+            text = re.sub(rf"\b{c}\b", c.replace(" and ", " & "), text, flags=re.I)
+        parts = [x.replace(" & ", " and ") for x in re.split(r",|\band\b|\n|;", text)]
         out = []
         for p in parts:
             p = re.sub(r"^\s*(i\s+)?(just\s+)?(bought|got|picked up|have|added|used|finished|ate|threw out|tossed)\s+",
@@ -205,7 +226,8 @@ class Pantry:
             p = re.sub(r"^(the|some|an|a(?!\s+(?:dozen|couple|few)\b))\s+", "", p.strip(), flags=re.I).strip(" .!")
             if not p:
                 continue
-            m = re.match(r"^((?:bag|box|carton|can|jar|bunch|pack|bottle|loaf|head|tub|container)s?) of\s+(.+)$", p, re.I)
+            m = re.match(r"^((?:bag|box|carton|can|jar|bunch|pack|bottle|loaf|head|tub|container|pint|quart|gallon)s?) "
+                         r"(?:of\s+)?(.+)$", p, re.I)
             if m:                     # "a bag of baby carrots": the container is the amount
                 out.append((m.group(2).strip(), "1 " + m.group(1).lower()))
                 continue

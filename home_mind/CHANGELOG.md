@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.6
+- Pantry, from the first real receipt: the last word names the food (strawberry banana yogurt keeps like yogurt, not banana); canned and dried foods keep about 2 years; mangoes and other fruit, frozen dinners added to the shelf-life table; "peas and carrots" stays one item; "a pint blueberries" is 1 pint of blueberries.
+
 ## 0.11.5
 - Pantry: "a bag of baby carrots" files baby carrots (1 bag), not "bag of baby carrots". Jeeves can add, use, list and ask for meals (scripts Pantry in Home Mind and Meal ideas from Home Mind).
 

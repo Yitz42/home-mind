@@ -54,12 +54,16 @@ async def main():
     assert estimate("baby spinach", "fridge") == 5 and estimate("chicken breast", "freezer") == 270
     assert guess_location("chicken thighs") == "fridge" and guess_location("frozen peas") == "freezer"
     assert guess_location("rolled oats") == "pantry"
+    assert estimate("Chobani strawberry banana yogurt", "fridge") == 14     # the last word names the food
+    assert estimate("canned low-sodium sweet peas", "pantry") == 730 and estimate("mango", "pantry") == 5
     st = Store(tempfile.mktemp())
     ha, models = FakeHA(), Models()
     p = Pantry(st, ha, models, tempfile.mkdtemp())
     parsed = p.parse_list("I bought chicken, 2 lb ground beef and a dozen eggs")
     assert parsed == [("chicken", ""), ("ground beef", "2 lb"), ("eggs", "a dozen")], parsed
     assert p.parse_list("a bag of baby carrots and some hummus") == [("baby carrots", "1 bag"), ("hummus", "")]
+    assert p.parse_list("1 can peas and carrots, a pint blueberries") == [("peas and carrots", "1 can"), ("blueberries", "1 pint")], \
+        p.parse_list("1 can peas and carrots, a pint blueberries")
     for n, a in parsed:
         p.add(n, a)
     p.add("milk", "1 gallon", use_by="2020-01-01")
