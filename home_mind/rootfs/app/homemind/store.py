@@ -76,6 +76,16 @@ END;
 """
 
 
+def _eff(r):
+    """When a row's fact became true: the note's own date ("last Tuesday ...") if it gave one, else when it was filed."""
+    try:
+        m = r["meta"]
+        m = json.loads(m or "{}") if isinstance(m, str) else (m or {})
+    except (ValueError, TypeError, KeyError, IndexError):
+        m = {}
+    return float(m.get("valid_from") or r["created"])
+
+
 def words(text):
     return [w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if w not in STOP and len(w) > 1]
 
@@ -264,6 +274,12 @@ class Store:
             if prev and now - prev["created"] <= self.LINK_SECONDS:
                 title = f"{title} [re: {prev['title'][:100]}]"
                 m0["refers_to"] = prev["id"]
+        if kind not in ("procedure", "task") and self.STRUCTURE:
+            from . import structure
+            for k, v in structure.annotate(text, title, now).items():
+                m0.setdefault(k, v)
+            if "alias" in m0 and shelf == "inbox":
+                shelf = "profile"          # "Dana is my partner": who is who, always shown to models
         meta = m0
         with self.lock:
             old = self.active_by_key(key) if key else None
@@ -274,6 +290,18 @@ class Store:
                 self.log("reinforce", old["id"], key=key)
                 return {"id": old["id"], "action": "reinforced"}
             m = dict(meta or {})
+            if old and m.get("valid_from") and m["valid_from"] < float((json.loads(old["meta"] or "{}") if isinstance(
+                    old["meta"], str) else old["meta"] or {}).get("valid_from") or old["created"]):
+                # "On Monday it changed to X", filed after a newer value: history, not the current value
+                cur = self.db.execute(
+                    "INSERT INTO items(kind,key,title,body,tags,shelf,status,supersedes,created,updated,source,meta) "
+                    "VALUES(?,?,?,?,?,?,'superseded',NULL,?,?,?,?)",
+                    (kind, key, title, text, tags, shelf, now, now, source, json.dumps(m)))
+                new_id = cur.lastrowid
+                self.db.commit()
+                self._vocab_add(title, text, tags, new_id)
+                self.log("remember", new_id, kind=kind, key=key, shelf=shelf, action="history", source=source)
+                return {"id": new_id, "action": "history", "shelf": shelf, "current": old["id"]}
             cur = self.db.execute(
                 "INSERT INTO items(kind,key,title,body,tags,shelf,status,supersedes,created,updated,source,meta) "
                 "VALUES(?,?,?,?,?,?,'active',?,?,?,?,?)",
@@ -649,6 +677,7 @@ class Store:
         return res
 
     # recall settings (class-level so tests can compare with and without)
+    STRUCTURE = True     # read recurrence, chores, places, fields, aliases and "since when" from notes as they are filed
     BM25 = "4.0, 1.0, 2.0, 1.5"  # weights for title, body, tags, shelf
     LINK_PRONOUNS = True # a note that says "its"/"it" and names nothing is linked to the note just before it
     LINK_SECONDS = 7200  # ...if that note is at most this old
@@ -740,7 +769,7 @@ class Store:
         if len(group) < 2:
             return out, {}
         best = group[0][0]
-        ordered = sorted(group, key=lambda x: x[2]["created"], reverse=True)
+        ordered = sorted(group, key=lambda x: _eff(x[2]), reverse=True)    # when it became true, if the note says
         older = {row[2]["id"]: ordered[0][2]["id"] for row in ordered[1:]}
         for k, row in enumerate(ordered):
             row[0] = best - 1e-6 * k

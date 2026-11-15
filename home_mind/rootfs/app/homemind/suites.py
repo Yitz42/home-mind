@@ -11,6 +11,7 @@ A suite returns {"events": [...], "questions": [...]}; the runner plays the even
 questions. Events that store something carry a "ref" so the right item can be checked by id.
 """
 import random
+from datetime import date, datetime, timedelta
 import re
 
 SYL_A = ["ta", "ve", "ko", "mi", "dra", "sel", "or", "pu", "zen", "lo", "fi", "ran", "bex", "quo", "har", "nim", "ul", "cy"]
@@ -1044,6 +1045,324 @@ def extract(seed, n=8):
     return {"events": turns, "questions": questions, "truth": truth, "junk": junk, "saved": saved}
 
 
+# ---- structure read from notes (structure.py) -------------------------------------------------------------------
+DAY_S = 86400
+
+
+def _ask_at(day0, n_events, spacing, j):
+    """When question j is asked: after every event (spacing apart), each question 10 minutes after the last."""
+    t0 = datetime.fromisoformat(day0) if isinstance(day0, str) else day0
+    # by the clock's seconds, as the runner counts them (a day across a DST change is not 24 hours of wall time)
+    return datetime.fromtimestamp(t0.timestamp() + spacing * n_events + 600 * (j + 1))
+
+
+def _md(d):
+    return f"{d:%b} {d.day}"
+
+
+def recurring(seed, n=8, day0=None):
+    """Things that repeat (every Tuesday, every other Thursday from a date, the 15th of every month), asked "when is
+    the next ...?". The answer is a date worked out at question time, written nowhere."""
+    rng = random.Random(seed)
+    day0 = day0 or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=30)
+    events, plan = [], []
+    used = set()
+    while len(plan) < n:
+        nm = name(rng)
+        if nm in used:
+            continue
+        used.add(nm)
+        kind = rng.choice(["weekly", "weekly", "other", "monthly"])
+        i = len(events)
+        filed = datetime.fromtimestamp(day0.timestamp() + DAY_S * (i + 1))
+        if kind == "weekly":
+            wd = rng.randrange(7)
+            thing = rng.choice([f"the {nm} pickup", f"{nm} class", f"the {nm} market"])
+            text = rng.choice([f"{_cap(thing)} is every {DAYS[wd]}.", f"{_cap(thing)} happens on {DAYS[wd]}s."])
+            plan.append({"kind": kind, "wd": wd, "thing": thing})
+        elif kind == "other":
+            wd = rng.randrange(7)
+            start = (filed + timedelta(days=rng.randint(1, 12))).date()
+            start += timedelta(days=(wd - start.weekday()) % 7)
+            thing = f"the {nm} recycling"
+            text = f"{_cap(thing)} goes out every other {DAYS[wd]} starting {start:%b} {start.day}."
+            plan.append({"kind": kind, "wd": wd, "start": start, "thing": thing})
+        else:
+            dom = rng.randint(1, 28)
+            thing = f"the {nm} dues"
+            text = f"{_cap(thing)} are due on the {dom}{'th' if 4 <= dom <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(dom % 10, 'th')} of every month."
+            plan.append({"kind": kind, "dom": dom, "thing": thing})
+        events.append({"op": "remember", "ref": f"r{i}", "text": text})
+        events.append({"op": "remember", "text": f"{_cap(rng.choice(PEOPLE))} said {nm} was busy last time."})
+    questions = []
+    for j, p in enumerate(plan):
+        today = _ask_at(day0, len(events), DAY_S, j).date()
+        if p["kind"] == "weekly":
+            nxt = today + timedelta(days=(p["wd"] - today.weekday()) % 7)
+        elif p["kind"] == "other":
+            nxt = p["start"]
+            while nxt < today:
+                nxt += timedelta(days=14)
+        else:
+            y, mo = today.year, today.month
+            nxt = date(y, mo, p["dom"])
+            if nxt < today:
+                nxt = date(y + (mo == 12), 1 if mo == 12 else mo + 1, p["dom"])
+        q = rng.choice([f"When is {p['thing']} next?", f"What day is the next {p['thing'].removeprefix('the ')}?"])
+        questions.append({"q": q, "gold": _md(nxt), "derived": True, "type": p["kind"], "stale": []})
+    return {"events": events, "questions": questions, "spacing": DAY_S, "day0": day0.isoformat()}
+
+
+CHORE_KINDS = [("change", "changed", "filter"), ("clean", "cleaned", "vent"), ("descale", "descaled", "kettle"),
+               ("replace", "replaced", "battery"), ("flush", "flushed", "water heater")]
+
+
+def chores(seed, n=5, day0=None):
+    """Chores with an interval ('Change the X filter every 2 months') and when each was done ('I changed the X
+    filter'). Asked when it was last done, when it is next due, and which are overdue."""
+    rng = random.Random(seed)
+    day0 = day0 or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=30)
+    events, plan = [], []
+    used = set()
+    for i in range(n):
+        verb, past, obj = rng.choice(CHORE_KINDS)
+        thing = f"{name(rng)} {obj}"
+        while thing in used:
+            thing = f"{name(rng)} {obj}"
+        used.add(thing)
+        months = rng.choice([1, 1, 2, 3])
+        every = rng.choice([f"every {months} month{'s' if months > 1 else ''}", "every week", "every 2 weeks"])
+        days = {"every week": 7, "every 2 weeks": 14}.get(every, 30 * months)
+        events.append({"op": "remember", "ref": f"c{i}", "text": f"{_cap(verb)} the {thing} {every}."})
+        plan.append({"thing": thing, "verb": verb, "past": past, "days": days, "def": len(events) - 1, "done": []})
+    for _ in range(n * 3):           # done notes and noise, mixed
+        if rng.random() < 0.5:
+            p = rng.choice(plan)
+            events.append({"op": "remember", "text": rng.choice([f"I {p['past']} the {p['thing']}.",
+                                                                  f"{_cap(p['past'])} the {p['thing']} today."])})
+            p["done"].append(len(events) - 1)
+        else:
+            events.append({"op": "remember", "text": f"{rng.choice(PEOPLE)} borrowed the {rng.choice(COLORS)} ladder."})
+    questions = []
+    t_of = lambda k: datetime.fromtimestamp(day0.timestamp() + DAY_S * (k + 1))
+    for j, p in enumerate(plan):
+        today = _ask_at(day0, len(events), DAY_S, j).date()
+        last = t_of(p["done"][-1]).date() if p["done"] else None
+        due = (last or t_of(p["def"]).date()) + timedelta(days=p["days"])
+        p["due"] = due
+        if last and rng.random() < 0.5:
+            questions.append({"q": f"When did I last {p['verb']} the {p['thing']}?", "gold": _md(last), "derived": True,
+                              "type": "last_done", "stale": [_md(t_of(k).date()) for k in p["done"][:-1]]})
+        else:
+            questions.append({"q": f"When is the {p['thing']} due next?", "gold": _md(due), "derived": True,
+                              "type": "next_due", "stale": []})
+    today = _ask_at(day0, len(events), DAY_S, len(plan)).date()
+    over = [p["thing"] for p in plan if p["due"] <= today]
+    questions.append({"q": "Which chores are overdue?", "gold": over[0] if over else "nothing is overdue",
+                      "all": over or ["nothing is overdue"], "none": [p["thing"] for p in plan if p["due"] > today],
+                      "derived": True, "type": "overdue", "stale": []})
+    return {"events": events, "questions": questions, "spacing": DAY_S, "day0": day0.isoformat()}
+
+
+TOOLS = ["drill", "tape measure", "glue gun", "torch", "socket set", "stud finder", "sander", "level"]
+BOXES = ["toolbox", "crate", "bin", "tote", "case"]
+
+
+def places(seed, n=6):
+    """Things in containers in rooms, moved around ('I moved the X toolbox to the attic'). Asked where a thing is now
+    (through its container) and what's in a room."""
+    rng = random.Random(seed)
+    events, cur = [], {}
+    boxes = []
+    for i in range(3):
+        b = f"{name(rng)} {rng.choice(BOXES)}"
+        while b in cur:
+            b = f"{name(rng)} {rng.choice(BOXES)}"
+        room = rng.choice(ROOMS)
+        boxes.append(b)
+        cur[b] = room
+        events.append({"op": "remember", "text": rng.choice([f"The {b} is in the {room}.", f"I put the {b} in the {room}."])})
+    things = []
+    for i in range(n):
+        t = f"{name(rng)} {rng.choice(TOOLS)}"
+        while t in cur:
+            t = f"{name(rng)} {rng.choice(TOOLS)}"
+        b = rng.choice(boxes)
+        things.append(t)
+        cur[t] = b
+        events.append({"op": "remember", "text": rng.choice([f"The {t} is in the {b}.", f"I put the {t} in the {b}."])})
+    hist = {x: [cur[x]] for x in cur}
+    for _ in range(4):
+        if rng.random() < 0.5:
+            b = rng.choice(boxes)
+            room = rng.choice([r for r in ROOMS if r != cur[b]])
+            cur[b] = room
+            events.append({"op": "remember", "text": f"I moved the {b} to the {room}."})
+        else:
+            t = rng.choice(things)
+            b = rng.choice([x for x in boxes if x != cur[t]])
+            cur[t] = b
+            events.append({"op": "remember", "text": f"I moved the {t} to the {b}."})
+        events.append({"op": "remember", "text": f"{rng.choice(PEOPLE)} fixed the {rng.choice(COLORS)} gate."})
+    for x in cur:
+        hist.setdefault(x, [])
+        if not hist[x] or hist[x][-1] != cur[x]:
+            hist[x].append(cur[x])
+    room_of = lambda t: cur[cur[t]]
+    questions = []
+    for t in rng.sample(things, min(4, len(things))):
+        old_rooms = [r for r in ROOMS if r != room_of(t) and any(cur.get(b) == r or r in hist.get(cur[t], [])
+                                                                for b in boxes)]
+        questions.append({"q": rng.choice([f"Where is the {t}?", f"Where did I put the {t}?"]), "gold": room_of(t),
+                          "also": [], "derived": True, "type": "where", "stale": [r for r in hist[cur[t]][:-1]]})
+    room = rng.choice([cur[b] for b in boxes])
+    inside = [t for t in things if room_of(t) == room]
+    questions.append({"q": f"What's in the {room}?", "gold": inside[0] if inside else boxes[0],
+                      "all": inside + [b for b in boxes if cur[b] == room], "none": [t for t in things if t not in inside],
+                      "derived": True, "type": "inside", "stale": []})
+    return {"events": events, "questions": questions}
+
+
+APPLIANCES = ["dishwasher", "fridge", "dryer", "furnace", "water heater", "microwave", "router", "dehumidifier"]
+BRANDS = ["Brevik", "Solcor", "Tamsen", "Ulvar", "Quellon", "Dorrit"]
+
+
+def typed(seed, n=6, day0=None):
+    """Appliances with a brand, model, serial, purchase date and warranty end. Asked for one field of one thing, and
+    which warranties end this year or have run out."""
+    rng = random.Random(seed)
+    day0 = day0 or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=30)
+    events, items = [], []
+    used = set()
+    while len(items) < n:
+        a = rng.choice(APPLIANCES)
+        nm = name(rng)
+        if (nm, a) in used:
+            continue
+        used.add((nm, a))
+        brand, model = rng.choice(BRANDS), f"{rng.choice('ABCDEFGHJK')}{rng.choice('XYZQRS')}{rng.randint(10, 99)}"
+        serial = f"{rng.randint(1000, 9999)}{rng.choice('ABCDEF')}"
+        y = day0.year + rng.choice([-2, -1, 0, 1, 2])
+        mo = rng.randint(1, 12)
+        events.append({"op": "remember", "text": f"The {nm} {a} is a {brand} {model}, serial {serial}, bought "
+                       f"{MONTHS_EN[(mo + 5) % 12]} {y - 3}, warranty until {MONTHS_EN[mo - 1]} {y}."})
+        items.append({"thing": f"{nm} {a}", "serial": serial, "model": model, "wy": y, "wm": mo})
+        events.append({"op": "remember", "text": f"{rng.choice(PEOPLE)} asked about the {rng.choice(COLORS)} rug."})
+    today = _ask_at(day0, len(events), 3600, 0).date()
+    end_of = lambda it: date(it["wy"], it["wm"], 28)
+    questions = []
+    for it in rng.sample(items, 3):
+        f = rng.choice(["serial", "model"])
+        questions.append({"q": f"What's the {f} {'number ' if f == 'serial' else ''}of the {it['thing']}?",
+                          "gold": it[f], "derived": True, "type": f, "stale": []})
+    this_year = [it["thing"] for it in items if it["wy"] == today.year and end_of(it) >= today]
+    questions.append({"q": "Which warranties end this year?", "gold": this_year[0] if this_year else "none",
+                      "all": this_year or ["none"], "none": [it["thing"] for it in items if it["thing"] not in this_year],
+                      "derived": True, "type": "this_year", "stale": []})
+    gone = [it["thing"] for it in items if date(it["wy"], it["wm"], 1) < date(today.year, today.month, 1)]
+    questions.append({"q": "Which warranties have expired?", "gold": gone[0] if gone else "none",
+                      "all": gone or ["none"], "none": [it["thing"] for it in items if it["thing"] not in gone],
+                      "derived": True, "type": "expired", "stale": []})
+    return {"events": events, "questions": questions, "day0": day0.isoformat()}
+
+
+MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+             "November", "December"]
+
+
+def valid(seed, n=8, day0=None):
+    """A change filed days after it happened ('Three days ago I changed the X locker code to 1111'). If it happened
+    before the value stated in between, that value is still current; if after, the late note is."""
+    rng = random.Random(seed)
+    day0 = day0 or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=30)
+    events, questions = [], []
+    words_n = {1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven"}
+    used = set()
+    for i in range(n):
+        nm = name(rng)
+        while nm in used:
+            nm = name(rng)
+        used.add(nm)
+        v1, v2 = str(rng.randint(1000, 9999)), str(rng.randint(1000, 9999))
+        late_is_older = i % 2 == 0
+        key = f"the {nm.lower()} locker|code"
+        events.append({"op": "remember", "ref": f"v{i}a", "text": f"The {nm} locker code is {v1}.", "key": key, "kind": "fact"})
+        back = rng.randint(2, 4)
+        if late_is_older:
+            # filed `back+1` events (days) later, about a change `back` + 2 days before then: before v1 was said
+            events += [{"op": "remember", "text": f"{rng.choice(PEOPLE)} watered the {rng.choice(COLORS)} plant."}] * 1
+            events.append({"op": "remember", "ref": f"v{i}b", "key": key, "kind": "fact",
+                           "text": f"{words_n[back + 2]} days ago I changed the {nm} locker code to {v2}."})
+            questions.append({"q": f"What is the {nm} locker code now?", "gold": v1, "ref": f"v{i}a", "stale": [v2],
+                              "type": "late_older"})
+        else:
+            events += [{"op": "remember", "text": f"{rng.choice(PEOPLE)} watered the {rng.choice(COLORS)} plant."}] * (back + 1)
+            events.append({"op": "remember", "ref": f"v{i}b", "key": key, "kind": "fact",
+                           "text": f"Yesterday I changed the {nm} locker code to {v2}."})
+            questions.append({"q": f"What is the {nm} locker code now?", "gold": v2, "ref": f"v{i}b", "stale": [v1],
+                              "type": "late_newer"})
+    return {"events": events, "questions": questions, "spacing": DAY_S, "day0": day0.isoformat()}
+
+
+ROLES = [("partner", "works as a {job} at {place}", "Where does my partner work?"),
+         ("sister", "lives in {place}", "Where does my sister live?"),
+         ("dentist", "has an office on {place} Street", "Where is my dentist's office?"),
+         ("neighbor", "drives a {color} van", "What color van does my neighbor drive?")]
+
+
+def profile(seed, n=4):
+    """Who is who ('Dana is my partner') and facts that only use the name ('Dana works at Corlin'), among the same
+    kind of facts about other people. Asked with the role: 'Where does my partner work?'."""
+    rng = random.Random(seed)
+    events, questions, used = [], [], set()
+
+    def fresh():
+        while True:
+            x = name(rng)
+            if x not in used:
+                used.add(x)
+                return x
+    for role, fact, q in rng.sample(ROLES, min(n, len(ROLES))):
+        who, other = fresh(), fresh()
+        val, val2 = fresh(), fresh()
+        color, color2 = rng.choice(COLORS), rng.choice(COLORS)
+        f1 = fact.format(job="nurse", place=val, color=color)
+        f2 = fact.format(job="baker", place=val2, color=color2 if color2 != color else "white")
+        events.append({"op": "remember", "text": f"{who} is my {role}."})
+        events.append({"op": "remember", "text": f"{other} {f2}."})
+        events.append({"op": "remember", "ref": f"p{role}", "text": f"{who} {f1}."})
+        gold = color if "color" in q.lower() else val
+        questions.append({"q": q, "gold": gold, "ref": f"p{role}", "type": role, "stale": [],
+                          "none": [color2 if "color" in q.lower() else val2]})
+    for _ in range(8):
+        events.append({"op": "remember", "text": f"{fresh()} {rng.choice(ROLES)[1].format(job='clerk', place=fresh(), color=rng.choice(COLORS))}."})
+    rng.shuffle(events)
+    # who-is-who notes must come before nothing in particular: order does not matter for these questions
+    return {"events": events, "questions": questions}
+
+
+def tidy(seed, n=10):
+    """Duplicates (the same note said twice, with small differences) among near-misses (the same words but another
+    number or name). The tidy pass must pair the duplicates and leave the near-misses alone."""
+    rng = random.Random(seed)
+    events, questions = [], []
+    for i in range(n):
+        nm, v = name(rng), str(rng.randint(1000, 9999))
+        base = f"The {nm} locker code is {v}."
+        events.append({"op": "remember", "ref": f"t{i}a", "text": base})
+        if i % 2 == 0:
+            twin = rng.choice([base.lower(), base.rstrip("."), f"the {nm} locker code is {v}", f"{nm} locker code is {v}."])
+            events.append({"op": "remember", "ref": f"t{i}b", "text": twin})
+            questions.append({"q": f"dup {i}", "gold": None, "tidy": "dup", "pair": [f"t{i}a", f"t{i}b"], "type": "dup"})
+        else:
+            other = str(int(v) + rng.choice([1, 9, 30, 111]))[:4]
+            events.append({"op": "remember", "ref": f"t{i}b", "text": f"The {nm} locker code is {other}."})
+            questions.append({"q": f"near {i}", "gold": None, "tidy": "notdup", "pair": [f"t{i}a", f"t{i}b"],
+                              "type": "near_miss"})
+        events.append({"op": "remember", "text": f"{rng.choice(PEOPLE)} painted the {rng.choice(COLORS)} fence."})
+    return {"events": events, "questions": questions}
+
+
 def abstain(seed, n=10):
     """Questions whose answer was never filed, next to the same kind of question that can be answered. Half come from
     a locate world (vague, no names), half from a recall world (named facts); for each world, half the questions have
@@ -1069,8 +1388,17 @@ def abstain(seed, n=10):
 
 
 SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard, "hard2": hard2, "followup": followup, "extract": extract,
-          "abstain": abstain}
+          "abstain": abstain, "recurring": recurring, "chores": chores, "places": places, "typed": typed,
+          "valid": valid, "profile": profile, "tidy": tidy}
 SUITE_INFO = {
+    "recurring": "things that repeat (every Tuesday, every other Thursday, the 15th of the month): when is the next one?",
+    "chores": "chores with an interval and when each was done: last done, next due, which are overdue",
+    "places": "things in containers in rooms, moved around: where is it now, what's in a room",
+    "typed": "appliances with brand, model, serial, warranty: one field, which warranties end this year or ran out",
+    "valid": "a change filed days after it happened: the value current now depends on when it became true",
+    "profile": "who is who ('Dana is my partner'): questions by role find notes that only use the name",
+    "tidy": "duplicates among near-misses: the tidy pass pairs only the duplicates",
+    "corrections": "your own corrections ('that's wrong' + the right value), asked again of your real memory",
     "abstain": "questions whose answer was never filed, mixed with ones that can be answered; brain arm: the low-match "
                "flag is on exactly for the missing ones; model arms: 'I don't know' for those",
     "extract": "facts buried in chatty conversations with jokes, hypotheticals, corrections and assistant guesses; "

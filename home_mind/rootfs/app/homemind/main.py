@@ -361,6 +361,10 @@ class App:
                 if now - last["fade"] > 86400:
                     last["fade"] = now
                     self.mind.store.fade(int(self.opts.get("fade_days") or 0))
+                    from . import tidy
+                    pairs = tidy.run(self.mind.store)
+                    if pairs:
+                        log.info("tidy: %d possible duplicate pairs flagged", len(pairs))
                     n = self.mind.store.prune_events(int(self.opts.get("events_keep_days") or 0))
                     if n:
                         log.info("event log: rolled up and removed %d rows older than %s days", n,
@@ -566,6 +570,34 @@ def build(app_state):
     @r.get("/api/trend")
     async def trend(q):
         return J(st.trend(q.query["suite"], q.query.get("name", "accuracy"), q.query.get("arm")))
+
+    @r.get("/api/profile")
+    async def profile_get(_):
+        from . import structure
+        return J({"lines": structure.profile(st), "max": structure.PROFILE_MAX})
+
+    @r.get("/api/tidy")
+    async def tidy_get(q):
+        from . import tidy
+        pairs = tidy.run(st) if q.query.get("now") == "1" else (st.kv_get("tidy_pairs") or [])
+        return J({"pairs": [{"a": st.get(a), "b": st.get(b)} for a, b in pairs]})
+
+    @r.get("/api/cases")
+    async def cases_get(_):
+        from .cases import Cases
+        return J({"cases": Cases(st).all()})
+
+    @r.post("/api/cases")
+    async def cases_add(q):
+        from .cases import Cases
+        b = await q.json()
+        return J({"id": Cases(st).add(b["question"], b["right"], b.get("wrong", ""))})
+
+    @r.post("/api/cases/{id}/remove")
+    async def cases_remove(q):
+        from .cases import Cases
+        Cases(st).remove(int(q.match_info["id"]))
+        return J({"removed": int(q.match_info["id"])})
 
     @r.get("/api/usage")
     async def usage(q):

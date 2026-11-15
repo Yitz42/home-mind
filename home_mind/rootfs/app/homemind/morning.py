@@ -157,6 +157,10 @@ class Morning:
                              + " (tell Jeeves \"I used…\" or \"I tossed…\")")
         if not lines:
             lines.append("Nothing new was filed in the last day.")
+        from . import tidy
+        dup = tidy.summary_line(self.store, _short)       # secret values hidden, as in the rest of the summary
+        if dup:
+            lines.append(dup)
         self._checkin = self.pick_checkin()
         if self._checkin:
             lines.append(self._checkin_line(self._checkin))
