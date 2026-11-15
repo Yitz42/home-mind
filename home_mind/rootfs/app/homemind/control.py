@@ -71,6 +71,8 @@ SETTINGS = {
                      "apply": lambda A, v: setattr(A.mind, "ORDER", "edges" if v else "default")},
     "answer_notes_first": {"kind": "switch", "label": "Name the notes before answering", "icon": "mdi:note-search",
                            "apply": lambda A, v: setattr(A.mind, "NOTES_FIRST", bool(v))},
+    "overnight_structure": {"kind": "switch", "label": "Overnight: read what the patterns missed", "icon": "mdi:text-search",
+                            "apply": lambda A, v: setattr(A.overnight, "structure_on", bool(v))},
     "quiet_hours": {"kind": "switch", "label": "Quiet hours for phone notifications", "icon": "mdi:bell-sleep",
                     "apply": _quiet},
     "checkin_old_facts": {"kind": "switch", "label": "Ask about old facts in the morning", "icon": "mdi:calendar-question",

@@ -1363,6 +1363,58 @@ def tidy(seed, n=10):
     return {"events": events, "questions": questions}
 
 
+def paraphrase(seed, n=2, day0=None):
+    """The same kinds of structure, said in ways the patterns don't read ('You'll find the drill inside the red
+    toolbox', 'Bin day for the Ulvar recycling is Tuesday', 'The X filter should be swapped out every three months',
+    'Serial on the X dryer: 4471A', 'I'm married to Dana'). Brain arm with ingest raw: what the patterns alone get;
+    with ingest structure and a model: what overnight_structure adds. Compare both on your model before turning it on."""
+    rng = random.Random(seed)
+    day0 = day0 or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=30)
+    events, questions, used = [], [], set()
+
+    def fresh():
+        x = name(rng)
+        while x in used:
+            x = name(rng)
+        used.add(x)
+        return x
+    at = lambda k: datetime.fromtimestamp(day0.timestamp() + DAY_S * (k + 1))
+    plan = []
+    for _ in range(n):
+        t, b, room = f"{fresh()} {rng.choice(TOOLS)}", f"{fresh()} {rng.choice(BOXES)}", rng.choice(ROOMS)
+        events.append({"op": "remember", "text": f"You'll find the {t} inside the {b}."})
+        events.append({"op": "remember", "text": f"The {b} now lives in the {room}."})
+        plan.append(("place", f"Where is the {t}?", room))
+        wd = rng.randrange(7)
+        thing = f"the {fresh()} recycling"
+        events.append({"op": "remember", "text": f"Bin day for {thing} is {DAYS[wd]}."})
+        plan.append(("repeat", f"When is {thing} next?", wd))
+        f = f"{fresh()} filter"
+        events.append({"op": "remember", "text": f"The {f} should be swapped out every three months."})
+        events.append({"op": "remember", "text": f"Swapped out the {f} today."})
+        plan.append(("chore", f"When did I last swap the {f}?", len(events) - 1))
+        dev, serial = f"{fresh()} dryer", f"{rng.randint(1000, 9999)}{rng.choice('ABCDEF')}"
+        events.append({"op": "remember", "text": f"Serial on the {dev}: {serial}"})
+        plan.append(("field", f"What's the serial number of the {dev}?", serial))
+    who, place, other, oplace = fresh(), fresh(), fresh(), fresh()
+    events += [{"op": "remember", "text": f"I'm married to {who}."},
+               {"op": "remember", "ref": "who", "text": f"{who} works as a nurse at {place}."},
+               {"op": "remember", "text": f"{other} works as a nurse at {oplace}."}]
+    plan.append(("alias", "Where does my partner work?", place))
+    for j, (kind, q, g) in enumerate(plan):
+        today = _ask_at(day0, len(events), DAY_S, j).date()
+        if kind == "repeat":
+            nxt = today + timedelta(days=(g - today.weekday()) % 7)
+            questions.append({"q": q, "gold": _md(nxt), "derived": True, "type": kind, "stale": []})
+        elif kind == "chore":
+            questions.append({"q": q, "gold": _md(at(g).date()), "derived": True, "type": kind, "stale": []})
+        elif kind == "alias":
+            questions.append({"q": q, "gold": g, "ref": "who", "type": kind, "stale": [], "none": [oplace]})
+        else:
+            questions.append({"q": q, "gold": g, "derived": True, "type": kind, "stale": []})
+    return {"events": events, "questions": questions, "spacing": DAY_S, "day0": day0.isoformat()}
+
+
 def abstain(seed, n=10):
     """Questions whose answer was never filed, next to the same kind of question that can be answered. Half come from
     a locate world (vague, no names), half from a recall world (named facts); for each world, half the questions have
@@ -1389,7 +1441,8 @@ def abstain(seed, n=10):
 
 SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard, "hard2": hard2, "followup": followup, "extract": extract,
           "abstain": abstain, "recurring": recurring, "chores": chores, "places": places, "typed": typed,
-          "valid": valid, "profile": profile, "tidy": tidy}
+          "valid": valid, "profile": profile, "tidy": tidy,
+          "paraphrase": paraphrase}
 SUITE_INFO = {
     "recurring": "things that repeat (every Tuesday, every other Thursday, the 15th of the month): when is the next one?",
     "chores": "chores with an interval and when each was done: last done, next due, which are overdue",
@@ -1398,6 +1451,8 @@ SUITE_INFO = {
     "valid": "a change filed days after it happened: the value current now depends on when it became true",
     "profile": "who is who ('Dana is my partner'): questions by role find notes that only use the name",
     "tidy": "duplicates among near-misses: the tidy pass pairs only the duplicates",
+    "paraphrase": "the same structure said in ways the patterns miss; brain arm, compare ingest raw with ingest "
+                  "structure (needs a model) before turning on overnight_structure",
     "corrections": "your own corrections ('that's wrong' + the right value), asked again of your real memory",
     "abstain": "questions whose answer was never filed, mixed with ones that can be answered; brain arm: the low-match "
                "flag is on exactly for the missing ones; model arms: 'I don't know' for those",

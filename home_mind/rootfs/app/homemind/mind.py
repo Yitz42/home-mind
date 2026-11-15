@@ -424,17 +424,37 @@ def then_first(hits, cutoff):
     return out
 
 
-def find(store, question, k=8, shelf=None, touch=True):
+def find(store, question, k=8, shelf=None, touch=True, kind=None, include_old=False):
     """The brain's search. A question about a past day ("yesterday", "last Tuesday", "on Mar 3") also gets replaced
     versions, and the version current that day comes first, so even a brain-only answer gives the right one."""
     at = asked_time(question, store.clock())
     q2 = structure.expand_aliases(store, question)
-    hits = store.recall(q2, shelf=shelf, limit=k, include_old=bool(at), touch=touch)
+    hits = store.recall(q2, shelf=shelf, kind=kind, limit=k, include_old=bool(at) or include_old, touch=touch)
     if q2 != question and not re.search(r"\bwho(?:'s| is| are)\b", question, re.I):
         # "Where does my partner work?": the who-is-who note is always shown anyway; the note about Dana answers
         alias = lambda h: bool((h.get("meta") or {}).get("alias"))
         hits = [h for h in hits if not alias(h)] + [h for h in hits if alias(h)]
     return then_first(hits, at[0]) if at else hits
+
+
+def lookup(store, question, k=8, shelf=None, kind=None, include_old=False, touch=True, extras=True):
+    """What a lookup from outside returns (Jeeves through /api/recall, Claude through MCP): the brain's search, and,
+    for a plain question, the always-shown profile and the worked-out lines as the first two items (id 0), so a model
+    that only reads search results still gets "the drill is in the red toolbox, in the shed"."""
+    hits = find(store, question, k, shelf, touch, kind, include_old)
+    if shelf or kind or not extras:
+        return hits
+    now = store.clock()
+    extra = []
+    worked = structure.derived_lines(store, store.fix_typos(question), hits, now)
+    if worked:
+        extra.append({"id": 0, "title": "Worked out from the notes", "body": "\n".join(worked), "shelf": "worked-out",
+                      "kind": "note", "created": now, "updated": now, "score": 99.5})
+    prof = structure.profile(store)
+    if prof:
+        extra.append({"id": 0, "title": "About you and the house (always shown)", "body": "\n".join(prof),
+                      "shelf": "profile", "kind": "note", "created": now, "updated": now, "score": 99.4})
+    return extra + hits
 
 
 WEAK_COVER = 0.35       # the best note holds less than this share of the question's word weight: a low match
@@ -793,11 +813,11 @@ class Mind:
             raise ValueError("arm must be brain, model+brain, model+context or model")
         if arm != "brain" and not model:
             raise ValueError(f"arm {arm} needs a model")
-        if ingest in ("model", "extract") and not model:
+        if ingest in ("model", "extract", "structure") and not model:
             raise ValueError(f"ingest={ingest} needs a model")
         seed = int(seed) if seed is not None else int(time.time()) % 100000
         run = {"id": uuid.uuid4().hex[:10], "ts": time.time(), "suite": suite, "arm": arm,
-               "model": model if arm != "brain" or ingest in ("model", "extract") else None, "seed": seed, "status": "running",
+               "model": model if arm != "brain" or ingest in ("model", "extract", "structure") else None, "seed": seed, "status": "running",
                "config": {"n": n, "ingest": ingest, "keyed": keyed, "expand": bool(expand),
                           **({"order": order} if order and order != "default" else {}),
                           **({"notes_first": True} if notes_first else {})}, "summary": {}, "details": []}
@@ -905,6 +925,15 @@ class Mind:
                         r = sb.remember(text=ev["text"], title=ev.get("title", ""), kind=ev.get("kind", "note"),
                                         shelf=ev.get("shelf", "inbox"),
                                         key=ev.get("key") if cfg.get("keyed") else None, source="test")
+                        if cfg.get("ingest") == "structure" and r.get("id") and r.get("action") != "reinforced":
+                            # what overnight_structure does: the model reads what the patterns missed
+                            item = sb.get(r["id"])
+                            if structure.missed(item["meta"], ev["text"]):
+                                add = await structure.ask_model(self.models.get(model), ev["text"], sb.clock())
+                                if add:
+                                    sb.db.execute("UPDATE items SET meta=?" + (", shelf='profile'" if add.get("alias") else "")
+                                                  + " WHERE id=?", (json.dumps({**item["meta"], **add}), r["id"]))
+                                    sb.db.commit()
                     if ev.get("ref"):
                         refs[ev["ref"]] = r["id"]
                 elif ev["op"] == "task_add":

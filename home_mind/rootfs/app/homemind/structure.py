@@ -147,6 +147,8 @@ def recurrence(text, now_ts):
         if sd:
             start = datetime.combine(sd, datetime.min.time())
     m = EVERY_DOW.search(t)
+    if not m and re.search(r"\b(weekly|every week|each week|once a week)\b", t, re.I):
+        m = re.search(r"\b()(?:on )(" + "|".join(WEEKDAYS) + r")()()\b", t, re.I)
     if m and not re.search(r"\bevery (\d+|two|three|four) weeks\b", t, re.I):
         wd = WEEKDAYS.index((m.group(2) or m.group(3) or m.group(4)).lower())
         base = start or _day(now_ts)
@@ -220,6 +222,18 @@ def _base_ing(text):
                 return cand
         return m.group(0)
     return re.sub(r"\b(\w+?)ing\b", f, text)
+
+
+def _past(verb):
+    """swap -> swapped, tune -> tuned, oil -> oiled (for verbs not in PAST_VERB)."""
+    v = verb.lower()
+    if v.endswith("ed"):
+        return v                 # already past ("swapped")
+    if v.endswith("e"):
+        return v + "d"
+    if re.search(r"[^aeiou][aeiou][bdgkmnprt]$", v):
+        return v + v[-1] + "ed"
+    return v + "ed"
 
 
 def chore(text):
@@ -385,14 +399,48 @@ FIELD_Q = {"model": r"\bmodel\b", "serial": r"\bserial\b", "bought": r"\b(bought
 
 
 def recurring_lines(store, question, hits, now):
-    if not WHEN_NEXT.search(question or ""):
-        return []
+    if not WHEN_NEXT.search(question or "") or re.search(r"\b(did|last|ago|was|were)\b", question or "", re.I):
+        return []          # "when did I last ..." asks about the past, not the next time
     out = []
     for h in hits[:4]:
         rec = (h.get("meta") or {}).get("recur")
         if rec and not h.get("newer"):
             out.append(f"NEXT (worked out from #{h['id']}, which repeats): {_fmt(next_time(rec, now))}")
     return out[:2]
+
+
+def chore_states(store, now, pick=None):
+    """Each chore with when it was last done and when it is next due: dicts with verb, thing, every, last (ts or
+    None), due (date), left (days; negative = overdue), id."""
+    chores = pick if pick is not None else [h for h in _rows(store, "meta LIKE '%\"chore\"%'")
+                                            if (h.get("meta") or {}).get("chore")]
+    today = _day(now)
+    out = []
+    for c in sorted(chores, key=lambda c: c["meta"]["chore"]["thing"]):
+        ch = c["meta"]["chore"]
+        tw = set(_words(ch["thing"]))
+        last = None
+        word = max(tw, key=len) if tw else ""
+        past = PAST_VERB.get(ch["verb"]) or _past(ch["verb"])
+        for d in _rows(store, "kind != 'procedure' AND body LIKE ?", (f"%{word}%",)):
+            if d["id"] == c["id"] or (d.get("meta") or {}).get("chore"):
+                continue
+            dn = done_of(d["body"])
+            hit = dn and tw <= set(_words(dn[1])) | set(_words(d["body"])) and dn[0] == past
+            if not hit and ch["verb"] not in PAST_VERB:
+                hit = bool(re.search(rf"\b{re.escape(past)}\b", d["body"], re.I)) and tw <= set(_words(d["body"]))
+            if hit:
+                t = eff(d)
+                last = t if last is None or t > last else last
+        due = (_day(last or c["created"]) + timedelta(days=ch["every_days"])).date()
+        out.append({"id": c["id"], "verb": ch["verb"], "thing": ch["thing"], "every": ch["every_days"], "last": last,
+                    "due": due, "left": (due - today.date()).days})
+    return out
+
+
+def _state(left):
+    return f"overdue by {-left} day{'s' if left != -1 else ''}" if left < 0 else "due today" if left == 0 \
+        else f"in {left} day{'s' if left != 1 else ''}"
 
 
 def chore_lines(store, question, hits, now):
@@ -409,29 +457,55 @@ def chore_lines(store, question, hits, now):
         return []
     today = _day(now)
     lines = []
-    for c in sorted(pick, key=lambda c: c["meta"]["chore"]["thing"]):
-        ch = c["meta"]["chore"]
-        tw = set(_words(ch["thing"]))
-        last = None
-        word = max(tw, key=len) if tw else ""
-        for d in _rows(store, "kind != 'procedure' AND body LIKE ?", (f"%{word}%",)):
-            if d["id"] == c["id"]:
-                continue
-            dn = done_of(d["body"])
-            if dn and tw <= set(_words(dn[1])) | set(_words(d["body"])) and PAST_VERB.get(ch["verb"], "") == dn[0]:
-                t = eff(d)
-                last = t if last is None or t > last else last
-        base = last or c["created"]
-        due = (_day(base) + timedelta(days=ch["every_days"])).date()
-        left = (due - today.date()).days
-        state = f"overdue by {-left} day{'s' if left != -1 else ''}" if left < 0 else "due today" if left == 0 \
-            else f"in {left} day{'s' if left != 1 else ''}"
-        lines.append(f"- {ch['verb']} the {ch['thing']}: every {ch['every_days']} days; last done "
+    for c in chore_states(store, now, pick):
+        last = c["last"]
+        lines.append(f"- {c['verb']} the {c['thing']}: every {c['every']} days; last done "
                      + (f"{_fmt(_day(last))} ({_ago((today - _day(last)).days)})" if last else "never noted")
-                     + f"; next due {_fmt(due)} ({state})")
+                     + f"; next due {_fmt(c['due'])} ({_state(c['left'])})")
     if every and re.search(r"\boverdue|due\b", q, re.I):
         lines = [x for x in lines if "overdue" in x or "due today" in x] or ["- nothing is overdue"]
     return ["CHORES (worked out from the chore notes and when each was last done):"] + lines
+
+
+def due_lines(store, now):
+    """For the morning summary: chores overdue or due by tomorrow, and repeating things happening today or tomorrow."""
+    out = []
+    for c in chore_states(store, now):
+        if c["left"] <= 1:
+            out.append(f"{c['verb']} the {c['thing']} ({_state(c['left']).replace('in 1 day', 'tomorrow')})")
+    today = _day(now).date()
+    for h in _rows(store, "meta LIKE '%\"recur\"%' AND kind != 'procedure'"):
+        rec = (h.get("meta") or {}).get("recur")
+        if not rec:
+            continue
+        nxt = next_time(rec, now)
+        if nxt and (nxt - today).days <= 1:
+            when = "today" if nxt == today else "tomorrow"
+            t = re.sub(r"\s+(?:is|are|goes out|happens|happen)\b.*$", "", h["title"]).strip()
+            out.append(f"{t} ({when})")
+    return out
+
+
+def backfill(store):
+    """Read structure from notes filed before 0.19 (once): the same rules as filing, dated by when each was filed."""
+    n = 0
+    rows = store.db.execute("SELECT id, kind, title, body, shelf, created, meta, source FROM items WHERE status IN "
+                            "('active','faded','superseded') AND kind NOT IN ('procedure','task') AND source NOT IN "
+                            "('home','calendar','automations','scale') AND source NOT LIKE 'pack:%'").fetchall()
+    import json
+    for r in rows:
+        m = json.loads(r["meta"] or "{}")
+        if any(k in m for k in ("valid_from", "recur", "chore", "place", "fields", "alias")):
+            continue
+        add = annotate(r["body"] or "", r["title"] or "", r["created"])
+        if not add:
+            continue
+        m.update(add)
+        shelf = "profile" if "alias" in add and r["shelf"] == "inbox" else r["shelf"]
+        store.db.execute("UPDATE items SET meta=?, shelf=? WHERE id=?", (json.dumps(m), shelf, r["id"]))
+        n += 1
+    store.db.commit()
+    return n
 
 
 def _places(store):
@@ -569,13 +643,146 @@ def expand_aliases(store, question):
     if not re.search(rf"\b(?:my|our) {ROLE}\b", q, re.I):
         return q
     roles = {}
+    same = {"partner", "wife", "husband", "spouse", "girlfriend", "boyfriend"}
     for r in store.db.execute("SELECT meta FROM items WHERE status='active' AND meta LIKE '%\"alias\"%' "
                               "ORDER BY created").fetchall():
         import json
         a = json.loads(r["meta"] or "{}").get("alias")
         if a:
             roles[a["role"]] = a["name"]
+            if a["role"] in same:
+                for x in same:
+                    roles.setdefault(x, a["name"])
     def sub(m):
         name = roles.get(m.group(2).lower())
         return f"{m.group(1)} {name}" if name and name.lower() not in q.lower() else m.group(1)
     return re.sub(rf"\b((?:my|our) {ROLE})\b", sub, q, flags=re.I)
+
+
+def overview(store, now):
+    """Everything worked out, for the web panel: profile, chores, repeating things, where things are, typed items."""
+    today = _day(now)
+    chores = [dict(c, last=_fmt(_day(c["last"])) if c["last"] else None, due=_fmt(c["due"]), state=_state(c["left"]))
+              for c in chore_states(store, now)]
+    repeating = []
+    for h in _rows(store, "meta LIKE '%\"recur\"%' AND kind != 'procedure'"):
+        rec = (h.get("meta") or {}).get("recur")
+        if rec:
+            repeating.append({"id": h["id"], "title": h["title"], "next": _fmt(next_time(rec, now))})
+    cur = _places(store)
+    places = []
+    for thing in sorted(cur):
+        chain, x, seen = [], thing, set()
+        while x in cur and x not in seen and len(chain) < 6:
+            seen.add(x)
+            chain.append(cur[x][0])
+            x = cur[x][0]
+        places.append({"thing": thing, "chain": chain, "id": cur[thing][2], "since": _fmt(_day(cur[thing][1]))})
+    typed = [{"id": h["id"], "title": h["title"], "type": h["meta"].get("type"), "fields": h["meta"]["fields"]}
+             for h in _rows(store, "meta LIKE '%\"fields\"%'") if (h.get("meta") or {}).get("fields")]
+    return {"profile": profile(store), "chores": chores, "repeating": sorted(repeating, key=lambda r: r["title"]),
+            "places": places, "typed": typed, "today": _fmt(today)}
+
+
+# ---- what the patterns miss: a model reads it (overnight, option overnight_structure; off until it proves itself) --
+HINT = re.compile(r"\b(every|each|weekly|monthly|daily|yearly|bin day|day is|inside|lives in|in the|on the|under|"
+                  r"behind|keep|serial|model|warranty|bought|married|my \w+|ago|last \w+day|yesterday|swapp?ed|"
+                  r"changed|replaced|cleaned)\b", re.I)
+MODEL_SYSTEM = (
+    "You read one short note from a personal memory and pull out structure. Reply with JSON only, using only words that "
+    "appear in the note (copy them exactly), and null for anything the note does not say: "
+    '{"place": {"thing": ..., "in": ...} (where a thing is kept or was put), '
+    '"repeats": {"weekday": "monday".."sunday" or null, "every_weeks": 1 or 2, "day_of_month": 1-31 or null, '
+    '"every_days": number or null} (something that happens on a schedule), '
+    '"chore": {"verb": ..., "thing": ..., "every_days": number} (a task to do on a schedule), '
+    '"fields": {"model", "serial", "bought", "warranty_until", "phone", "birthday"} (only those stated), '
+    '"alias": {"role": e.g. partner, sister, dentist, "name": ...} (who is who to the writer), '
+    '"days_ago": number or null (if the note says the change happened that many days before it was written)}.')
+FIELD_KEYS = ("model", "serial", "bought", "warranty_until", "phone", "birthday")
+ROLES = set(ROLE.strip("()").split("|"))
+
+
+def _in(x, text):
+    return isinstance(x, str) and 0 < len(x) <= 60 and x.lower().strip() in (text or "").lower()
+
+
+def from_model(reply, text, now_ts):
+    """The model's JSON, kept only where it holds up: every name, thing and value must be copied from the note (no
+    made-up places or numbers), numbers in range, roles from the known list. Returns meta to add, maybe empty."""
+    import json
+    m = re.search(r"\{.*\}", reply or "", re.S)
+    try:
+        j = json.loads(m.group(0)) if m else {}
+    except ValueError:
+        return {}
+    if not isinstance(j, dict):
+        return {}
+    out = {}
+    p = j.get("place")
+    if isinstance(p, dict) and _in(p.get("thing"), text) and _in(p.get("in"), text) and \
+            p["thing"].lower().strip() != p["in"].lower().strip():
+        clean = lambda x: re.sub(rf"^{ART}", "", x.lower().strip(), flags=re.I)
+        out["place"] = {"thing": clean(p["thing"]), "in": clean(p["in"])}
+    c = j.get("chore")
+    if isinstance(c, dict) and _in(c.get("verb"), text) and _in(c.get("thing"), text) and \
+            isinstance(c.get("every_days"), (int, float)) and 1 <= c["every_days"] <= 3650:
+        verb = c["verb"].lower().split()[0]
+        out["chore"] = {"verb": verb, "thing": re.sub(rf"^{ART}", "", c["thing"].lower().strip(), flags=re.I),
+                        "every_days": int(c["every_days"])}
+    r = j.get("repeats")
+    if "chore" not in out and isinstance(r, dict):
+        day = _day(now_ts)
+        wd = (r.get("weekday") or "").lower() if isinstance(r.get("weekday"), str) else ""
+        if wd in WEEKDAYS and wd in text.lower():
+            ahead = (WEEKDAYS.index(wd) - day.weekday()) % 7
+            out["recur"] = {"kind": "weekly", "dow": WEEKDAYS.index(wd), "every": 2 if r.get("every_weeks") == 2 else 1,
+                            "anchor": (day + timedelta(days=ahead)).timestamp()}
+        elif isinstance(r.get("day_of_month"), int) and 1 <= r["day_of_month"] <= 31 and str(r["day_of_month"]) in text:
+            out["recur"] = {"kind": "monthly", "dom": r["day_of_month"]}
+        elif isinstance(r.get("every_days"), (int, float)) and 1 <= r["every_days"] <= 3650:
+            out["recur"] = {"kind": "interval", "days": int(r["every_days"]), "anchor": day.timestamp()}
+    f = j.get("fields")
+    if isinstance(f, dict):
+        keep = {}
+        for k in FIELD_KEYS:
+            v = f.get(k)
+            if not _in(v, text):
+                continue
+            if k in ("bought", "warranty_until"):
+                d = parse_date(v, now_ts, future=k == "warranty_until")
+                if not d:
+                    continue
+                v = d.isoformat()
+            keep[k] = v.strip()
+        if keep:
+            out["fields"] = keep
+            out["type"] = "appliance" if {"model", "serial", "warranty_until"} & set(keep) else "person"
+    a = j.get("alias")
+    if isinstance(a, dict) and isinstance(a.get("role"), str) and a["role"].lower() in ROLES and \
+            _in(a.get("name"), text) and a["name"][:1].isupper():
+        out["alias"] = {"role": a["role"].lower(), "name": a["name"].strip()}
+    k = j.get("days_ago")
+    if isinstance(k, (int, float)) and 1 <= k <= 60 and re.search(r"\b(ago|last|yesterday|back|earlier|before)\b",
+                                                                   text, re.I):
+        out["valid_from"] = (_day(now_ts) - timedelta(days=int(k)) + timedelta(hours=12)).timestamp()
+    if out:
+        out["structure_by"] = "model"
+    return out
+
+
+async def ask_model(model, text, now_ts):
+    r = await model.chat(MODEL_SYSTEM, [{"role": "user", "content": text}], max_tokens=300, temperature=0)
+    return from_model(r.get("text"), text, now_ts)
+
+
+TASKLIKE = re.compile(r"\b(should|needs?|have to|has to|must|remember to|supposed to)\b", re.I)
+
+
+def missed(meta, text):
+    """A note worth showing the model: the patterns found nothing and a word hints at structure, or they found a
+    schedule but no chore in what reads like a task ("the filter should be swapped out every three months")."""
+    m = meta or {}
+    if "recur" in m and "chore" not in m and TASKLIKE.search(text or ""):
+        return True
+    return not any(k in m for k in ("valid_from", "recur", "chore", "place", "fields", "alias")) and \
+        bool(HINT.search(text or ""))

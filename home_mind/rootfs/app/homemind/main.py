@@ -49,6 +49,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
+            "overnight_structure": False,
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -125,12 +126,18 @@ class App:
         self.journal = Journal(self.mind.store, self.models)
         self.calendars = Calendars(self.mind.store, self.ha, self.opts.get("calendar_quiet"))
         self._mark_secrets()
+        if self.mind.store.kv_get("structure_backfill") != 1:
+            from . import structure
+            n = structure.backfill(self.mind.store)
+            self.mind.store.kv_set("structure_backfill", 1)
+            log.info("structure read from %d notes filed before 0.19", n)
         self._fix_kg_backfill()
         self.convlog = ConvLog(self.mind.store)
         self.mind.convlog = self.convlog
         self.overnight = Overnight(self.mind.store, self.models, self.convlog, self.opts.get("overnight_time") or "03:00",
                                    self.opts.get("overnight_model") or None)
         self.overnight.enabled = self.opts.get("overnight_enabled", True) is not False
+        self.overnight.structure_on = bool(self.opts.get("overnight_structure"))
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False
@@ -427,8 +434,9 @@ def build(app_state):
     @r.get("/api/recall")
     async def recall(q):
         p = q.query
-        res = st.recall(p.get("q", ""), shelf=p.get("shelf"), kind=p.get("kind"), limit=int(p.get("limit", 10)),
-                        include_old=p.get("old") == "1", touch=p.get("touch", "1") == "1")
+        from .mind import lookup
+        res = lookup(st, p.get("q", ""), int(p.get("limit", 10)), p.get("shelf"), p.get("kind"),
+                     p.get("old") == "1", p.get("touch", "1") == "1", extras=p.get("raw") != "1")
         if p.get("raw") != "1":
             # what leaves through this lookup goes to Jeeves (Claude in the cloud): hide secrets not asked for
             from . import privacy as sec
@@ -570,6 +578,17 @@ def build(app_state):
     @r.get("/api/trend")
     async def trend(q):
         return J(st.trend(q.query["suite"], q.query.get("name", "accuracy"), q.query.get("arm")))
+
+    @r.get("/api/structure")
+    async def structure_get(_):
+        from . import structure
+        from .cases import Cases
+        out = structure.overview(st, time.time())
+        out["duplicates"] = [{"a": {k: x[k] for k in ("id", "title")}, "b": {k: y[k] for k in ("id", "title")}}
+                             for x, y in ((st.get(a), st.get(b)) for a, b in (st.kv_get("tidy_pairs") or []))
+                             if x and y and x["status"] == "active" and y["status"] == "active"]
+        out["cases"] = Cases(st).all()
+        return J(out)
 
     @r.get("/api/profile")
     async def profile_get(_):

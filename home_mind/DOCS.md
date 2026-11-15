@@ -112,6 +112,20 @@ one by hand. `GET /api/tidy` (`?now=1` to look again).
 New suites: recurring, chores, places, typed, valid, profile, tidy (brain arm; tidy is brain only) and corrections
 (brain only, on your real memory).
 
+**Everywhere memory is read.** The worked-out lines and the profile also come back from Jeeves's lookup
+(`/api/recall`) and Claude's `mind_recall`, as the first results (id 0), so "Hey Jeeves, where's the drill?" gets
+the answer and not only the notes. Notes filed before 0.19 were read once at start-up with the same rules.
+
+**Due today.** The morning summary starts with **Due:** chores that are overdue or due by tomorrow, and repeating
+things happening today or tomorrow. The **Worked out** tab of the panel shows the profile, chores, repeating things,
+where things are, things with details, possible duplicates and kept corrections.
+
+**What the patterns miss** (option *Overnight, read what the patterns missed*, off). The overnight model reads
+recent notes where the patterns found nothing but a word hints at structure, and only what it copies word for word
+from the note is kept (a place, a name or a serial it made up is dropped). The **paraphrase** suite says the same
+things in ways the patterns miss; `tests/compare_structure.py` runs it with and without your model, and checks that
+the other suites don't get worse. Turn it on only if both hold.
+
 ## Upkeep
 
 - **Model use.** Every model call is counted per model per day: calls, failures, tokens in and out, time. The

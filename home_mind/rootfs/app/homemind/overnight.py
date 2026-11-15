@@ -215,6 +215,7 @@ class Overnight:
         self.done_for = None
         self.last = None
         self.enabled = True          # the Overnight learning switch; off skips the nightly run (not a button press)
+        self.structure_on = False    # option overnight_structure: the model reads structure the patterns missed
 
     def pick_model(self):
         names = list(self.models.models)
@@ -267,9 +268,38 @@ class Overnight:
                 done += [r["id"] for r in chunk]
         self.log.mark(done)
         self.log.prune()
+        read = await self.read_structure(model) if self.structure_on else None
         self.last = {"at": time.time(), "model": name, "turns": len(done), "filed": len(filed), "already_known": skipped,
-                     "ids": filed}
+                     "ids": filed, **({"structure_read": read} if read is not None else {})}
         return self.last
+
+    async def read_structure(self, model, days=2, limit=30):
+        """Notes from the last `days` where the patterns found nothing but a word hints at structure: the model reads
+        them, and only what it copies straight from the note is kept (structure.from_model)."""
+        import json
+        from . import structure
+        rows = self.store.db.execute(
+            "SELECT id, title, body, created, meta FROM items WHERE status='active' AND created > ? AND kind NOT IN "
+            "('procedure','task') AND source NOT IN ('home','calendar','automations','scale','morning','patterns') "
+            "AND source NOT LIKE 'pack:%' ORDER BY created DESC LIMIT 200", (time.time() - days * 86400,)).fetchall()
+        n = 0
+        for r in rows:
+            meta = json.loads(r["meta"] or "{}")
+            if meta.get("structure_by") or not structure.missed(meta, r["body"]):
+                continue
+            if n >= limit:
+                break
+            try:
+                add = await structure.ask_model(model, r["body"] or r["title"], r["created"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("structure %s: %s", r["id"], e)
+                continue
+            n += 1
+            meta.update(add or {"structure_by": "model-none"})        # marked either way, so it is read once
+            shelf_sql = ", shelf='profile'" if add.get("alias") else ""
+            self.store.db.execute(f"UPDATE items SET meta=?{shelf_sql} WHERE id=?", (json.dumps(meta), r["id"]))
+        self.store.db.commit()
+        return n
 
     async def tick(self):
         now = datetime.now()
