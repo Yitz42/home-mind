@@ -22,9 +22,11 @@ STR, INT, BOOL = {"type": "string"}, {"type": "integer"}, {"type": "boolean"}
 
 TOOLS = [
     ("mind_remember", "Store something. A key ('subject|attribute') makes a new value supersede the old one (kept as "
-     "history). Kinds: fact, note, task, procedure, episode.",
+     "history). Kinds: fact, note, task, procedure, episode. Set inferred true when you worked it out or guessed it "
+     "rather than the user telling you: it then ranks below what they said, and doesn't replace it, until they "
+     "confirm it.",
      S({"text": STR, "title": STR, "kind": STR, "shelf": STR, "tags": {"type": "array", "items": STR}, "key": STR,
-        "meta": {"type": "object"}}, ["text"])),
+        "meta": {"type": "object"}, "inferred": BOOL}, ["text"])),
     ("mind_recall", "Find stored items for a query, best first. Optional shelf and kind filters. include_old adds "
      "superseded versions.", S({"query": STR, "shelf": STR, "kind": STR, "limit": INT, "include_old": BOOL}, ["query"])),
     ("mind_get", "One item by id, with its version history.", S({"id": INT}, ["id"])),
@@ -35,6 +37,8 @@ TOOLS = [
     ("mind_forget_about", "Forget everything about a name: archives every note that mentions it, including notes "
                           "linked to them (recoverable).", S({"name": STR}, ["name"])),
     ("mind_restore", "Bring an archived or faded item back.", S({"id": INT}, ["id"])),
+    ("mind_review", "Notes waiting for a person: held because they read like instructions, or inferred and not "
+                    "confirmed. Confirm with mind_confirm, drop with mind_forget.", S({})),
     ("mind_confirm", "Mark a note learned overnight from a conversation as checked (it stops being UNCONFIRMED).",
      S({"id": INT}, ["id"])),
     ("mind_purge", "Delete an item for good, with its history, index entry and log rows (cannot be undone). Only when "
@@ -134,7 +138,8 @@ class MCP:
         if name == "mind_remember":
             return st.remember(text=a["text"], title=a.get("title", ""), kind=a.get("kind", "note"),
                                shelf=a.get("shelf", "inbox"), tags=a.get("tags"), key=a.get("key"),
-                               meta=a.get("meta"), source="mcp")
+                               meta=dict(a.get("meta") or {}, **({"inferred": True} if a.get("inferred") else {})),
+                               source="mcp")
         if name == "mind_recall":
             from .mind import lookup
             return lookup(st, a["query"], int(a.get("limit") or 8), a.get("shelf"), a.get("kind"),
@@ -148,6 +153,8 @@ class MCP:
             return st.set_status(int(a["id"]), "archived")
         if name == "mind_forget_about":
             return st.forget_about(str(a["name"]))
+        if name == "mind_review":
+            return st.review_queue()
         if name == "mind_confirm":
             return st.confirm(int(a["id"]))
         if name in ("mind_purge", "mind_purge_about"):

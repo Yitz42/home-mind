@@ -96,7 +96,23 @@ class Morning:
         return [self.store._row(r) for r in self.store.db.execute(
             f"SELECT * FROM items WHERE {where} ORDER BY created", args).fetchall()]
 
-    def build(self, hours=24):
+    def _due(self, structure, now, commit=False):
+        """The Due line: each reminder only when its stage changes (due tomorrow, today, a week late; 30, 7 and 1 days
+        before an end date), so an overdue chore isn't repeated every morning. Repeating things today or tomorrow are
+        always listed."""
+        said = self.store.kv_get("due_said") or {}
+        keep, new = {}, []
+        for it in structure.due_items(self.store, now):
+            keep[it["key"]] = it["stage"]
+            if said.get(it["key"]) != it["stage"]:
+                new.append(it["text"])
+        if commit:          # only what is sent counts as said; a preview changes nothing
+            self.store.kv_set("due_said", keep)
+        chores = {c["verb"] + " the " + c["thing"] for c in structure.chore_states(self.store, now)}
+        rep = [x for x in structure.due_lines(self.store, now) if not any(x.startswith(c + " (") for c in chores)]
+        return new + rep
+
+    def build(self, hours=24, commit=False):
         since = time.time() - hours * 3600
         told = self._rows("created >= ? AND source NOT IN ('home','calendar','automations','journal','scale') "
                           "AND source NOT LIKE 'pack:%' AND kind != 'procedure' AND status='active'", (since,))
@@ -159,21 +175,29 @@ class Morning:
             lines.append("Nothing new was filed in the last day.")
         from . import structure, tidy
         try:
-            due = structure.due_lines(self.store, time.time())
+            due = self._due(structure, self.store.clock(), commit)
         except Exception:  # noqa: BLE001
+            log.exception("due reminders")
             due = []
         if due:
             lines.insert(0, "Due: " + "; ".join(due[:6]) + (" …" if len(due) > 6 else ""))
         dup = tidy.summary_line(self.store, _short)       # secret values hidden, as in the rest of the summary
+        conf = tidy.conflict_line(self.store, _short)
+        if conf:
+            lines.append(conf)
         if dup:
             lines.append(dup)
+        held = [r for r in self.store.review_queue() if r["status"] == "review"]
+        if held:
+            lines.append(f"Held for review {len(held)}: notes from conversations that read like instructions to the "
+                         "assistant. Approve or drop them in Memory.")
         self._checkin = self.pick_checkin()
         if self._checkin:
             lines.append(self._checkin_line(self._checkin))
         return "\n".join(lines)
 
     async def send(self, text=None):
-        text = text or self.build()
+        text = text or self.build(commit=True)
         title = "Home Mind this morning"
         await self.ha.notify(title, text + "\n\nReview or forget anything in Home Mind › Memory › Recently added.",
                              "home_mind_morning")

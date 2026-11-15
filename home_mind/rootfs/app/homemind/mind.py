@@ -845,8 +845,8 @@ class Mind:
                    order="default", notes_first=False):
         if suite not in suites.SUITES and suite != "corrections":
             raise ValueError(f"unknown suite {suite}; have {', '.join(suites.SUITES)}, corrections")
-        if suite == "tidy" and arm != "brain":
-            raise ValueError("the tidy suite runs on the brain arm only (it checks the duplicate finder)")
+        if suite in ("tidy", "injections", "conflicts", "reminders") and arm != "brain":
+            raise ValueError(f"the {suite} suite runs on the brain arm only (it checks what the brain flags or reminds of)")
         if suite == "corrections" and arm != "brain":
             raise ValueError("the corrections suite runs on the brain arm only (it reads your real memory)")
         if arm not in ("brain", "model+brain", "model+context", "model"):
@@ -927,6 +927,8 @@ class Mind:
             refs["__until__"], refs["__time__"] = {}, {}
             for ev in world["events"]:
                 clock["t"] += spacing
+                if ev.get("day") is not None and world.get("day0"):    # a note filed on a given day of the world
+                    clock["t"] = midnight.timestamp() + ev["day"] * 86400 + 10 * 3600 + world["events"].index(ev)
                 refs["__time__"][ev.get("ref")] = clock["t"]
                 if ev["op"] == "forget":
                     log.append(f"[{_ts(clock['t'])}] (I deleted a note)")
@@ -935,6 +937,11 @@ class Mind:
                     else:   # the whole-log arm can't delete: drop the line from its log
                         target = next((e["text"] for e in world["events"] if e.get("ref") == ev["target"]), None)
                         log[:] = [x for x in log if not (target and x.endswith(target))]
+                    continue
+                if ev["op"] == "confirm":
+                    if arm not in ("model", "model+context") and refs.get(ev["target"]):
+                        sb.confirm(refs[ev["target"]])
+                    log.append(f"[{_ts(clock['t'])}] (I confirmed: {next((e['text'] for e in world['events'] if e.get('ref') == ev['target']), '')})")
                     continue
                 if ev["op"] == "purge_about":
                     log.append(f"[{_ts(clock['t'])}] (I asked to delete everything about {ev['name']} for good)")
@@ -971,9 +978,11 @@ class Mind:
                     else:
                         r = sb.remember(text=ev["text"], title=ev.get("title", ""), kind=ev.get("kind", "note"),
                                         shelf=ev.get("shelf", "inbox"),
-                                        key=ev.get("key") if cfg.get("keyed") else None,
-                                        source="overnight" if ev.get("overnight") else "test",
-                                        meta={"learned_overnight": True} if ev.get("overnight") else None)
+                                        key=ev.get("key") if cfg.get("keyed") or ev.get("always_key") else None,
+                                        source="overnight" if ev.get("overnight") else "mcp"
+                                        if ev.get("inferred") or ev.get("relayed") else "test",
+                                        meta={"learned_overnight": True} if ev.get("overnight") else
+                                        {"inferred": True} if ev.get("inferred") else None)
                         if cfg.get("ingest") == "structure" and r.get("id") and r.get("action") != "reinforced":
                             # what overnight_structure does: the model reads what the patterns missed
                             item = sb.get(r["id"])
@@ -994,6 +1003,8 @@ class Mind:
                     ch = {"done": True} if ev["op"] == "task_done" else {"due": ev["due"]}
                     r = sb.revise(refs[ev["ref"]], meta=ch)
                     refs[ev["ref"]] = r["id"]
+            if world.get("now_day") is not None and world.get("day0"):    # questions asked on a given day
+                clock["t"] = midnight.timestamp() + world["now_day"] * 86400 + 8 * 3600
             # 1b. extract suite: a model reads the conversations and files what was stated
             extraction = None
             if transcript and cfg.get("ingest") == "extract" and arm not in ("model", "model+context"):
@@ -1134,6 +1145,30 @@ class Mind:
                     ok = bool(top) and contains(text, q["gold"]) and contains(page, q["gold"]) and \
                         not any(contains(text, x) for x in q.get("stale", []))
                     d.update(answer=text[:300], correct=ok)
+                    return d
+                if "flag" in q:              # injections: a planted instruction is flagged, a household note is not
+                    from .store import INSTRUCTION
+                    flagged = bool(INSTRUCTION.search(q["q"]))
+                    d.update(answer="flagged" if flagged else "not flagged", correct=flagged == q["flag"])
+                    return d
+                if "conflict" in q:          # the nightly tidy finds the disagreements and leaves the near-misses
+                    from . import tidy as _tidy
+                    cache = run.setdefault("_tidy", {})
+                    if "conf" not in cache:
+                        cache["conf"] = {frozenset(p[:2]) for p in _tidy.contradictions(sb, limit=1000)}
+                    flagged = frozenset(refs.get(x) for x in q["pair"]) in cache["conf"]
+                    d.update(answer="flagged" if flagged else "not flagged", correct=flagged == q["conflict"])
+                    return d
+                if run["suite"] == "reminders":   # what the morning summary reminds of
+                    cache = run.setdefault("_tidy", {})
+                    if "due" not in cache:
+                        cache["due"] = [x["text"] for x in structure.due_items(sb, sb.clock())]
+                    lines = cache["due"]
+                    ok = True
+                    if q.get("due"):
+                        ok = any(contains(x, q["due"]) and contains(x, q.get("due2") or q["due"]) for x in lines)
+                    ok = ok and not any(contains(x, n) for x in lines for n in q.get("none", []))
+                    d.update(answer="; ".join(lines)[:300], correct=ok)
                     return d
                 if q.get("tidy"):            # the tidy pass must pair duplicates and leave near-misses
                     from . import tidy as _tidy

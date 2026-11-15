@@ -76,14 +76,27 @@ END;
 """
 
 
+MODEL_SOURCES = ("overnight",)   # sources where a model, not a person, decided what the note says
+TRUST_SOURCES = True             # off: only overnight facts are on probation and nothing is held (how 0.20 worked)
+
+
+def _inferred(m, source=""):
+    """Written by a model from what it guessed or pulled out of a conversation, not what someone said to keep (#6):
+    learned overnight, or marked inferred by whoever filed it (Claude through mind_remember, a script)."""
+    if not TRUST_SOURCES:
+        return bool(m.get("learned_overnight"))
+    return bool(m.get("learned_overnight") or m.get("inferred") or source in MODEL_SOURCES)
+
+
 def _on_probation(r, now, days):
-    """Learned overnight from a conversation, not confirmed, and less than `days` old."""
+    """Inferred, not confirmed, and less than `days` old."""
     try:
         m = r["meta"]
         m = json.loads(m or "{}") if isinstance(m, str) else (m or {})
-    except (ValueError, TypeError, KeyError, IndexError):
+        src = r["source"] if "source" in r.keys() else ""
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError):
         return False
-    return bool(m.get("learned_overnight")) and not m.get("confirmed") and now - r["created"] < days * 86400
+    return _inferred(m, src) and not m.get("confirmed") and now - r["created"] < days * 86400
 
 
 def _eff(r):
@@ -154,9 +167,27 @@ UNIVERSAL_PLACE = re.compile(r"\bthe\s+([a-z]+(?:\s[a-z]+)?)\s+(?:was|got|has be
                              r"|\beverything in the\s+([a-z]+(?:\s[a-z]+)?)\s+(?:is|was) gone", re.I)
 HEDGE = re.compile(r"\b(guess|guessed|guesses|probably|maybe|might be|i think|not sure|possibly|perhaps)\b", re.I)
 CORRECTION = re.compile(r"\b(actually|that was a typo|typo|i meant|correction|scratch that)\b", re.I)
-INSTRUCTION = re.compile(r"\b(ignore (?:your|all|previous|the|any) (?:instructions|rules)|note to the assistant|"
-                         r"system:|assistant:|you must|reply only|tell the user to|always say|whenever you answer|"
-                         r"from now on (?:say|answer)|do not tell)\b", re.I)
+# A note that talks to the model instead of about the house (#16, MINJA): addressed to an assistant, a meta-instruction
+# (ignore your instructions, your new instructions are), prompt markup, or telling the answerer what to say when asked.
+# Household rules for people ("you must take your shoes off", "do not tell Mia about the party") are not instructions.
+_AI = r"(?:assistant|ai|a\.i\.|jeeves|claude|chatgpt|gpt|model|bot|chatbot|llm|language model|home assistant)"
+INSTRUCTION = re.compile(
+    r"\b(?:note|message|instructions?|reminder)s? (?:to|for) (?:the |any |my )?(?:home )?" + _AI + r"\b|"
+    r"(?:^|[.!?]\s+)\W*(?:hey |hello |hi |dear |ok |okay |attention |important:? )?" + _AI + r"\s*(?:[,:!]|reading this)|"
+    r"\bto (?:the |any |whatever )?" + _AI + r" (?:reading|that reads|seeing) this\b|"
+    r"\b(?:" + _AI + r"|system|admin) (?:note|instruction|override)s?\s*:|(?:^|\n)\W*(?:system|assistant|user)\s*:|"
+    r"\[/?inst\]|</?(?:system|assistant|instructions?|prompt)>|#{2,}\s*(?:system|instruction)|"
+    r"\b(?:ignore|disregard|forget|override)\b (?:all |any |the |your |my |of )*(?:previous |prior |earlier |above |"
+    r"other |existing )*(?:instructions|rules|notes|prompts?|guidelines|everything (?:you were|you've been|you have been) "
+    r"told)\b|\b(?:your|the|new) (?:new |real |actual )?instructions (?:are|is|say)\b|\bsystem prompt\b|"
+    r"\b(?:pretend|act as if|act like) (?:you are|you're|to be)\b|\b(?:respond|reply|answer) only\b|"
+    r"\b(?:never|don't|do not) (?:reveal|disclose)\b|\btell the user to\b|\bwhenever you (?:answer|reply|respond)\b|"
+    r"\bfrom now on,? (?:say|answer|reply|respond|tell)\b|"
+    r"\b(?:when|if|whenever) (?:you are |you're |you get |anyone |someone |somebody |they |people )?asked\b[^.;]*?"
+    r"\b(?:say|answer|reply|respond|tell)\b|"
+    r"\b(?:say|tell|give)\b[^.;]{0,40}\b(?:to )?(?:whoever|anyone who|anybody who|everyone who|anyone that) asks\b|"
+    r"\btreat (?:the |this |any )?(?:next )?(?:speaker|user|person|caller|voice)\b|"
+    r"\b(?:the|this) (?:user|speaker) is (?:an? )?(?:admin|administrator|owner|developer)\b", re.I | re.M)
 
 
 def singular(w):
@@ -291,8 +322,20 @@ class Store:
             if "alias" in m0 and shelf == "inbox":
                 shelf = "profile"          # "Dana is my partner": who is who, always shown to models
         meta = m0
+        hold = TRUST_SOURCES and _inferred(m0, source) and not m0.get("confirmed") and \
+            bool(INSTRUCTION.search(title + " " + text))
+        if hold:
+            # pulled from a conversation and reads like an instruction to the assistant: not searchable until a
+            # person approves it in the review queue (#16)
+            m0["held"] = "reads like an instruction"
+            if key:
+                m0["pending_key"], key = key, None
         with self.lock:
             old = self.active_by_key(key) if key else None
+            if TRUST_SOURCES and old and _inferred(m0, source) and not m0.get("confirmed") and \
+                    not _on_probation(old, now, 1e9):
+                # an inferred value for a key you set yourself: kept next to it, unconfirmed, until confirmed (#6)
+                m0["pending_key"], key, old = key, None, None
             if old and old["body"].strip().lower() == text.lower() and old["title"].strip().lower() == title.lower():
                 self.db.execute("UPDATE items SET use_count=use_count+1, strength=strength+1, last_used=?, "
                                 "status='active' WHERE id=?", (now, old["id"]))
@@ -312,16 +355,18 @@ class Store:
                 self._vocab_add(title, text, tags, new_id)
                 self.log("remember", new_id, kind=kind, key=key, shelf=shelf, action="history", source=source)
                 return {"id": new_id, "action": "history", "shelf": shelf, "current": old["id"]}
+            m = dict(meta or {})
             cur = self.db.execute(
                 "INSERT INTO items(kind,key,title,body,tags,shelf,status,supersedes,created,updated,source,meta) "
-                "VALUES(?,?,?,?,?,?,'active',?,?,?,?,?)",
-                (kind, key, title, text, tags, shelf, old["id"] if old else None, now, now, source, json.dumps(m)))
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (kind, key, title, text, tags, shelf, "review" if hold else "active", old["id"] if old else None, now,
+                 now, source, json.dumps(m)))
             new_id = cur.lastrowid
             if old:
                 self.db.execute("UPDATE items SET status='superseded', updated=? WHERE id=?", (now, old["id"]))
             self.db.commit()
         self._vocab_add(title, text, tags, new_id)
-        out = {"id": new_id, "action": "updated" if old else "created", "shelf": shelf}
+        out = {"id": new_id, "action": "held for review" if hold else "updated" if old else "created", "shelf": shelf}
         if old:
             out["previous"] = {"id": old["id"], "title": old["title"], "body": old["body"]}
         self.log("remember", new_id, kind=kind, key=key, shelf=shelf, action=out["action"], source=source)
@@ -458,10 +503,40 @@ class Store:
                 return {"id": item_id, "error": "not found"}
             m = json.loads(r["meta"] or "{}")
             m["confirmed"] = True
-            self.db.execute("UPDATE items SET meta=?, updated=? WHERE id=?", (json.dumps(m), time.time(), int(item_id)))
+            m.pop("held", None)
+            key = m.pop("pending_key", None)
+            now = self.clock()
+            if key:
+                old = self.active_by_key(key)
+                if old and old["id"] != int(item_id):
+                    self.db.execute("UPDATE items SET status='superseded', updated=? WHERE id=?", (now, old["id"]))
+                self.db.execute("UPDATE items SET key=?, supersedes=? WHERE id=?",
+                                (key, old["id"] if old and old["id"] != int(item_id) else None, int(item_id)))
+            self.db.execute("UPDATE items SET meta=?, updated=?, status=CASE WHEN status='review' THEN 'active' "
+                            "ELSE status END WHERE id=?", (json.dumps(m), now, int(item_id)))
             self.db.commit()
+            self._vocab_n = None
         self.log("confirm", int(item_id))
         return {"id": int(item_id), "confirmed": True}
+
+    def review_queue(self, limit=100):
+        """What a person should look at (#16): notes held because they read like instructions, and inferred notes
+        still unconfirmed (on probation, or waiting to replace a value you set). Newest first."""
+        now, out = self.clock(), []
+        for r in self.db.execute("SELECT * FROM items WHERE status IN ('review','active') AND (status='review' OR "
+                                 "meta LIKE '%learned_overnight%' OR meta LIKE '%inferred%' OR source IN "
+                                 f"({','.join('?' * len(MODEL_SOURCES))})) ORDER BY created DESC LIMIT ?",
+                                 (*MODEL_SOURCES, limit * 3)).fetchall():
+            d = self._row(r)
+            m = d.get("meta") or {}
+            if r["status"] == "review":
+                why = m.get("held") or "held"
+            elif _on_probation(r, now, self.PROBATION_DAYS):
+                why = "would replace " + m["pending_key"] if m.get("pending_key") else "unconfirmed"
+            else:
+                continue
+            out.append({k: d[k] for k in ("id", "title", "body", "shelf", "source", "created", "status")} | {"why": why})
+        return out[:limit]
 
     def purge_about(self, name):
         """Delete for good every note that mentions a name (any status), with everything purge() removes."""
@@ -684,7 +759,8 @@ class Store:
             return w
         return re.sub(r"[A-Za-z]+", fix, query)
 
-    def recall(self, query, shelf=None, kind=None, limit=5, include_old=False, touch=True, newest_first_ties=True):
+    def recall(self, query, shelf=None, kind=None, limit=5, include_old=False, touch=True, newest_first_ties=True,
+               quiet=False):
         """Ranked items for a query. Old versions and archived items are left out unless include_old."""
         query = re.sub(r"(?<=\d)[,_](?=\d{3}\b)", "", self.fix_typos(query or ""))   # 4,417 -> 4417
         self._query = query
@@ -788,7 +864,8 @@ class Store:
                                     "status=CASE WHEN status='faded' THEN 'active' ELSE status END WHERE id=?",
                                     [(now, d["id"]) for d in res])
                 self.db.commit()
-        self.log("recall", None, query=query, shelf=shelf, kind=kind, ids=[d["id"] for d in res])
+        if not quiet:          # the nightly checks search a lot; they don't fill the activity log
+            self.log("recall", None, query=query, shelf=shelf, kind=kind, ids=[d["id"] for d in res])
         return res
 
     # recall settings (class-level so tests can compare with and without)
@@ -886,14 +963,14 @@ class Store:
         if len(group) < 2:
             return out, {}
         best = group[0][0]
-        ordered = sorted(group, key=lambda x: _eff(x[2]), reverse=True)    # when it became true, if the note says
+        ordered = sorted(group, key=lambda x: (_eff(x[2]), x[2]["id"]), reverse=True)   # when it became true; then filed
         now = self.clock()
         stated = [x for x in ordered if not _on_probation(x[2], now, self.PROBATION_DAYS)]
         if stated and stated[0] is not ordered[0] and self.PROBATION_W != 1:
             # newer versions learned overnight and not confirmed don't replace what you said: they stand right after
             # it, marked unconfirmed (the model is told; the morning summary asks you to check them)
             lead = stated[0]
-            newer_unconf = [x for x in ordered if _eff(x[2]) > _eff(lead[2])]
+            newer_unconf = [x for x in ordered if (_eff(x[2]), x[2]["id"]) > (_eff(lead[2]), lead[2]["id"])]
             for x in newer_unconf:
                 self._unconfirmed[x[2]["id"]] = lead[2]["id"]
             ordered = [lead] + newer_unconf + [x for x in ordered if x is not lead and x not in newer_unconf]

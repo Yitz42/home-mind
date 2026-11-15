@@ -365,7 +365,38 @@ def annotate(text, title, now_ts):
     a = alias(text)
     if a:
         out["alias"] = {"role": a[0], "name": a[1]}
+    u = until(text, now_ts)
+    if u:
+        out["until"] = u
     return out
+
+
+# ---- #18 end dates --------------------------------------------------------------------------------------------------
+DATE_TXT = r"(" + MON + r"\.?(?: \d{1,2}(?:st|nd|rd|th)?(?!\d),?)?(?: \d{4})?|\d{4}-\d\d-\d\d|\d{1,2}/\d{1,2}/\d{2,4})"
+UNTIL = [re.compile(rf"^\s*(?:{ART})?(?P<what>.+?)\s+(?:is good|is valid|runs out|expires|expire|expiring|ends|is up|"
+                    rf"is due back|are due back|is due|are due|lapses|renews)(?: on| in)?\s+(?P<when>{DATE_TXT})", re.I),
+         re.compile(rf"^\s*(?:{ART})?(?P<what>.+?)\s+(?:is |are )?(?:good |valid )?(?:until|till|through)\s+"
+                    rf"(?P<when>{DATE_TXT})", re.I)]
+
+
+def until(text, now_ts):
+    """'The parking pass is good until Dec 1' -> {"what": "parking pass", "date": "YYYY-12-01"} (not warranties: those
+    are a field)."""
+    t = (text or "").strip()
+    if re.search(r"\bwarrant", t, re.I):
+        return None
+    m = next((x for x in (rx.search(t) for rx in UNTIL) if x), None)
+    if not m:
+        return None
+    what, when = m.group("what"), m.group("when")
+    d = parse_date(when, now_ts, future=True)
+    if not d or len(what.split()) > 6:
+        return None
+    if re.fullmatch(MON + r"\.?,? \d{4}", when.lower().strip()):
+        d = date(d.year, d.month, calendar.monthrange(d.year, d.month)[1])
+    what = re.sub(rf"^{ART}", "", what.strip(), flags=re.I)
+    return {"what": what if re.match(r"[A-Z][a-z]+\b(?! [A-Z])", what) and " " in what else what.lower(),
+            "date": d.isoformat()}
 
 
 # ---- worked out at question time -----------------------------------------------------------------------------------
@@ -465,6 +496,98 @@ def chore_lines(store, question, hits, now):
     if every and re.search(r"\boverdue|due\b", q, re.I):
         lines = [x for x in lines if "overdue" in x or "due today" in x] or ["- nothing is overdue"]
     return ["CHORES (worked out from the chore notes and when each was last done):"] + lines
+
+
+# ---- #18 long gaps: things that usually need doing, noted as done, with no chore note ---------------------------------
+TYPICAL = [("change", "furnace filter", 90), ("change", "air filter", 90), ("change", "hvac filter", 90),
+           ("change", "water filter", 180), ("change", "fridge water filter", 180), ("change", "brita filter", 60),
+           ("change", "humidifier filter", 60), ("change", "cabin air filter", 365), ("change", "oil", 180),
+           ("change", "smoke detector batteries", 365), ("change", "smoke alarm batteries", 365),
+           ("test", "smoke detectors", 30), ("test", "smoke alarms", 30), ("clean", "dryer vent", 365),
+           ("clean", "gutters", 180), ("clean", "range hood filter", 90), ("clean", "dishwasher filter", 30),
+           ("clean", "fridge coils", 365), ("descale", "coffee maker", 90), ("descale", "kettle", 90),
+           ("flush", "water heater", 365), ("rotate", "tires", 180), ("replace", "toothbrush", 90),
+           ("replace", "toothbrush head", 90), ("replace", "wiper blades", 365)]
+SAME_VERB = {"change": ("changed", "replaced", "swapped"), "replace": ("replaced", "changed"), "test": ("tested", "checked"),
+             "clean": ("cleaned",), "descale": ("descaled",), "flush": ("flushed",), "rotate": ("rotated",)}
+
+
+def usual_states(store, now):
+    """Things from TYPICAL noted as done ("I changed the furnace filter") that have no chore note of their own: when
+    they usually come due. Same dicts as chore_states, with usual=True."""
+    have_words = [set(_words(c["meta"]["chore"]["thing"])) for c in _rows(store, "meta LIKE '%\"chore\"%'")
+                  if (c.get("meta") or {}).get("chore")]
+    today = _day(now)
+    best = {}
+    for verb, thing, days in sorted(TYPICAL, key=lambda x: -len(x[1])):
+        tw = set(_words(thing))
+        if any(tw <= hw or hw <= tw for hw in have_words):
+            continue
+        word = max(tw, key=len)
+        for d in _rows(store, "kind != 'procedure' AND body LIKE ?", (f"%{word}%",)):
+            if (d.get("meta") or {}).get("chore"):
+                continue
+            dn = done_of(d["body"])
+            if not dn or dn[0] not in SAME_VERB.get(verb, (PAST_VERB.get(verb, ""),)):
+                continue
+            dw = set(_words(re.sub(r"\b(?:in|on|at|for|of) (?:the |my |our )?\w+(?: \w+)?$", "", dn[1])))
+            if not tw <= dw or len(dw - tw) > 1:
+                continue
+            key = frozenset(dw)
+            t = eff(d)
+            if key in best and (best[key]["thing_len"] > len(tw) or best[key]["last"] >= t):
+                continue
+            due = (_day(t) + timedelta(days=days)).date()
+            best[key] = {"id": d["id"], "verb": verb, "thing": thing, "every": days, "last": t, "due": due,
+                         "left": (due - today.date()).days, "usual": True, "thing_len": len(tw)}
+    return list(best.values())
+
+
+def due_items(store, now):
+    """What the morning summary may remind of, each with a key and a stage: it is said again only when its stage
+    changes (#18, not nagging). Chores: due tomorrow, due today, then once a week while overdue. Usual gaps: once a
+    month while overdue. End dates, warranties and birthdays: at 30, 7 and 1 days, and on the day."""
+    out = []
+    for c in chore_states(store, now):
+        if c["left"] <= 1:
+            stage = "soon" if c["left"] == 1 else "today" if c["left"] == 0 else f"late{(-c['left'] - 1) // 7}"
+            out.append({"key": f"chore:{c['id']}", "stage": stage,
+                        "text": f"{c['verb']} the {c['thing']} ({_state(c['left']).replace('in 1 day', 'tomorrow')})"})
+    today = _day(now)
+    for c in usual_states(store, now):
+        if c["left"] <= 0:
+            n = (today - _day(c["last"])).days
+            out.append({"key": f"usual:{c['thing']}", "stage": f"late{-c['left'] // 30}",
+                        "text": f"{c['verb']} the {c['thing']} (last done {_ago(n)}; usually every "
+                                f"{c['every'] // 30} months)" if c["every"] >= 60 else
+                                f"{c['verb']} the {c['thing']} (last done {_ago(n)}; usually every {c['every']} days)"})
+    td = today.date()
+
+    def ahead(key, d, text):
+        left = (d - td).days
+        stage = "0" if left == 0 else "1" if left == 1 else "7" if 2 <= left <= 7 else "30" if 8 <= left <= 30 else None
+        if stage is not None:
+            when = "today" if left == 0 else "tomorrow" if left == 1 else f"in {left} days"
+            out.append({"key": key, "stage": stage, "text": f"{text} {when} ({_fmt(d)})"})
+    for h in _rows(store, "meta LIKE '%\"until\"%' AND kind != 'procedure'"):
+        u = (h.get("meta") or {}).get("until")
+        if u:
+            w = u["what"]
+            ahead(f"until:{h['id']}", date.fromisoformat(u["date"]),
+                  f"{w} until" if re.search(r"\b(?:is|are|runs|closed|open|away|staying)\b", w) else f"the {w} ends")
+    for h in _rows(store, "meta LIKE '%warranty_until%' OR meta LIKE '%birthday%'"):
+        f = (h.get("meta") or {}).get("fields") or {}
+        if f.get("warranty_until"):
+            low = (h["body"] or h["title"]).lower()
+            thing = next((a for a in sorted(APPLIANCE, key=len, reverse=True) if re.search(rf"\b{a}\b", low)), None)
+            ahead(f"warranty:{h['id']}", date.fromisoformat(f["warranty_until"]),
+                  f"the {thing} warranty ends" if thing else f"a warranty ends (#{h['id']})")
+        if f.get("birthday"):
+            d = parse_date(f["birthday"], now, future=True)
+            if d:
+                who = re.search(r"([A-Z][a-z]+)(?:'s)? birthday", h["body"] or h["title"])
+                ahead(f"birthday:{h['id']}:{d.year}", d, (who.group(1) + "'s" if who else "a") + " birthday")
+    return out
 
 
 def due_lines(store, now):

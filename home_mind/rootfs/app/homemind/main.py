@@ -468,9 +468,14 @@ def build(app_state):
     @r.post("/api/remember")
     async def remember(q):
         b = await q.json()
+        meta = dict(b.get("meta") or {}, **({"inferred": True} if b.get("inferred") else {}))
         return J(st.remember(text=b.get("text", ""), title=b.get("title", ""), kind=b.get("kind", "note"),
-                             shelf=b.get("shelf", "inbox"), tags=b.get("tags"), key=b.get("key"), meta=b.get("meta"),
+                             shelf=b.get("shelf", "inbox"), tags=b.get("tags"), key=b.get("key"), meta=meta or None,
                              source=b.get("source", "api"), at=b.get("at")))
+
+    @r.get("/api/review")
+    async def review(_):
+        return J(st.review_queue())
 
     @r.get("/api/browse")
     async def browse(q):
@@ -602,6 +607,9 @@ def build(app_state):
         out["duplicates"] = [{"a": {k: x[k] for k in ("id", "title")}, "b": {k: y[k] for k in ("id", "title")}}
                              for x, y in ((st.get(a), st.get(b)) for a, b in (st.kv_get("tidy_pairs") or []))
                              if x and y and x["status"] == "active" and y["status"] == "active"]
+        out["conflicts"] = [{"a": {k: x[k] for k in ("id", "title")}, "b": {k: y[k] for k in ("id", "title")}, "why": w}
+                            for x, y, w in ((st.get(a), st.get(b), w) for a, b, w in (st.kv_get("tidy_conflicts") or []))
+                            if x and y and x["status"] == "active" and y["status"] == "active"]
         out["cases"] = Cases(st).all()
         return J(out)
 
