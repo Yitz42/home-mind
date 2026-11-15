@@ -176,15 +176,18 @@ async function item(id) {
   const d = await api('api/item/' + id), c = $('#itemcard'); c.classList.remove('hide'); c.scrollIntoView({behavior:'smooth'});
   if (!d) { c.innerHTML = '<span class="mute">not found</span>'; return; }
   const sens = !!(d.meta && d.meta.sensitive), gone = d.status === 'archived';
+  const unconf = !!(d.meta && d.meta.learned_overnight && !d.meta.confirmed);
   const vers = (d.versions || []).map(v => `<li><a onclick="item(${v.id})">${esc(v.title)}</a> <span class="mute">${when(v.created)}${v.current ? ' · current' : ''}${v.status !== 'active' ? ' · ' + v.status : ''}</span></li>`).join('');
   const hist = (d.history || []).map(v => `<li>${esc(v.body)} <span class="mute">${when(v.created)}</span></li>`).join('');
   c.innerHTML = `<div class="row"><h2 style="margin:0;flex:1">${esc(d.title)}</h2><a onclick="$('#itemcard').classList.add('hide')">close</a></div>
-    <div class="mute" style="margin-bottom:8px">#${d.id} · ${esc(d.shelf)} · ${d.kind} · from ${esc(d.source || '?')} · filed ${when(d.created)}${d.updated && d.updated - d.created > 60 ? ' · changed ' + when(d.updated) : ''} · ${d.status}${d.newer ? ` · <b>replaced by <a onclick="item(${d.newer})">#${d.newer}</a></b>` : ''}${d.superseded_by ? ` · <b>replaced by <a onclick="item(${d.superseded_by})">#${d.superseded_by}</a></b>` : ''}${sens ? ' · 🔒 kept from cloud models unless asked' : ''}</div>
+    <div class="mute" style="margin-bottom:8px">#${d.id} · ${esc(d.shelf)} · ${d.kind} · from ${esc(d.source || '?')} · filed ${when(d.created)}${d.updated && d.updated - d.created > 60 ? ' · changed ' + when(d.updated) : ''} · ${d.status}${d.newer ? ` · <b>replaced by <a onclick="item(${d.newer})">#${d.newer}</a></b>` : ''}${d.superseded_by ? ` · <b>replaced by <a onclick="item(${d.superseded_by})">#${d.superseded_by}</a></b>` : ''}${sens ? ' · 🔒 kept from cloud models unless asked' : ''}${unconf ? ' · <b>unconfirmed</b>: learned overnight from a conversation' : ''}</div>
     <textarea id="e_text" rows="4" style="width:100%">${esc(d.body)}</textarea>
     <div class="row" style="margin-top:8px"><button class="go" onclick="saveItem(${d.id})">Save edit</button>
       <button class="go" style="background:var(--bad)" onclick="itemOp(${d.id}, '${gone ? 'restore' : 'forget'}')">${gone ? 'Restore' : 'Forget'}</button>
       <button class="go" style="background:var(--mute)" onclick="itemOp(${d.id}, 'feedback', {helpful:false})">Not helpful</button>
       <button class="go" style="background:var(--mute)" onclick="itemOp(${d.id}, 'sensitive', {value:${!sens}})">${sens ? 'Not secret' : 'Mark secret'}</button>
+      ${unconf ? `<button class="go" onclick="itemOp(${d.id}, 'confirm')">Confirm</button>` : ''}
+      <button class="go" style="background:var(--bad)" onclick="purgeItem(${d.id})">Delete for good</button>
       <span id="e_out" class="mute"></span></div>
     ${vers ? `<h2>Other versions</h2><ul>${vers}</ul>` : ''}${hist ? `<h2>Earlier values</h2><ul>${hist}</ul>` : ''}`;
 }
@@ -219,6 +222,12 @@ async function meals() {
 async function shop(items) { const r = await api('api/pantry/shop', {items}); alert('Added: ' + r.added.join(', ')); }
 async function saveGoals() { const r = await api('api/pantry/goals', {goals: $('#g_goals').value.split('\n').map(s => s.trim()).filter(Boolean), tired_days: $('#g_tired').value, avoid: $('#g_avoid').value.split(',').map(s => s.trim()).filter(Boolean)}); $('#g_out').textContent = r.error || 'saved'; }
 async function saveItem(id) { const r = await api('api/item/' + id + '/revise', {text: $('#e_text').value}); $('#e_out').textContent = r.error || 'saved'; item(r.id || id); recent(); }
+async function purgeItem(id) {
+  if (!confirm('Delete this note for good, with its earlier versions and its log rows? This cannot be undone (backups made before still have it).')) return;
+  const r = await api('api/item/' + id + '/purge', {confirm: true});
+  $('#e_out').textContent = r.error || ('deleted ' + r.deleted + ' note(s), ' + r.events_removed + ' log row(s)');
+  if (!r.error) { $('#itemcard').classList.add('hide'); recent(); }
+}
 async function itemOp(id, op, body) { const r = await api('api/item/' + id + '/' + op, body || {}); $('#e_out').textContent = r.error || 'done'; item(id); recent(); }
 async function remember() {
   const r = await api('api/remember', {title: $('#r_title').value, text: $('#r_text').value, shelf: $('#r_shelf').value || 'inbox', key: $('#r_key').value || null, source: 'web'});

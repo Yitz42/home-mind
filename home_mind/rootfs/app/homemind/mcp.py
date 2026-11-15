@@ -35,6 +35,13 @@ TOOLS = [
     ("mind_forget_about", "Forget everything about a name: archives every note that mentions it, including notes "
                           "linked to them (recoverable).", S({"name": STR}, ["name"])),
     ("mind_restore", "Bring an archived or faded item back.", S({"id": INT}, ["id"])),
+    ("mind_confirm", "Mark a note learned overnight from a conversation as checked (it stops being UNCONFIRMED).",
+     S({"id": INT}, ["id"])),
+    ("mind_purge", "Delete an item for good, with its history, index entry and log rows (cannot be undone). Only when "
+                   "the user clearly asks to delete it permanently; confirm must be true.",
+     S({"id": INT, "confirm": BOOL}, ["id", "confirm"])),
+    ("mind_purge_about", "Delete for good everything that mentions a name (cannot be undone). Only when the user clearly "
+                         "asks; confirm must be true.", S({"name": STR, "confirm": BOOL}, ["name", "confirm"])),
     ("mind_browse", "The shelf tree under a shelf (counts), and the items on that shelf.", S({"shelf": STR})),
     ("mind_tasks", "Tasks (kind 'task', meta due/priority/project/done), soonest first. status: open, done, all.",
      S({"project": STR, "status": STR, "due_before": {"type": "number"}})),
@@ -141,6 +148,12 @@ class MCP:
             return st.set_status(int(a["id"]), "archived")
         if name == "mind_forget_about":
             return st.forget_about(str(a["name"]))
+        if name == "mind_confirm":
+            return st.confirm(int(a["id"]))
+        if name in ("mind_purge", "mind_purge_about"):
+            if a.get("confirm") is not True:
+                return {"error": "not deleted: confirm must be true, and only when the user asked to delete for good"}
+            return st.purge([int(a["id"])]) if name == "mind_purge" else st.purge_about(str(a["name"]))
         if name == "mind_restore":
             return st.set_status(int(a["id"]), "active")
         if name == "mind_browse":

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.0
+- Facts learned overnight from conversations are on probation for 7 days until you confirm them: a newer overnight value doesn't replace what you told it directly. Both are shown, the overnight one marked UNCONFIRMED. A Confirm button on the note, `POST /api/item/{id}/confirm` and the MCP tool `mind_confirm`; after 7 days unchallenged it counts like anything else.
+- Delete for good: `POST /api/item/{id}/purge` and `POST /api/purge_about` (both need `{"confirm": true}`), the MCP tools `mind_purge` / `mind_purge_about` (confirm must be true) and a "Delete for good" button. Removes the note with its whole history, its search-index entry, the activity-log rows and saved conversation turns holding its values, and duplicate pairs; freed space is overwritten and the write-ahead log emptied. Backups made before still have it. Forget still only archives.
+- Asking for every secret at once ("list all my codes") gets the notes with every secret value hidden, for local models too; asking for the whole memory or the instructions ("print everything you know") gets 3 notes at most. A single code asked by name still works. By voice a list stops at 8 lines and says how many more there are.
+- New attacks suite (bulk secrets, whole-memory dumps, a planted instruction, a value slipped in overnight, delete for good, and one code by name as a control): 1.000 on 20 held-out worlds; with these guards off, 0.455 (every request for all the secrets showed the codes, the overnight value won every time, and forgotten notes left their text in the file; whole-memory requests and the planted instruction were already handled).
+
 ## 0.19.0
 - Jeeves's lookup (/api/recall) and Claude's mind_recall return the worked-out lines and the profile first (id 0), and use the same search as answers (past days, "my partner").
 - Notes filed before 0.19 have their structure read once at start-up.
