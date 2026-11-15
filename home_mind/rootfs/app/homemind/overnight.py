@@ -214,6 +214,7 @@ class Overnight:
         self.model = model
         self.done_for = None
         self.last = None
+        self.enabled = True          # the Overnight learning switch; off skips the nightly run (not a button press)
 
     def pick_model(self):
         names = list(self.models.models)
@@ -275,6 +276,9 @@ class Overnight:
         if (now.hour, now.minute) >= self.at and (now.hour, now.minute) < (self.at[0] + 3, self.at[1]) \
                 and self.done_for != now.date():
             self.done_for = now.date()
+            if not self.enabled:
+                self.last = {"at": time.time(), "skipped": "overnight learning switched off"}
+                return
             try:
                 log.info("overnight: %s", await self.run())
             except Exception:  # noqa: BLE001

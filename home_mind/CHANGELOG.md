@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+- Controls in Home Assistant: the bridge (0.2.0) adds a **Home Mind** device with switches (comfort brain, watching the house, overnight learning, morning summary, fog check-ins, automatic pack updates), numbers (voice time limit, fade days, test hours), times (morning summary, overnight learning), buttons (run overnight learning, send the morning summary, sync calendars, check models, install pack updates, comfort cycle, refresh the daily record, brain tests, hand automations back) and sensors (memory items, conversation turns waiting, last overnight run, facts filed, automations run by Home Mind, version). Needs a Home Assistant restart to load the new bridge.
+- Changes made there are kept across restarts until the same option is changed on the Configuration tab, which then wins.
+- New options `overnight_enabled` and `morning_enabled` (on by default): off skips the scheduled run; the buttons still run it.
+- API: `GET /api/control`, `POST /api/control/set`, `/api/control/reset`, `/api/control/run/<job>`. The bridge's `call` service may reach `/api/control`.
+
 ## 0.14.1
 - Meal ideas: room for longer answers now that foods carry nutrition (they were cut off).
 - Food lookups list a product once even when the database has it several times.

@@ -43,6 +43,9 @@ configuration:
   morning_notify:
     name: Morning summary goes to
     description: A notify service such as notify.mobile_app_my_phone. Empty = your first phone in the Home Assistant app.
+  morning_enabled:
+    name: Send the morning summary
+    description: Off skips the daily send. Also a switch in Home Assistant (Home Mind device).
   patterns_checkins:
     name: Fog check-ins
     description: Ask on the phone (tap buttons) when today's brain-fog rating or last night's sleep is missing.
@@ -67,6 +70,9 @@ configuration:
   overnight_model:
     name: Overnight learning model
     description: Name of the model that reads conversations at night. Empty = the biggest local qwen configured. Skipped (and retried the next night) if its computer is off.
+  overnight_enabled:
+    name: Overnight learning
+    description: Off skips the nightly run (the button still runs it). Also a switch in Home Assistant (Home Mind device).
   knowledge_food:
     name: Food database
     description: Download USDA FoodData Central (about 450 MB once) so meal ideas use real protein and calories.
