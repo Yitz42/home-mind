@@ -129,8 +129,9 @@ class MCP:
                                shelf=a.get("shelf", "inbox"), tags=a.get("tags"), key=a.get("key"),
                                meta=a.get("meta"), source="mcp")
         if name == "mind_recall":
-            return st.recall(a["query"], shelf=a.get("shelf"), kind=a.get("kind"), limit=int(a.get("limit") or 8),
-                             include_old=bool(a.get("include_old")))
+            from .mind import lookup
+            return lookup(st, a["query"], int(a.get("limit") or 8), a.get("shelf"), a.get("kind"),
+                          bool(a.get("include_old")))
         if name == "mind_get":
             return st.get(int(a["id"]), history=True)
         if name == "mind_update":

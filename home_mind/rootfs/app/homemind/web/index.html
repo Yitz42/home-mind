@@ -25,7 +25,7 @@
 </head>
 <body>
 <header><h1>🧠 Home Mind</h1>
-  <nav><button data-t="overview" class="on">Overview</button> <button data-t="memory">Memory</button> <button data-t="pantry">Pantry</button> <button data-t="tests">Tests</button> <button data-t="models">Models</button> <button data-t="updates">Updates</button></nav>
+  <nav><button data-t="overview" class="on">Overview</button> <button data-t="memory">Memory</button> <button data-t="worked">Worked out</button> <button data-t="pantry">Pantry</button> <button data-t="tests">Tests</button> <button data-t="models">Models</button> <button data-t="updates">Updates</button></nav>
   <span class="mute" id="ver" style="margin-left:auto"></span></header>
 <main>
 <section id="overview">
@@ -46,6 +46,19 @@
     <div class="row"><input id="r_title" placeholder="Title (optional)" style="flex:1"> <input id="r_shelf" placeholder="shelf e.g. projects/pebble"> <input id="r_key" placeholder="key (subject|attribute)"></div>
     <div class="row"><textarea id="r_text" rows="3" style="flex:1" placeholder="What to keep"></textarea></div>
     <div class="row"><button class="go" onclick="remember()">Remember</button> <span id="r_out" class="mute"></span></div></div>
+</section>
+<section id="worked" class="hide">
+  <div class="card"><h2>About you and the house <span class="mute">always shown to models</span></h2><ul id="w_profile"></ul>
+    <p class="mute">From notes like "Dana is my partner" (they go on the profile shelf). Edit or forget them in Memory.</p></div>
+  <div class="card"><h2>Chores</h2><table id="w_chores"></table>
+    <p class="mute">From "Change the furnace filter every 3 months" and "I changed the furnace filter". Due ones are in the morning summary.</p></div>
+  <div class="card"><h2>Repeating</h2><table id="w_repeat"></table></div>
+  <div class="card"><h2>Where things are</h2><table id="w_places"></table>
+    <p class="mute">From "The drill is in the red toolbox" and "I moved the red toolbox to the shed": the latest note for each thing wins.</p></div>
+  <div class="card"><h2>Things with details</h2><table id="w_typed"></table></div>
+  <div class="card"><h2>Possible duplicates <span class="mute">checked once a day; nothing is merged</span></h2><table id="w_dups"></table></div>
+  <div class="card"><h2>Corrections kept as tests</h2><table id="w_cases"></table>
+    <p class="mute">Kept when you say "that's wrong" and then the right value. The <b>corrections</b> suite on the Tests tab asks them again.</p></div>
 </section>
 <section id="pantry" class="hide">
   <div class="card"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
@@ -107,6 +120,7 @@ async function load(t) {
     $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${e.type}</td><td class="mute">${esc(e.data).slice(0, 140)}</td></tr>`).join('');
   }
   if (t === 'memory') { browse(''); recent(); }
+  if (t === 'worked') { worked(); }
   if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${k}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
@@ -124,6 +138,24 @@ async function load(t) {
       `<tr><td class="mute" colspan="7">Today: ${n(u.today.calls)} calls, ${n(u.today.tokens)} tokens${u.today.cost == null ? '' : ', $' + u.today.cost.toFixed(2)}</td></tr>`;
   }
 }
+async function worked() {
+  const w = await api('api/structure');
+  const none = (n, msg) => `<tr><td class="mute" colspan="${n}">${msg}</td></tr>`;
+  const link = (id, text) => `<a onclick="document.querySelector('nav button[data-t=memory]').click(); item(${id})">${esc(text)}</a>`;
+  $('#w_profile').innerHTML = w.profile.map(x => `<li>${esc(x)}</li>`).join('') || '<li class="mute">nothing yet</li>';
+  $('#w_chores').innerHTML = '<tr><th>chore</th><th>every</th><th>last done</th><th>next due</th></tr>' + (w.chores.map(c =>
+    `<tr><td>${link(c.id, c.verb + ' the ' + c.thing)}</td><td class="num">${c.every} days</td><td>${esc(c.last || 'never noted')}</td><td class="${c.left < 0 ? 'bad' : c.left <= 1 ? '' : 'mute'}">${esc(c.due)} · ${esc(c.state)}</td></tr>`).join('') || none(4, 'no chores yet'));
+  $('#w_repeat').innerHTML = '<tr><th>note</th><th>next</th></tr>' + (w.repeating.map(r =>
+    `<tr><td>${link(r.id, r.title)}</td><td>${esc(r.next)}</td></tr>`).join('') || none(2, 'nothing repeating yet'));
+  $('#w_places').innerHTML = '<tr><th>thing</th><th>is in</th><th>since</th></tr>' + (w.places.map(p =>
+    `<tr><td>${link(p.id, p.thing)}</td><td>${p.chain.map(esc).join(' › ')}</td><td class="mute">${esc(p.since)}</td></tr>`).join('') || none(3, 'no place notes yet'));
+  $('#w_typed').innerHTML = '<tr><th>note</th><th>type</th><th>details</th></tr>' + (w.typed.map(x =>
+    `<tr><td>${link(x.id, x.title)}</td><td class="mute">${esc(x.type)}</td><td>${Object.entries(x.fields).map(([k, v]) => esc(k.replace('_', ' ') + ' ' + v)).join(' · ')}</td></tr>`).join('') || none(3, 'none yet'));
+  $('#w_dups').innerHTML = w.duplicates.map(d => `<tr><td>${link(d.a.id, '#' + d.a.id + ' ' + d.a.title)}</td><td>${link(d.b.id, '#' + d.b.id + ' ' + d.b.title)}</td></tr>`).join('') || none(2, 'none found');
+  $('#w_cases').innerHTML = '<tr><th>question</th><th>right</th><th>was wrong</th><th></th></tr>' + (w.cases.map(c =>
+    `<tr><td>${esc(c.question)}</td><td>${esc(c.right)}</td><td class="mute">${esc(c.wrong).slice(0, 80)}</td><td><a onclick="dropCase(${c.id})">remove</a></td></tr>`).join('') || none(4, 'none yet'));
+}
+async function dropCase(id) { await api('api/cases/' + id + '/remove', {}); worked(); }
 async function search() {
   const hits = await api('api/recall?raw=1&q=' + encodeURIComponent($('#q').value) + ($('#old').checked ? '&old=1' : '') + '&touch=0');
   $('#hits').innerHTML = hits.map(h => `<tr><td class="num mute">${h.score}</td><td><a onclick="item(${h.id})">${esc(h.title)}</a><div class="mute">${esc(h.body).slice(0, 200)}</div></td><td class="mute">${esc(h.shelf)}<br>${h.kind}${h.status !== 'active' ? ' · ' + h.status : ''}</td></tr>`).join('') || '<tr><td class="mute">nothing found</td></tr>';

@@ -108,5 +108,8 @@ configuration:
   checkin_after_days:
     name: Ask about facts older than (days)
     description: A fact this old, and not confirmed or asked about within that time, can be asked about.
+  overnight_structure:
+    name: Overnight, read what the patterns missed
+    description: The overnight model reads recent notes where the built-in patterns found no place, schedule, chore, details or who-is-who, and keeps only what it copies word for word from the note. Off until tests/compare_structure.py shows it helps your model and adds nothing wrong.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.
