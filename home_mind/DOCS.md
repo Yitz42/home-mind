@@ -87,6 +87,13 @@ Model+brain runs also report **source** (a right answer points to the note it ca
 `"order": "edges"` and `"notes_first": true` to try the answer options; `tests/compare_answers.py` runs all four
 combinations on your own model and prints them side by side.
 
+### LongMemEval
+
+`tests/longmemeval.py` runs Home Mind on LongMemEval (ICLR 2025), the benchmark memory products publish scores on.
+`retrieve` measures the brain's own search with no model (does an evidence session come up in the top 5 or 10?);
+`answer` has one of your models answer through Home Mind and writes a file for the official GPT-4o judge. The top of
+the file has the download and the commands.
+
 ## Read from your notes
 
 Nothing to set up: these are read from plain sentences as they are filed (no model needed), and worked out when a
