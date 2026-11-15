@@ -709,8 +709,10 @@ class Mind:
                 filed = [sb.get(i)["body"] for i in filed_ids]
                 truth, junk = world.get("truth", []), world.get("junk", [])
                 isjunk = lambda f: any(contains(f, n) and contains(f, v) for n, v in junk)
+                saved = world.get("saved", [])
                 extraction = {"facts_filed": len(filed), "truth_found": sum(any(contains(f, v) for f in filed) for v in truth),
                               "truth_total": len(truth), "junk_filed": sum(isjunk(f) for f in filed),
+                              "duplicates_filed": sum(any(contains(f, v) for v in saved) for f in filed),
                               "unmatched_filed": sum(not isjunk(f) and not any(contains(f, v) for v in truth) for f in filed),
                               "filed": filed[:60]}
             elif transcript and arm not in ("model", "model+context"):

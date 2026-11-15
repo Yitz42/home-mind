@@ -29,8 +29,11 @@ EXTRACT_SYSTEM = (
     "\"maybe I should...\"), wishes and guesses.\n"
     "- If U corrects themselves (\"no wait\", \"actually\", \"I mean\"), keep only the corrected version.\n"
     "- Skip general knowledge and small talk (weather, feelings of the moment).\n"
-    "- Write each fact as one standalone sentence in plain words, with names spelled exactly as U said them and any "
-    "date or time U gave. Keep numbers, codes and names exact.\n"
+    "- Skip anything A confirms it already saved (A's reply starts with \"Saved\" or \"Journaled\").\n"
+    "- Skip facts that say nothing on their own (\"I want you to know this\", \"that is for my family\").\n"
+    "- Write each fact in the first person, as U would say it (\"I keep the Kosk toolbox in the garage\"), never "
+    "\"the user\" or \"the person\". One standalone sentence naming the thing it is about, with names spelled "
+    "exactly as U said them and any date or time U gave. Keep numbers, codes and names exact.\n"
     "Reply with JSON only: {\"facts\": [{\"text\": \"...\", \"turn\": <number of the U line>}]}. If there are none, "
     "reply {\"facts\": []}.")
 
@@ -54,6 +57,18 @@ def parse_facts(text):
 
 async def extract(model, turns, max_tokens=900):
     """turns: [{"who": "user"|"assistant", "text": ..., "ts": ...}] -> facts with the time they were said."""
+    keep = []
+    for i, t in enumerate(turns):     # what Jeeves already saved ("Saved: ...") is in memory: leave it out
+        nxt = turns[i + 1] if i + 1 < len(turns) else None
+        if t["who"] == "user" and nxt and nxt["who"] == "assistant" and \
+                re.match(r"\s*(saved|journaled)\b", nxt["text"] or "", re.I):
+            continue
+        if t["who"] == "assistant" and re.match(r"\s*(saved|journaled)\b", t["text"] or "", re.I):
+            continue
+        keep.append(t)
+    turns = keep
+    if not any(t["who"] == "user" for t in turns):
+        return []
     lines, idx = [], {}
     for i, t in enumerate(turns, 1):
         lines.append(f"{i}. {'U' if t['who'] == 'user' else 'A'}: {t['text']}")
@@ -70,20 +85,35 @@ async def extract(model, turns, max_tokens=900):
     return facts
 
 
-def _overlap(a, b):
+FILLER = {"i", "my", "me", "the", "a", "an", "is", "are", "was", "it", "its", "to", "from", "of", "in", "on", "at",
+          "and", "user", "person", "they", "their", "them", "he", "she", "his", "her", "now", "this", "that", "am",
+          "pm", "s"}
+
+
+def _content(text):
     from .store import words
-    wa, wb = set(words(a)), set(words(b))
-    return len(wa & wb) / max(1, len(wa | wb))
+    return {w for w in words(text) if w not in FILLER}
+
+
+def _overlap(a, b):
+    """How much of the shorter fact's content the other one covers ("I slept from 1 to 7 am" vs "The person slept
+    from 1 to 7 am": 1.0)."""
+    wa, wb = _content(a), _content(b)
+    if not wa or not wb:
+        return 0.0
+    return len(wa & wb) / min(len(wa), len(wb))
 
 
 def file_facts(store, facts, source="overnight", meta=None):
     """File extracted facts; skip ones memory already has in nearly the same words. Returns (filed ids, skipped)."""
-    filed, skipped = [], 0
+    filed, skipped, batch = [], 0, []
     for f in facts:
-        hits = store.recall(f["text"], limit=3, touch=False)
-        if any(_overlap(f["text"], h["body"]) >= 0.75 for h in hits):
+        hits = store.recall(f["text"], limit=5, touch=False)
+        if any(_overlap(f["text"], h["body"]) >= 0.8 for h in hits) or \
+                any(_overlap(f["text"], b) >= 0.8 for b in batch) or len(_content(f["text"])) < 2:
             skipped += 1
             continue
+        batch.append(f["text"])
         r = store.remember(text=f["text"], kind="fact", shelf="inbox", source=source, at=f.get("ts"),
                            meta=dict(meta or {}, learned_overnight=True))
         filed.append(r["id"])
@@ -202,9 +232,14 @@ class Overnight:
                 chunk = rs[i:i + limit_turns]
                 turns = []
                 for r in chunk:
+                    if re.match(r"\s*(saved|journaled)\b", r.get("reply") or "", re.I):
+                        continue        # Jeeves already saved this one to memory
                     turns.append({"who": "user", "text": r["user_text"], "ts": r["ts"]})
                     if r.get("reply"):
                         turns.append({"who": "assistant", "text": r["reply"], "ts": r["ts"]})
+                if not any(t["who"] == "user" for t in turns):
+                    done += [r["id"] for r in chunk]
+                    continue
                 try:
                     facts = await extract(model, turns)
                 except Exception as e:  # noqa: BLE001

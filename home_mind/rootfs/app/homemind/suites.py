@@ -948,7 +948,7 @@ def extract(seed, n=8):
     assistant said. Run with ingest=extract (a model files what it extracts) or ingest=raw (every line stored as is).
     Fact questions must find the stated value; junk questions must not find a value that was never really stated."""
     rng = random.Random(seed)
-    used, turns, questions, truth, junk = set(), [], [], [], []
+    used, turns, questions, truth, junk, saved = set(), [], [], [], [], []
 
     def fresh():
         while True:
@@ -997,6 +997,10 @@ def extract(seed, n=8):
                       None, v4))
         # a plain question with no fact
         items.append(("question", f"where did I leave the {fresh()} spare key?", None, None))
+        # already saved through Jeeves: the extractor must not file it again
+        nm5, v5 = fresh(), code()
+        items.append(("saved", f"remember that the {nm5} cabinet code is {v5}", f"What is the code for the {nm5} cabinet?",
+                      v5, f"The {nm5} cabinet code is {v5}."))
     rng.shuffle(items)
     conv, t = 0, 0
     for it in items:
@@ -1007,8 +1011,14 @@ def extract(seed, n=8):
         if kind == "assistant":
             turns.append({"op": "say", "who": "assistant", "text": f"I think it might be {it[4]}, but check your notes.",
                           "conv": f"c{conv}"})
+        elif kind == "saved":
+            turns.append({"op": "remember", "text": it[4], "kind": "fact"})
+            turns.append({"op": "say", "who": "assistant", "text": f"Saved: {it[4]}", "conv": f"c{conv}"})
         else:
             turns.append({"op": "say", "who": "assistant", "text": rng.choice(ACKS), "conv": f"c{conv}"})
+        if kind == "saved":
+            questions.append({"type": "saved", "q": it[2], "gold": it[3], "extract": True, "junk": []})
+            saved.append(it[3])
         if kind in ("fact", "correction") and it[2]:
             questions.append({"type": kind, "q": it[2], "gold": it[3], "extract": True,
                               "junk": [it[4]] if kind == "correction" else []})
@@ -1031,7 +1041,7 @@ def extract(seed, n=8):
         turns.insert(rng.randrange(len(turns)), {"op": "say", "who": "user", "text": rng.choice(
             ["what's the weather like?", "turn on the desk light", "haha nice", "thanks!", "how long does pasta take?"]),
             "conv": "c0"})
-    return {"events": turns, "questions": questions, "truth": truth, "junk": junk}
+    return {"events": turns, "questions": questions, "truth": truth, "junk": junk, "saved": saved}
 
 
 SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard, "hard2": hard2, "followup": followup, "extract": extract}
