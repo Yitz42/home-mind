@@ -46,5 +46,11 @@ configuration:
   calendar_quiet:
     name: Calendars to leave out
     description: Calendars kept in memory but left out of answers and the morning summary unless a question is about them.
+  overnight_time:
+    name: Overnight learning time
+    description: When a local model reads the day's conversations with Jeeves and files what you stated (HH:MM).
+  overnight_model:
+    name: Overnight learning model
+    description: Name of the model that reads conversations at night. Empty = the biggest local qwen configured. Skipped (and retried the next night) if its computer is off.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.

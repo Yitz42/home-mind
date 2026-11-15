@@ -18,6 +18,7 @@ from .automations import Engine
 from .journal import Journal
 from .calendars import Calendars
 from .morning import Morning
+from .overnight import ConvLog, Overnight
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -36,7 +37,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "update_url": "https://raw.githubusercontent.com/Yitz42/home-mind/main/packs/manifest.json",
             "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info", "comfort": True,
             "home": True, "home_controls": [], "home_fan_max": 100,
-            "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": "",
+            "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": "", "overnight_time": "03:00", "overnight_model": "",
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -105,6 +106,10 @@ class App:
         self.calendars = Calendars(self.mind.store, self.ha, self.opts.get("calendar_quiet"))
         self._mark_secrets()
         self._fix_kg_backfill()
+        self.convlog = ConvLog(self.mind.store)
+        self.mind.convlog = self.convlog
+        self.overnight = Overnight(self.mind.store, self.models, self.convlog, self.opts.get("overnight_time") or "03:00",
+                                   self.opts.get("overnight_model") or None)
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         mt = self.morning.at
@@ -240,6 +245,15 @@ class App:
                                       "automations_run": sorted(e for e in self.engine.owned
                                                                 if self.engine.autos.get(e, {}).get("ha_state") != "on")})
             await self.journal.tick()
+            await self.overnight.tick()
+            if self.ha.available and now - last.get("conv", 0) > 60 and getattr(self.engine, "_ws", None):
+                last["conv"] = now
+                try:
+                    n = await self.convlog.poll(self.engine.ws_call)
+                    if n:
+                        log.info("conversation log: %d new turns", n)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("conversation log: %s", e)
             if self.ha.available:
                 await self.morning.tick()
             if self.ha.available and now - last.get("cal", 0) > 3600:
@@ -534,6 +548,17 @@ def build(app_state):
         except (ValueError, RuntimeError) as e:
             return J({"error": str(e)}, status=400)
         return J({"error": f"unknown op {op}"}, status=404)
+
+    @r.get("/api/overnight")
+    async def overnight_status(_):
+        return J({"last": A.overnight.last, "model": A.overnight.pick_model(), "pending_turns": len(A.convlog.pending()),
+                  "recent_turns": [{k: t[k] for k in ("ts", "user_text", "reply", "pipeline", "processed")}
+                                   for t in A.mind.store.db.execute(
+                                       "SELECT * FROM conversations ORDER BY ts DESC LIMIT 10").fetchall()]})
+
+    @r.post("/api/overnight/run")
+    async def overnight_run(_):
+        return J(await A.overnight.run())
 
     @r.get("/api/morning")
     async def morning_preview(q):

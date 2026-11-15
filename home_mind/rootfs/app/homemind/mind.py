@@ -549,6 +549,9 @@ class Mind:
             return {"answer": ans, "hits": hits, "procedures": [p["id"] for p in procs], "model": None,
                     "ms": int((time.time() - t0) * 1000), "errors": errors, "fallback": "brain"}
         self._down.pop(used, None)
+        cl = getattr(self, "convlog", None)
+        if cl and store is self.store:
+            cl.add(time.time(), original, r["text"], conversation_id, None, "home_mind")
         store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=r["text"][:500],
                   ms=r["ms"], errors=errors or None)
         out = {"answer": r["text"], "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"]}
@@ -583,11 +586,11 @@ class Mind:
             raise ValueError("arm must be brain, model+brain, model+context or model")
         if arm != "brain" and not model:
             raise ValueError(f"arm {arm} needs a model")
-        if ingest == "model" and not model:
-            raise ValueError("ingest=model needs a model")
+        if ingest in ("model", "extract") and not model:
+            raise ValueError(f"ingest={ingest} needs a model")
         seed = int(seed) if seed is not None else int(time.time()) % 100000
         run = {"id": uuid.uuid4().hex[:10], "ts": time.time(), "suite": suite, "arm": arm,
-               "model": model if arm != "brain" or ingest == "model" else None, "seed": seed, "status": "running",
+               "model": model if arm != "brain" or ingest in ("model", "extract") else None, "seed": seed, "status": "running",
                "config": {"n": n, "ingest": ingest, "keyed": keyed, "expand": bool(expand)}, "summary": {}, "details": []}
         self.store.save_run(run)
         task = asyncio.get_running_loop().create_task(self._run_test(run))
@@ -632,6 +635,7 @@ class Mind:
         spacing = world.get("spacing", 3600)
         sb = Store(path, clock=lambda: clock["t"])
         refs, log, t0 = {}, [], time.monotonic()
+        transcript = []
         arm, model = run["arm"], run["model"]
         try:
             # 1. tell it the world (events an hour apart, so newer means newer)
@@ -653,6 +657,12 @@ class Mind:
                         sb.forget_about(ev["name"])
                     else:
                         log[:] = [x for x in log if ev["name"] not in x]
+                    continue
+                if ev["op"] == "say":      # a conversation turn (extract suite)
+                    log.append(f"[{_ts(clock['t'])}] {'U' if ev['who'] == 'user' else 'A'}: {ev['text']}")
+                    transcript.append(dict(ev, ts=clock["t"]))
+                    if arm not in ("model", "model+context") and cfg.get("ingest") != "extract" and ev["who"] == "user":
+                        sb.remember(text=ev["text"], kind="note", source="test")
                     continue
                 if "{until}" in ev["text"]:
                     q = next((q for q in world["questions"] if q.get("ref") == ev["ref"] and q.get("temporal")), None)
@@ -681,6 +691,35 @@ class Mind:
                     ch = {"done": True} if ev["op"] == "task_done" else {"due": ev["due"]}
                     r = sb.revise(refs[ev["ref"]], meta=ch)
                     refs[ev["ref"]] = r["id"]
+            # 1b. extract suite: a model reads the conversations and files what was stated
+            extraction = None
+            if transcript and cfg.get("ingest") == "extract" and arm not in ("model", "model+context"):
+                from .overnight import extract as _extract, file_facts
+                emodel = self.models.get(cfg.get("extract_model") or model)
+                filed_ids, facts = [], []
+                convs = {}
+                for t in transcript:
+                    convs.setdefault(t["conv"], []).append(t)
+                for c in convs.values():
+                    for i in range(0, len(c), 24):
+                        fs = await _extract(emodel, c[i:i + 24])
+                        facts += fs
+                        ids, _ = file_facts(sb, fs, source="test-extract")
+                        filed_ids += ids
+                filed = [sb.get(i)["body"] for i in filed_ids]
+                truth, junk = world.get("truth", []), world.get("junk", [])
+                isjunk = lambda f: any(contains(f, n) and contains(f, v) for n, v in junk)
+                extraction = {"facts_filed": len(filed), "truth_found": sum(any(contains(f, v) for f in filed) for v in truth),
+                              "truth_total": len(truth), "junk_filed": sum(isjunk(f) for f in filed),
+                              "unmatched_filed": sum(not isjunk(f) and not any(contains(f, v) for v in truth) for f in filed),
+                              "filed": filed[:60]}
+            elif transcript and arm not in ("model", "model+context"):
+                notes = [t["text"] for t in transcript if t["who"] == "user"]
+                truth, junk = world.get("truth", []), world.get("junk", [])
+                isjunk = lambda f: any(contains(f, n) and contains(f, v) for n, v in junk)
+                extraction = {"facts_filed": len(notes), "truth_found": sum(any(contains(f, v) for f in notes) for v in truth),
+                              "truth_total": len(truth), "junk_filed": sum(isjunk(f) for f in notes),
+                              "unmatched_filed": sum(not isjunk(f) and not any(contains(f, v) for v in truth) for f in notes)}
             # 2. ask
             details = []
             for q in world["questions"]:
@@ -688,6 +727,8 @@ class Mind:
                 details.append(await self._question(run, sb, q, refs, log))
             run["details"] = details
             run["summary"] = summarize(details, run, time.monotonic() - t0, len(world["events"]))
+            if extraction:
+                run["summary"]["extraction"] = extraction
         finally:
             sb.close()
             for ext in ("", "-wal", "-shm"):
@@ -756,6 +797,15 @@ class Mind:
                 top = hits[0] if hits else None
                 text = (top["title"] + " " + top["body"]) if top else ""
                 typ = q.get("type")
+                if q.get("extract"):     # facts must be found; values never really stated must not be
+                    top3 = " ".join(h["title"] + " " + h["body"] for h in hits[:3])
+                    junk_hit = any(contains(top3, j) for j in q.get("junk") or [] if j)
+                    if q.get("gold"):
+                        ok = contains(text, q["gold"]) and not (q.get("junk") and any(contains(text, j) for j in q["junk"] if j))
+                    else:
+                        ok = not junk_hit
+                    d.update(answer=text[:300], correct=ok)
+                    return d
                 if q.get("needs") is not None or q.get("absent"):   # hard2: the notes needed are there, forgotten ones aren't
                     need = {refs.get(x) for x in q.get("needs") or []} - {None}
                     gone = {refs.get(x) for x in q.get("absent") or []} - {None}

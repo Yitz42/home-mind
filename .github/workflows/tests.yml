@@ -20,5 +20,7 @@ jobs:
         run: python tests/test_automations.py
       - name: Secrets kept from cloud models
         run: python tests/test_privacy.py
+      - name: Extraction bench scoring
+        run: python tests/test_extract.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py

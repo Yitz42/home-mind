@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.9.1"
+version: "0.10.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -46,6 +46,8 @@ options:
     - calendar.hebcal_baltimore_2
     - calendar.hebcal_baltimore_3
     - calendar.jewish_holidays
+  overnight_time: "03:00"
+  overnight_model: ""
 schema:
   models:
     - name: str
@@ -72,3 +74,5 @@ schema:
   morning_notify: str?
   calendar_quiet:
     - str
+  overnight_time: str
+  overnight_model: str?

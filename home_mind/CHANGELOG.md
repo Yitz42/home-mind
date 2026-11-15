@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0
+- Conversation log: what's said to Jeeves (Assist pipeline runs, voice or text) and questions asked through Home Mind are copied every minute into a raw table that search never reads. Deleted 30 days after processing (60 if never processed).
+- Overnight learning (options overnight_time 03:00, overnight_model): a local model reads the day's conversations and files only what you stated as true (no questions, jokes, hypotheticals, retracted values or things only the assistant said), skipping what memory already has, with the time it was said and source "overnight". Skipped and retried the next night if the model's computer is off. The morning summary lists what was learned. GET /api/overnight, POST /api/overnight/run.
+- Extraction bench (suite extract, ingest=extract or raw): facts buried in chatty conversations; reports facts found, junk filed and unmatched notes.
+- Calendars to leave out (option calendar_quiet; Hebcal and Jewish holidays by default) stay in memory but out of answers and the morning summary unless asked about. Morning summary lists today's events by time and title only.
+- Fix: the scale's early kilogram readings in the backfilled history were labelled lb; converted.
+
 ## 0.9.1
 - Morning summary at 07:30 (options morning_time, morning_notify): what was remembered, learned, journaled and weighed, automation runs and failures, calendar changes and today's events, to your phone and as a Home Assistant notification. GET /api/morning to preview.
 - Unknown names: a name is only typo-repaired to one that has the thing the question names ("Orvok fern" no longer becomes Harvok, who has a locker). More unanswerable questions now get the plain "nothing in memory mentions it" line. (A score cutoff was measured and doesn't separate unanswerable questions: they often score higher than answerable ones.)

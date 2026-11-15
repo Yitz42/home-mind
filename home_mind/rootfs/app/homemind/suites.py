@@ -11,6 +11,7 @@ A suite returns {"events": [...], "questions": [...]}; the runner plays the even
 questions. Events that store something carry a "ref" so the right item can be checked by id.
 """
 import random
+import re
 
 SYL_A = ["ta", "ve", "ko", "mi", "dra", "sel", "or", "pu", "zen", "lo", "fi", "ran", "bex", "quo", "har", "nim", "ul", "cy"]
 SYL_B = ["rin", "vok", "dal", "mere", "sk", "tan", "bel", "gor", "wyn", "lix", "dor", "pax", "ven", "rue", "mott", "sha"]
@@ -938,8 +939,105 @@ def followup(seed, n=4):
     return {"events": events, "questions": questions}
 
 
-SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard, "hard2": hard2, "followup": followup}
+ACKS = ["Got it.", "Sure.", "Okay!", "Noted.", "Sounds good.", "Ha, okay.", "Done.", "I can help with that."]
+SMALL = ["ugh, long day", "anyway", "so", "ok so", "random thought,", "oh and", "btw", "also"]
+
+
+def extract(seed, n=8):
+    """Chatty conversations with facts buried among questions, jokes, hypotheticals, corrections and things only the
+    assistant said. Run with ingest=extract (a model files what it extracts) or ingest=raw (every line stored as is).
+    Fact questions must find the stated value; junk questions must not find a value that was never really stated."""
+    rng = random.Random(seed)
+    used, turns, questions, truth, junk = set(), [], [], [], []
+
+    def fresh():
+        while True:
+            nm = name(rng)
+            if nm not in used:
+                used.add(nm)
+                return nm
+
+    def code():
+        return str(rng.randint(1000, 9999))
+    items = []
+    for i in range(n):
+        kind = i % 3
+        nm = fresh()
+        if kind == 0:
+            v = code()
+            items.append(("fact", f"{rng.choice(SMALL)} the code for the {nm} locker is {v} now",
+                          f"What is the code for the {nm} locker?", v))
+        elif kind == 1:
+            v = rng.choice(ROOMS)
+            items.append(("fact", f"{rng.choice(SMALL)} I put the {nm} toolbox in the {v}",
+                          f"Where is the {nm} toolbox?", v))
+        else:
+            v = rng.choice(COLORS)
+            items.append(("fact", f"{rng.choice(SMALL)} I painted the {nm} bike {v} this weekend",
+                          f"What color is the {nm} bike?", v))
+    for i in range(max(2, n // 4)):
+        # a correction: only the second value is true
+        nm, a, b = fresh(), code(), code()
+        items.append(("correction", f"the {nm} safe code is {a}, no wait, I mean {b}", f"What is the code for the {nm} safe?",
+                      b, a))
+        # a joke
+        w = f"{rng.choice(COLORS)}{rng.randint(10, 99)}"
+        nm2 = fresh()
+        items.append(("joke", f"lol the {nm2} wifi password is {w}, jk I'd never tell you", f"What is the password for the {nm2} wifi?",
+                      None, w))
+        # a hypothetical about a thing whose real place is stated elsewhere
+        nm3, real, hypo = fresh(), rng.choice(ROOMS), rng.choice(ROOMS)
+        while hypo == real:
+            hypo = rng.choice(ROOMS)
+        items.append(("fact", f"the {nm3} crate is in the {real}", f"Where is the {nm3} crate?", real))
+        items.append(("hypothetical", f"if I moved the {nm3} crate to the {hypo}, would it fit?", None, None, hypo, nm3))
+        # only the assistant says it
+        nm4, v4 = fresh(), code()
+        items.append(("assistant", f"what's the code for the {nm4} locker again?", f"What is the code for the {nm4} locker?",
+                      None, v4))
+        # a plain question with no fact
+        items.append(("question", f"where did I leave the {fresh()} spare key?", None, None))
+    rng.shuffle(items)
+    conv, t = 0, 0
+    for it in items:
+        if rng.random() < 0.3:
+            conv += 1
+        kind = it[0]
+        turns.append({"op": "say", "who": "user", "text": it[1], "conv": f"c{conv}"})
+        if kind == "assistant":
+            turns.append({"op": "say", "who": "assistant", "text": f"I think it might be {it[4]}, but check your notes.",
+                          "conv": f"c{conv}"})
+        else:
+            turns.append({"op": "say", "who": "assistant", "text": rng.choice(ACKS), "conv": f"c{conv}"})
+        if kind in ("fact", "correction") and it[2]:
+            questions.append({"type": kind, "q": it[2], "gold": it[3], "extract": True,
+                              "junk": [it[4]] if kind == "correction" else []})
+            truth.append(it[3])
+        nm_of = re.search(r"the ([A-Z][a-z]+) ", it[1])
+        nm_of = nm_of.group(1) if nm_of else ""
+        if kind in ("joke", "assistant"):
+            questions.append({"type": kind, "q": it[2], "gold": None, "unknown": True, "extract": True, "junk": [it[4]]})
+            junk.append([nm_of, it[4]])
+        elif kind == "hypothetical":
+            junk.append([it[5], it[4]])
+        if kind == "correction":
+            junk.append([nm_of, it[4]])
+    for q in questions:     # the hypothetical value must not win over the real place
+        if q["type"] == "fact":
+            for it in items:
+                if it[0] == "hypothetical" and it[5] in q["q"]:
+                    q["junk"] = [it[4]]
+    for _ in range(rng.randint(4, 8)):
+        turns.insert(rng.randrange(len(turns)), {"op": "say", "who": "user", "text": rng.choice(
+            ["what's the weather like?", "turn on the desk light", "haha nice", "thanks!", "how long does pasta take?"]),
+            "conv": "c0"})
+    return {"events": turns, "questions": questions, "truth": truth, "junk": junk}
+
+
+SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard, "hard2": hard2, "followup": followup, "extract": extract}
 SUITE_INFO = {
+    "extract": "facts buried in chatty conversations with jokes, hypotheticals, corrections and assistant guesses; "
+               "use ingest=extract (needs a model) or raw",
     "followup": "short follow-ups that need the question before them (another name, 'where is it?', another place)",
     "recall": "facts told once, asked later in other words",
     "update": "facts that change; the newest must win",

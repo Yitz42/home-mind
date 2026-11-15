@@ -52,7 +52,7 @@
     <div class="row"><select id="t_suite"></select>
       <select id="t_arm"><option value="brain">brain (no model)</option><option value="model+brain">model + brain</option><option value="model+context">model + whole log</option><option value="model">model alone</option></select>
       <select id="t_model"><option value="">(model)</option></select>
-      <select id="t_ingest"><option value="raw">store as given</option><option value="model">model files each item</option></select>
+      <select id="t_ingest"><option value="raw">store as given</option><option value="model">model files each item</option><option value="extract">model extracts from conversations</option></select>
       <label class="mute"><input type="checkbox" id="t_keyed"> keyed facts</label> <label class="mute"><input type="checkbox" id="t_expand"> model suggests search words</label>
       <input id="t_seed" placeholder="seed" style="width:80px"> <input id="t_n" placeholder="size" style="width:70px">
       <button class="go" onclick="runTest()">Run</button></div>
