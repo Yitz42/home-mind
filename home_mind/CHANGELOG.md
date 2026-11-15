@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.3
+- Photos can also be sent as JSON (image_b64), so a photo shared with Claude in chat can be added to the pantry.
+
 ## 0.11.2
 - Fix: the shopping-list sync and photo reading weren't getting Home Assistant's answer back.
 

@@ -572,6 +572,10 @@ def build(app_state):
     @r.post("/api/pantry/{op}")
     async def pantry_op(q):
         op = q.match_info["op"]
+        if op == "photo" and q.content_type == "application/json":
+            import base64
+            b = await q.json()          # {"image_b64": ..., "filename": ...}: for Claude forwarding a photo from chat
+            return J(await A.pantry.from_photo(base64.b64decode(b["image_b64"]), b.get("filename") or "photo.jpg"))
         if op == "photo":
             reader = await q.multipart()
             part = await reader.next()
