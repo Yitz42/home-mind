@@ -4,7 +4,8 @@ configuration:
     description: >-
       Models Home Mind can use. type ha_ai_task uses a Home Assistant AI Task entity (your Haiku, no extra key);
       ollama / openai use a computer on your network (url like http://192.168.1.50:11434, plus model name);
-      anthropic calls Claude directly (needs api_key and model).
+      anthropic calls Claude directly (needs api_key and model). Optional price_in and price_out (dollars per
+      million tokens) let Home Mind show what each model costs; none are built in because prices change.
   update_url:
     name: Update manifest
     description: Where to look for new knowledge packs.
@@ -88,5 +89,24 @@ configuration:
   answer_notes_first:
     name: Name the notes before answering
     description: The model first lists the notes its answer comes from, then answers. Slower; never used for voice. Off until the comparison script shows it helps your models.
+  events_keep_days:
+    name: Keep the detailed activity log for (days)
+    description: Older search, answer and change events are rolled up into daily counts and removed, so the database stops growing. Notes are never touched. 0 = keep everything.
+  quiet_hours:
+    name: Quiet hours for phone notifications
+    description: No phone pushes between the start and end times; they wait and are sent when quiet hours end. The Home Assistant notification list still gets them at once.
+  quiet_start:
+    name: Quiet hours start (HH:MM)
+  quiet_end:
+    name: Quiet hours end (HH:MM)
+  notify_daily_cap:
+    name: Most phone notifications a day
+    description: After this many, the rest of the day's go only to the Home Assistant notification list. 0 = no limit.
+  checkin_old_facts:
+    name: Ask about old facts in the morning
+    description: The morning summary asks about one old fact a day ("Still true?") with Still true / It changed buttons. Secret values are never shown.
+  checkin_after_days:
+    name: Ask about facts older than (days)
+    description: A fact this old, and not confirmed or asked about within that time, can be asked about.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.

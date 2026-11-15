@@ -29,11 +29,11 @@ the app from any dashboard, automation or voice command:
 
 | kind | entities |
 |---|---|
-| switches | Bedroom comfort brain, Watch the house, Overnight learning, Morning summary, Brain-fog check-ins, Install new packs automatically |
-| numbers | Voice time limit (s), Fade unused notes after (days), Brain tests every (hours) |
-| times | Morning summary time, Overnight learning time |
+| switches | Bedroom comfort brain, Watch the house, Overnight learning, Morning summary, Brain-fog check-ins, Install new packs automatically, Repeat the best note before the question, Name the notes before answering, Quiet hours for phone notifications, Ask about old facts in the morning |
+| numbers | Voice time limit (s), Fade unused notes after (days), Brain tests every (hours), Phone notifications a day, Keep the detailed activity log for (days), Ask about facts older than (days) |
+| times | Morning summary time, Overnight learning time, Quiet hours start, Quiet hours end |
 | buttons | Run overnight learning now, Send the morning summary, Sync calendars, Check models, Install pack updates, Run a comfort cycle, Refresh the daily record, Run brain tests, Hand automations back to Home Assistant |
-| sensors | Memory items, Conversation turns to learn from, Last overnight run, Facts filed last night, Automations run by Home Mind, Version |
+| sensors | Memory items, Conversation turns to learn from, Last overnight run, Facts filed last night, Automations run by Home Mind, Model calls today, Model tokens today, Model cost today (priced models), Phone notifications waiting, Version |
 
 A change made from Home Assistant is kept across restarts. If you later change the same option on the
 Configuration tab, the Configuration tab wins and the Home Assistant change is dropped. Switches and numbers show
@@ -86,6 +86,28 @@ Numbers recorded: accuracy, found first (hit@1), in top 5, MRR, how often an old
 Model+brain runs also report **source** (a right answer points to the note it came from). Runs take
 `"order": "edges"` and `"notes_first": true` to try the answer options; `tests/compare_answers.py` runs all four
 combinations on your own model and prints them side by side.
+
+## Upkeep
+
+- **Model use.** Every model call is counted per model per day: calls, failures, tokens in and out, time. The
+  Models tab shows the last 30 days; `GET /api/usage?days=30`; sensors on the Home Mind device show today's calls,
+  tokens and (if priced) cost. Give a model `price_in` and `price_out` (dollars per million tokens) on the
+  Configuration tab to see its cost; none are built in because prices change. Home Assistant's AI Task and
+  conversation models don't report tokens, so only their calls and time are counted.
+- **Activity log.** Searches, answers and changes older than *Keep the detailed activity log for* (default 90 days)
+  are rolled up into daily counts per type (`event_days`) and removed once a day. Notes are never touched.
+- **Quiet hours.** Phone notifications (morning summary, fog check-ins, weekly report) wait between *Quiet hours
+  start* and *end* (default 22:00 to 07:00) and go out when quiet hours end; the Home Assistant notification list
+  still gets them at once. *Phone notifications a day* (default 0 = no limit) stops phone pushes for the rest of the
+  day. Waiting notifications are kept in memory, so a restart drops them from the phone (the notification list keeps
+  them).
+- **Old facts.** Once a day the morning summary asks about one old fact you told it ("Still true?"): a current fact
+  older than *Ask about facts older than* (default 180 days), not confirmed or asked about within that time, most
+  used first. The phone notification has **Still true** (confirmed, strengthened) and **It changed** (weakened, and a
+  notification asks for the new value) buttons. Secret values are never shown, there or in the summary's lists.
+- **Not done: prompt caching.** Claude only caches a prompt prefix of at least 1,024 to 4,096 tokens (by model);
+  Home Mind's longest fixed instruction is about 500 tokens, so marking it for caching would change nothing. Most
+  answers also go through Home Assistant's AI Task, which builds its own requests.
 
 ## Answers
 

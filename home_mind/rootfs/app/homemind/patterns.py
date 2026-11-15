@@ -611,12 +611,11 @@ class Patterns:
         await self.ha.notify(title, message, tag)
         target = await self.phone() if self.phone else None
         if target:
-            dom, svc = target.split(".", 1)
             data = {"title": title, "message": message, "data": {"tag": tag}}
             if actions:
                 data["data"]["actions"] = actions
             try:
-                await self.ha.call(dom, svc, data)
+                await self.ha.push(target, data)
             except Exception as e:  # noqa: BLE001
                 log.warning("patterns notify: %s", e)
 

@@ -79,6 +79,8 @@
 <section id="models" class="hide">
   <div class="card"><div class="row"><h2 style="margin:0">Connected models</h2> <button class="go" onclick="checkModels()">Check all</button></div><table id="mlist"></table>
   <p class="mute">Add or change models in Settings › Apps › Home Mind › Configuration.</p></div>
+  <div class="card"><h2>Use, last 30 days</h2><table id="usage"></table>
+  <p class="mute">Tokens come from the model's own count; Home Assistant's AI Task and conversation models don't report them. Cost shows for models given price_in and price_out (dollars per million tokens) on the Configuration tab.</p></div>
   <div class="card"><h2>Ask</h2><div class="row"><select id="a_model"></select> <label class="mute"><input type="checkbox" id="a_brain" checked> use brain</label></div>
     <div class="row"><input id="a_q" placeholder="Question" style="flex:1"> <button class="go" onclick="ask()">Ask</button></div><pre id="a_out" class="hide"></pre></div>
 </section>
@@ -115,6 +117,11 @@ async function load(t) {
     const ms = await api('api/models');
     $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${m.type}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('');
     $('#a_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join('');
+    const u = await api('api/usage?days=30');
+    const n = x => x ? Number(x).toLocaleString() : '—';
+    $('#usage').innerHTML = '<tr><th>model</th><th class="num">calls</th><th class="num">failed</th><th class="num">tokens in</th><th class="num">tokens out</th><th class="num">avg ms</th><th class="num">cost</th></tr>' +
+      (u.models.map(m => `<tr><td>${esc(m.model)}</td><td class="num">${n(m.calls)}</td><td class="num">${m.failures ? `<span class="bad">${m.failures}</span>` : '0'}</td><td class="num">${n(m.tokens_in)}</td><td class="num">${n(m.tokens_out)}</td><td class="num">${m.calls ? Math.round(m.ms / m.calls) : '—'}</td><td class="num">${m.cost == null ? '—' : '$' + m.cost.toFixed(2)}</td></tr>`).join('') || '<tr><td class="mute" colspan="7">no model calls yet</td></tr>') +
+      `<tr><td class="mute" colspan="7">Today: ${n(u.today.calls)} calls, ${n(u.today.tokens)} tokens${u.today.cost == null ? '' : ', $' + u.today.cost.toFixed(2)}</td></tr>`;
   }
 }
 async function search() {

@@ -32,6 +32,11 @@ class FakeHA:
     async def call(self, d, s, data):
         self.calls.append((d, s, data))
 
+    async def push(self, target, data):           # phone notifications (quiet hours are tested in test_upkeep)
+        d, s = target.split(".", 1)
+        await self.call(d, s, data)
+        return "sent"
+
     async def notify(self, title, msg, tag):
         self.notes.append((title, msg, tag))
 

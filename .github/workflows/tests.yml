@@ -24,6 +24,8 @@ jobs:
         run: python tests/test_control.py
       - name: Answer quality (past days, low match, sources)
         run: python tests/test_answers.py
+      - name: Upkeep (model use, event log, quiet hours, old facts)
+        run: python tests/test_upkeep.py
       - name: Extraction bench scoring
         run: python tests/test_extract.py
       - name: Pantry

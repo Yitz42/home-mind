@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.16.0"
+version: "0.17.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -64,6 +64,13 @@ options:
   morning_enabled: true
   answer_edges: false
   answer_notes_first: false
+  events_keep_days: 90
+  quiet_hours: true
+  quiet_start: "22:00"
+  quiet_end: "07:00"
+  notify_daily_cap: 0
+  checkin_old_facts: true
+  checkin_after_days: 180
 schema:
   models:
     - name: str
@@ -73,6 +80,8 @@ schema:
       api_key: password?
       entity_id: str?
       timeout: int(5,900)?
+      price_in: float?
+      price_out: float?
   update_url: str
   auto_update_packs: bool
   auto_test_hours: int(0,168)
@@ -104,3 +113,10 @@ schema:
   morning_enabled: bool
   answer_edges: bool
   answer_notes_first: bool
+  events_keep_days: int(0,3650)
+  quiet_hours: bool
+  quiet_start: str
+  quiet_end: str
+  notify_daily_cap: int(0,50)
+  checkin_old_facts: bool
+  checkin_after_days: int(30,3650)

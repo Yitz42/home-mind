@@ -96,6 +96,50 @@ class HA:
     async def call(self, domain, service, data):
         return await self._post(f"services/{domain}/{service}", data)
 
+    # ---- phone notifications: quiet hours and a daily limit -----------------------------------------------------
+    quiet = None        # ((h, m), (h, m)): no phone pushes from start to end (may run past midnight); None = off
+    cap = 0             # most phone pushes a day; 0 = no limit
+
+    def in_quiet(self, now=None):
+        if not self.quiet:
+            return False
+        from datetime import datetime
+        now = now or datetime.now()
+        t, (a, b) = (now.hour, now.minute), self.quiet
+        return a <= t < b if a < b else (t >= a or t < b) if a != b else False
+
+    async def push(self, target, data):
+        """Send a phone notification (notify.mobile_app_...) unless it's quiet hours (then it waits until they end)
+        or today's limit is reached (then it's skipped). The Home Assistant notification list always gets it."""
+        from datetime import date
+        held = self.__dict__.setdefault("held", [])
+        sent = self.__dict__.setdefault("sent", {})
+        if self.in_quiet():
+            held.append((target, data))
+            return "held"
+        today = date.today().isoformat()
+        if self.cap and sent.get(today, 0) >= self.cap:
+            self.__dict__["capped"] = self.__dict__.get("capped", 0) + 1
+            return "capped"
+        dom, svc = target.split(".", 1)
+        await self.call(dom, svc, data)
+        self.sent = {today: sent.get(today, 0) + 1}
+        return "sent"
+
+    async def flush_held(self):
+        """After quiet hours: send what waited, oldest first (within the daily limit)."""
+        held = self.__dict__.get("held") or []
+        if not held or self.in_quiet():
+            return 0
+        self.held, n = [], 0
+        for target, data in held:
+            try:
+                if await self.push(target, data) == "sent":
+                    n += 1
+            except Exception:  # noqa: BLE001
+                pass
+        return n
+
     async def sensor(self, entity_id, state, attrs=None):
         try:
             return await self._post(f"states/{entity_id}", {"state": state, "attributes": attrs or {}})
