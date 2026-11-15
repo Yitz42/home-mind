@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.7
+- Pantry, from shelf photos: tea, coffee, salt, cocoa, spices and powders, soy sauce and water enhancers keep for years, not months (ginger mango green tea keeps like tea, not mango).
+
 ## 0.11.6
 - Pantry, from the first real receipt: the last word names the food (strawberry banana yogurt keeps like yogurt, not banana); canned and dried foods keep about 2 years; mangoes and other fruit, frozen dinners added to the shelf-life table; "peas and carrots" stays one item; "a pint blueberries" is 1 pint of blueberries.
 
