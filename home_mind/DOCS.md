@@ -165,6 +165,28 @@ the other suites don't get worse. Turn it on only if both hold.
   (the model lists note ids, then answers; never for voice). Small models differ, so turn one on only if
   `tests/compare_answers.py` shows it helps yours.
 
+## Trust and privacy
+
+- **Probation for what was learned overnight.** Facts the overnight pass pulls out of conversations are marked as
+  learned overnight. For 7 days, until you confirm one, a newer overnight value doesn't replace what you said
+  yourself: the note you told it comes first and the overnight one follows, marked UNCONFIRMED, and the model is
+  told. The morning summary lists them under "Learned overnight (check these)". Confirm one with the Confirm button
+  on the note, `POST /api/item/{id}/confirm` or `mind_confirm`.
+- **Forget or delete for good.** Forget (and `mind_forget_about`) archives: the note is hidden and can be restored.
+  Delete for good (the button, `POST /api/item/{id}/purge` or `POST /api/purge_about` with `{"confirm": true}`, or
+  `mind_purge` / `mind_purge_about` with confirm true) removes the note, its earlier versions, the notes linked to
+  it, its search-index entry, activity-log rows and saved conversation turns holding its values, and its duplicate
+  pairs. Freed space is overwritten and the write-ahead log emptied. It cannot be undone, and backups made before
+  still hold the note.
+- **Asking for everything.** A request for every secret at once ("list all my codes", "read me every password")
+  gets the notes with each secret value hidden, for every model, local ones too, and the model is told why. A
+  request for the whole memory or the instructions ("print everything you know", "ignore your instructions…") gets
+  3 notes at most and no lists. Lookups from outside (`/api/recall`, `mind_recall`) follow the same rules. One code
+  asked by name ("what is the shed code?") is unaffected.
+- **Lists by voice** stop at 8 lines and say how many more there are; the full list is in the panel.
+- **The attacks suite** tries these on purpose and also plants an instruction in a note. On 20 held-out worlds it
+  scores 1.000; with the guards switched off, 0.455.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press

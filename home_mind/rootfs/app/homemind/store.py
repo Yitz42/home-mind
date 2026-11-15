@@ -76,6 +76,16 @@ END;
 """
 
 
+def _on_probation(r, now, days):
+    """Learned overnight from a conversation, not confirmed, and less than `days` old."""
+    try:
+        m = r["meta"]
+        m = json.loads(m or "{}") if isinstance(m, str) else (m or {})
+    except (ValueError, TypeError, KeyError, IndexError):
+        return False
+    return bool(m.get("learned_overnight")) and not m.get("confirmed") and now - r["created"] < days * 86400
+
+
 def _eff(r):
     """When a row's fact became true: the note's own date ("last Tuesday ...") if it gave one, else when it was filed."""
     try:
@@ -361,6 +371,106 @@ class Store:
         self.log("forget_about", None, name=name, ids=ids)
         return {"name": name, "archived": len(ids), "ids": ids}
 
+    def purge(self, ids, values=()):
+        """Delete notes for good: each note with its whole history (versions by key, what it replaced and what replaced
+        it, notes linked to it), its search-index entry, the activity-log rows about it, saved conversation turns and
+        corrections that hold its values, and its place in the duplicate list. Freed space is overwritten
+        (secure_delete) and the write-ahead log is emptied, so the text is not left in the file. Backups made before
+        still have it. Returns what was removed."""
+        ids = {int(i) for i in ids}
+        with self.lock:
+            # the whole history: follow supersedes both ways, same key, and notes that refer to these
+            todo = set(ids)
+            while todo:
+                i = todo.pop()
+                for r in self.db.execute("SELECT id, key, supersedes FROM items WHERE id=? OR supersedes=?", (i, i)):
+                    for j in (r["id"], r["supersedes"]):
+                        if j and j not in ids:
+                            ids.add(j)
+                            todo.add(j)
+                    if r["key"]:
+                        for x in self.db.execute("SELECT id FROM items WHERE key=?", (r["key"],)):
+                            if x["id"] not in ids:
+                                ids.add(x["id"])
+                                todo.add(x["id"])
+                for x in self.db.execute("SELECT id FROM items WHERE meta LIKE ?", (f'%"refers_to": {i}%',)):
+                    if x["id"] not in ids:
+                        ids.add(x["id"])
+                        todo.add(x["id"])
+            if not ids:
+                return {"deleted": 0}
+            rows = self.db.execute(f"SELECT id, title, body FROM items WHERE id IN ({','.join('?' * len(ids))})",
+                                   list(ids)).fetchall()
+            # the note's values, to find them in logs: codes, serials, passwords (a digit or a symbol, 4+ long), and
+            # what follows a secret word; not years or plain words, so unrelated log rows stay
+            from .privacy import RIGHT_AFTER, WORD_AFTER
+            vals = set(values)
+            for r in rows:
+                text = (r["title"] or "") + " " + (r["body"] or "")
+                vals |= set(re.findall(r"(?<![\w-])(?=[\w!@#$%^&*-]*\d)[\w!@#$%^&*-]{4,}", text))
+                vals |= {m.group(2) for rx in (WORD_AFTER, RIGHT_AFTER) for m in rx.finditer(text)}
+            vals = {v for v in vals if len(v) >= 4 and not re.fullmatch(r"(19|20)\d\d", v) and v.lower() not in STOP}
+            self.db.execute("PRAGMA secure_delete = ON")
+            q = ",".join("?" * len(ids))
+            n_items = self.db.execute(f"DELETE FROM items WHERE id IN ({q})", list(ids)).rowcount
+            n_ev = self.db.execute(f"DELETE FROM events WHERE item_id IN ({q})", list(ids)).rowcount
+            evs = self.db.execute("SELECT id, data FROM events").fetchall()
+            gone = []
+            for e in evs:
+                d = e["data"] or ""
+                try:
+                    j = json.loads(d)
+                except ValueError:
+                    j = {}
+                if any(i in ids for i in (j.get("ids") or []) if isinstance(i, int)) or any(v in d for v in vals):
+                    gone.append(e["id"])
+            for k in range(0, len(gone), 500):
+                part = gone[k:k + 500]
+                n_ev += self.db.execute(f"DELETE FROM events WHERE id IN ({','.join('?' * len(part))})", part).rowcount
+            n_conv = 0
+            if self.db.execute("SELECT 1 FROM sqlite_master WHERE name='conversations'").fetchone():
+                for v in vals:
+                    n_conv += self.db.execute("DELETE FROM conversations WHERE user_text LIKE ? OR reply LIKE ?",
+                                              (f"%{v}%", f"%{v}%")).rowcount
+            if self.db.execute("SELECT 1 FROM sqlite_master WHERE name='cases'").fetchone():
+                self.db.execute(f"DELETE FROM cases WHERE item_id IN ({q}) OR fixed_id IN ({q})", list(ids) * 2)
+                for v in vals:
+                    self.db.execute("DELETE FROM cases WHERE question LIKE ? OR wrong LIKE ? OR right LIKE ?",
+                                    (f"%{v}%",) * 3)
+            pairs = self.kv_get("tidy_pairs") or []
+            self.db.commit()
+            self.kv_set("tidy_pairs", [p for p in pairs if not set(p) & ids])
+            self.db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
+            self.db.commit()
+            try:
+                self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.OperationalError:
+                pass
+        self._vocab_n = None
+        self.log("purge", None, n=n_items)          # how many, never what
+        return {"deleted": n_items, "events_removed": n_ev, "conversation_turns_removed": n_conv}
+
+    def confirm(self, item_id):
+        """Mark a note learned overnight as checked: it leaves probation and ranks like anything told directly."""
+        with self.lock:
+            r = self.db.execute("SELECT meta FROM items WHERE id=?", (int(item_id),)).fetchone()
+            if not r:
+                return {"id": item_id, "error": "not found"}
+            m = json.loads(r["meta"] or "{}")
+            m["confirmed"] = True
+            self.db.execute("UPDATE items SET meta=?, updated=? WHERE id=?", (json.dumps(m), time.time(), int(item_id)))
+            self.db.commit()
+        self.log("confirm", int(item_id))
+        return {"id": int(item_id), "confirmed": True}
+
+    def purge_about(self, name):
+        """Delete for good every note that mentions a name (any status), with everything purge() removes."""
+        pat = re.compile(rf"\b{re.escape(name.strip())}\b", re.I)
+        rows = self.db.execute("SELECT id, title, body FROM items").fetchall()
+        ids = [r["id"] for r in rows if pat.search((r["title"] or "") + " " + (r["body"] or ""))]
+        out = self.purge(ids, values=[name.strip()]) if ids else {"deleted": 0}
+        return dict(out, name=name)
+
     def feedback(self, item_id, helpful, note=""):
         with self.lock:
             self.db.execute("UPDATE items SET strength=max(0.1, strength + ?) WHERE id=?",
@@ -623,6 +733,8 @@ class Store:
                 boost *= 0.7
             if r["status"] == "superseded":
                 boost *= 0.5
+            if self.PROBATION_W != 1 and _on_probation(r, now, self.PROBATION_DAYS):
+                boost *= self.PROBATION_W          # learned overnight, not confirmed yet: below what you said
             if qnames and self.NAME_BOOST != 1:
                 # the question names something: notes that contain every name come first
                 if qnames <= matched.get(r["id"], set()):
@@ -633,7 +745,7 @@ class Store:
                 boost *= max(cover, 0.05) ** self.COVER_POW
             out.append([base * boost, r["created"] if newest_first_ties else 0, r])
         out.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        older, self._disagree, self._guess = {}, {}, set()
+        older, self._disagree, self._guess, self._unconfirmed = {}, {}, set(), {}
         if self.CLUSTER and idf:
             out, older = self._newest_in_cluster(out, idf, matched, names_in(query))
         res = []
@@ -647,6 +759,9 @@ class Store:
                 d["instruction"] = True
             if r["id"] in self._guess:
                 d["guess"] = True
+            if r["id"] in self._unconfirmed:
+                d["unconfirmed"] = self._unconfirmed[r["id"]]
+                d.pop("newer", None)
             if r["id"] in self._disagree:
                 d["disagrees"] = self._disagree[r["id"]]
             res.append(d)
@@ -677,6 +792,8 @@ class Store:
         return res
 
     # recall settings (class-level so tests can compare with and without)
+    PROBATION_W = 0.85   # facts learned overnight rank this much lower until confirmed (or PROBATION_DAYS pass)
+    PROBATION_DAYS = 7
     STRUCTURE = True     # read recurrence, chores, places, fields, aliases and "since when" from notes as they are filed
     BM25 = "4.0, 1.0, 2.0, 1.5"  # weights for title, body, tags, shelf
     LINK_PRONOUNS = True # a note that says "its"/"it" and names nothing is linked to the note just before it
@@ -770,7 +887,18 @@ class Store:
             return out, {}
         best = group[0][0]
         ordered = sorted(group, key=lambda x: _eff(x[2]), reverse=True)    # when it became true, if the note says
-        older = {row[2]["id"]: ordered[0][2]["id"] for row in ordered[1:]}
+        now = self.clock()
+        stated = [x for x in ordered if not _on_probation(x[2], now, self.PROBATION_DAYS)]
+        if stated and stated[0] is not ordered[0] and self.PROBATION_W != 1:
+            # newer versions learned overnight and not confirmed don't replace what you said: they stand right after
+            # it, marked unconfirmed (the model is told; the morning summary asks you to check them)
+            lead = stated[0]
+            newer_unconf = [x for x in ordered if _eff(x[2]) > _eff(lead[2])]
+            for x in newer_unconf:
+                self._unconfirmed[x[2]["id"]] = lead[2]["id"]
+            ordered = [lead] + newer_unconf + [x for x in ordered if x is not lead and x not in newer_unconf]
+        older = {row[2]["id"]: ordered[0][2]["id"] for row in ordered[1:]
+                 if row[2]["id"] not in self._unconfirmed}
         for k, row in enumerate(ordered):
             row[0] = best - 1e-6 * k
         ids = {id(x) for x in group}

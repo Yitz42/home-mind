@@ -30,6 +30,8 @@ jobs:
         run: python tests/test_abilities.py
       - name: Lookups, backfill, due reminders, secrets, model-read structure
         run: python tests/test_holes.py
+      - name: Trust and privacy (probation, deletion, bulk limits, attacks)
+        run: python tests/test_trust.py
       - name: Extraction bench scoring
         run: python tests/test_extract.py
       - name: Pantry
