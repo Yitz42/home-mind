@@ -87,6 +87,31 @@ Model+brain runs also report **source** (a right answer points to the note it ca
 `"order": "edges"` and `"notes_first": true` to try the answer options; `tests/compare_answers.py` runs all four
 combinations on your own model and prints them side by side.
 
+## Read from your notes
+
+Nothing to set up: these are read from plain sentences as they are filed (no model needed), and worked out when a
+question needs them. Models see the results under **WORKED OUT** at the top of the page.
+
+| you say | Home Mind keeps | ask |
+|---|---|---|
+| "Dana is my partner", "My dentist is Dr Kell" | who is who, on the **profile** shelf, always shown (up to 15 lines) | "Where does my partner work?" finds notes that only say Dana |
+| "Last Tuesday I changed the shed code to 1111", "Three days ago ..." | when it became true, not just when it was filed | a late note about an older change doesn't replace a newer value |
+| "The trash goes out every Tuesday", "every other Thursday starting Nov 19", "the 1st of every month" | how it repeats | "When is the trash next?" |
+| "Change the furnace filter every 3 months" + "I changed the furnace filter" | the chore and each time it was done | "When did I last change it?", "When is it due?", "Which chores are overdue?" |
+| "The drill is in the red toolbox", "I moved the red toolbox to the shed" | where each thing is, nested | "Where is the drill?" (red toolbox, in the shed), "What's in the shed?" |
+| "The dishwasher is a Bosch SHX78, serial 4471A, bought March 2024, warranty until March 2027" | type and fields | "What's the dishwasher's serial?", "Which warranties end this year?" / "have expired?" |
+
+**Corrections become tests.** Say "that's wrong" after an answer, then the right value ("No, it's 5512"): it is
+filed (replacing the old value) and the question is kept as a case. The **corrections** suite asks every kept question
+again of your real memory, read-only, and fails if the old mistake comes back. `GET/POST /api/cases`.
+
+**Duplicates are flagged, never merged.** Once a day Home Mind looks for notes that say the same thing (same words, or
+almost all the same words with exactly the same numbers and names) and lists them in the morning summary to forget
+one by hand. `GET /api/tidy` (`?now=1` to look again).
+
+New suites: recurring, chores, places, typed, valid, profile, tidy (brain arm; tidy is brain only) and corrections
+(brain only, on your real memory).
+
 ## Upkeep
 
 - **Model use.** Every model call is counted per model per day: calls, failures, tokens in and out, time. The

@@ -12,7 +12,7 @@ import time
 import uuid
 from datetime import datetime, timedelta
 
-from . import suites
+from . import structure, suites
 from .store import Store, names_in, words
 
 ANSWER_SYSTEM = ("You answer questions using the memory notes given to you. Each note has a date. When two notes give "
@@ -316,6 +316,13 @@ def build_context(store, question, hits):
         ctx = LOW_MATCH + "\n\n" + (ctx or "")
     if gtext:
         ctx = gtext + "\n\nNOTES FOUND:\n" + (ctx or "(none)")
+    worked = structure.derived_lines(store, fixed, hits, now)
+    if worked:
+        ctx = "WORKED OUT (from the notes; use these for when, where, what's due and lists of fields):\n" + \
+            "\n".join(worked) + "\n\n" + (ctx or "")
+    prof = structure.profile(store)
+    if prof:
+        ctx = "ABOUT YOU AND THE HOUSE (always shown):\n" + "\n".join(f"- {x}" for x in prof) + "\n\n" + (ctx or "")
     return ctx, gids
 
 
@@ -330,7 +337,7 @@ def context_lines(hits, question=None, now=None):
         if h.get("newer"):
             leads.setdefault(h["newer"], []).append(h)
     for olds in leads.values():
-        olds.sort(key=lambda h: h["created"], reverse=True)
+        olds.sort(key=structure.eff, reverse=True)
         for k, h in enumerate(olds, 1):
             h["_ago"] = k
         olds[-1]["_first"] = True
@@ -341,9 +348,9 @@ def context_lines(hits, question=None, now=None):
         groups = [[h] + leads.get(h["id"], []) for h in hits if not h.get("newer")]
         mark = {}
         for g in groups:
-            before = [h for h in g if h["created"] < cutoff]
+            before = [h for h in g if structure.eff(h) < cutoff]
             if before and len(g) > 1:      # only versions of one fact need telling apart
-                mark[max(before, key=lambda h: h["created"])["id"]] = label
+                mark[max(before, key=structure.eff)["id"]] = label
     def partly(h):
         body = (h.get("body") or "").strip().rstrip(".")
         return bool(re.search(r"\band\b|;|\.\s+\S", body))
@@ -376,6 +383,9 @@ def context_lines(hits, question=None, now=None):
 
 def note_line(h):
     line = f"[{_ts(h['created'])} | {h['shelf']} | #{h['id']}] {h['title']}"
+    vf = (h.get("meta") or {}).get("valid_from")
+    if vf and abs(float(vf) - h["created"]) > 6 * 3600:
+        line = line.replace(f"| #{h['id']}]", f"| #{h['id']} | true since {_ts(float(vf))[:14]}]", 1)
     if h.get("body") and h["body"] != h["title"]:
         line += f" — {h['body']}"
     if h.get("newer"):
@@ -402,10 +412,10 @@ def then_first(hits, cutoff):
     out = list(hits)
     for lead_id, olds in leads.items():
         versions = [hits[pos[lead_id]]] + olds
-        before = [h for h in versions if h["created"] < cutoff]
+        before = [h for h in versions if structure.eff(h) < cutoff]
         if not before:
             continue
-        then = max(before, key=lambda h: h["created"])
+        then = max(before, key=structure.eff)
         if then["id"] == lead_id:
             continue
         i, j = out.index(hits[pos[lead_id]]), out.index(then)
@@ -418,7 +428,12 @@ def find(store, question, k=8, shelf=None, touch=True):
     """The brain's search. A question about a past day ("yesterday", "last Tuesday", "on Mar 3") also gets replaced
     versions, and the version current that day comes first, so even a brain-only answer gives the right one."""
     at = asked_time(question, store.clock())
-    hits = store.recall(question, shelf=shelf, limit=k, include_old=bool(at), touch=touch)
+    q2 = structure.expand_aliases(store, question)
+    hits = store.recall(q2, shelf=shelf, limit=k, include_old=bool(at), touch=touch)
+    if q2 != question and not re.search(r"\bwho(?:'s| is| are)\b", question, re.I):
+        # "Where does my partner work?": the who-is-who note is always shown anyway; the note about Dana answers
+        alias = lambda h: bool((h.get("meta") or {}).get("alias"))
+        hits = [h for h in hits if not alias(h)] + [h for h in hits if alias(h)]
     return then_first(hits, at[0]) if at else hits
 
 
@@ -624,6 +639,13 @@ class Mind:
     FOLLOW_SECONDS = 600       # a question can follow up on the one before it for this long
     ORDER = "default"          # option answer_order: "edges" repeats the best note just before the question
     NOTES_FIRST = False        # option answer_notes_first: the model names its notes, then answers (not for voice)
+    ASKING = re.compile(r"\?\s*$|^(?:what|where|when|who|which|why|how|is|are|do|does|did|can|could|should|will|would)\b",
+                        re.I)
+    CANCEL = re.compile(r"^\s*(?:never\s*mind|nevermind|forget it|cancel|stop|skip( it)?|leave it|no worries|"
+                        r"ok(?:ay)?|k|thanks|thank you|nothing|fine|sure|yes|yeah|yep|no|nope|nah|whatever|idk|"
+                        r"i don'?t know|not sure)\b[\s.!]*$", re.I)
+    FILLER = {"it", "its", "is", "the", "a", "an", "no", "not", "actually", "oh", "um", "uh", "well", "so", "that", "this",
+              "just", "really", "right", "ok", "okay", "yes", "yeah", "never", "mind", "thanks", "sure"}
     WRONG = re.compile(r"^\s*(?:no[,.!]?\s*)?(?:that'?s|that is|this is|it'?s)\s+(?:wrong|not right|incorrect|not true|"
                        r"out of date|outdated|old)\b", re.I)
 
@@ -655,9 +677,36 @@ class Mind:
             # "that's wrong" right after an answer: mark the note it came from, so it ranks lower and can be fixed
             src = last["src"][0]
             store.feedback(src["id"], False, question)
+            last.update(awaiting={"q": last.get("q"), "wrong": last.get("a", ""), "src": src}, t=time.time())
             return {"answer": f"Got it. I marked the note from {src['noted']} (\"{src['title']}\") as wrong. "
                               "Tell me the right value and I'll file it.", "hits": [], "model": None,
                     "marked_wrong": src["id"], "sources": last["src"]}
+        if last and last.get("awaiting") and time.time() - last["t"] <= self.FOLLOW_SECONDS and \
+                not self.ASKING.search(question.strip()):
+            # the right value, right after "that's wrong": file it, and keep the mistake as a test case. Backing out
+            # ("never mind", "ok") files nothing, and a reply with no value in it isn't filed as one.
+            aw = last.pop("awaiting")
+            plain_q = question.replace("’", "'")
+            content = [w for w in re.findall(r"[a-z0-9']+", plain_q.lower()) if w not in self.FILLER]
+            if self.CANCEL.match(plain_q) or not (re.search(r"\d", plain_q) or content):
+                return {"answer": "OK, I left it as it was (the note is still marked as wrong).", "hits": [],
+                        "model": None, "cancelled": True}
+            old = store.get(aw["src"]["id"]) or {}
+            text = re.sub(r"^\s*(?:no[,.!]?\s*|it'?s\s+|it is\s+|actually[,]?\s*)+", "", plain_q,
+                          flags=re.I).strip() or question
+            head = re.sub(r"\s+(?:is|are)\s.*$", "", old.get("title") or "")
+            head_words = {w for w in words(head) if len(w) > 2}
+            if head and not (head_words & set(words(text))):
+                # "5512" or "in the shed now": say what it is the value of, so it's found by the same question
+                text = f"{head} is {text.rstrip('.')}."
+            filed = store.remember(text=text, kind=old.get("kind") or "fact", shelf=old.get("shelf") or "inbox",
+                                   key=old.get("key"), source="correction")
+            cid = None
+            if aw.get("q"):
+                from .cases import Cases
+                cid = Cases(store).add(aw["q"], text, aw.get("wrong", ""), aw["src"]["id"], filed["id"])
+            return {"answer": f"Thanks, filed: {text} The old note stays in its history.", "hits": [], "model": None,
+                    "filed": filed, "case": cid}
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS
@@ -714,7 +763,7 @@ class Mind:
         sources = (sources_for(" ".join(f"#{i}" for i in named if i in byid), hits, question)
                    if any(i in byid for i in named) and not DONT_KNOW.search(text) else sources_for(text, hits, question))
         if conversation_id and conversation_id in convs:
-            convs[conversation_id]["src"] = sources
+            convs[conversation_id].update(src=sources, q=question, a=text)
         cl = getattr(self, "convlog", None)
         if cl and store is self.store:
             cl.add(time.time(), original, text, conversation_id, None, "home_mind")
@@ -748,8 +797,12 @@ class Mind:
     # ---- tests --------------------------------------------------------------------------------------------------------
     def start_test(self, suite, arm="brain", model=None, seed=None, n=None, ingest="raw", keyed=False, expand=False,
                    order="default", notes_first=False):
-        if suite not in suites.SUITES:
-            raise ValueError(f"unknown suite {suite}; have {', '.join(suites.SUITES)}")
+        if suite not in suites.SUITES and suite != "corrections":
+            raise ValueError(f"unknown suite {suite}; have {', '.join(suites.SUITES)}, corrections")
+        if suite == "tidy" and arm != "brain":
+            raise ValueError("the tidy suite runs on the brain arm only (it checks the duplicate finder)")
+        if suite == "corrections" and arm != "brain":
+            raise ValueError("the corrections suite runs on the brain arm only (it reads your real memory)")
         if arm not in ("brain", "model+brain", "model+context", "model"):
             raise ValueError("arm must be brain, model+brain, model+context or model")
         if arm != "brain" and not model:
@@ -775,6 +828,7 @@ class Mind:
     async def _run_test(self, run):
         try:
             await self._play(run)
+            run.pop("_tidy", None)
             run["status"] = "done"
         except Exception as e:  # noqa: BLE001 - recorded on the run
             run["status"] = "error"
@@ -790,7 +844,22 @@ class Mind:
 
     on_test_done = None
 
+    async def _corrections(self, run):
+        """Every kept correction asked again of the real memory, read-only (nothing is touched or logged as used)."""
+        from .cases import Cases, check
+        details = []
+        for c in Cases(self.store).all():
+            hits = find(self.store, c["question"], 8, touch=False)
+            top = next((h for h in hits if not h.get("newer")), None)
+            text = (top["title"] + " " + top["body"]) if top else ""
+            details.append({"q": c["question"], "gold": c["right"], "type": "correction", "case": c["id"],
+                            "answer": text[:300], "correct": check(c, text)})
+        run["details"] = details
+        run["summary"] = summarize(details, run, 0, 0)
+
     async def _play(self, run):
+        if run["suite"] == "corrections":
+            return await self._corrections(run)
         cfg = run["config"]
         gen = suites.SUITES[run["suite"]]
         kw = {"n": cfg["n"]} if cfg.get("n") else {}
@@ -977,6 +1046,25 @@ class Mind:
                     else:
                         ok = not junk_hit
                     d.update(answer=text[:300], correct=ok)
+                    return d
+                if q.get("tidy"):            # the tidy pass must pair duplicates and leave near-misses
+                    from . import tidy as _tidy
+                    cache = run.setdefault("_tidy", {})
+                    if "pairs" not in cache:
+                        cache["pairs"] = {frozenset(p) for p in _tidy.duplicates(sb, limit=1000)}
+                    pair = frozenset(refs.get(x) for x in q["pair"])
+                    flagged = pair in cache["pairs"]
+                    ok = flagged if q["tidy"] == "dup" else not flagged
+                    d.update(answer="paired" if flagged else "not paired", correct=ok)
+                    return d
+                if q.get("derived"):         # recurring, chores, places, fields: the worked-out lines must say it
+                    dl = "\n".join(structure.derived_lines(sb, sb.fix_typos(q["q"]), hits, sb.clock()))
+                    if q.get("all") is not None:
+                        ok = all(contains(dl, g) for g in q["all"]) and not any(contains(dl, x) for x in q.get("none", []))
+                    else:
+                        ok = contains(dl, q["gold"]) and not any(contains(dl, x) for x in q.get("stale", [])
+                                                                 if x and not contains(x, q["gold"]))
+                    d.update(answer=dl[:300], correct=ok)
                     return d
                 if typ in ("abstain_removed", "abstain_control"):   # the low-match flag: on when the fact is gone, off when not
                     flagged = nothing_close(sb, q["q"], hits)

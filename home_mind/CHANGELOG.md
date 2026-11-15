@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.18.0
+- Fixed before release: a time is not a place ("the meeting is on Friday", "the exam is in two weeks", "the birthday is on March 3"); backing out of a correction ("never mind", "ok") files nothing; "No, it's 5512" files just the value, and a bare value or phrase is filed as the value of what was wrong ("The garage code is 9090").
+- Read from plain notes as they are filed, no model needed, and worked out when asked (a WORKED OUT section on the page models see):
+  - who is who ("Dana is my partner"): kept on the profile shelf, always shown; "my partner" finds notes that only say Dana. Profile suite: 80/80 (was 4/80).
+  - when a change became true ("Last Tuesday I changed the code to 1111"): a late note about an older change is kept as history instead of replacing a newer value. Valid suite: 160/160, keyed and unkeyed (was 80/160).
+  - repeating things (every Tuesday, every other Thursday from a date, the 1st of every month): when is the next one.
+  - chores ("change the furnace filter every 3 months" + "I changed the furnace filter"): last done, next due, overdue.
+  - where things are, nested ("the drill is in the red toolbox", "I moved the red toolbox to the shed").
+  - typed fields (model, serial, bought, warranty until, phone, birthday): one field, and which warranties end this year or ran out.
+- Corrections become test cases: "that's wrong" then the right value files it and keeps the question; the corrections suite asks them again of your real memory.
+- Duplicates flagged once a day (never merged) and listed in the morning summary, secret values hidden.
+- New suites: recurring, chores, places, typed, valid, profile, tidy, corrections. API: /api/profile, /api/tidy, /api/cases.
+
 ## 0.17.0
 - Model use: calls, failures, tokens in/out and time per model per day; a table on the Models tab, `GET /api/usage`, and today's calls, tokens and cost as sensors on the Home Mind device. Optional `price_in` / `price_out` per model (dollars per million tokens) for cost.
 - Activity log: events older than `events_keep_days` (default 90) are rolled up into daily counts and removed once a day, so the database stops growing; notes are never touched.
