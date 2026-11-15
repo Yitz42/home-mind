@@ -165,8 +165,15 @@ class Pantry:
                                         "VALUES(?,?,?,?,?,'in',?,?)", (name, amount or "", loc, now, ub, source, now))
             iid = cur.lastrowid
         self.store.db.commit()
+        d = datetime.fromtimestamp(ub)
         return {"id": iid, "name": name, "location": loc,
-                "use_by": datetime.fromtimestamp(ub).strftime("%a %b %d")}
+                "use_by": d.strftime("%a %b %d") if ub - now < 300 * 86400 else d.strftime("%b %Y")}
+
+    def remove(self, iid):
+        """Delete a line entered by mistake (used or tossed keep a record; this doesn't)."""
+        self.store.db.execute("DELETE FROM pantry WHERE id=?", (int(iid),))
+        self.store.db.commit()
+        return {"removed": int(iid)}
 
     def find(self, name):
         n = _norm(name)

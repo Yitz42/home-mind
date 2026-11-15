@@ -592,6 +592,8 @@ def build(app_state):
             if op in ("used", "tossed"):
                 names = [n for n, _ in A.pantry.parse_list(b["text"])] if b.get("text") else [b["name"]]
                 return J({"done": [A.pantry.use(n, "used" if op == "used" else "tossed") for n in names]})
+            if op == "remove":
+                return J(A.pantry.remove(b["id"]))
             if op == "suggest":
                 return J(await A.pantry.suggest(b.get("meal"), b.get("model"), int(b.get("n", 3)), b.get("request", "")))
             if op == "shop":

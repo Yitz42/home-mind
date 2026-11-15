@@ -155,10 +155,11 @@ async function pantry() {
     const d = i.days_left, cls = d === null ? '' : d < 0 ? 'bad' : d < 2 ? 'bad' : d < 4 ? '' : 'ok';
     const when = d === null ? '' : d < 0 ? 'past its date' : d < 1 ? 'today' : Math.round(d) + (Math.round(d) === 1 ? ' day' : ' days');
     return `<tr><td>${esc(i.name)} <span class="mute">${esc(i.amount || '')}</span></td><td class="mute">${i.location}</td><td class="${cls}">${when}</td>
-      <td><a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','used')">used</a> · <a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','tossed')">tossed</a></td></tr>`; }).join('') || '<tr><td class="mute">nothing yet: add from a photo or type what you bought</td></tr>';
+      <td><a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','used')">used</a> · <a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','tossed')">tossed</a> · <a class="mute" onclick="premove(${i.id})">remove</a></td></tr>`; }).join('') || '<tr><td class="mute">nothing yet: add from a photo or type what you bought</td></tr>';
   const g = r.goals; $('#g_goals').value = (g.goals || []).join('\n'); $('#g_tired').value = g.tired_days || ''; $('#g_avoid').value = (g.avoid || []).join(', ');
 }
 async function padd() { const r = await api('api/pantry/add', {text: $('#p_text').value, location: $('#p_loc').value || null, source: 'web'}); $('#p_out').textContent = r.error || ('added ' + (r.added || []).map(a => a.name).join(', ')); $('#p_text').value = ''; pantry(); }
+async function premove(id) { await api('api/pantry/remove', {id}); pantry(); }
 async function puse(name, op) { await api('api/pantry/' + op, {name}); pantry(); }
 async function photo(inp) {
   if (!inp.files.length) return; $('#p_out').textContent = 'reading the photo…';
@@ -173,7 +174,7 @@ async function meals() {
   const t = r.today || {}; $('#m_today').textContent = (r.focus || '') + (t.tired ? ' · tired day: ' + t.tired_why.join(', ') : '');
   const missing = [].concat(...(r.meals || []).map(m => m.missing || []));
   $('#m_out').innerHTML = (r.meals || []).map(m => `<div style="margin:10px 0"><b>${esc(m.name)}</b> <span class="mute">${esc(m.meal || '')} · ~${m.protein_g ?? '?'} g protein · ~${m.calories ?? '?'} kcal (estimates)</span>
-      <div>${esc(m.why || '')}</div><div class="mute">uses ${esc((m.uses || []).join(', '))}${(m.missing || []).length ? ' · need ' + esc(m.missing.join(', ')) : ''}</div><div class="mute">${esc(m.steps || '')}</div></div>`).join('') || `<pre>${esc(r.raw || 'no ideas')}</pre>`;
+      <div>${esc(m.why || '')}</div><div class="mute">uses ${esc((m.uses || []).join(', '))}${(m.missing || []).length ? ' · need ' + esc(m.missing.join(', ')) : ''}</div><div class="mute">${esc(Array.isArray(m.steps) ? m.steps.map((s, i) => (i + 1) + '. ' + s).join('  ') : (m.steps || ''))}</div></div>`).join('') || `<pre>${esc(r.raw || 'no ideas')}</pre>`;
   if (missing.length) $('#m_out').innerHTML += `<button class="go" onclick='shop(${JSON.stringify(missing)})'>Add ${missing.length} missing to the shopping list</button>`;
 }
 async function shop(items) { const r = await api('api/pantry/shop', {items}); alert('Added: ' + r.added.join(', ')); }

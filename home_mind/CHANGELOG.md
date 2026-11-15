@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.4
+- Pantry: remove a line entered by mistake; long use-by dates show month and year; meal steps shown numbered.
+
 ## 0.11.3
 - Photos can also be sent as JSON (image_b64), so a photo shared with Claude in chat can be added to the pantry.
 
