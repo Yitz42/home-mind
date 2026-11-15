@@ -39,6 +39,14 @@ TOOLS = [
     ("mind_restore", "Bring an archived or faded item back.", S({"id": INT}, ["id"])),
     ("mind_review", "Notes waiting for a person: held because they read like instructions, or inferred and not "
                     "confirmed. Confirm with mind_confirm, drop with mind_forget.", S({})),
+    ("mind_house", "What the house usually does: habits found in its history, suggested automations for things done "
+                   "by hand, usual ranges of readings, and today's notable changes.", S({})),
+    ("mind_draft_automation", "Draft a Home Assistant automation from a request with a connected model. Nothing is "
+                              "installed; the result lists any problems (unknown entities or services, actions that "
+                              "open the house without the PIN).", S({"request": STR, "model": STR}, ["request"])),
+    ("mind_install_automation", "Install a drafted automation in Home Assistant (switched off unless enable). Only "
+                                "when the user asked for it; it is checked again first.",
+     S({"config": {"type": "object"}, "enable": BOOL, "pin": STR}, ["config"])),
     ("mind_confirm", "Mark a note learned overnight from a conversation as checked (it stops being UNCONFIRMED).",
      S({"id": INT}, ["id"])),
     ("mind_purge", "Delete an item for good, with its history, index entry and log rows (cannot be undone). Only when "
@@ -153,6 +161,12 @@ class MCP:
             return st.set_status(int(a["id"]), "archived")
         if name == "mind_forget_about":
             return st.forget_about(str(a["name"]))
+        if name == "mind_house":
+            return app.house_overview()
+        if name == "mind_draft_automation":
+            return await app.draft_automation(a.get("request") or "", a.get("model"))
+        if name == "mind_install_automation":
+            return await app.install_automation(a.get("config"), bool(a.get("enable")), a.get("pin") or "")
         if name == "mind_review":
             return st.review_queue()
         if name == "mind_confirm":

@@ -58,6 +58,10 @@ class Home:
         self.catalog = {}          # entity_id -> {"name", "kind", "domain", "unit", "state"}
         self.seen = {}             # entity_id -> (value, time filed)
         self.actions = []
+        self.model = store.kv_get("house_model") or {}    # habits, baselines, counts (house.learn, nightly)
+        self.odd = {}              # entity_id -> unusual readings in a row
+        self.notices = []          # (title, message) for the phone: very few (house.NOTIFY), sent by the main loop
+        self.noticed = {}          # entity_id -> date last noticed (one a day each)
 
     # ---- what is in the house -----------------------------------------------------------------------------------
     def _keep(self, s):
@@ -168,12 +172,38 @@ class Home:
                 continue
             when = datetime.now().strftime("%a %b %d %Y %I:%M %p").replace(" 0", " ")
             text = f"{when}: {self.describe(eid)}."
+            meta = {"series": "home:" + eid, "entity_id": eid, "state": st}
+            if not first:
+                meta.update(self._salience(eid, c, st, now))
             self.store.remember(text=text, title=f"{c['name']}: {self.describe(eid).split(': ', 1)[1]}",
                                 kind="fact", shelf="home/" + ("devices" if c["kind"] == "device" else "readings"),
-                                tags=["home", c["domain"]], source="home",
-                                meta={"series": "home:" + eid, "entity_id": eid, "state": st})
+                                tags=["home", c["domain"]], source="home", meta=meta)
             filed += 1
         return filed
+
+    def _salience(self, eid, c, st, now):
+        """How notable this change is (#40), and an unusual reading (#39): two in a row, then one phone notice a day
+        for that thing if it scores high enough. Every change is still filed; routine ones rank lower."""
+        from . import house
+        odd = None
+        if c["kind"] == "reading":
+            odd = house.unusual(self.model.get("baselines"), eid, st, now)
+            self.odd[eid] = self.odd.get(eid, 0) + 1 if odd else 0
+            if odd and self.odd[eid] < 2:
+                odd = None      # one odd reading can be a glitch
+        s, why = house.score(self.model, eid, st, now, anomaly=odd)
+        out = {"salience": s}
+        if why:
+            out["why"] = why
+        if s <= 0 and c["kind"] == "device":
+            out["routine"] = True
+        if odd:
+            out["unusual"] = house.unusual_text(c["name"], st, c["unit"], odd[0], odd[1])
+        if s >= house.NOTIFY and self.noticed.get(eid) != datetime.now().date():
+            self.noticed[eid] = datetime.now().date()
+            msg = out.get("unusual") or f"{self.describe(eid)} ({', '.join(why)})."
+            self.notices.append(("Home Mind: something unusual", msg))
+        return out
 
     def _filed_today(self, eid):
         start = datetime.now().replace(hour=0, minute=0, second=0).timestamp()

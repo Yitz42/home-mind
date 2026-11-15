@@ -28,7 +28,8 @@ class Morning:
         self._checkin = None
 
     # ---- old facts: still true? ----------------------------------------------------------------------------------
-    SKIP_SOURCES = ("home", "calendar", "automations", "journal", "scale", "morning", "patterns", "check-in", "test",
+    SKIP_SOURCES = ("home", "calendar", "automations", "journal", "scale", "morning", "patterns", "check-in", "test", "habits",
+                    "tidy", "evening",
                     "pantry", "nutrition")
 
     def pick_checkin(self):
@@ -114,7 +115,7 @@ class Morning:
 
     def build(self, hours=24, commit=False):
         since = time.time() - hours * 3600
-        told = self._rows("created >= ? AND source NOT IN ('home','calendar','automations','journal','scale') "
+        told = self._rows("created >= ? AND source NOT IN ('home','calendar','automations','journal','scale','habits','tidy','evening') "
                           "AND source NOT LIKE 'pack:%' AND kind != 'procedure' AND status='active'", (since,))
         overnight = [d for d in told if d["source"] == "overnight"]
         told = [d for d in told if d["source"] != "overnight"]

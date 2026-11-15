@@ -47,6 +47,21 @@ configuration:
   morning_enabled:
     name: Send the morning summary
     description: Off skips the daily send. Also a switch in Home Assistant (Home Mind device).
+  evening_enabled:
+    name: Send the evening home brief
+    description: What happened in the house today (notable changes, automations, comfort, what was learned). Also a switch on the Home Mind device.
+  evening_time:
+    name: Evening brief time
+    description: HH:MM. Nothing is sent on a day with nothing notable.
+  evening_notify:
+    name: Evening brief goes to
+    description: A notify service. Empty = the same as the morning summary.
+  house_notices:
+    name: Notices about unusual house events
+    description: A phone notice for very few things (a lock opened at an unusual hour, a reading far outside its usual range), at most one a day for each.
+  automation_pin:
+    name: PIN for automations that open the house
+    description: Drafted automations that unlock, open a garage door or disarm an alarm are installed only with this PIN. Empty = never.
   patterns_checkins:
     name: Fog check-ins
     description: Ask on the phone (tap buttons) when today's brain-fog rating or last night's sleep is missing.
