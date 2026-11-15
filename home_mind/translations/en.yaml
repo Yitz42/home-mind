@@ -43,6 +43,21 @@ configuration:
   morning_notify:
     name: Morning summary goes to
     description: A notify service such as notify.mobile_app_my_phone. Empty = your first phone in the Home Assistant app.
+  patterns_checkins:
+    name: Fog check-ins
+    description: Ask on the phone (tap buttons) when today's brain-fog rating or last night's sleep is missing.
+  patterns_checkin_time:
+    name: Check-in time
+    description: When to ask if the fog rating or sleep is missing (HH:MM). One more try at the evening time.
+  patterns_evening_time:
+    name: Evening check-in time
+    description: Second try for a missing fog rating (HH:MM).
+  patterns_report_day:
+    name: Weekly patterns report day
+    description: 0 = Monday ... 5 = Saturday, 6 = Sunday.
+  patterns_report_time:
+    name: Weekly patterns report time
+    description: When the weekly brain-fog patterns report is sent (HH:MM).
   calendar_quiet:
     name: Calendars to leave out
     description: Calendars kept in memory but left out of answers and the morning summary unless a question is about them.

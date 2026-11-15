@@ -233,6 +233,20 @@ class Pantry:
                 "use_by": ("past its date (" + d.strftime("%b %d %Y") + ")") if ub < now else
                 d.strftime("%a %b %d") if ub - now < 300 * 86400 else d.strftime("%b %Y")}
 
+    def ate(self, text, when=None, source="api"):
+        """Log what was eaten or drunk (for the fog patterns: how late, caffeine). Doesn't change the pantry."""
+        from .patterns import caffeinated
+        text = (text or "").strip()
+        if not text:
+            raise ValueError("nothing eaten")
+        now = when or time.time()
+        caf = caffeinated(text)
+        t = datetime.fromtimestamp(now)
+        self.store.remember(text=f"Ate {text} at {t:%I:%M %p}".replace(" 0", " ") + f" on {t:%a %b %d}."
+                            + (" (caffeine)" if caf else ""), title=f"Ate: {text}"[:80], kind="fact",
+                            shelf="body/meals", source=source, tags=["meal"], meta={"at": now, "caffeine": caf}, at=now)
+        return {"logged": text, "caffeine": caf, "at": t.strftime("%I:%M %p").lstrip("0")}
+
     def remove(self, iid):
         """Delete a line entered by mistake (used or tossed keep a record; this doesn't)."""
         self.store.db.execute("DELETE FROM pantry WHERE id=?", (int(iid),))

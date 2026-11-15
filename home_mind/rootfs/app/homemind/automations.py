@@ -137,6 +137,7 @@ class Stop(Exception):
 
 class Engine:
     def __init__(self, store, ha, data_dir):
+        self.event_handlers = {}           # event type -> [async fn(data)]
         self.store, self.ha = store, ha
         self.path = os.path.join(data_dir, "automations.json")
         self.owned = set()
@@ -337,6 +338,9 @@ class Engine:
             await self.reclaim()
             self._msg_id += 1
             await ws.send_json({"id": self._msg_id, "type": "subscribe_events", "event_type": "state_changed"})
+            for et in self.event_handlers:           # other events someone asked for (e.g. tapped notifications)
+                self._msg_id += 1
+                await ws.send_json({"id": self._msg_id, "type": "subscribe_events", "event_type": et})
             ticker = asyncio.create_task(self._ticker())
             # a (re)connection counts as Home Assistant starting, for "homeassistant start" triggers
             for eid in list(self.owned):
@@ -354,6 +358,9 @@ class Engine:
                         ev = d["event"]
                         if ev.get("event_type") == "state_changed":
                             self.on_state(ev["data"])
+                        elif ev.get("event_type") in self.event_handlers:
+                            for fn in self.event_handlers[ev["event_type"]]:
+                                asyncio.create_task(_safe(fn, ev.get("data") or {}))
             finally:
                 ticker.cancel()
 
@@ -766,3 +773,10 @@ class Engine:
                                                          None))
         await asyncio.sleep(0)
         return {"started": eid, "name": a["name"]}
+
+
+async def _safe(fn, data):
+    try:
+        await fn(data)
+    except Exception:  # noqa: BLE001
+        log.exception("event handler")

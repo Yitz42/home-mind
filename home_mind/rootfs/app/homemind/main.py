@@ -7,7 +7,7 @@ import random
 import re
 import secrets
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from aiohttp import web
 
@@ -21,6 +21,7 @@ from .morning import Morning
 from .overnight import ConvLog, Overnight
 from .pantry import Pantry
 from . import nutrition
+from .patterns import FACTOR, Patterns
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -116,6 +117,9 @@ class App:
                                self.opts.get("morning_notify") or "")
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
         self.morning.pantry = self.pantry
+        self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
+        self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
+            lambda d: self.patterns.on_action(d.get("action")))
         try:
             n = nutrition.file_into(self.mind.store)
             if n:
@@ -274,6 +278,18 @@ class App:
                     log.debug("conversation log: %s", e)
             if self.ha.available:
                 await self.morning.tick()
+            if self.ha.available and now - last.get("patterns", 0) > 240:
+                last["patterns"] = now
+                try:
+                    if not self.mind.store.kv_get("patterns_backfilled"):
+                        n = await self.patterns.refresh(10)
+                        for i in range(1, 11):
+                            self.patterns.file_weather(date.today() - timedelta(days=i))
+                        self.mind.store.kv_set("patterns_backfilled", True)
+                        log.info("patterns: %d days from history", n)
+                    await self.patterns.tick()
+                except Exception:  # noqa: BLE001
+                    log.exception("patterns")
             if self.ha.available and now - last.get("cal", 0) > 3600:
                 last["cal"] = now
                 try:
@@ -596,6 +612,8 @@ def build(app_state):
                                         for n, a in A.pantry.parse_list(b["text"])]})
                 return J(A.pantry.add(b["name"], b.get("amount", ""), b.get("location"), b.get("use_by"),
                                       source=b.get("source", "api")))
+            if op == "ate":
+                return J(A.pantry.ate(b.get("text") or b.get("name") or "", source=b.get("source", "api")))
             if op in ("used", "tossed"):
                 names = [n for n, _ in A.pantry.parse_list(b["text"])] if b.get("text") else [b["name"]]
                 return J({"done": [A.pantry.use(n, "used" if op == "used" else "tossed") for n in names]})
@@ -631,6 +649,42 @@ def build(app_state):
     @r.post("/api/morning/send")
     async def morning_send(_):
         return J(await A.morning.send())
+
+    @r.get("/api/patterns")
+    async def patterns_get(q):
+        days = int(q.query.get("days", 30))
+        rep = A.patterns.report()
+        return J({"report": rep["text"], "findings": rep["findings"], "fog_days": rep["fog_days"],
+                  "experiment": A.patterns.experiment(), "days": A.patterns.rows(days)})
+
+    @r.post("/api/patterns/{op}")
+    async def patterns_op(q):
+        op = q.match_info["op"]
+        b = await q.json() if q.can_read_body else {}
+        P = A.patterns
+        if op == "refresh":
+            return J({"days": await P.refresh(int(b.get("days", 3)))})
+        if op == "send":
+            return J(await P.send_report())
+        if op == "experiment":
+            if b.get("stop"):
+                return J({"result": P.stop_experiment()})
+            f = b.get("factor")
+            if not f:                       # "start the fog experiment": the one the report suggests
+                cand = [x for x in P.report()["findings"] if x["status"] in ("holding", "candidate") and x["experiment"]]
+                if not cand:
+                    return J({"error": "no experiment suggested yet: not enough days or no clear link",
+                              "factors": [k for k, v in FACTOR.items() if v[4]]}, status=400)
+                f = sorted(cand, key=lambda x: (x["status"] != "holding", -x["diff"]))[0]["factor"]
+            return J(P.start_experiment(f, int(b.get("days", 14))))
+        if op == "ask":
+            await P.ask(b.get("what", "fog"))
+            return J({"asked": b.get("what", "fog")})
+        if op == "answer":
+            return J(await P.on_action(b.get("action")))
+        if op == "weather":
+            return J(await P.snapshot_weather())
+        return J({"error": "unknown"}, status=404)
 
     @r.post("/api/journal/summarize")
     async def journal_sum(q):

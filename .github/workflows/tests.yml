@@ -24,5 +24,7 @@ jobs:
         run: python tests/test_extract.py
       - name: Pantry
         run: python tests/test_pantry.py
+      - name: Brain-fog patterns
+        run: python tests/test_patterns.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py

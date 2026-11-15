@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0
+- Patterns: a daily record kept in Home Mind (sleep, morning readings, the day before and two days before, bedroom overnight, weather, logged food and caffeine, calendar) next to the brain-fog rating, backfilled from the ~10 days Home Assistant still has.
+- Plain comparisons find what goes with more fog: at least 5 days each side, a difference of 0.75+ points, a shuffle test against chance, and "holding" only after two weekly reports 10+ days apart. Exertion is checked a day and two days later (crashes after exertion), and its experiments are about pacing.
+- Experiments: one small change for 2 weeks ("start the fog experiment"), judged against the two weeks before.
+- Check-ins: if the fog rating or last night's sleep is missing at 11:00 (again at 19:00 for fog), the phone asks with tap buttons; answers go to Steady and memory.
+- Weekly fog report Saturday 08:00, to the phone and summaries/patterns.
+- Weather: an hourly snapshot and one memory note a day (temperature, humidity, pressure and its change).
+- Pantry: "ate" logs meals and drinks with the time and whether they had caffeine, without touching the pantry.
+- The automation engine passes other Home Assistant events (tapped notification buttons) to Home Mind.
+
 ## 0.12.0
 - Nutrition evidence: 45 studies picked from Yitz's evidence tracker (protein and muscle, losing weight, timing, and the foods in the house) ship with the app and are filed on the shelf nutrition/evidence at start, so questions like "do chickpeas help cholesterol?" find them.
 - Meal ideas get the studies that apply to what's in the house (plus protein target, protein while cutting, portions and ultra-processed food every time) and name them briefly in the reason; preliminary findings are called preliminary, and stated dislikes beat any study.

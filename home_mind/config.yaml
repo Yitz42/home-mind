@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.12.0"
+version: "0.13.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -43,6 +43,11 @@ options:
   voice_seconds: 8
   morning_time: "07:30"
   morning_notify: ""
+  patterns_checkins: true
+  patterns_checkin_time: "11:00"
+  patterns_evening_time: "19:00"
+  patterns_report_day: 5
+  patterns_report_time: "08:00"
   calendar_quiet:
     - calendar.hebcal_baltimore
     - calendar.hebcal_baltimore_2
@@ -74,6 +79,11 @@ schema:
   voice_seconds: int(2,60)
   morning_time: str
   morning_notify: str?
+  patterns_checkins: bool
+  patterns_checkin_time: str
+  patterns_evening_time: str
+  patterns_report_day: int(0,6)
+  patterns_report_time: str
   calendar_quiet:
     - str
   overnight_time: str
