@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.1
+- Meal ideas: room for longer answers now that foods carry nutrition (they were cut off).
+- Food lookups list a product once even when the database has it several times.
+- Shopping-list sync no longer errors while Home Assistant restarts.
+
 ## 0.14.0
 - Knowledge: reference data on the Home Assistant machine, in /data/knowledge (left out of backups).
 - Food: USDA FoodData Central (Foundation Foods, SR Legacy and Branded Foods with UPC barcodes, October 2026) is downloaded once (about 450 MB) and built into a searchable database: per 100 g and per serving calories, protein, carbs, fat, fiber, sugar and sodium. Meal ideas now get the matched numbers for pantry foods and base protein and calories on them.

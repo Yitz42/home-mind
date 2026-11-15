@@ -334,7 +334,9 @@ class Pantry:
                                         {"entity_id": entity, "status": "completed"})
         except Exception:  # noqa: BLE001
             return 0
-        items = (((r or {}).get("service_response") or {}).get(entity) or {}).get("items") or []
+        if not isinstance(r, dict):               # Home Assistant restarting: try again next time
+            return {"added": [], "skipped": "home assistant not answering"}
+        items = ((r.get("service_response") or {}).get(entity) or {}).get("items") or []
         n = 0
         for it in items:
             uid = it.get("uid")
@@ -465,7 +467,7 @@ class Pantry:
                    + f"Meal wanted: {meal or 'the next meal'}" + (f" ({request})" if request else "") + "\n"
                    f"Suggest {n} options.\n\nIN THE HOUSE (soonest to expire first):\n" + ("\n".join(lines) or "- nothing recorded")
                    + ("\n\nSTUDIES THAT APPLY (from their nutrition evidence tracker):\n" + nutrition.lines(studies) if studies else ""))
-        r = await self.models.get(model).chat(MEAL_SYSTEM, [{"role": "user", "content": content}], max_tokens=1600,
+        r = await self.models.get(model).chat(MEAL_SYSTEM, [{"role": "user", "content": content}], max_tokens=3000,
                                               temperature=0.5)
         m = re.search(r"\{.*\}", r["text"], re.S)
         try:

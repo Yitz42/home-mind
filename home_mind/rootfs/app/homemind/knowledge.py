@@ -283,7 +283,13 @@ class Knowledge:
                                                   "raw" in (name or "").lower() else 0))
             out.append(d)
         out.sort(key=lambda d: -d["rank"])
-        return [self._portion(d) for d in out[:limit]]
+        seen, uniq = set(), []
+        for d in out:                     # the same product is often listed more than once
+            key = (d["name"].lower(), round(d.get("protein") or 0, 1), round(d.get("kcal") or 0))
+            if key not in seen:
+                seen.add(key)
+                uniq.append(d)
+        return [self._portion(d) for d in uniq[:limit]]
 
     @staticmethod
     def _portion(d):
