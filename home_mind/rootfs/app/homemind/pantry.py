@@ -208,8 +208,8 @@ class Pantry:
     async def sync_shopping(self, entity="todo.shopping_list"):
         """Items ticked off the Home Assistant shopping list are in the house now: add them, clear them from the list."""
         try:
-            r = await self.ha._post("services/todo/get_items?return_response",
-                                    {"entity_id": entity, "status": "completed"})
+            r = await self.ha.post_json("services/todo/get_items?return_response",
+                                        {"entity_id": entity, "status": "completed"})
         except Exception:  # noqa: BLE001
             return 0
         items = (((r or {}).get("service_response") or {}).get(entity) or {}).get("items") or []
@@ -250,10 +250,10 @@ class Pantry:
         with open(os.path.join(media, name), "wb") as f:
             f.write(data)
         try:
-            r = await self.ha._post("services/ai_task/generate_data?return_response", {
+            r = await self.ha.post_json("services/ai_task/generate_data?return_response", {
                 "task_name": "home_mind_pantry_photo", "entity_id": entity, "instructions": PHOTO_INSTRUCTIONS,
                 "attachments": [{"media_content_id": f"media-source://media_source/local/home_mind/{name}",
-                                 "media_content_type": ctype}]})
+                                 "media_content_type": ctype}]}, timeout=120)
         finally:
             try:
                 os.remove(os.path.join(media, name))

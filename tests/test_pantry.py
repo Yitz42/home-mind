@@ -19,7 +19,7 @@ class FakeHA:
     async def state(self, eid):
         return {"state": self.st.get(eid, "unknown")}
 
-    async def _post(self, path, data):
+    async def post_json(self, path, data, timeout=30):
         if path.startswith("services/todo/get_items"):
             return {"service_response": {"todo.shopping_list": {"items": [
                 {"uid": "a", "summary": "2 lb ground beef", "status": "completed"},

@@ -29,6 +29,17 @@ class HA:
                                      timeout=aiohttp.ClientTimeout(total=15)) as r:
             return r.status
 
+    async def post_json(self, path, payload, timeout=30):
+        """POST to Home Assistant and return its JSON answer (for services that respond)."""
+        if not self.token:
+            return None
+        async with self.session.post(f"{SUPERVISOR}/core/api/{path}", json=payload,
+                                     headers={"Authorization": f"Bearer {self.token}"},
+                                     timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            if r.status >= 400:
+                raise RuntimeError(f"{path}: {r.status} {(await r.text())[:200]}")
+            return await r.json()
+
     async def state(self, entity_id):
         if not self.token:
             return None

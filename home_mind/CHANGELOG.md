@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.2
+- Fix: the shopping-list sync and photo reading weren't getting Home Assistant's answer back.
+
 ## 0.11.1
 - Bridge 0.1.2: new service home_mind_bridge.call, so scripts (and Jeeves) can use the pantry and meal ideas. Needs a Home Assistant restart to load.
 
