@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.15.0"
+version: "0.16.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -62,6 +62,8 @@ options:
   overnight_model: ""
   overnight_enabled: true
   morning_enabled: true
+  answer_edges: false
+  answer_notes_first: false
 schema:
   models:
     - name: str
@@ -100,3 +102,5 @@ schema:
   overnight_model: str?
   overnight_enabled: bool
   morning_enabled: bool
+  answer_edges: bool
+  answer_notes_first: bool

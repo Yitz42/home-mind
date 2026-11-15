@@ -44,6 +44,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "home": True, "home_controls": [], "home_fan_max": 100,
             "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": "", "overnight_time": "03:00", "overnight_model": "",
             "overnight_enabled": True, "morning_enabled": True,
+            "answer_edges": False, "answer_notes_first": False,
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -109,6 +110,8 @@ class App:
         self.engine = Engine(self.mind.store, self.ha, DATA)
         self.mind.FALLBACK = list(self.opts.get("fallback") or [])
         self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
+        self.mind.ORDER = "edges" if self.opts.get("answer_edges") else "default"
+        self.mind.NOTES_FIRST = bool(self.opts.get("answer_notes_first"))
         self.journal = Journal(self.mind.store, self.models)
         self.calendars = Calendars(self.mind.store, self.ha, self.opts.get("calendar_quiet"))
         self._mark_secrets()
@@ -527,7 +530,7 @@ def build(app_state):
         b = await q.json()
         run = A.mind.start_test(b["suite"], b.get("arm", "brain"), b.get("model") or None, b.get("seed"),
                                 b.get("n"), b.get("ingest", "raw"), bool(b.get("keyed")),
-                                bool(b.get("expand")))
+                                bool(b.get("expand")), b.get("order") or "default", bool(b.get("notes_first")))
         return J({"id": run["id"], "status": run["status"], "seed": run["seed"]})
 
     @r.get("/api/runs")

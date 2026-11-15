@@ -312,6 +312,8 @@ def build_context(store, question, hits):
         ctx = (f"NOTHING in memory mentions {', '.join(n.capitalize() for n in missing)}"
                + (" (it was forgotten)" if any(n in gone for n in missing) else "")
                + ". The notes below are about other things: do not answer from them.\n\n" + (ctx or ""))
+    elif not gtext and weak_match(store, question, hits):
+        ctx = LOW_MATCH + "\n\n" + (ctx or "")
     if gtext:
         ctx = gtext + "\n\nNOTES FOUND:\n" + (ctx or "(none)")
     return ctx, gids
@@ -389,6 +391,133 @@ def note_line(h):
     return line
 
 
+def then_first(hits, cutoff):
+    """A question about a past day: within each fact's versions, the one that was current then takes the place of the
+    newest (the newest stays, right after it). Versions are linked by "newer" (set when searching)."""
+    pos = {h["id"]: i for i, h in enumerate(hits)}
+    leads = {}
+    for h in hits:
+        if h.get("newer") in pos:
+            leads.setdefault(h["newer"], []).append(h)
+    out = list(hits)
+    for lead_id, olds in leads.items():
+        versions = [hits[pos[lead_id]]] + olds
+        before = [h for h in versions if h["created"] < cutoff]
+        if not before:
+            continue
+        then = max(before, key=lambda h: h["created"])
+        if then["id"] == lead_id:
+            continue
+        i, j = out.index(hits[pos[lead_id]]), out.index(then)
+        if j > i:
+            out.insert(i, out.pop(j))
+    return out
+
+
+def find(store, question, k=8, shelf=None, touch=True):
+    """The brain's search. A question about a past day ("yesterday", "last Tuesday", "on Mar 3") also gets replaced
+    versions, and the version current that day comes first, so even a brain-only answer gives the right one."""
+    at = asked_time(question, store.clock())
+    hits = store.recall(question, shelf=shelf, limit=k, include_old=bool(at), touch=touch)
+    return then_first(hits, at[0]) if at else hits
+
+
+WEAK_COVER = 0.35       # the best note holds less than this share of the question's word weight: a low match
+LOW_MATCH = ("LOW MATCH: the notes below share few words with the question and may be about something else. If none "
+             "of them plainly answers it, say you don't know.")
+
+
+def weak_match(store, question, hits):
+    """Is the best note a poor match for the question? Each question word counts by how rare it is in memory (a word
+    in no note at all counts the most: memory has nothing about it); the share the best current note contains is its
+    cover. On the abstain suite (held out, with sound-alike repair): flags 141 of 200 never-filed answers (names alone:
+    84) and 7 of 200 answerable questions, so it is a caution for the model, never a reason to drop notes."""
+    import math
+    fixed = store.fix_typos(question)
+    qw = list(dict.fromkeys(words(fixed)))
+    if not qw:
+        return False
+    top = next((h for h in hits if not h.get("newer")), None)
+    if top is None:
+        return True
+    idf, matched = store._term_stats(qw, [top])
+    n = max(1, store.db.execute("SELECT COUNT(*) FROM items").fetchone()[0])
+    most = math.log(1 + (n + 0.5) / 0.5)
+    have = set(words(" ".join([top.get("title", ""), top.get("body", ""), top.get("shelf", ""),
+                               " ".join(top.get("tags") or [])])))
+    total = sum(idf.get(w, most) for w in qw)
+    got = sum(idf.get(w, most) for w in qw if w in have)
+    return got / total < WEAK_COVER
+
+
+def nothing_close(store, question, hits):
+    """What the model is told when memory likely lacks the answer: a name the question uses is in no note found
+    ('NOTHING in memory mentions X'), or the best note is a low match."""
+    fixed = store.fix_typos(question)
+    if any(not any(n in words(h.get("title", "") + " " + h.get("body", "")) for h in hits) for n in names_in(fixed)):
+        return True
+    return not hits or weak_match(store, question, hits)
+
+
+DONT_KNOW = re.compile(r"(don'?t know|do not know|not sure|no (?:record|note|information)|nothing in memory|"
+                       r"can'?t find|cannot find|doesn'?t say|does not say)", re.I)
+
+
+def sources_for(answer, hits, question):
+    """Which notes an answer came from: the ones it cites (#id), else the ones holding its values (numbers and words
+    the question didn't already contain). Up to two; none for an "I don't know"."""
+    if not answer or DONT_KNOW.search(answer.replace("’", "'")):
+        return []
+    byid = {h["id"]: h for h in hits}
+    cited = [int(x) for x in re.findall(r"#(\d+)\b", answer) if int(x) in byid]
+    if cited:
+        picked = [byid[i] for i in dict.fromkeys(cited)][:2]
+    else:
+        qw = set(words(question))
+        aw = set(words(answer)) - qw
+        nums = set(re.findall(r"\d+", answer)) - set(re.findall(r"\d+", question))
+        scored = []
+        for i, h in enumerate(hits[:8]):
+            text = (h.get("title") or "") + " " + (h.get("body") or "")
+            s = len(aw & set(words(text))) + 2 * len(nums & set(re.findall(r"\d+", text)))
+            if s:
+                scored.append((s, -i, h))
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        picked = [h for s, _, h in scored if s >= scored[0][0] * 0.75][:2] if scored else []
+    return [{"id": h["id"], "title": h.get("title"), "noted": datetime.fromtimestamp(h["created"]).strftime("%b %d, %Y"),
+             **({"replaced_by": h["newer"]} if h.get("newer") else {})} for h in picked if h.get("id")]
+
+
+NOTES_FIRST = (" Reply in two lines. First line: NOTES: the #ids of the notes the answer comes from, or none. "
+               "Second line: ANSWER: the answer in one short sentence.")
+
+
+def answer_content(store, question, ctx, order="default"):
+    """The message the model reads. order="edges" repeats the best current note just before the question when the
+    page is long (models read the start and end of a long page best: 'Lost in the Middle'); not for lists, counts or
+    a past day, where one note must not be singled out."""
+    page = ctx or "(nothing found)"
+    extra = ""
+    if order == "edges" and ctx and "GATHERED" not in ctx and "TRUE ON " not in ctx:
+        notes = [ln for ln in ctx.split("\n") if ln.startswith("[")]
+        best = next((ln for ln in notes if "(replaced by" not in ln), None)
+        if best and len(notes) >= 6:
+            extra = f"\n\nBEST MATCH (repeated from above): {best}"
+    return f"TODAY: {_ts(store.clock())}\n\nMEMORY:\n{page}{extra}\n\nQUESTION: {asked(store, question)}"
+
+
+def read_answer(text, notes_first=False):
+    """The answer part of a model's reply (after ANSWER: when it was asked to list its notes first) and the note ids it
+    named."""
+    text = text or ""
+    if not notes_first:
+        return text, []
+    m = re.search(r"ANSWER:\s*(.+)", text, re.S | re.I)
+    n = re.search(r"NOTES:\s*(.*)", text, re.I)
+    ids = [int(x) for x in re.findall(r"#?(\d+)", n.group(1).split("ANSWER")[0])] if n else []
+    return (m.group(1).strip() if m else text.strip()), ids
+
+
 EXPAND_SYSTEM = ("You help search a personal memory that matches words, not meaning. Reply with JSON only: "
                  '{"words": [4 to 8 search words]}: the most specific words from the question, plus other common words '
                  "for the same things (e.g. sensor for detector). No sentences.")
@@ -433,7 +562,7 @@ class Mind:
     async def search(self, store, question, k=8, shelf=None, model=None, expand=False):
         """The brain's search, optionally helped by a model that suggests other words for the same things. The two
         result lists are fused by rank (each item scores 1/(rank+20) in each list)."""
-        hits = store.recall(question, shelf=shelf, limit=k)
+        hits = find(store, question, k, shelf)
         if not (expand and model):
             return hits, None
         r = await self.models.get(model).chat(EXPAND_SYSTEM, [{"role": "user", "content": question}], max_tokens=80,
@@ -493,6 +622,10 @@ class Mind:
             [m for m in chain if now - down.get(m, 0) <= self.DOWN_SECONDS]
 
     FOLLOW_SECONDS = 600       # a question can follow up on the one before it for this long
+    ORDER = "default"          # option answer_order: "edges" repeats the best note just before the question
+    NOTES_FIRST = False        # option answer_notes_first: the model names its notes, then answers (not for voice)
+    WRONG = re.compile(r"^\s*(?:no[,.!]?\s*)?(?:that'?s|that is|this is|it'?s)\s+(?:wrong|not right|incorrect|not true|"
+                       r"out of date|outdated|old)\b", re.I)
 
     def resolve(self, question, conversation_id, store=None):
         """Rewrite a follow-up ("and the shed?") into a full question using the last one in the same conversation."""
@@ -515,12 +648,24 @@ class Mind:
         store = store or self.store
         t0 = time.time()
         original = question
+        convs = self.__dict__.setdefault("_convs", {})
+        last = convs.get(conversation_id) if conversation_id else None
+        if last and last.get("src") and self.WRONG.search(question.replace("’", "'")) and \
+                time.time() - last["t"] <= self.FOLLOW_SECONDS:
+            # "that's wrong" right after an answer: mark the note it came from, so it ranks lower and can be fixed
+            src = last["src"][0]
+            store.feedback(src["id"], False, question)
+            return {"answer": f"Got it. I marked the note from {src['noted']} (\"{src['title']}\") as wrong. "
+                              "Tell me the right value and I'll file it.", "hits": [], "model": None,
+                    "marked_wrong": src["id"], "sources": last["src"]}
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS
         hits, procs, ctx = (await self.context_for(store, question, k, shelf, model, expand)) if use_brain else ([], [], "")
+        weak = bool(use_brain and (ctx or "").find(LOW_MATCH) >= 0)
         if model is None:
-            return {"answer": hits[0]["body"] if hits else None, "hits": hits, "model": None}
+            return {"answer": hits[0]["body"] if hits else None, "hits": hits, "model": None, "weak": weak,
+                    "sources": sources_for(hits[0]["body"], hits[:1], question) if hits else []}
         chain = self._chain(model) if fallback else [model]
         if not chain:
             chain = [model]
@@ -530,8 +675,10 @@ class Mind:
                        "notes don't cover, never for facts about the user, and say an answer came from Wikipedia.")
         if procs:
             sysmsg += "\n\nProcedures you know:\n" + "\n".join(f"- {p['title']}: {p['body']}" for p in procs)
-        content = (f"TODAY: {_ts(store.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {asked(store, question)}") \
-            if use_brain else question
+        notes_first = bool(use_brain and self.NOTES_FIRST and not voice and system is None)
+        if notes_first:
+            sysmsg += NOTES_FIRST
+        content = answer_content(store, question, ctx, self.ORDER) if use_brain else question
         errors, r, used = [], None, None
         self._down = getattr(self, "_down", {})
         plain = content
@@ -553,19 +700,28 @@ class Mind:
                 self._down[m] = time.time()
         if r is None:
             best = hits[0] if hits else None
-            ans = (f"No model answered, so here is the best matching note: {best['body']}" if best
+            ans = (f"No model answered, and nothing in memory clearly matches. The closest note: {best['body']}"
+                   if best and weak else f"No model answered, so here is the best matching note: {best['body']}" if best
                    else "No model answered, and nothing in memory matched.")
             store.log("ask", None, question=question, model=None, ids=[h["id"] for h in hits], answer=ans[:500],
                       errors=errors)
             return {"answer": ans, "hits": hits, "procedures": [p["id"] for p in procs], "model": None,
-                    "ms": int((time.time() - t0) * 1000), "errors": errors, "fallback": "brain"}
+                    "ms": int((time.time() - t0) * 1000), "errors": errors, "fallback": "brain", "weak": weak,
+                    "sources": sources_for(best["body"], [best], question) if best else []}
         self._down.pop(used, None)
+        text, named = read_answer(r["text"], notes_first)
+        byid = {h["id"]: h for h in hits}
+        sources = (sources_for(" ".join(f"#{i}" for i in named if i in byid), hits, question)
+                   if any(i in byid for i in named) and not DONT_KNOW.search(text) else sources_for(text, hits, question))
+        if conversation_id and conversation_id in convs:
+            convs[conversation_id]["src"] = sources
         cl = getattr(self, "convlog", None)
         if cl and store is self.store:
-            cl.add(time.time(), original, r["text"], conversation_id, None, "home_mind")
-        store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=r["text"][:500],
-                  ms=r["ms"], errors=errors or None)
-        out = {"answer": r["text"], "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"]}
+            cl.add(time.time(), original, text, conversation_id, None, "home_mind")
+        store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=text[:500],
+                  ms=r["ms"], errors=errors or None, sources=[x["id"] for x in sources] or None, weak=weak or None)
+        out = {"answer": text, "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"],
+               "sources": sources, "weak": weak}
         if question != original:
             out["understood_as"] = question
         if used != model:
@@ -590,7 +746,8 @@ class Mind:
         return out
 
     # ---- tests --------------------------------------------------------------------------------------------------------
-    def start_test(self, suite, arm="brain", model=None, seed=None, n=None, ingest="raw", keyed=False, expand=False):
+    def start_test(self, suite, arm="brain", model=None, seed=None, n=None, ingest="raw", keyed=False, expand=False,
+                   order="default", notes_first=False):
         if suite not in suites.SUITES:
             raise ValueError(f"unknown suite {suite}; have {', '.join(suites.SUITES)}")
         if arm not in ("brain", "model+brain", "model+context", "model"):
@@ -602,7 +759,9 @@ class Mind:
         seed = int(seed) if seed is not None else int(time.time()) % 100000
         run = {"id": uuid.uuid4().hex[:10], "ts": time.time(), "suite": suite, "arm": arm,
                "model": model if arm != "brain" or ingest in ("model", "extract") else None, "seed": seed, "status": "running",
-               "config": {"n": n, "ingest": ingest, "keyed": keyed, "expand": bool(expand)}, "summary": {}, "details": []}
+               "config": {"n": n, "ingest": ingest, "keyed": keyed, "expand": bool(expand),
+                          **({"order": order} if order and order != "default" else {}),
+                          **({"notes_first": True} if notes_first else {})}, "summary": {}, "details": []}
         self.store.save_run(run)
         task = asyncio.get_running_loop().create_task(self._run_test(run))
         self.jobs[run["id"]] = {"task": task, "run": run}
@@ -796,7 +955,7 @@ class Mind:
             if arm == "model+brain" and run["config"].get("expand"):
                 hits, d["expanded"] = await self.search(sb, q["q"], 8, model=model, expand=True)
             else:
-                hits = sb.recall(q["q"], limit=8, include_old=False)
+                hits = find(sb, q["q"], 8)
             ids = [h["id"] for h in hits]
             ctx_text, gids = build_context(sb, q["q"], hits)
             # with model-organized storage the gold item has its own id; it may have superseded the old ones
@@ -818,6 +977,11 @@ class Mind:
                     else:
                         ok = not junk_hit
                     d.update(answer=text[:300], correct=ok)
+                    return d
+                if typ in ("abstain_removed", "abstain_control"):   # the low-match flag: on when the fact is gone, off when not
+                    flagged = nothing_close(sb, q["q"], hits)
+                    ok = flagged if typ == "abstain_removed" else (not flagged and bool(top) and contains(text, q["gold"]))
+                    d.update(answer=text[:300], correct=ok, flagged=flagged)
                     return d
                 if q.get("needs") is not None or q.get("absent"):   # hard2: the notes needed are there, forgotten ones aren't
                     need = {refs.get(x) for x in q.get("needs") or []} - {None}
@@ -845,14 +1009,21 @@ class Mind:
                 d.update(answer=text[:300], correct=ok)
                 return d
             ctx = cloud_safe(ctx_text, q["q"], self.models.get(model), sb)
-            content, sysmsg = (f"TODAY: {_ts(sb.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {asked(sb, q['q'])}",
-                               ANSWER_SYSTEM)
+            content = answer_content(sb, q["q"], ctx, run["config"].get("order") or "default")
+            sysmsg = ANSWER_SYSTEM + (NOTES_FIRST if run["config"].get("notes_first") else "")
         elif arm == "model+context":
             content, sysmsg = (f"TODAY: {_ts(sb.clock())}\n\nLOG:\n" + "\n".join(log)[-16000:] + f"\n\nQUESTION: {q['q']}",
                                CONTEXT_SYSTEM)
         else:
             content, sysmsg = q["q"], ALONE_SYSTEM
         r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
+        if arm == "model+brain":
+            text, named = read_answer(r["text"], bool(run["config"].get("notes_first")))
+            r = dict(r, text=text)
+            byid = {h["id"]: h for h in hits}
+            src = sources_for(" ".join(f"#{i}" for i in named if i in byid), hits, q["q"]) \
+                if any(i in byid for i in named) and not DONT_KNOW.search(text) else sources_for(text, hits, q["q"])
+            d["sources"] = [x["id"] for x in src]
         ans_l = r["text"].lower().replace("’", "'")
         if q.get("all") is not None:     # a list: every right name, none of the wrong ones
             right = all(contains(r["text"], g) for g in q["all"]) and not any(contains(r["text"], x) for x in q.get("none", []))
@@ -871,6 +1042,8 @@ class Mind:
         # stale: gives an old value instead of the new one (mentioning the old one as replaced is fine)
         stale = not right and any(contains(r["text"], s) and not contains(s, q["gold"]) for s in q.get("stale", []))
         d.update(answer=r["text"][:400], ms=r["ms"], correct=right, stale_answer=stale)
+        if right and gold_id and "sources" in d and not q.get("unknown"):
+            d["source_ok"] = gold_id in d["sources"]       # a right answer points to the note it came from
         return d
 
 
@@ -909,6 +1082,14 @@ def summarize(details, run, secs, n_events):
     if any("shelf_ok" in d for d in details):
         xs = [d["shelf_ok"] for d in details if "shelf_ok" in d]
         s["shelf_ok"] = round(sum(xs) / len(xs), 3)
+    if any("source_ok" in d for d in details):
+        xs = [d["source_ok"] for d in details if "source_ok" in d]
+        s["source_ok"] = round(sum(xs) / len(xs), 3)
+    if any("flagged" in d for d in details):
+        for t in ("abstain_removed", "abstain_control"):
+            xs = [d["flagged"] for d in details if d.get("type") == t]
+            if xs:
+                s["flagged_" + t.split("_")[1]] = round(sum(xs) / len(xs), 3)
     if any("stale_answer" in d for d in details):
         s["stale_answers"] = round(sum(1 for d in details if d.get("stale_answer")) / n, 3)
     types = sorted({d["type"] for d in details if d.get("type")})

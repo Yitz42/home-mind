@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.16.0
+- Past days: a question about yesterday, a past weekday, a date or weeks ago also searches replaced versions, and the version current that day comes first. On the hard suite the right version is now first for yesterday 60/60 (was 0/60) and a past weekday 52/60 (was 14/60), so a brain-only answer gives it too.
+- "Nothing close": the model is told when the best note is a poor match (rare question words count more; a word no note has counts most), and to say it doesn't know unless a note plainly answers. New `abstain` suite: about 7 in 10 never-filed answers flagged (names alone caught 4 in 10), about 1 in 30 answerable questions. Answers carry `weak`.
+- Sources: answers carry `sources` (note id, title, date noted). "That's wrong" right after an answer marks that note not helpful and asks for the right value. Test runs report how often a right answer points to its note.
+- Two answer options, off until they prove themselves on your models: repeat the best note before the question on long pages, and name the notes before answering (not for voice). Switches on the Home Mind device too. `tests/compare_answers.py` compares them on a real model through the Tests runner.
+- The test runner now uses the same search and the same page as real answers.
+
 ## 0.15.0
 - Controls in Home Assistant: the bridge (0.2.0) adds a **Home Mind** device with switches (comfort brain, watching the house, overnight learning, morning summary, fog check-ins, automatic pack updates), numbers (voice time limit, fade days, test hours), times (morning summary, overnight learning), buttons (run overnight learning, send the morning summary, sync calendars, check models, install pack updates, comfort cycle, refresh the daily record, brain tests, hand automations back) and sensors (memory items, conversation turns waiting, last overnight run, facts filed, automations run by Home Mind, version). Needs a Home Assistant restart to load the new bridge.
 - Changes made there are kept across restarts until the same option is changed on the Configuration tab, which then wins.
