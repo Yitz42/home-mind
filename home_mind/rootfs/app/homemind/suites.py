@@ -1044,8 +1044,35 @@ def extract(seed, n=8):
     return {"events": turns, "questions": questions, "truth": truth, "junk": junk, "saved": saved}
 
 
-SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard, "hard2": hard2, "followup": followup, "extract": extract}
+def abstain(seed, n=10):
+    """Questions whose answer was never filed, next to the same kind of question that can be answered. Half come from
+    a locate world (vague, no names), half from a recall world (named facts); for each world, half the questions have
+    their notes taken out. Brain arm: the low-match flag (or 'nothing mentions X') must be on exactly for those.
+    Model arms: an "I don't know" for those, the value for the rest."""
+    rng = random.Random(seed)
+    events, questions = [], []
+    for tag, w in (("L", locate(seed)), ("R", recall(seed + 7919))):
+        qs = [q for q in w["questions"] if q.get("ref")][:n]
+        gone = {q["ref"] for q in rng.sample(qs, len(qs) // 2)}
+        for ev in w["events"]:
+            if ev.get("ref") in gone:
+                continue
+            events.append(dict(ev, ref=tag + ev["ref"]) if ev.get("ref") else ev)
+        for q in qs:
+            if q["ref"] in gone:
+                questions.append({"q": q["q"], "gold": None, "unknown": True, "type": "abstain_removed", "stale": []})
+            else:
+                questions.append(dict(q, ref=tag + q["ref"], type="abstain_control", stale=q.get("stale", [])))
+    rng.shuffle(events)
+    rng.shuffle(questions)
+    return {"events": events, "questions": questions}
+
+
+SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, "scale": scale, "tricky": tricky, "tricky2": tricky2, "hard": hard, "hard2": hard2, "followup": followup, "extract": extract,
+          "abstain": abstain}
 SUITE_INFO = {
+    "abstain": "questions whose answer was never filed, mixed with ones that can be answered; brain arm: the low-match "
+               "flag is on exactly for the missing ones; model arms: 'I don't know' for those",
     "extract": "facts buried in chatty conversations with jokes, hypotheticals, corrections and assistant guesses; "
                "use ingest=extract (needs a model) or raw",
     "followup": "short follow-ups that need the question before them (another name, 'where is it?', another place)",

@@ -73,6 +73,7 @@ sandbox database, then asks questions with hidden answers.
 | locate | notes on shelves found from a vague description (finding what it organized) |
 | tasks | a task list that changes: next task, how many open |
 | scale | locate with ~400 notes |
+| abstain | questions whose answer was never filed, mixed with answerable ones: is "nothing close" flagged only for the missing ones? |
 
 Arms: **brain** (no model: the top search result is the answer), **model+brain** (model gets what the brain
 found), **model+context** (model reads the whole log, no brain), **model** (alone). Ingest **model** lets the
@@ -81,6 +82,27 @@ model choose title, shelf and key for each item itself, so `locate` then measure
 Numbers recorded: accuracy, found first (hit@1), in top 5, MRR, how often an old version ranked above the newest
 (stale on top), shelf found, time per answer. Results are kept for trends and pushed to Home Assistant as
 `sensor.home_mind_test_<suite>` and `sensor.home_mind_items`.
+
+Model+brain runs also report **source** (a right answer points to the note it came from). Runs take
+`"order": "edges"` and `"notes_first": true` to try the answer options; `tests/compare_answers.py` runs all four
+combinations on your own model and prints them side by side.
+
+## Answers
+
+- **Past days.** A question about a past day ("yesterday", "last Tuesday", "on Mar 3", "two weeks ago") also
+  searches replaced versions, and the version that was current that day comes first.
+- **Nothing close.** If a name in the question is in no note found, or the best note holds less than a third of
+  the question's word weight (rare words count more; a word in no note at all counts most), the model is told the
+  notes may be about something else and to say it doesn't know unless one plainly answers. Notes are never dropped
+  for this. On the abstain suite it flags about 3 in 4 questions whose answer was never filed and about 1 in 30
+  answerable ones. Answers carry `"weak": true` when it applied; with no model, the brain's own answer says so.
+- **Sources.** Answers carry `sources`: the note(s) the answer came from (the ids the model named, else the notes
+  holding the answer's values), with the date each was noted. Saying "that's wrong" right after an answer (same
+  conversation) marks that note not helpful, so it ranks lower, and asks for the right value.
+- **Options, off by default** (Configuration tab or switches on the Home Mind device): *Repeat the best note
+  before the question* (on pages of 6+ notes, not for lists or past days) and *Name the notes before answering*
+  (the model lists note ids, then answers; never for voice). Small models differ, so turn one on only if
+  `tests/compare_answers.py` shows it helps yours.
 
 ## Bedroom comfort
 

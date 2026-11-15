@@ -82,6 +82,11 @@ configuration:
   knowledge_window:
     name: Download window
     description: When the big Wikipedia download may run (HH:MM-HH:MM); it pauses outside and resumes the next night.
+  answer_edges:
+    name: Repeat the best note before the question
+    description: On long pages of notes, repeat the best current note right before the question (models read the start and end of a long page best). Off until the comparison script shows it helps your models.
+  answer_notes_first:
+    name: Name the notes before answering
+    description: The model first lists the notes its answer comes from, then answers. Slower; never used for voice. Off until the comparison script shows it helps your models.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.
-
