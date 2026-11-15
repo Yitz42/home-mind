@@ -117,6 +117,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return {"items": [{"id": i["id"], "title": i["title"], "text": i["body"], "shelf": i["shelf"],
                            "updated": i["updated"]} for i in items]}
 
+    ALLOWED = ("/api/pantry", "/api/ask", "/api/do", "/api/journal", "/api/morning", "/api/calendar", "/api/home")
+
+    async def call_api(call: ServiceCall):
+        """Reach one of Home Mind's own endpoints from a script (pantry, meals, ask...)."""
+        d = dict(call.data)
+        path = "/" + d["path"].lstrip("/")
+        if not path.startswith(ALLOWED):
+            raise ValueError(f"{path} is not allowed from Home Assistant")
+        method = d.get("method", "POST" if d.get("body") is not None else "GET").upper()
+        r = await _call(hass, method, path, d.get("body") if method == "POST" else None)
+        return r if isinstance(r, dict) else {"result": r}
+
     async def show_link(call: ServiceCall):
         await _show_links(hass, wid)
 
@@ -128,6 +140,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         vol.Required("query"): cv.string, vol.Optional("shelf"): cv.string,
         vol.Optional("limit", default=5): vol.All(int, vol.Range(1, 25))}), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "show_link", show_link)
+    hass.services.async_register(DOMAIN, "call", call_api, vol.Schema({
+        vol.Required("path"): cv.string, vol.Optional("method"): vol.In(["GET", "POST"]),
+        vol.Optional("body"): dict}), supports_response=SupportsResponse.ONLY)
 
     if not entry.data.get("shown"):
         await _show_links(hass, wid)
@@ -136,7 +151,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    for s in ("remember", "recall", "show_link"):
+    for s in ("remember", "recall", "show_link", "call"):
         hass.services.async_remove(DOMAIN, s)
     return True
 
