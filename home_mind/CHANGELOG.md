@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.5
+- Pantry: "a bag of baby carrots" files baby carrots (1 bag), not "bag of baby carrots". Jeeves can add, use, list and ask for meals (scripts Pantry in Home Mind and Meal ideas from Home Mind).
+
 ## 0.11.4
 - Pantry: remove a line entered by mistake; long use-by dates show month and year; meal steps shown numbered.
 

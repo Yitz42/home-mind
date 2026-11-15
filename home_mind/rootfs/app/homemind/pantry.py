@@ -205,6 +205,10 @@ class Pantry:
             p = re.sub(r"^(the|some|an|a(?!\s+(?:dozen|couple|few)\b))\s+", "", p.strip(), flags=re.I).strip(" .!")
             if not p:
                 continue
+            m = re.match(r"^((?:bag|box|carton|can|jar|bunch|pack|bottle|loaf|head|tub|container)s?) of\s+(.+)$", p, re.I)
+            if m:                     # "a bag of baby carrots": the container is the amount
+                out.append((m.group(2).strip(), "1 " + m.group(1).lower()))
+                continue
             m = re.match(r"^((?:\d+(?:\.\d+)?|a dozen|dozen|half a|a couple|a few|one|two|three|four|five|six)"
                          r"(?:\s*(?:lb|lbs|pounds?|oz|ounces?|kg|g|bags?|boxes?|cans?|jars?|bunch(?:es)?|cartons?|"
                          r"packs?|bottles?|heads?|loaf|loaves|dozen|pieces?))?(?:\s+of)?)\s+(.+)$", p, re.I)

@@ -59,6 +59,7 @@ async def main():
     p = Pantry(st, ha, models, tempfile.mkdtemp())
     parsed = p.parse_list("I bought chicken, 2 lb ground beef and a dozen eggs")
     assert parsed == [("chicken", ""), ("ground beef", "2 lb"), ("eggs", "a dozen")], parsed
+    assert p.parse_list("a bag of baby carrots and some hummus") == [("baby carrots", "1 bag"), ("hummus", "")]
     for n, a in parsed:
         p.add(n, a)
     p.add("milk", "1 gallon", use_by="2020-01-01")
