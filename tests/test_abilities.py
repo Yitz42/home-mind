@@ -66,6 +66,11 @@ async def main():
     check("place: moved to", S.place("I moved the red toolbox to the shed.") == {"thing": "red toolbox", "in": "shed"})
     check("not a place: a code", S.place("The garage code is 4417.") is None)
     check("not a place: in charge", S.place("Dana is in charge of the garden.") is None)
+    for t in ("My meeting is on Friday.", "My therapist is on Tuesdays.", "My exam is in two weeks.",
+              "Mom's birthday is on March 3.", "The party is at 8pm.", "The report is on the 3rd.", "The trip is in June."):
+        check(f"not a place: a time ({t})", S.place(t) is None, S.place(t))
+    check("a place that looks like a month is still a place", S.place("The boat is in the marsh.") ==
+          {"thing": "boat", "in": "marsh"})
     f = S.fields("The dishwasher is a Bosch SHX78, serial 4471A, bought March 2024, warranty until March 2027.", fri)
     check("fields read", f and f["fields"] == {"serial": "4471A", "bought": "2024-03-01", "warranty_until": "2027-03-31",
                                                "brand": "Bosch", "model": "SHX78"} and f["type"] == "appliance", f)
@@ -110,6 +115,8 @@ async def main():
     r = await m.ask("No, it's 5512", "plain", fallback=False, conversation_id="c")
     check("the right value is filed", r.get("filed") and m.store.active_by_key("the shed padlock|code")["body"]
           .endswith("5512."), r)
+    check("... without the 'No, it's'", "No," not in m.store.active_by_key("the shed padlock|code")["body"],
+          m.store.active_by_key("the shed padlock|code")["body"])
     cases = Cases(m.store).all()
     check("a case is kept", len(cases) == 1 and cases[0]["right"].endswith("5512.") and "3381" in cases[0]["wrong"], cases)
     run = await m.run_test_now("corrections", "brain")
@@ -121,6 +128,21 @@ async def main():
           and not case_ok({"question": "code?", "right": "5512", "wrong": "3381"}, "3381 or 5512"))
     r = await m.ask("What's the weather like?", "plain", fallback=False, conversation_id="c")
     check("a question after it is just a question", "filed" not in r)
+    # backing out of a correction files nothing
+    d2 = tempfile.mkdtemp()
+    m2 = M.Mind(d2, Models(plain=Fake("The garage code is 4417.")))
+    m2.store.remember(text="The garage code is 4417.", key="garage|code", kind="fact")
+    for reply in ("never mind", "ok", "Nevermind.", "thanks!"):
+        await m2.ask("What's the garage code?", "plain", fallback=False, conversation_id=reply)
+        await m2.ask("That's wrong", "plain", fallback=False, conversation_id=reply)
+        r = await m2.ask(reply, "plain", fallback=False, conversation_id=reply)
+        check(f"'{reply}' backs out", r.get("cancelled") and "filed" not in r and
+              m2.store.active_by_key("garage|code")["body"] == "The garage code is 4417.", r)
+    await m2.ask("What's the garage code?", "plain", fallback=False, conversation_id="shed")
+    await m2.ask("That's wrong", "plain", fallback=False, conversation_id="shed")
+    await m2.ask("it's 9090", "plain", fallback=False, conversation_id="shed")
+    check("a bare value says what it's the value of", "9090" in m2.store.active_by_key("garage|code")["body"] and
+          "garage" in m2.store.active_by_key("garage|code")["body"].lower(), m2.store.active_by_key("garage|code"))
 
     # ---- duplicates: flagged, never merged ---------------------------------------------------------------------
     st2 = Store(os.path.join(tempfile.mkdtemp(), "m.db"))

@@ -250,8 +250,22 @@ NOT_PLACE = re.compile(r"\b(code|password|charge of|love|trouble|good|bad|on sal
                        r"in town|on vacation|due|open|closed|broken|empty|full|ready)\b", re.I)
 
 
+_MONTH = (r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|"
+          r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)")      # whole words only: "the marsh" is a place
+_NUM = r"(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|a few|a couple of|several)"
+WHEN = re.compile(
+    rf"^(?:(?:{'|'.join(WEEKDAYS)})s?(?:\s+(?:morning|afternoon|evening|night)s?)?|weekends?|weekdays?|today|tonight|"
+    rf"tomorrow|yesterday|noon|midnight|the (?:morning|afternoon|evening|weekend)|"
+    rf"(?:next|this|last|every|each)\s+\w+(?:\s+\w+)?|"
+    rf"{_NUM}\s+(?:minutes?|hours?|days?|weeks?|months?|years?)(?:\s+(?:from now|time))?|"
+    rf"(?:the\s+)?\d{{1,2}}(?:st|nd|rd|th)?(?:\s+of\s+\w+)?|"
+    rf"{_MONTH}\.?(?:\s+\d{{1,2}}(?:st|nd|rd|th)?)?(?:,?\s+\d{{4}})?|\d{{4}}|"
+    rf"\d{{1,2}}(?::\d{{2}})?\s*(?:am|pm|a\.m\.|p\.m\.)?|\d{{1,2}}/\d{{1,2}}(?:/\d{{2,4}})?)$", re.I)
+
+
 def place(text):
-    """'The drill is in the red toolbox' / 'I moved the red toolbox to the shed' -> {"thing", "in"}."""
+    """'The drill is in the red toolbox' / 'I moved the red toolbox to the shed' -> {"thing", "in"}. A time is not a
+    place: "the meeting is on Friday", "the exam is in two weeks", "the birthday is on March 3"."""
     t = (text or "").strip()
     if len(t) > 120 or NOT_PLACE.search(t):
         return None
@@ -259,7 +273,7 @@ def place(text):
         m = rx.search(t)
         if m:
             thing, where = m.group(1).lower().strip(), m.group(2).lower().strip()
-            if thing in ("it", "they", "that", "this", "everything") or thing == where:
+            if thing in ("it", "they", "that", "this", "everything") or thing == where or WHEN.match(where):
                 return None
             return {"thing": thing, "in": where}
     return None

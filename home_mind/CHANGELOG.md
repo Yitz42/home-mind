@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.18.0
+- Fixed before release: a time is not a place ("the meeting is on Friday", "the exam is in two weeks", "the birthday is on March 3"); backing out of a correction ("never mind", "ok") files nothing; "No, it's 5512" files just the value, and a bare value or phrase is filed as the value of what was wrong ("The garage code is 9090").
 - Read from plain notes as they are filed, no model needed, and worked out when asked (a WORKED OUT section on the page models see):
   - who is who ("Dana is my partner"): kept on the profile shelf, always shown; "my partner" finds notes that only say Dana. Profile suite: 80/80 (was 4/80).
   - when a change became true ("Last Tuesday I changed the code to 1111"): a late note about an older change is kept as history instead of replacing a newer value. Valid suite: 160/160, keyed and unkeyed (was 80/160).

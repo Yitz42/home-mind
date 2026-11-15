@@ -641,6 +641,11 @@ class Mind:
     NOTES_FIRST = False        # option answer_notes_first: the model names its notes, then answers (not for voice)
     ASKING = re.compile(r"\?\s*$|^(?:what|where|when|who|which|why|how|is|are|do|does|did|can|could|should|will|would)\b",
                         re.I)
+    CANCEL = re.compile(r"^\s*(?:never\s*mind|nevermind|forget it|cancel|stop|skip( it)?|leave it|no worries|"
+                        r"ok(?:ay)?|k|thanks|thank you|nothing|fine|sure|yes|yeah|yep|no|nope|nah|whatever|idk|"
+                        r"i don'?t know|not sure)\b[\s.!]*$", re.I)
+    FILLER = {"it", "its", "is", "the", "a", "an", "no", "not", "actually", "oh", "um", "uh", "well", "so", "that", "this",
+              "just", "really", "right", "ok", "okay", "yes", "yeah", "never", "mind", "thanks", "sure"}
     WRONG = re.compile(r"^\s*(?:no[,.!]?\s*)?(?:that'?s|that is|this is|it'?s)\s+(?:wrong|not right|incorrect|not true|"
                        r"out of date|outdated|old)\b", re.I)
 
@@ -678,13 +683,22 @@ class Mind:
                     "marked_wrong": src["id"], "sources": last["src"]}
         if last and last.get("awaiting") and time.time() - last["t"] <= self.FOLLOW_SECONDS and \
                 not self.ASKING.search(question.strip()):
-            # the right value, right after "that's wrong": file it, and keep the mistake as a test case
+            # the right value, right after "that's wrong": file it, and keep the mistake as a test case. Backing out
+            # ("never mind", "ok") files nothing, and a reply with no value in it isn't filed as one.
             aw = last.pop("awaiting")
+            plain_q = question.replace("’", "'")
+            content = [w for w in re.findall(r"[a-z0-9']+", plain_q.lower()) if w not in self.FILLER]
+            if self.CANCEL.match(plain_q) or not (re.search(r"\d", plain_q) or content):
+                return {"answer": "OK, I left it as it was (the note is still marked as wrong).", "hits": [],
+                        "model": None, "cancelled": True}
             old = store.get(aw["src"]["id"]) or {}
-            text = re.sub(r"^\s*(?:no[,.!]?\s*|it'?s\s+|it is\s+|actually[,]?\s*)+", "", question).strip() or question
-            if not re.search(r"[A-Za-z]{3,}.*\s", text) and old.get("title"):
-                head = re.sub(r"\s+(?:is|are)\s.*$", "", old["title"])
-                text = f"{head} is {text.rstrip('.')}."          # just "5512": say what it is the value of
+            text = re.sub(r"^\s*(?:no[,.!]?\s*|it'?s\s+|it is\s+|actually[,]?\s*)+", "", plain_q,
+                          flags=re.I).strip() or question
+            head = re.sub(r"\s+(?:is|are)\s.*$", "", old.get("title") or "")
+            head_words = {w for w in words(head) if len(w) > 2}
+            if head and not (head_words & set(words(text))):
+                # "5512" or "in the shed now": say what it is the value of, so it's found by the same question
+                text = f"{head} is {text.rstrip('.')}."
             filed = store.remember(text=text, kind=old.get("kind") or "fact", shelf=old.get("shelf") or "inbox",
                                    key=old.get("key"), source="correction")
             cid = None
