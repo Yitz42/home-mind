@@ -1,0 +1,15 @@
+name: sweep
+on:
+  push:
+    branches: [aq-sweep]
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install aiohttp metaphone==0.6 jinja2
+      - run: python tests/_sweep.py
