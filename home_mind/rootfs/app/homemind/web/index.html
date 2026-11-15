@@ -35,6 +35,8 @@
 </section>
 <section id="memory" class="hide">
   <div class="card hide" id="itemcard"></div>
+  <div class="card hide" id="reviewcard"><h2>To review <span class="mute">learned or guessed, not checked yet</span></h2><table id="review"></table>
+    <p class="mute">Held notes read like instructions to the assistant and are left out of answers until approved. Unconfirmed ones are shown to models marked UNCONFIRMED.</p></div>
   <div class="card"><div class="row"><h2 style="margin:0">Recently added</h2>
       <select id="rf" onchange="recent()"><option value="told">Told or learned</option><option value="all">Everything</option><option value="calendar">Calendar</option><option value="house">House readings</option><option value="automations">Automation runs</option><option value="archived">Forgotten</option></select>
       <select id="rh" onchange="recent()"><option value="24">last day</option><option value="72" selected>last 3 days</option><option value="168">last week</option><option value="720">last 30 days</option></select></div>
@@ -57,6 +59,7 @@
     <p class="mute">From "The drill is in the red toolbox" and "I moved the red toolbox to the shed": the latest note for each thing wins.</p></div>
   <div class="card"><h2>Things with details</h2><table id="w_typed"></table></div>
   <div class="card"><h2>Possible duplicates <span class="mute">checked once a day; nothing is merged</span></h2><table id="w_dups"></table></div>
+  <div class="card"><h2>Disagreeing notes <span class="mute">two people said different things, or a guess differs from what was said</span></h2><table id="w_conf"></table></div>
   <div class="card"><h2>Corrections kept as tests</h2><table id="w_cases"></table>
     <p class="mute">Kept when you say "that's wrong" and then the right value. The <b>corrections</b> suite on the Tests tab asks them again.</p></div>
 </section>
@@ -119,7 +122,7 @@ async function load(t) {
     const ev = await api('api/events?limit=15');
     $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${e.type}</td><td class="mute">${esc(e.data).slice(0, 140)}</td></tr>`).join('');
   }
-  if (t === 'memory') { browse(''); recent(); }
+  if (t === 'memory') { browse(''); recent(); review(); }
   if (t === 'worked') { worked(); }
   if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
@@ -138,6 +141,14 @@ async function load(t) {
       `<tr><td class="mute" colspan="7">Today: ${n(u.today.calls)} calls, ${n(u.today.tokens)} tokens${u.today.cost == null ? '' : ', $' + u.today.cost.toFixed(2)}</td></tr>`;
   }
 }
+async function review() {
+  const rs = await api('api/review');
+  $('#reviewcard').classList.toggle('hide', !rs.length);
+  $('#review').innerHTML = rs.map(r => `<tr><td><a onclick="item(${r.id})">${esc(r.title)}</a><br><span class="mute">${esc(r.why)} · from ${esc(r.source)} · ${when(r.created)}</span></td>
+    <td style="white-space:nowrap"><button class="go" onclick="reviewOp(${r.id}, 'confirm')">${r.status === 'review' ? 'Approve' : 'Confirm'}</button>
+    <button class="go" style="background:var(--bad)" onclick="reviewOp(${r.id}, 'forget')">Drop</button></td></tr>`).join('');
+}
+async function reviewOp(id, op) { await api('api/item/' + id + '/' + op, {}); review(); recent(); }
 async function worked() {
   const w = await api('api/structure');
   const none = (n, msg) => `<tr><td class="mute" colspan="${n}">${msg}</td></tr>`;
@@ -152,6 +163,7 @@ async function worked() {
   $('#w_typed').innerHTML = '<tr><th>note</th><th>type</th><th>details</th></tr>' + (w.typed.map(x =>
     `<tr><td>${link(x.id, x.title)}</td><td class="mute">${esc(x.type)}</td><td>${Object.entries(x.fields).map(([k, v]) => esc(k.replace('_', ' ') + ' ' + v)).join(' · ')}</td></tr>`).join('') || none(3, 'none yet'));
   $('#w_dups').innerHTML = w.duplicates.map(d => `<tr><td>${link(d.a.id, '#' + d.a.id + ' ' + d.a.title)}</td><td>${link(d.b.id, '#' + d.b.id + ' ' + d.b.title)}</td></tr>`).join('') || none(2, 'none found');
+  $('#w_conf').innerHTML = (w.conflicts || []).map(d => `<tr><td>${link(d.a.id, '#' + d.a.id + ' ' + d.a.title)}</td><td>${link(d.b.id, '#' + d.b.id + ' ' + d.b.title)}</td><td class="mute">${esc(d.why)}</td></tr>`).join('') || none(3, 'none found');
   $('#w_cases').innerHTML = '<tr><th>question</th><th>right</th><th>was wrong</th><th></th></tr>' + (w.cases.map(c =>
     `<tr><td>${esc(c.question)}</td><td>${esc(c.right)}</td><td class="mute">${esc(c.wrong).slice(0, 80)}</td><td><a onclick="dropCase(${c.id})">remove</a></td></tr>`).join('') || none(4, 'none yet'));
 }
@@ -176,7 +188,7 @@ async function item(id) {
   const d = await api('api/item/' + id), c = $('#itemcard'); c.classList.remove('hide'); c.scrollIntoView({behavior:'smooth'});
   if (!d) { c.innerHTML = '<span class="mute">not found</span>'; return; }
   const sens = !!(d.meta && d.meta.sensitive), gone = d.status === 'archived';
-  const unconf = !!(d.meta && d.meta.learned_overnight && !d.meta.confirmed);
+  const unconf = !!(d.meta && (d.meta.learned_overnight || d.meta.inferred) && !d.meta.confirmed) || d.status === 'review';
   const vers = (d.versions || []).map(v => `<li><a onclick="item(${v.id})">${esc(v.title)}</a> <span class="mute">${when(v.created)}${v.current ? ' · current' : ''}${v.status !== 'active' ? ' · ' + v.status : ''}</span></li>`).join('');
   const hist = (d.history || []).map(v => `<li>${esc(v.body)} <span class="mute">${when(v.created)}</span></li>`).join('');
   c.innerHTML = `<div class="row"><h2 style="margin:0;flex:1">${esc(d.title)}</h2><a onclick="$('#itemcard').classList.add('hide')">close</a></div>
