@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.12
+- Pantry: snacks, chocolate, candy, soda and nuts added, so pizza snacks and milk chocolate stay in the pantry.
+
 ## 0.11.11
 - Pantry: adding something already past its printed date says so, with the year, instead of a weekday that reads like a future date. Oatmeal and popcorn added to the shelf-life table.
 

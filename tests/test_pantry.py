@@ -64,6 +64,7 @@ async def main():
     assert guess_location("Maruchan roast chicken ramen cups") == "pantry" and guess_location("pesto mac and cheese") == "pantry"
     assert guess_location("canned peas") == "pantry" and guess_location("cheese") == "fridge"
     assert guess_location("Rice-A-Roni beef") == "pantry" and guess_location("Swiss Miss milk chocolate hot cocoa mix") == "pantry"
+    assert guess_location("Bissli pizza wheat snacks") == "pantry" and guess_location("milk chocolate candy") == "pantry"
     assert guess_location("Cheese Club macaroni and cheese") == "pantry" and estimate("Quaker butter instant grits", "pantry") == 365
     st = Store(tempfile.mktemp())
     ha, models = FakeHA(), Models()
