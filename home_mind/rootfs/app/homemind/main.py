@@ -131,6 +131,12 @@ class App:
             n = structure.backfill(self.mind.store)
             self.mind.store.kv_set("structure_backfill", 1)
             log.info("structure read from %d notes filed before 0.19", n)
+        if self.mind.store.kv_get("structure_unread_system") != 1:
+            from . import structure
+            n = structure.unread_system(self.mind.store)
+            self.mind.store.kv_set("structure_unread_system", 1)
+            if n:
+                log.info("structure taken off %d notes Home Mind wrote itself", n)
         self._fix_kg_backfill()
         self.convlog = ConvLog(self.mind.store)
         self.mind.convlog = self.convlog
