@@ -45,6 +45,13 @@ E = {
     "calm": "input_number.steady_calm_pct", "bedtime": "input_button.steady_bedtime",
     "wake": "input_button.steady_wake_done", "room_temp": "sensor.dyson_c2a_us_mdb9996a_temperature",
     "room_hum": "sensor.dyson_c2a_us_mdb9996a_humidity", "weather": "weather.forecast_home",
+    "nap_start": "input_button.steady_nap_start", "nap_end": "input_button.steady_nap_end",
+    "lights_off": "input_button.steady_lights_off",
+    "pm": "sensor.bedroom_dyson_c2a_us_mdb9996a_particulates", "voc": "sensor.bedroom_dyson_c2a_us_mdb9996a_voc",
+    "aqi_in": "sensor.bedroom_dyson_c2a_us_mdb9996a_air_quality_index",
+    "aqi_out": "sensor.bedroom_dyson_c2a_us_mdb9996a_outdoor_aqi",
+    "where": "device_tracker.yitzs_iphone", "sun": "sun.sun",
+    "vote_cold": "input_button.comfort_cold", "vote_hot": "input_button.comfort_hot",
 }
 MIN_DAYS = 5
 MIN_DIFF = 0.75
@@ -74,6 +81,20 @@ FACTORS = [
      "Keep the bedroom about 2°F cooler overnight for 2 weeks (Home Mind's comfort control can do this)."),
     ("room_night_hum", "dry bedroom air overnight (under 35%)", ("lt", 35, "ge", 40), False,
      "Run the humidifier overnight to stay above 40% for 2 weeks."),
+    ("nap_prev", "a nap the day before", ("ge", 20, "eq", 0), True, None),
+    ("away_prev", "more time out of the house than usual the day before", ("rel_gt", 1.5, "rel_le", 1.0), True,
+     "Pacing for 2 weeks: after a long day out, keep the next day mostly at home and light."),
+    ("away_prev2", "more time out of the house than usual two days before", ("rel_gt", 1.5, "rel_le", 1.0), True,
+     None),
+    ("room_night_pm", "more particles in the bedroom air overnight", ("rel_gt", 1.5, "rel_le", 1.0), False,
+     "Run the Dyson on auto overnight for 2 weeks."),
+    ("room_night_voc", "more VOCs in the bedroom air overnight", ("rel_gt", 1.5, "rel_le", 1.0), False,
+     "Air out the bedroom for 10 minutes before bed for 2 weeks."),
+    ("outdoor_aqi", "worse outdoor air (AQI 50+)", ("ge", 50, "lt", 35), False, None),
+    ("daylight_h", "short days (under 10 hours of daylight)", ("lt", 10.0, "ge", 11.0), False,
+     "10 minutes of outdoor light within an hour of waking, every day for 2 weeks."),
+    ("night_votes", "a too-hot or too-cold night (2+ votes)", ("ge", 2, "eq", 0), False,
+     "Let the comfort control keep the bedroom steadier overnight for 2 weeks (fewer swings)."),
     ("pressure_change", "a pressure drop since yesterday", ("le", -0.10, "abs_lt", 0.05), False, None),
     ("temp_max", "a cold day (high under 45°F)", ("lt", 45, "ge", 55), False, None),
     ("late_meal_prev", "a late last meal the night before (after 9 pm)", ("ge", 21.0, "lt", 20.0), False,
@@ -104,13 +125,25 @@ def _hours(dt, day):
     return (dt - datetime.combine(day, datetime.min.time())).total_seconds() / 3600
 
 
+BUTTONS = ("bedtime", "wake", "nap_start", "nap_end", "lights_off", "vote_cold", "vote_hot")
+
+
 class Series:
-    """One entity's history as (time, value) pairs."""
-    def __init__(self, rows, attr=None):
+    """One entity's history as (time, value) pairs. For buttons the state is the press time itself, which is used
+    instead of last_changed (history stamps the state in force at the window start with the start time)."""
+    def __init__(self, rows, attr=None, button=False):
         self.pts = []
         for r in rows or []:
             st = r.get("state")
             if st in (None, "unknown", "unavailable"):
+                continue
+            if button:
+                try:
+                    t = _t(st)
+                except ValueError:
+                    continue
+                if not any(p[0] == t for p in self.pts):
+                    self.pts.append((t, st))
                 continue
             t = _t(r.get("last_changed") or r.get("last_updated"))
             if attr:
@@ -145,6 +178,19 @@ class Series:
             w = max((end - t).total_seconds(), 0)
             acc, tot = acc + v * w, tot + w
         return acc / tot if tot else pts[-1][1]
+
+    def hours_where(self, a, b, test):
+        """Hours in [a, b) whose state passes test(state), carrying the state in force at a."""
+        before = [(t, v) for t, v in self.pts if t < a]
+        pts = ([(a, before[-1][1])] if before else []) + self.within(a, b)
+        if not pts:
+            return None
+        tot = 0.0
+        for i, (t, v) in enumerate(pts):
+            end = pts[i + 1][0] if i + 1 < len(pts) else min(b, datetime.now())
+            if test(v):
+                tot += max((end - t).total_seconds(), 0)
+        return round(tot / 3600, 1)
 
     def changed(self, a, b):
         """The last value in [a, b) that differs from the one before it. Steady re-sends the same fog rating on
@@ -223,7 +269,7 @@ class Patterns:
 
     def build_day(self, day, hist):
         """One day's row from fetched history (and Home Mind's own notes)."""
-        S = {k: Series(hist.get(eid)) for k, eid in E.items() if k != "weather"}
+        S = {k: Series(hist.get(eid), button=k in BUTTONS) for k, eid in E.items() if k != "weather"}
         d0 = datetime.combine(day, datetime.min.time())
         h = lambda x: d0 + timedelta(hours=x)  # noqa: E731
         row = {"day": day.isoformat()}
@@ -243,6 +289,24 @@ class Patterns:
         row["steps_prev2"] = S["steps"].max(h(-48), h(-24)) or None
         row["calm_prev"] = S["calm"].last(h(-24), h(0)) or None
         row["stress_prev"] = S["stress"].max(h(-24), h(0)) if (row["steps_prev"] or row["calm_prev"]) else None
+        lo = S["lights_off"].times(h(-6), h(6))
+        row["lights_off"] = round(_hours(lo[-1], day - timedelta(days=1)), 2) if lo else None
+        if row["bedtime"] is None and row["lights_off"] is not None:
+            row["bedtime"] = row["lights_off"]
+        row["nap_min"] = self._naps(S, h(8), h(22))
+        row["nap_prev"] = self._naps(S, h(-16), h(-2))
+        away = lambda v: isinstance(v, str) and v not in ("home",)  # noqa: E731
+        row["away_h"] = S["where"].hours_where(h(6), h(24), away) if day < date.today() else None
+        row["away_prev"] = S["where"].hours_where(h(-18), h(0), away)
+        row["away_prev2"] = S["where"].hours_where(h(-42), h(-24), away)
+        row["daylight_h"] = S["sun"].hours_where(h(0), h(24), lambda v: v == "above_horizon") if day < date.today() \
+            else None
+        for k, key in (("room_night_pm", "pm"), ("room_night_voc", "voc"), ("room_night_aqi", "aqi_in")):
+            v = S[key].mean(h(-1), h(7))
+            row[k] = round(v, 3 if key == "voc" else 1) if v is not None else None
+        v = S["aqi_out"].mean(h(0), h(24))
+        row["outdoor_aqi"] = round(v) if v is not None else None
+        row["night_votes"] = len(S["vote_cold"].times(h(-2), h(8))) + len(S["vote_hot"].times(h(-2), h(8)))
         t = S["room_temp"].mean(h(-1), h(7))
         row["room_night_temp"] = round(t, 1) if t is not None else None
         hu = S["room_hum"].mean(h(-1), h(7))
@@ -266,6 +330,18 @@ class Patterns:
             except Exception:  # noqa: BLE001
                 row["events"] = None
         return row
+
+    @staticmethod
+    def _naps(S, a, b):
+        """Minutes napped in [a, b) from Steady's nap buttons (a start with no end counts 30 minutes)."""
+        starts, ends = S["nap_start"].times(a, b), S["nap_end"].times(a, b + timedelta(hours=4))
+        if not starts:
+            return 0 if (S["nap_start"].pts or S["nap_end"].pts) else None
+        tot = 0
+        for st_ in starts:
+            e = next((x for x in ends if x > st_), None)
+            tot += min((e - st_).total_seconds() / 60, 240) if e else 30
+        return round(tot)
 
     def _answer(self, day, what):
         """A check-in answer (or note) for that day, which beats the watch."""

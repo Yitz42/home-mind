@@ -64,7 +64,13 @@ async def main():
         rows(E["sleep"], [(d0 + timedelta(hours=1), 0.0), (d0 + timedelta(hours=6), 5.4)]),
         rows(E["readiness"], [(d0 + timedelta(hours=1), 0.0), (d0 + timedelta(hours=6, minutes=5), 41)]),
         rows(E["steps"], [(y0 + timedelta(hours=12), 4000), (y0 + timedelta(hours=20), 11000), (d0 + timedelta(hours=8), 200)]),
-        rows(E["bedtime"], [(d0 + timedelta(minutes=40), "x")]),
+        # buttons: the state is the press time; the first row is the window-start snapshot of an old press
+        [{"entity_id": E["bedtime"], "state": iso(y0 - timedelta(days=2)), "last_changed": iso(y0 - timedelta(hours=1))},
+         {"entity_id": E["bedtime"], "state": iso(d0 + timedelta(minutes=40)), "last_changed": iso(d0 + timedelta(minutes=40))}],
+        [{"entity_id": E["nap_start"], "state": iso(y0 + timedelta(hours=14)), "last_changed": iso(y0 + timedelta(hours=14))}],
+        [{"entity_id": E["nap_end"], "state": iso(y0 + timedelta(hours=14, minutes=45)), "last_changed": iso(y0 + timedelta(hours=14, minutes=45))}],
+        rows(E["where"], [(y0 - timedelta(hours=10), "home"), (y0 + timedelta(hours=9), "not_home"), (y0 + timedelta(hours=17), "home")]),
+        rows(E["pm"], [(y0 + timedelta(hours=20), 4.0), (d0 + timedelta(hours=2), 8.0)]),
         rows(E["room_temp"], [(y0 + timedelta(hours=22), 70.0), (d0 + timedelta(hours=3), 68.0)]),
         [{"entity_id": E["weather"], "state": "cloudy", "last_changed": iso(d0 + timedelta(hours=h)),
           "attributes": {"temperature": 40 + h, "humidity": 70, "pressure": 30.0}} for h in (2, 8, 14)],
@@ -75,6 +81,8 @@ async def main():
     row = pt.build_day(today, h)
     assert row["fog"] == 3.0 and row["sleep_h"] == 5.4 and row["readiness"] == 41, row
     assert row["steps_prev"] == 11000 and abs(row["bedtime"] - 24.67) < 0.02, row
+    assert row["nap_prev"] == 45 and row["away_prev"] == 8.0 and row["room_night_pm"] is not None, row
+    assert row["nap_min"] is None or row["nap_min"] == 0
     assert 67.9 < row["room_night_temp"] < 70.1 and row["temp_min"] == 42 and row["temp_max"] == 54, row
     stale = Series(rows(E["fog"], [(y0 + timedelta(hours=9), 3.0), (d0 + timedelta(hours=10), 3.0)]))
     n0_ = d0.replace(tzinfo=None)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.2
+- Patterns: the daily record adds naps (Steady's nap buttons), lights-off time, bedroom air overnight (particles, VOCs, air quality index), outdoor air quality, time out of the house (phone location, the day before and two days before), daylight hours and too-hot/too-cold votes in the night, each a factor in the comparisons.
+- Button presses (bedtime, wake, naps, lights off) are read from the press time itself; history's window-start snapshot of an old press no longer counts. The daily record is rebuilt once.
+
 ## 0.13.1
 - Patterns: a fog value Steady sends again (it re-sends on every sync and restart) is not a new rating; the check-in asks instead. Zero steps or calm means the watch did not sync, not a still day. The daily record is rebuilt once.
 - Bridge 0.1.3: Home Assistant may call /api/patterns (Jeeves can rate fog by voice, read the patterns and start or stop the fog experiment). Needs a Home Assistant restart to load.
