@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from aiohttp import web
 
 from .comfort import Comfort
+from .control import Control
 from .body import Body
 from .home import Home, plan_action
 from .automations import Engine
@@ -42,6 +43,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info", "comfort": True,
             "home": True, "home_controls": [], "home_fan_max": 100,
             "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": "", "overnight_time": "03:00", "overnight_model": "",
+            "overnight_enabled": True, "morning_enabled": True,
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -86,6 +88,7 @@ class App:
         self.ha = None
         self.comfort = None
         self.bridge = None
+        self.control = None
         self.started = time.time()
         self.tasks = []
 
@@ -114,8 +117,10 @@ class App:
         self.mind.convlog = self.convlog
         self.overnight = Overnight(self.mind.store, self.models, self.convlog, self.opts.get("overnight_time") or "03:00",
                                    self.opts.get("overnight_model") or None)
+        self.overnight.enabled = self.opts.get("overnight_enabled", True) is not False
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
+        self.morning.enabled = self.opts.get("morning_enabled", True) is not False
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
@@ -148,6 +153,9 @@ class App:
                                  ". Restart Home Assistant, then add it under Settings > Devices & services > Add "
                                  "integration > Home Mind Bridge. It will show the address to link Claude to.",
                                  "home_mind_bridge")
+        # switches, numbers and buttons for Home Assistant (through the bridge); put back changes made there
+        self.control = Control(self)
+        self.control.load()
         # build the word list for typo/sound repair now, so the first question doesn't wait for it
         await asyncio.get_running_loop().run_in_executor(None, self.mind.store.vocab)
         self.tasks = [asyncio.create_task(self.upkeep())]
@@ -764,6 +772,26 @@ def build(app_state):
     @r.post("/api/comfort/cycle")
     async def comfort_cycle(_):
         return J(await A.comfort.cycle(reason="asked"))
+
+    # ---- controls for Home Assistant (the bridge makes switches, numbers, times, buttons and sensors of these) -------
+    @r.get("/api/control")
+    async def control_get(_):
+        return J(A.control.describe())
+
+    @r.post("/api/control/set")
+    async def control_set(q):
+        b = await q.json()
+        return J(A.control.set(b["key"], b["value"]))
+
+    @r.post("/api/control/reset")
+    async def control_reset(q):
+        b = await q.json() if q.can_read_body else {}
+        return J(A.control.reset(b.get("key")))
+
+    @r.post("/api/control/run/{action}")
+    async def control_run(q):
+        res = A.control.run(q.match_info["action"])
+        return J(dict(res, control=A.control.describe()))
 
     @r.post("/mcp")
     async def mcp_post(q):

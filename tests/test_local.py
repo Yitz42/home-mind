@@ -186,6 +186,29 @@ def main():
         except urllib.error.HTTPError as e:
             code = e.code
         check("web page served", code == 200)
+
+        # controls for Home Assistant (what the bridge turns into switches, numbers, times, buttons, sensors)
+        code, ctl = call("/api/control")
+        check("controls described", code == 200 and ctl["settings"]["voice_seconds"]["value"] == 8
+              and "overnight" in ctl["actions"] and ctl["sensors"]["items"]["value"] > 0, ctl)
+        code, ctl = call("/api/control/set", {"key": "voice_seconds", "value": 12})
+        check("control set", code == 200 and ctl["settings"]["voice_seconds"]["value"] == 12
+              and ctl["settings"]["voice_seconds"]["overridden"], ctl)
+        code, err = call("/api/control/set", {"key": "voice_seconds", "value": 999})
+        check("control refuses out-of-range", code == 400 and "between" in err.get("error", ""), err)
+        code, err = call("/api/control/set", {"key": "models", "value": []})
+        check("control refuses unknown setting", code == 400, err)
+        code, r = call("/api/control/run/models", {})
+        check("control job starts", code == 200 and r["started"], r)
+        for _ in range(50):
+            last = call("/api/control")[1]["actions"]["models"]["last"]
+            if last:
+                break
+            time.sleep(0.2)
+        check("control job result kept", last and last["ok"], last)
+        code, ctl = call("/api/control/reset", {"key": "voice_seconds"})
+        check("control reset", code == 200 and ctl["settings"]["voice_seconds"]["value"] == 8
+              and not ctl["settings"]["voice_seconds"]["overridden"], ctl)
     finally:
         proc.terminate()
         out = proc.communicate(timeout=10)[0].decode()

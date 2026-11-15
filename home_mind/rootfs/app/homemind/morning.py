@@ -19,6 +19,7 @@ class Morning:
         self.at = tuple(int(x) for x in (at or "07:30").split(":"))
         self.notify = notify
         self.done_for = None
+        self.enabled = True          # the Morning summary switch; off skips the daily send (not a button press)
 
     def _rows(self, where, args=()):
         return [self.store._row(r) for r in self.store.db.execute(
@@ -116,6 +117,8 @@ class Morning:
         now = datetime.now()
         if (now.hour, now.minute) >= self.at and self.done_for != now.date():
             self.done_for = now.date()
+            if not self.enabled:
+                return
             try:
                 r = await self.send()
                 log.info("morning summary sent to %s", r["sent_to"])

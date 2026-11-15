@@ -1,8 +1,7 @@
 """Home Mind Bridge: gives the Home Mind app an address Claude can reach (a Home Assistant webhook, so it works
-through Home Assistant Cloud), and services so automations and voice (Jeeves) can remember and recall."""
-import json
+through Home Assistant Cloud), services so automations and voice (Jeeves) can remember and recall, and a Home Mind
+device whose switches, numbers, times, buttons and sensors control the app from any dashboard."""
 import logging
-import os
 
 import aiohttp
 import voluptuous as vol
@@ -14,29 +13,15 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
+from .api import call as _call
+from .api import conn as _conn
 from .const import CONF_WEBHOOK_ID, DOMAIN, NOTIFY_ID
+from .coordinator import HomeMindCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-CONN = os.path.join(os.path.dirname(__file__), "connection.json")
+PLATFORMS = ["switch", "number", "time", "button", "sensor"]
 PASS_IN = ("Content-Type", "Accept", "Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-ID")
 PASS_OUT = ("Content-Type", "Mcp-Session-Id")
-
-
-def _read_conn():
-    with open(CONN) as f:
-        return json.load(f)
-
-
-async def _conn(hass):
-    return await hass.async_add_executor_job(_read_conn)
-
-
-async def _call(hass, method, path, body=None):
-    conn = await _conn(hass)
-    s = async_get_clientsession(hass)
-    async with s.request(method, conn["url"] + path, json=body, headers={"X-Home-Mind-Token": conn["token"]},
-                         timeout=aiohttp.ClientTimeout(total=120)) as r:
-        return await r.json()
 
 
 async def _links(hass, webhook_id):
@@ -118,7 +103,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                            "updated": i["updated"]} for i in items]}
 
     ALLOWED = ("/api/pantry", "/api/ask", "/api/do", "/api/journal", "/api/morning", "/api/calendar", "/api/home",
-               "/api/patterns")
+               "/api/patterns", "/api/control")
 
     async def call_api(call: ServiceCall):
         """Reach one of Home Mind's own endpoints from a script (pantry, meals, ask...)."""
@@ -148,13 +133,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not entry.data.get("shown"):
         await _show_links(hass, wid)
         hass.config_entries.async_update_entry(entry, data={**entry.data, "shown": True})
+
+    # The Home Mind device. If the app is not up yet, the webhook and services above still work, and the
+    # entities appear on the first successful poll.
+    coordinator = HomeMindCoordinator(hass, entry)
+    await coordinator.async_refresh()
+    entry.runtime_data = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     for s in ("remember", "recall", "show_link", "call"):
         hass.services.async_remove(DOMAIN, s)
-    return True
+    return ok
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

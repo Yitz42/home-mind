@@ -22,6 +22,29 @@ Everything is in one SQLite file in the app's data folder, included in Home Assi
 3. A notification shows the address. In Claude: Settings › Connectors › Add custom connector, and paste the
    **Remote** address. Treat it like a password.
 
+## Controls in Home Assistant
+
+The bridge adds a **Home Mind** device (Settings › Devices & services › Home Mind Bridge) whose entities control
+the app from any dashboard, automation or voice command:
+
+| kind | entities |
+|---|---|
+| switches | Bedroom comfort brain, Watch the house, Overnight learning, Morning summary, Brain-fog check-ins, Install new packs automatically |
+| numbers | Voice time limit (s), Fade unused notes after (days), Brain tests every (hours) |
+| times | Morning summary time, Overnight learning time |
+| buttons | Run overnight learning now, Send the morning summary, Sync calendars, Check models, Install pack updates, Run a comfort cycle, Refresh the daily record, Run brain tests, Hand automations back to Home Assistant |
+| sensors | Memory items, Conversation turns to learn from, Last overnight run, Facts filed last night, Automations run by Home Mind, Version |
+
+A change made from Home Assistant is kept across restarts. If you later change the same option on the
+Configuration tab, the Configuration tab wins and the Home Assistant change is dropped. Switches and numbers show
+`changed_here` (and the Configuration tab's value) as attributes. Buttons start their job in the background and
+show its last result (`last_run`, `last_ok`, `last_result` or `last_error`); a second press while it runs is
+ignored. Turning Overnight learning or Morning summary off skips the scheduled run; the buttons still work.
+
+If the app isn't running when Home Assistant starts, the entities appear on the first successful check (every
+30 seconds). The same controls are at `GET /api/control`, `POST /api/control/set {"key", "value"}`,
+`POST /api/control/reset {"key"?}` and `POST /api/control/run/<job>`.
+
 ## Models
 
 Configured on the Configuration tab. Types:
