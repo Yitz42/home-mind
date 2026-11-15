@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.10
+- Pantry: boxed products named by brand (Rice-A-Roni, Hamburger Helper, Instant Lunch) keep like boxed food; macaroni and cheese, grits, hot cocoa and other mixes added.
+
 ## 0.11.9
 - Pantry: a container word at the end is skipped ("ramen cups" keeps like ramen); canned and dried foods go in the pantry; boxed mac and cheese and seeds added.
 

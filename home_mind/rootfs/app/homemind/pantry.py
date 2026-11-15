@@ -54,6 +54,9 @@ SHELF = {
     "ramen": (365, 365, 365), "noodles": (365, 365, 365), "instant noodles": (365, 365, 365),
     "biscuits": (180, 180, 180), "cookies": (180, 180, 180), "pastries": (120, 120, 120), "puffs": (120, 120, 120),
     "mac and cheese": (365, 365, 365), "seeds": (730, 730, 730), "chia seeds": (730, 730, 730),
+    "macaroni and cheese": (365, 365, 365), "macaroni": (730, 730, 730), "grits": (365, 365, 365),
+    "mix": (365, 365, 365), "cocoa mix": (730, 730, 730), "hot cocoa": (730, 730, 730), "rice a roni": (365, 365, 365), "pasta roni": (365, 365, 365), "hamburger helper": (365, 365, 365),
+    "instant lunch": (365, 365, 365), "cup noodles": (365, 365, 365), "kraft dinner": (365, 365, 365),
     "mango": (7, 300, 5), "peach": (5, 300, 3), "pear": (10, 300, 5), "pineapple": (5, 300, 3), "kiwi": (14, None, 5),
     "melon": (5, None, 5), "watermelon": (5, None, 7), "lasagna": (4, 270, None), "meatballs": (4, 120, None),
     "enchiladas": (4, 270, None), "dinner": (4, 270, None), "meal": (4, 270, None), "burrito": (4, 270, None),
@@ -100,8 +103,14 @@ TRAILING_CONTAINERS = {"cup", "cups", "pack", "packs", "packet", "packets", "box
                        "jar", "jars", "bottle", "bottles", "can", "cans", "tub", "tubs", "carton", "cartons"}
 
 
+SHELF_BRANDS = ("rice a roni", "pasta roni", "hamburger helper", "instant lunch", "cup noodles", "kraft dinner")
+
+
 def _tail_match(n):
     """The table entry the end of the name names ("chicken ramen" is ramen, "milk biscuits" is biscuits)."""
+    for b in SHELF_BRANDS:            # boxed products named by brand ("Rice-A-Roni beef" is not beef)
+        if re.search(rf"\b{b}\b", n):
+            return (b, SHELF[b])
     words = n.split()
     while len(words) > 1 and words[-1] in TRAILING_CONTAINERS:   # "ramen cups" is ramen
         words.pop()
