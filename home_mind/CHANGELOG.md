@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.10.2
+- Overnight duplicates: facts about different names or numbers are never treated as the same fact (two toolboxes in the laundry room were being merged).
+
 ## 0.10.1
 - Overnight learning, from its first real run: facts are written in the first person ("I keep…", not "the user…"); turns Jeeves already saved ("Saved: …") are left out; facts that say nothing on their own are skipped; duplicates are caught by comparing content words (within the night and against memory).
 - Extraction bench: facts already saved through Jeeves are mixed in, and duplicates filed are counted.

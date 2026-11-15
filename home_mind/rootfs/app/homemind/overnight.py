@@ -95,9 +95,24 @@ def _content(text):
     return {w for w in words(text) if w not in FILLER}
 
 
+def _keys(text):
+    """Names and numbers: two facts about different things or values are never duplicates."""
+    names = {w.lower() for w in re.findall(r"(?<![.!?]\s)(?<!^)\b[A-Z][a-z]+\b", text or "")} - FILLER
+    nums = set(re.findall(r"\b\d+\b", text or ""))
+    return names, nums
+
+
 def _overlap(a, b):
     """How much of the shorter fact's content the other one covers ("I slept from 1 to 7 am" vs "The person slept
-    from 1 to 7 am": 1.0)."""
+    from 1 to 7 am": 1.0). Different names or numbers: 0 ("the Logor toolbox is in the laundry room" is not the
+    Fidor one)."""
+    (na, ua), (nb, ub) = _keys(a), _keys(b)
+    if (na or nb) and na != nb and not (na <= nb or nb <= na):
+        return 0.0
+    if na != nb and na and nb:
+        return 0.0
+    if ua and ub and not (ua <= ub or ub <= ua):
+        return 0.0
     wa, wb = _content(a), _content(b)
     if not wa or not wb:
         return 0.0
