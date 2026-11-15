@@ -53,6 +53,7 @@ SHELF = {
     "water enhancer": (365, 365, 365), "honey": (730, 730, 730), "vinegar": (730, 730, 730), "oil": (365, 365, 365),
     "ramen": (365, 365, 365), "noodles": (365, 365, 365), "instant noodles": (365, 365, 365),
     "biscuits": (180, 180, 180), "cookies": (180, 180, 180), "pastries": (120, 120, 120), "puffs": (120, 120, 120),
+    "mac and cheese": (365, 365, 365), "seeds": (730, 730, 730), "chia seeds": (730, 730, 730),
     "mango": (7, 300, 5), "peach": (5, 300, 3), "pear": (10, 300, 5), "pineapple": (5, 300, 3), "kiwi": (14, None, 5),
     "melon": (5, None, 5), "watermelon": (5, None, 7), "lasagna": (4, 270, None), "meatballs": (4, 120, None),
     "enchiladas": (4, 270, None), "dinner": (4, 270, None), "meal": (4, 270, None), "burrito": (4, 270, None),
@@ -95,9 +96,15 @@ def _norm(name):
     return re.sub(r"\s+", " ", n).strip()
 
 
+TRAILING_CONTAINERS = {"cup", "cups", "pack", "packs", "packet", "packets", "box", "boxes", "bag", "bags",
+                       "jar", "jars", "bottle", "bottles", "can", "cans", "tub", "tubs", "carton", "cartons"}
+
+
 def _tail_match(n):
     """The table entry the end of the name names ("chicken ramen" is ramen, "milk biscuits" is biscuits)."""
     words = n.split()
+    while len(words) > 1 and words[-1] in TRAILING_CONTAINERS:   # "ramen cups" is ramen
+        words.pop()
     for size in range(len(words), 0, -1):
         tail = " ".join(words[-size:])
         best = None
@@ -133,6 +140,8 @@ def guess_location(name):
     n = _norm(name)
     if "frozen" in n or "ice cream" in n:
         return "freezer"
+    if re.search(r"\b(canned|dried|dry)\b", n):
+        return "pantry"
     tail = _tail_match(n)
     if tail:                          # "chicken ramen" keeps like ramen; "milk biscuits" like biscuits
         v = tail[1]

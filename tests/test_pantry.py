@@ -61,6 +61,8 @@ async def main():
     assert estimate("Stur fruit punch water enhancer", "pantry") == 365
     assert guess_location("Maruchan chicken ramen") == "pantry" and guess_location("Britannia Milk Bikis biscuits") == "pantry"
     assert guess_location("chicken breast") == "fridge" and guess_location("milk") == "fridge"
+    assert guess_location("Maruchan roast chicken ramen cups") == "pantry" and guess_location("pesto mac and cheese") == "pantry"
+    assert guess_location("canned peas") == "pantry" and guess_location("cheese") == "fridge"
     st = Store(tempfile.mktemp())
     ha, models = FakeHA(), Models()
     p = Pantry(st, ha, models, tempfile.mkdtemp())
