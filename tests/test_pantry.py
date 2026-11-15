@@ -59,6 +59,8 @@ async def main():
     assert estimate("Twinings ginger mango green tea", "pantry") == 730    # tea, not mango
     assert estimate("iodized salt", "pantry") > 1000 and estimate("instant coffee", "pantry") >= 730
     assert estimate("Stur fruit punch water enhancer", "pantry") == 365
+    assert guess_location("Maruchan chicken ramen") == "pantry" and guess_location("Britannia Milk Bikis biscuits") == "pantry"
+    assert guess_location("chicken breast") == "fridge" and guess_location("milk") == "fridge"
     st = Store(tempfile.mktemp())
     ha, models = FakeHA(), Models()
     p = Pantry(st, ha, models, tempfile.mkdtemp())

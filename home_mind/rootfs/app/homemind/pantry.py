@@ -51,6 +51,8 @@ SHELF = {
     "powder": (1095, 1095, 1095), "spice": (1095, 1095, 1095), "seasoning": (1095, 1095, 1095),
     "black pepper": (1095, 1095, 1095), "soy sauce": (730, 730, 730), "enhancer": (365, 365, 365),
     "water enhancer": (365, 365, 365), "honey": (730, 730, 730), "vinegar": (730, 730, 730), "oil": (365, 365, 365),
+    "ramen": (365, 365, 365), "noodles": (365, 365, 365), "instant noodles": (365, 365, 365),
+    "biscuits": (180, 180, 180), "cookies": (180, 180, 180), "pastries": (120, 120, 120), "puffs": (120, 120, 120),
     "mango": (7, 300, 5), "peach": (5, 300, 3), "pear": (10, 300, 5), "pineapple": (5, 300, 3), "kiwi": (14, None, 5),
     "melon": (5, None, 5), "watermelon": (5, None, 7), "lasagna": (4, 270, None), "meatballs": (4, 120, None),
     "enchiladas": (4, 270, None), "dinner": (4, 270, None), "meal": (4, 270, None), "burrito": (4, 270, None),
@@ -93,6 +95,20 @@ def _norm(name):
     return re.sub(r"\s+", " ", n).strip()
 
 
+def _tail_match(n):
+    """The table entry the end of the name names ("chicken ramen" is ramen, "milk biscuits" is biscuits)."""
+    words = n.split()
+    for size in range(len(words), 0, -1):
+        tail = " ".join(words[-size:])
+        best = None
+        for k, v in SHELF.items():
+            if re.fullmatch(rf"(?:.*\b)?{re.escape(k)}s?", tail) and (best is None or len(k) > len(best[0])):
+                best = (k, v)
+        if best:
+            return best
+    return None
+
+
 def estimate(name, location):
     """Days until use for a food kept somewhere, from the table (longest matching key wins)."""
     n = _norm(name)
@@ -100,15 +116,8 @@ def estimate(name, location):
     best = None
     if location == "pantry" and re.search(r"\b(canned|can|cans|jar|jarred|dried|dry)\b", n):
         return 730
-    words = n.split()
     # the last word names the food ("strawberry banana yogurt" is yogurt), so try the end of the name first
-    for size in range(len(words), 0, -1):
-        tail = " ".join(words[-size:])
-        for k, v in SHELF.items():
-            if re.fullmatch(rf"(?:.*\b)?{re.escape(k)}s?", tail) and (best is None or len(k) > len(best[0])):
-                best = (k, v)
-        if best:
-            break
+    best = _tail_match(n)
     if best is None:                  # "chicken breast": the food word isn't last
         for k, v in SHELF.items():
             if re.search(rf"\b{re.escape(k)}s?\b", n) and (best is None or len(k) > len(best[0])):
@@ -124,6 +133,10 @@ def guess_location(name):
     n = _norm(name)
     if "frozen" in n or "ice cream" in n:
         return "freezer"
+    tail = _tail_match(n)
+    if tail:                          # "chicken ramen" keeps like ramen; "milk biscuits" like biscuits
+        v = tail[1]
+        return "fridge" if v[2] is None or (v[0] and v[0] < 30 and (v[2] or 0) < 7) else "pantry"
     if any(re.search(rf"\b{k}s?\b", n) for k in FRIDGE_FIRST):
         return "fridge"
     for k, v in SHELF.items():

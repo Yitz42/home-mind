@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.8
+- Pantry: where an item goes is decided by the food the name ends with, so chicken ramen and Milk Bikis biscuits go in the pantry, not the fridge. Ramen, noodles, biscuits, cookies and pastries added to the shelf-life table.
+
 ## 0.11.7
 - Pantry, from shelf photos: tea, coffee, salt, cocoa, spices and powders, soy sauce and water enhancers keep for years, not months (ginger mango green tea keeps like tea, not mango).
 
