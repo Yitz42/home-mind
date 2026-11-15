@@ -157,7 +157,13 @@ class Morning:
                              + " (tell Jeeves \"I used…\" or \"I tossed…\")")
         if not lines:
             lines.append("Nothing new was filed in the last day.")
-        from . import tidy
+        from . import structure, tidy
+        try:
+            due = structure.due_lines(self.store, time.time())
+        except Exception:  # noqa: BLE001
+            due = []
+        if due:
+            lines.insert(0, "Due: " + "; ".join(due[:6]) + (" …" if len(due) > 6 else ""))
         dup = tidy.summary_line(self.store, _short)       # secret values hidden, as in the rest of the summary
         if dup:
             lines.append(dup)

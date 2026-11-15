@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.18.0"
+version: "0.19.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -71,6 +71,7 @@ options:
   notify_daily_cap: 0
   checkin_old_facts: true
   checkin_after_days: 180
+  overnight_structure: false
 schema:
   models:
     - name: str
@@ -120,3 +121,4 @@ schema:
   notify_daily_cap: int(0,50)
   checkin_old_facts: bool
   checkin_after_days: int(30,3650)
+  overnight_structure: bool

@@ -17,6 +17,9 @@ SECRET_WORDS = r"(?:codes?|passwords?|passcodes?|pins?|combinations?|combos?|pas
                r"lock codes?|access codes?|security answers?|secret)"
 SECRET = re.compile(rf"\b{SECRET_WORDS}\b", re.I)
 VALUE = re.compile(r"\b\d{3,}\b|\b(?:is|to|=|:)\s+([A-Za-z0-9!@#$%^&*_\-]{4,})", re.I)
+# a value right after the secret word, with no "is" ("Guest wifi password sunflower88"): it must have a digit or a
+# symbol, so "password reset" or "code word" stay plain words
+RIGHT_AFTER = re.compile(rf"(\b{SECRET_WORDS}\b:?\s+)((?=[A-Za-z0-9!@#$%^&*_\-]*[\d!@#$%^&*_])[A-Za-z0-9!@#$%^&*_\-]{{4,}})", re.I)
 DIGITS = re.compile(r"(?<![\d\-:#/.])\b\d{3,}\b(?![\-:/]\d)")   # not dates, times, ids
 WORD_AFTER = re.compile(rf"(\b{SECRET_WORDS}\b[^.;\n]*?\b(?:is|to|was|=|:)\s+)([A-Za-z0-9!@#$%^&*_\-]{{4,}})", re.I)
 IP = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
@@ -30,7 +33,7 @@ GENERIC = {"what", "whats", "is", "the", "my", "for", "code", "codes", "password
 def is_sensitive(text, meta=None):
     if meta and isinstance(meta.get("sensitive"), bool):
         return meta["sensitive"]
-    return bool(SECRET.search(text or "") and VALUE.search(text or ""))
+    return bool(SECRET.search(text or "") and (VALUE.search(text or "") or RIGHT_AFTER.search(text or "")))
 
 
 def is_cloud(model):
@@ -67,6 +70,7 @@ def _mask_line(line):
     for p in parts:
         if SECRET.search(p) or re.search(r"\[re: [^\]]*" + SECRET_WORDS, p, re.I):
             p = WORD_AFTER.sub(lambda m: m.group(1) + "[hidden]", p)
+            p = RIGHT_AFTER.sub(lambda m: m.group(1) + "[hidden]", p)
             p = DIGITS.sub("[hidden]", p)
         out.append(p)
     return "".join(out)
@@ -84,7 +88,7 @@ def mask(text, question, words_fn, names_fn):
     for line in text.split("\n"):
         lw = set(words_fn(line))
         about = (q_names and q_names <= lw) or (not q_names and content and any(w in lw for w in content))
-        if SECRET.search(line) and VALUE.search(line) and not (asks_secret and about):
+        if SECRET.search(line) and (VALUE.search(line) or RIGHT_AFTER.search(line)) and not (asks_secret and about):
             line = _mask_line(line)
         if not asks_addr:
             line = IP.sub("[address]", MAC.sub("[address]", line))

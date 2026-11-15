@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0
+- Jeeves's lookup (/api/recall) and Claude's mind_recall return the worked-out lines and the profile first (id 0), and use the same search as answers (past days, "my partner").
+- Notes filed before 0.19 have their structure read once at start-up.
+- Morning summary: "Due:" chores overdue or due by tomorrow, and repeating things today or tomorrow.
+- Web panel: a Worked out tab (profile, chores, repeating, where things are, details, duplicates, corrections).
+- Secret values written right after the secret word ("Guest wifi password sunflower88") are recognized and hidden; a value needs a digit or symbol, so "password reset" stays.
+- "Weekly, on Tuesday" means every Tuesday (it was read as every 7 days from when it was filed). "When did I last …" no longer gets next-date lines.
+- Option overnight_structure (off): the overnight model reads what the patterns missed; only what it copies from the note is kept. New paraphrase suite and tests/compare_structure.py to decide on your model. Test runs take ingest "structure".
+
 ## 0.18.0
 - Fixed before release: a time is not a place ("the meeting is on Friday", "the exam is in two weeks", "the birthday is on March 3"); backing out of a correction ("never mind", "ok") files nothing; "No, it's 5512" files just the value, and a bare value or phrase is filed as the value of what was wrong ("The garage code is 9090").
 - Read from plain notes as they are filed, no model needed, and worked out when asked (a WORKED OUT section on the page models see):
