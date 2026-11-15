@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.13.1
+- Bridge 0.1.3: Home Assistant may call /api/patterns (Jeeves can rate fog by voice, read the patterns and start or stop the fog experiment). Needs a Home Assistant restart to load.
+
 ## 0.13.0
 - Patterns: a daily record kept in Home Mind (sleep, morning readings, the day before and two days before, bedroom overnight, weather, logged food and caffeine, calendar) next to the brain-fog rating, backfilled from the ~10 days Home Assistant still has.
 - Plain comparisons find what goes with more fog: at least 5 days each side, a difference of 0.75+ points, a shuffle test against chance, and "holding" only after two weekly reports 10+ days apart. Exertion is checked a day and two days later (crashes after exertion), and its experiments are about pacing.
