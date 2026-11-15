@@ -1,8 +1,8 @@
 # Changelog
 
 ## 0.16.0
-- Past days: a question about yesterday, a past weekday, a date or weeks ago also searches replaced versions, and the version current that day comes first. On the hard suite the right version is now first for yesterday 60/60 (was 0/60) and a past weekday 53/60 (was 17/60), so a brain-only answer gives it too.
-- "Nothing close": the model is told when the best note is a poor match (rare question words count more; a word no note has counts most), and to say it doesn't know unless a note plainly answers. New `abstain` suite: about 3 in 4 never-filed answers flagged (named and unnamed; names alone caught about half), about 1 in 30 answerable questions. Answers carry `weak`.
+- Past days: a question about yesterday, a past weekday, a date or weeks ago also searches replaced versions, and the version current that day comes first. On the hard suite the right version is now first for yesterday 60/60 (was 0/60) and a past weekday 52/60 (was 14/60), so a brain-only answer gives it too.
+- "Nothing close": the model is told when the best note is a poor match (rare question words count more; a word no note has counts most), and to say it doesn't know unless a note plainly answers. New `abstain` suite: about 7 in 10 never-filed answers flagged (names alone caught 4 in 10), about 1 in 30 answerable questions. Answers carry `weak`.
 - Sources: answers carry `sources` (note id, title, date noted). "That's wrong" right after an answer marks that note not helpful and asks for the right value. Test runs report how often a right answer points to its note.
 - Two answer options, off until they prove themselves on your models: repeat the best note before the question on long pages, and name the notes before answering (not for voice). Switches on the Home Mind device too. `tests/compare_answers.py` compares them on a real model through the Tests runner.
 - The test runner now uses the same search and the same page as real answers.

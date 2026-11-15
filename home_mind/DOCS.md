@@ -94,8 +94,8 @@ combinations on your own model and prints them side by side.
 - **Nothing close.** If a name in the question is in no note found, or the best note holds less than a third of
   the question's word weight (rare words count more; a word in no note at all counts most), the model is told the
   notes may be about something else and to say it doesn't know unless one plainly answers. Notes are never dropped
-  for this. On the abstain suite it flags about 3 in 4 questions whose answer was never filed and about 1 in 30
-  answerable ones. Answers carry `"weak": true` when it applied; with no model, the brain's own answer says so.
+  for this. On the abstain suite it flags about 7 in 10 questions whose answer was never filed (names alone: 4 in
+  10) and about 1 in 30 answerable ones. Answers carry `"weak": true` when it applied; with no model, the brain's own answer says so.
 - **Sources.** Answers carry `sources`: the note(s) the answer came from (the ids the model named, else the notes
   holding the answer's values), with the date each was noted. Saying "that's wrong" right after an answer (same
   conversation) marks that note not helpful, so it ranks lower, and asks for the right value.
