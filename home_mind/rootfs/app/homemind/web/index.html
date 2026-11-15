@@ -25,7 +25,7 @@
 </head>
 <body>
 <header><h1>🧠 Home Mind</h1>
-  <nav><button data-t="overview" class="on">Overview</button> <button data-t="memory">Memory</button> <button data-t="worked">Worked out</button> <button data-t="pantry">Pantry</button> <button data-t="tests">Tests</button> <button data-t="models">Models</button> <button data-t="updates">Updates</button></nav>
+  <nav><button data-t="overview" class="on">Overview</button> <button data-t="memory">Memory</button> <button data-t="worked">Worked out</button> <button data-t="house">House</button> <button data-t="pantry">Pantry</button> <button data-t="tests">Tests</button> <button data-t="models">Models</button> <button data-t="updates">Updates</button></nav>
   <span class="mute" id="ver" style="margin-left:auto"></span></header>
 <main>
 <section id="overview">
@@ -62,6 +62,19 @@
   <div class="card"><h2>Disagreeing notes <span class="mute">two people said different things, or a guess differs from what was said</span></h2><table id="w_conf"></table></div>
   <div class="card"><h2>Corrections kept as tests</h2><table id="w_cases"></table>
     <p class="mute">Kept when you say "that's wrong" and then the right value. The <b>corrections</b> suite on the Tests tab asks them again.</p></div>
+</section>
+<section id="house" class="hide">
+  <div class="card"><div class="row"><h2 style="margin:0;flex:1">Notable today</h2><span class="mute" id="h_at"></span> <button class="go" onclick="houseLearn()">Learn now</button></div><table id="h_notable"></table>
+    <p class="mute">Locks, garage doors, things at an unusual hour and readings far outside their usual range. Routine changes are left out (and rank lower in answers).</p></div>
+  <div class="card"><h2>Habits <span class="mute">from the last 4 weeks, checked against chance</span></h2><ul id="h_habits"></ul></div>
+  <div class="card"><h2>Suggested automations <span class="mute">things done by hand at about the same time</span></h2><table id="h_sug"></table>
+    <p class="mute">Create makes it in Home Assistant switched off; turn it on there when you're happy with it.</p></div>
+  <div class="card"><h2>Ask for an automation</h2>
+    <div class="row"><input id="ad_req" placeholder="e.g. turn off the desk outlets at midnight on weeknights" style="flex:1"> <select id="ad_model"></select> <button class="go" onclick="draftAuto()">Draft</button></div>
+    <pre id="ad_out" class="mute" style="white-space:pre-wrap"></pre>
+    <div class="row hide" id="ad_install"><input id="ad_pin" type="password" placeholder="PIN (only for unlocking or opening)"> <button class="go" onclick="installAuto()">Install switched off</button> <span id="ad_res" class="mute"></span></div>
+    <p class="mute">A model writes it; Home Mind checks every entity, service and trigger against Home Assistant before anything is installed. Unlocking, opening a garage door or disarming needs option automation_pin.</p></div>
+  <div class="card"><h2>Usual ranges</h2><table id="h_base"></table></div>
 </section>
 <section id="pantry" class="hide">
   <div class="card"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
@@ -124,6 +137,7 @@ async function load(t) {
   }
   if (t === 'memory') { browse(''); recent(); review(); }
   if (t === 'worked') { worked(); }
+  if (t === 'house') { houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
   if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${k}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
@@ -149,6 +163,28 @@ async function review() {
     <button class="go" style="background:var(--bad)" onclick="reviewOp(${r.id}, 'forget')">Drop</button></td></tr>`).join('');
 }
 async function reviewOp(id, op) { await api('api/item/' + id + '/' + op, {}); review(); recent(); }
+let draftCfg = null;
+async function houseTab() {
+  const h = await api('api/house'), none = (n, m) => `<tr><td class="mute" colspan="${n}">${m}</td></tr>`;
+  $('#h_at').textContent = h.at ? 'learned ' + when(h.at) : 'not learned yet';
+  $('#h_notable').innerHTML = h.notable.map(x => `<tr><td class="mute num" style="white-space:nowrap">${when(x.created)}</td><td><a onclick="document.querySelector('nav button[data-t=memory]').click(); item(${x.id})">${esc(x.unusual || x.title)}</a></td><td class="mute">${esc((x.why || []).join(', '))}</td></tr>`).join('') || none(3, 'nothing notable in the last day');
+  $('#h_habits').innerHTML = h.habits.map(x => `<li>${esc(x.text)}</li>`).join('') || '<li class="mute">none found yet (it needs at least 5 days of the same thing)</li>';
+  $('#h_sug').innerHTML = h.suggestions.map(x => `<tr><td><b>${esc(x.config.alias)}</b><br><span class="mute">${esc(x.habit)}</span></td><td style="white-space:nowrap"><button class="go" onclick="sugOp('${x.id}', 'create')">Create (off)</button> <button class="go" style="background:var(--mute)" onclick="sugOp('${x.id}', 'dismiss')">Dismiss</button></td></tr>`).join('') || none(2, 'none');
+  $('#h_base').innerHTML = '<tr><th>reading</th><th class="num">usually</th><th class="num">middle</th><th class="num">readings</th></tr>' + (h.baselines.map(b => `<tr><td>${esc(b.name)}</td><td class="num">${b.low}–${b.high}</td><td class="num">${b.middle}</td><td class="num mute">${b.readings}</td></tr>`).join('') || none(4, 'not enough readings yet'));
+}
+async function houseLearn() { await api('api/house/learn', {}); houseTab(); }
+async function sugOp(id, op) { const r = await api('api/house/suggestion/' + id + '/' + op, {}); if (r.problems) alert(r.problems.join('\n')); houseTab(); }
+async function draftAuto() {
+  $('#ad_out').textContent = 'drafting…'; $('#ad_install').classList.add('hide');
+  const r = await api('api/automations/draft', {request: $('#ad_req').value, model: $('#ad_model').value});
+  draftCfg = r.config;
+  $('#ad_out').textContent = (r.error ? r.error + '\n' : '') + (r.config ? JSON.stringify(r.config, null, 2) : '') + (r.problems && r.problems.length ? '\n\nProblems:\n- ' + r.problems.join('\n- ') : r.config ? '\n\nChecked: every entity and service exists.' : '');
+  $('#ad_install').classList.toggle('hide', !r.config);
+}
+async function installAuto() {
+  const r = await api('api/automations/install', {config: draftCfg, pin: $('#ad_pin').value});
+  $('#ad_res').textContent = r.installed ? `installed as ${r.entity_id || r.id} (switched off)` : (r.problems || [r.error]).join('; ');
+}
 async function worked() {
   const w = await api('api/structure');
   const none = (n, msg) => `<tr><td class="mute" colspan="${n}">${msg}</td></tr>`;

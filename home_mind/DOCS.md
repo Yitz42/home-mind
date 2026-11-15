@@ -206,6 +206,39 @@ the other suites don't get worse. Turn it on only if both hold.
   "expires", "due back"), warranties and birthdays are mentioned 30, 7 and 1 days before and on the day. Each is said
   once per step: a chore when due tomorrow, today, then once a week while overdue; a usual one once a month.
 
+## The house: habits, usual ranges, notable changes
+
+All of this comes from the dated house notes, worked out each night with rules and no model. The House tab shows it.
+
+- **Habits.** A thing changing to the same state within about an hour on most days of the last 4 weeks: at least 5
+  days and 60% of them (70% for weekday-only, 85% for weekend-only habits), at least 3 times more often than if those
+  changes fell at random, with most of that thing's changes in the window. Each is filed as a note on
+  `home/patterns`, so "when does Dana usually get home?" is answered from it.
+- **Suggested automations.** A habit done by hand (not right after an automation or the brain acted) on a light,
+  switch, fan, cover, media player or helper, which no automation already switches, becomes a drafted automation.
+  Create (House tab) makes it in Home Assistant switched off: turn it on there once you're happy with it. Dismiss
+  hides it for good.
+- **Usual ranges.** For each reading, the range it stays in for each 3 hours of the day. Two readings in a row well
+  outside that range make one phone notice a day at most ("Bedroom humidity is 76%, higher than usual for this time
+  of day (usually 38-44%)"). Turn notices off with option house_notices or the switch.
+- **Notable changes.** Each house change is scored. Locks, garage doors and alarms count most; a state at an hour it
+  never has, or a state never seen, counts; a habit at its usual time counts against. Routine changes are still kept
+  (the history needs them) but rank lower in answers; notable ones are in the evening brief; only the highest go to
+  the phone.
+- **Automations from a request.** Say what you want on the House tab (or ask Claude: `mind_draft_automation`). A model
+  writes the automation; Home Mind checks every entity, service, trigger and condition against Home Assistant. Only
+  a draft with no problems can be installed, and it is installed switched off. Unlocking, opening a garage door or
+  gate, and disarming an alarm need option automation_pin; with no PIN set they are refused.
+- **New triggers** the engine runs itself: time_pattern, sun (sunrise/sunset with offset), event and template; and the
+  `event` action.
+
+## Evening brief
+
+At 21:00 (option evening_time): today's notable house changes, automation runs and failures, comfort changes, what
+was remembered, and suggested automations waiting. It goes to the same phone as the morning summary unless
+evening_notify names another. Nothing is sent on a day with nothing notable. A switch, a time and a "send now" button
+are on the Home Mind device in Home Assistant.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press

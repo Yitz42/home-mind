@@ -16,10 +16,11 @@ How it works
     brain can answer "what does my wake-up do?" and "when did bedtime last run?".
 
 Supported: triggers state (to/from/not_to/not_from/attribute/for), numeric_state, time (fixed, helper or timestamp
-sensor, with offset), zone enter/leave, homeassistant start; conditions state, numeric_state, time (after/before,
+sensor, with offset), time_pattern (hours/minutes/seconds, "/5" and "*"), sun (sunrise/sunset with offset), event
+(event_type, event_data), template (fires when it turns true), zone enter/leave, homeassistant start; conditions state, numeric_state, time (after/before,
 helpers, weekday), template, trigger, and/or/not; actions service calls (data/target templates, response
 variables, continue_on_error), choose/default, if/then/else, delay, repeat count, variables, wait_for_trigger
-(state and template), stop. Modes single, restart, queued. Anything else makes the automation "not supported" and
+(state and template), stop, event (fire an event). Modes single, restart, queued. Anything else makes the automation "not supported" and
 it is left to Home Assistant.
 """
 import ast
@@ -36,9 +37,9 @@ import aiohttp
 log = logging.getLogger("homemind.automations")
 SUPERVISOR = "http://supervisor"
 LABEL = "run_by_home_mind"
-TRIGGERS = {"state", "numeric_state", "time", "zone", "homeassistant"}
+TRIGGERS = {"state", "numeric_state", "time", "zone", "homeassistant", "time_pattern", "sun", "event", "template"}
 CONDITIONS = {"state", "numeric_state", "time", "template", "trigger", "and", "or", "not"}
-ACTIONS = {"action", "service", "choose", "if", "delay", "repeat", "variables", "wait_for_trigger", "stop"}
+ACTIONS = {"action", "service", "choose", "if", "delay", "repeat", "variables", "wait_for_trigger", "stop", "event"}
 KEEP_IN_HA = {"automation.home_mind_comfort_driver", "automation.home_mind_comfort_voice",
               "automation.home_mind_watchdog"}
 
@@ -84,9 +85,9 @@ def unsupported(cfg):
                 return "odd action"
             keys = set(a) - {"alias", "continue_on_error", "enabled", "note", "data", "target", "response_variable",
                             "default", "else", "then", "conditions", "sequence", "timeout", "continue_on_timeout",
-                            "set_conversation_response", "metadata"}
+                            "set_conversation_response", "metadata", "event_data"}
             kind = next((k for k in ("action", "service", "choose", "if", "delay", "repeat", "variables",
-                                     "wait_for_trigger", "stop", "set_conversation_response") if k in a), None)
+                                     "wait_for_trigger", "stop", "event", "set_conversation_response") if k in a), None)
             if kind is None:
                 return f"action {sorted(keys)}"
             if kind == "choose":
@@ -127,6 +128,10 @@ def unsupported(cfg):
         k = t.get("trigger", t.get("platform"))
         if k not in TRIGGERS:
             return f"trigger {k}"
+        if k == "sun" and t.get("event") not in ("sunrise", "sunset"):
+            return f"sun trigger {t.get('event')}"
+        if k == "template" and t.get("for"):
+            return "template trigger with for"
     return walk_conds(cfg.get("conditions") or cfg.get("condition")) or \
         walk_actions(cfg.get("actions") or cfg.get("action"))
 
@@ -338,7 +343,7 @@ class Engine:
             await self.reclaim()
             self._msg_id += 1
             await ws.send_json({"id": self._msg_id, "type": "subscribe_events", "event_type": "state_changed"})
-            for et in self.event_handlers:           # other events someone asked for (e.g. tapped notifications)
+            for et in set(self.event_handlers) | self._event_types():   # other events (tapped notifications, triggers)
                 self._msg_id += 1
                 await ws.send_json({"id": self._msg_id, "type": "subscribe_events", "event_type": et})
             ticker = asyncio.create_task(self._ticker())
@@ -358,9 +363,10 @@ class Engine:
                         ev = d["event"]
                         if ev.get("event_type") == "state_changed":
                             self.on_state(ev["data"])
-                        elif ev.get("event_type") in self.event_handlers:
-                            for fn in self.event_handlers[ev["event_type"]]:
+                        else:
+                            for fn in self.event_handlers.get(ev.get("event_type"), ()):
                                 asyncio.create_task(_safe(fn, ev.get("data") or {}))
+                            self.on_event(ev.get("event_type"), ev.get("data") or {})
             finally:
                 ticker.cancel()
 
@@ -380,10 +386,73 @@ class Engine:
         cfg = self.autos.get(eid, {}).get("config") or {}
         return _list(cfg.get("triggers") or cfg.get("trigger"))
 
+    def _event_types(self):
+        return {et for auto in self.owned for t in self._triggers(auto) if t.get("trigger", t.get("platform")) == "event"
+                for et in _list(t.get("event_type"))}
+
+    def on_event(self, event_type, data):
+        """Event triggers: the type matches and every key of event_data is in the event's data with that value."""
+        for auto in list(self.owned):
+            for i, t in enumerate(self._triggers(auto)):
+                if t.get("trigger", t.get("platform")) != "event" or event_type not in _list(t.get("event_type")):
+                    continue
+                want = t.get("event_data") or {}
+                if all(data.get(k) == v for k, v in want.items()):
+                    self.fire(auto, {"platform": "event", "id": t.get("id", str(i)), "idx": i,
+                                     "event": {"event_type": event_type, "data": data}})
+
+    async def _templates(self, eid=None):
+        """Template triggers fire when the template turns true (false before, or first seen false). Re-rendered when
+        an entity named in it changes, and every minute."""
+        truth = self.__dict__.setdefault("_truth", {})
+        for auto in list(self.owned):
+            for i, t in enumerate(self._triggers(auto)):
+                if t.get("trigger", t.get("platform")) != "template":
+                    continue
+                tpl = t.get("value_template") or ""
+                if eid and eid not in tpl:
+                    continue
+                try:
+                    v = await self.render(tpl, {})
+                except Exception:  # noqa: BLE001
+                    continue
+                now_true = str(v).strip().lower() in ("true", "1", "on", "yes")
+                was = truth.get((auto, i))
+                truth[(auto, i)] = now_true
+                if now_true and was is False:
+                    self.fire(auto, {"platform": "template", "id": t.get("id", str(i)), "idx": i})
+
+    @staticmethod
+    def _pattern(spec, v):
+        """time_pattern field: None or "*" = any, "/n" = every n, a number = exactly."""
+        if spec is None or str(spec) == "*":
+            return True
+        s = str(spec)
+        if s.startswith("/"):
+            return v % int(s[1:]) == 0
+        return v == int(s)
+
+    def _pattern_hits(self, t, last, now):
+        """Seconds in (last, now] matching a time_pattern trigger (HA defaults: seconds 0 when only larger units
+        are given)."""
+        hrs, mins, secs = t.get("hours"), t.get("minutes"), t.get("seconds")
+        if secs is None and (mins is not None or hrs is not None):
+            secs = 0
+        if mins is None and hrs is not None:
+            mins = 0
+        out = []
+        for s in range(int(last) + 1, int(now) + 1):
+            d = datetime.fromtimestamp(s, self.tz)
+            if self._pattern(hrs, d.hour) and self._pattern(mins, d.minute) and self._pattern(secs, d.second):
+                out.append(d)
+        return out
+
     def on_state(self, data):
         eid, old, new = data.get("entity_id"), data.get("old_state"), data.get("new_state")
         if new is not None:
             self.states[eid] = new
+        if eid and any(t.get("trigger", t.get("platform")) == "template" for a in self.owned for t in self._triggers(a)):
+            asyncio.create_task(_safe(lambda _: self._templates(eid), {}))
         if eid and eid.startswith("automation.") and eid in self.autos and new:
             self.autos[eid]["ha_state"] = new["state"]
         for pred, fut in list(self.waiters):
@@ -519,15 +588,80 @@ class Engine:
             last, self.last_tick = self.last_tick, now
             if now - last > 600:
                 last = now - 600      # don't replay a long gap
-            for auto in list(self.owned):
-                for i, t in enumerate(self._triggers(auto)):
-                    if t.get("trigger", t.get("platform")) != "time":
-                        continue
+            self._tick(last, now)
+            if now - self.__dict__.get("_tpl_at", 0) >= 60:
+                self._tpl_at = now
+                await self._templates()
+
+    def _sun_points(self, t):
+        """Sunrise or sunset (with offset) from sun.sun: the next one, and the one just passed (its old value)."""
+        attr = "next_rising" if t.get("event") == "sunrise" else "next_setting"
+        prev = self.__dict__.setdefault("_sun_prev", {})
+        cur = ((self.states.get("sun.sun") or {}).get("attributes") or {}).get(attr)
+        out = []
+        for v in {cur, prev.get(attr)} - {None}:
+            try:
+                p = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            off = t.get("offset", 0)
+            sign = -1 if str(off).startswith("-") else 1
+            out.append(p + timedelta(seconds=sign * _secs(str(off).lstrip("-+") if isinstance(off, str) else off)))
+        return out
+
+    def _tick(self, last, now):
+        """Fire the clock triggers due in (last, now]: time, time_pattern and sun."""
+        # sun.sun's next_rising moves to tomorrow at sunrise: keep the one just passed, so it can still fire
+        sa = ((self.states.get("sun.sun") or {}).get("attributes") or {})
+        prev = self.__dict__.setdefault("_sun_prev", {})
+        for k in ("next_rising", "next_setting"):
+            if sa.get(k) and sa.get(k) != prev.get(k + "_cur"):
+                prev[k], prev[k + "_cur"] = prev.get(k + "_cur"), sa.get(k)
+        for auto in list(self.owned):
+            for i, t in enumerate(self._triggers(auto)):
+                kind = t.get("trigger", t.get("platform"))
+                if kind == "time":
                     for day in {datetime.fromtimestamp(last, self.tz).date(), self.now().date()}:
                         for p in self._time_points(t, day):
                             if last < p.timestamp() <= now:
                                 self.fire(auto, {"platform": "time", "id": t.get("id", str(i)), "idx": i,
                                                  "now": p.isoformat()})
+                elif kind == "time_pattern":
+                    for p in self._pattern_hits(t, last, now)[:1]:
+                        self.fire(auto, {"platform": "time_pattern", "id": t.get("id", str(i)), "idx": i,
+                                         "now": p.isoformat()})
+                elif kind == "sun":
+                    for p in self._sun_points(t):
+                        if last < p.timestamp() <= now:
+                            self.fire(auto, {"platform": "sun", "id": t.get("id", str(i)), "idx": i,
+                                             "event": t.get("event"), "offset": t.get("offset", 0)})
+
+
+    # ---- creating (suggested and requested automations) -------------------------------------------------------------
+    async def create(self, cfg, enable=False):
+        """Create an automation in Home Assistant from a checked config; switched off unless enable. Returns its
+        entity ID (once Home Assistant has loaded it) and config ID."""
+        from .autodraft import slug
+        base = slug(cfg.get("alias"))
+        aid, n = base, 2
+        while any(a.get("id") == aid for a in self.autos.values()):
+            aid, n = f"{base}_{n}", n + 1
+        body = dict(cfg, id=aid)
+        await self._post(f"config/automation/config/{aid}", body)
+        eid = None
+        for _ in range(20):          # Home Assistant reloads automations after a config write
+            await asyncio.sleep(0.5)
+            states = await self._get("states") or []
+            eid = next((s["entity_id"] for s in states if s["entity_id"].startswith("automation.")
+                        and (s.get("attributes") or {}).get("id") == aid), None)
+            if eid:
+                break
+        if eid and not enable:
+            await self._post("services/automation/turn_off", {"entity_id": eid, "stop_actions": True})
+        if eid:
+            self.autos[eid] = {"id": aid, "config": body, "ha_state": "on" if enable else "off",
+                               "name": cfg.get("alias") or eid, "why_not": unsupported(body)}
+        return {"entity_id": eid, "id": aid, "enabled": bool(enable and eid)}
 
     # ---- running ----------------------------------------------------------------------------------------------------
     def fire(self, auto, trig):
@@ -699,6 +833,14 @@ class Engine:
             steps.append(f"stopped: {a['stop']}")
             raise Stop()
         if "set_conversation_response" in a:
+            return None
+        if "event" in a and "action" not in a and "service" not in a:
+            data = await self.render(a.get("event_data") or {}, v)
+            if self.dry:
+                steps.append(f"(dry) event {a['event']}")
+                return None
+            await self._post(f"events/{a['event']}", data)
+            steps.append(f"fired event {a['event']}")
             return None
         svc = a.get("action") or a.get("service")
         dom, name = svc.split(".", 1)

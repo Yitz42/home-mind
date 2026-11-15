@@ -859,7 +859,7 @@ class Mind:
                    order="default", notes_first=False):
         if suite not in suites.SUITES and suite != "corrections":
             raise ValueError(f"unknown suite {suite}; have {', '.join(suites.SUITES)}, corrections")
-        if suite in ("tidy", "injections", "conflicts", "reminders") and arm != "brain":
+        if suite in ("tidy", "injections", "conflicts", "reminders", "habits", "baselines", "salience") and arm != "brain":
             raise ValueError(f"the {suite} suite runs on the brain arm only (it checks what the brain flags or reminds of)")
         if suite == "corrections" and arm != "brain":
             raise ValueError("the corrections suite runs on the brain arm only (it reads your real memory)")
@@ -928,6 +928,7 @@ class Mind:
         if "day0" in inspect.signature(gen).parameters:
             kw["day0"] = midnight          # suites that work out time answers themselves get the real start day
         world = gen(run["seed"], **kw)
+        run.setdefault("_tidy", {})["world"] = world
         os.makedirs(os.path.join(self.data_dir, "sandbox"), exist_ok=True)
         path = os.path.join(self.data_dir, "sandbox", f"{run['id']}.db")
         clock = {"t": midnight.timestamp() if world.get("day0") else time.time() - 30 * 86400}
@@ -951,6 +952,17 @@ class Mind:
                     else:   # the whole-log arm can't delete: drop the line from its log
                         target = next((e["text"] for e in world["events"] if e.get("ref") == ev["target"]), None)
                         log[:] = [x for x in log if not (target and x.endswith(target))]
+                    continue
+                if ev["op"] in ("house", "auto_ran"):     # house history (habits, baselines, salience suites)
+                    t = (datetime.combine(midnight.date() + timedelta(days=ev["day"]), datetime.min.time())
+                         + timedelta(minutes=ev["minute"])).timestamp() + world["events"].index(ev) % 50   # local time
+                    if ev["op"] == "auto_ran":
+                        sb.remember(text=f"Home Mind ran my automation \"{ev['name']}\"", title=f"Ran {ev['name']}",
+                                    kind="fact", shelf="home/automations", source="automations", at=t)
+                    else:
+                        sb.remember(text=f"{_ts(t)}: {ev['name']}: {ev['state']}.", title=f"{ev['name']}: {ev['state']}",
+                                    kind="fact", shelf="home/" + ("readings" if ev.get("reading") else "devices"),
+                                    source="home", at=t, meta={"entity_id": ev["entity_id"], "state": ev["state"]})
                     continue
                 if ev["op"] == "confirm":
                     if arm not in ("model", "model+context") and refs.get(ev["target"]):
@@ -1017,8 +1029,9 @@ class Mind:
                     ch = {"done": True} if ev["op"] == "task_done" else {"due": ev["due"]}
                     r = sb.revise(refs[ev["ref"]], meta=ch)
                     refs[ev["ref"]] = r["id"]
-            if world.get("now_day") is not None and world.get("day0"):    # questions asked on a given day
-                clock["t"] = midnight.timestamp() + world["now_day"] * 86400 + 8 * 3600
+            if world.get("now_day") is not None and world.get("day0"):    # questions asked on a given day, 8 am local
+                clock["t"] = (datetime.combine(midnight.date() + timedelta(days=world["now_day"]), datetime.min.time())
+                              + timedelta(hours=8)).timestamp()
             # 1b. extract suite: a model reads the conversations and files what was stated
             extraction = None
             if transcript and cfg.get("ingest") == "extract" and arm not in ("model", "model+context"):
@@ -1053,6 +1066,8 @@ class Mind:
             # 2. ask
             details = []
             for q in world["questions"]:
+                if run["suite"] == "drafts" and (arm == "brain") == bool(q.get("request")):
+                    continue        # the brain arm checks drafts; model arms draft the requests
                 clock["t"] += 600
                 details.append(await self._question(run, sb, q, refs, log))
             run["details"] = details
@@ -1075,6 +1090,20 @@ class Mind:
             else:
                 q = dict(q, asked=q["q"], q=f"(My previous question was: {q['prev']}) {q['q']}")
         d = {"q": q["q"], "gold": q["gold"], "type": q.get("type")}
+        if q.get("request") and arm != "brain":       # drafts suite, model arms: draft it, then the same checks
+            from . import autodraft
+            states = [{"entity_id": e, "attributes": {"friendly_name": e.split(".")[1].replace("_", " ")}}
+                      for e in suites.HOUSE_ENTS]
+            svcs = [{"domain": k, "services": {x: {} for x in v}} for k, v in suites.HOUSE_SVCS.items()]
+            try:
+                r = await autodraft.draft(self.models.get(model), q["request"], states, svcs)
+            except Exception as e:  # noqa: BLE001
+                d.update(answer=f"error: {e}", correct=False)
+                return d
+            cfg = json.dumps(r.get("config") or {})
+            ok = not r["problems"] and q["entity"] in cfg and q["service"] in cfg
+            d.update(answer=("; ".join(r["problems"]) or "passes") + " | " + cfg[:200], correct=ok, ms=r.get("ms"))
+            return d
         if q.get("attack") == "purge" and arm == "brain":   # checked before the question itself is searched (and logged)
             dump = []
             for tbl, cols in (("items", "title || ' ' || body || ' ' || COALESCE(meta,'')"), ("events", "COALESCE(data,'')"),
@@ -1172,6 +1201,44 @@ class Mind:
                         cache["conf"] = {frozenset(p[:2]) for p in _tidy.contradictions(sb, limit=1000)}
                     flagged = frozenset(refs.get(x) for x in q["pair"]) in cache["conf"]
                     d.update(answer="flagged" if flagged else "not flagged", correct=flagged == q["conflict"])
+                    return d
+                if q.get("house"):           # habits, baselines, salience: from the nightly house model
+                    from . import house as _house
+                    cache = run.setdefault("_tidy", {})
+                    w = cache.get("world") or {}
+                    if "house" not in cache:
+                        cache["house"] = _house.learn(sb, sb.clock(), w.get("automations") or [])
+                    hm = cache["house"]
+                    k = q["house"]
+                    day = datetime.fromtimestamp(sb.clock()).replace(hour=q.get("hour", 12), minute=q.get("min", 0),
+                                                                     second=0)
+                    if k == "habit":
+                        hit = next((h for h in hm["habits"] if h["entity_id"] == q["entity"] and h["state"] == q["state"]
+                                    and (not q.get("daytype") or h["daytype"] == q["daytype"])), None)
+                        found = bool(hit) and (q.get("minute") is None or _house._circ(hit["minute"], q["minute"]) <= 20)
+                        d.update(answer=_house.habit_text(hit) if hit else "no habit", correct=found == q["want"])
+                    elif k == "suggest":
+                        sug = [x for x in hm["suggestions"] if x["id"].startswith(
+                            re.sub(r"[^a-z0-9]+", "_", f"{q['entity']}_{q['state']}_"))]
+                        d.update(answer=sug[0]["config"]["alias"] if sug else "no suggestion", correct=bool(sug) == q["want"])
+                    elif k == "unusual":
+                        u = _house.unusual(hm["baselines"], q["entity"], q["value"], day.timestamp())
+                        d.update(answer=u[0] if u else "usual", correct=bool(u) == q["want"])
+                    else:
+                        sc, why = _house.score(hm, q["entity"], q["state"], day.timestamp())
+                        got = "notify" if sc >= _house.NOTIFY else "notable" if sc >= _house.NOTABLE else \
+                            "routine" if sc <= 0 and "habit" in why else "ordinary"
+                        d.update(answer=f"{got} ({sc}: {', '.join(why)})", correct=got == q["want"])
+                    return d
+                if "draft" in q:             # the automation checker: good drafts pass, unsafe or wrong ones don't
+                    from . import autodraft
+                    ents, svcs = set(suites.HOUSE_ENTS), {k: set(v) for k, v in suites.HOUSE_SVCS.items()}
+                    probs = autodraft.check(q["draft"], ents, svcs, pin=(run.get("_tidy") or {}).get("world", {}).get("pin", ""),
+                                            given_pin=q.get("pin", ""), names={e: e.split(".")[1] for e in ents})
+                    d.update(answer="; ".join(probs) or "passes", correct=(not probs) == q["want"])
+                    return d
+                if q.get("request"):         # the brain can't draft: only model arms do
+                    d.update(answer="(needs a model)", correct=False)
                     return d
                 if run["suite"] == "reminders":   # what the morning summary reminds of
                     cache = run.setdefault("_tidy", {})

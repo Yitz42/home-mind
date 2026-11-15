@@ -15,7 +15,8 @@ from datetime import datetime
 from .store import HEDGE, SPEAKER, names_in, words
 
 DUP_SHARE = 0.85
-SKIP = ("home", "calendar", "automations", "journal", "scale", "morning", "patterns", "check-in", "nutrition", "pantry")
+SKIP = ("home", "calendar", "automations", "journal", "scale", "morning", "patterns", "check-in", "nutrition", "pantry",
+        "habits", "tidy", "evening")
 
 
 def _norm(s):
