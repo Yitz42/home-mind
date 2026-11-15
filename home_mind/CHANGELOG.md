@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0
+- Knowledge: reference data on the Home Assistant machine, in /data/knowledge (left out of backups).
+- Food: USDA FoodData Central (Foundation Foods, SR Legacy and Branded Foods with UPC barcodes, October 2026) is downloaded once (about 450 MB) and built into a searchable database: per 100 g and per serving calories, protein, carbs, fat, fiber, sugar and sodium. Meal ideas now get the matched numbers for pantry foods and base protein and calories on them.
+- Wikipedia: the newest English text-only Kiwix file (about 50 GB) downloads inside the download window (default midnight to 7 am), resumable, pausing outside it. For general questions (not about the user) the brain adds the best two passages, labelled with the snapshot date; the user's own notes always win, and answers say they came from Wikipedia.
+- API: /api/knowledge (status), /api/knowledge/food?q= or ?upc=, /api/knowledge/search?q=, POST /api/knowledge/food or /wiki to start now.
+
 ## 0.13.2
 - Patterns: the daily record adds naps (Steady's nap buttons), lights-off time, bedroom air overnight (particles, VOCs, air quality index), outdoor air quality, time out of the house (phone location, the day before and two days before), daylight hours and too-hot/too-cold votes in the night, each a factor in the comparisons.
 - Button presses (bedtime, wake, naps, lights off) are read from the press time itself; history's window-start snapshot of an old press no longer counts. The daily record is rebuilt once.

@@ -95,7 +95,9 @@ MEAL_SYSTEM = (
     "Only use pantry staples (salt, pepper, oil, common spices) beyond the listed food unless you put the extra "
     "ingredient in 'missing'. Give rough estimates only (protein in grams, calories), and say they are estimates. "
     "Never suggest skipping meals or very low calories. Aim for roughly a third of the daily protein target in a main "
-    "meal. When one of the listed studies supports a choice, name it briefly in 'why' (for example 'beans lower LDL ~5%, "
+    "meal. Some foods carry nutrition in [brackets] from USDA lab data or the package label, matched by name: base "
+    "protein and calories on those (ignore a match that is clearly a different food) and estimate only the rest. "
+    "When one of the listed studies supports a choice, name it briefly in 'why' (for example 'beans lower LDL ~5%, "
     "26 trials'); call preliminary findings preliminary and never overstate them. Their stated dislikes beat any study. "
     "Reply with JSON only: {\"focus\": \"one short line on today's "
     "focus\", \"meals\": [{\"name\": \"...\", \"meal\": \"breakfast|lunch|dinner|snack\", \"uses\": [\"pantry items "
@@ -232,6 +234,33 @@ class Pantry:
         return {"id": iid, "name": name, "location": loc,
                 "use_by": ("past its date (" + d.strftime("%b %d %Y") + ")") if ub < now else
                 d.strftime("%a %b %d") if ub - now < 300 * 86400 else d.strftime("%b %Y")}
+
+    def nutrition(self, name):
+        """The best USDA / label match for a food name, or None (cached; needs the food database)."""
+        kn = getattr(self, "knowledge", None)
+        if not kn or not kn.food_ready():
+            return None
+        cache = self.__dict__.setdefault("_nut", {})
+        key = re.sub(r"\(.*?\)", "", name.lower()).strip()
+        if key not in cache:
+            hits = kn.food(key, limit=1)
+            cache[key] = hits[0] if hits else None
+        return cache[key]
+
+    def nutrition_note(self, name):
+        n = self.nutrition(name)
+        if not n:
+            return ""
+        src = n["source"] + (f" {n['brand']}" if n.get("brand") else "")
+        sv, p = n.get("serving") or {}, n["per_100g"]
+        if sv.get("protein") is not None:
+            per, vals = f"per serving ({sv.get('text') or str(sv['g']) + ' g'})", sv
+        elif p.get("protein") is not None:
+            per, vals = "per 100 g", p
+        else:
+            return ""
+        kcal = f", {vals['kcal']:.0f} kcal" if vals.get("kcal") is not None else ""
+        return f" [{src} match '{n['name']}': {vals['protein']} g protein{kcal} {per}]"
 
     def ate(self, text, when=None, source="api"):
         """Log what was eaten or drunk (for the fog patterns: how late, caffeine). Doesn't change the pantry."""
@@ -415,7 +444,8 @@ class Pantry:
             dl = i["days_left"]
             when = "past its date" if dl is not None and dl < 0 else ("use today" if dl is not None and dl < 1 else
                                                                       f"{dl:.0f} days left" if dl is not None else "")
-            lines.append(f"- {i['name']}{(' (' + i['amount'] + ')') if i['amount'] else ''}, {i['location']}, {when}")
+            lines.append(f"- {i['name']}{(' (' + i['amount'] + ')') if i['amount'] else ''}, {i['location']}, {when}"
+                         + self.nutrition_note(i["name"]))
         focus = []
         if day["tired"]:
             focus.append(f"Tired day ({', '.join(day['tired_why'])}): {g.get('tired_days')}")

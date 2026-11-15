@@ -67,5 +67,15 @@ configuration:
   overnight_model:
     name: Overnight learning model
     description: Name of the model that reads conversations at night. Empty = the biggest local qwen configured. Skipped (and retried the next night) if its computer is off.
+  knowledge_food:
+    name: Food database
+    description: Download USDA FoodData Central (about 450 MB once) so meal ideas use real protein and calories.
+  knowledge_wikipedia:
+    name: Offline Wikipedia
+    description: Download English Wikipedia, text only (about 50 GB once), for general questions. Kept out of backups.
+  knowledge_window:
+    name: Download window
+    description: When the big Wikipedia download may run (HH:MM-HH:MM); it pauses outside and resumes the next night.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.
+

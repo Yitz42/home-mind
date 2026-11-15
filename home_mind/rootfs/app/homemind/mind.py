@@ -468,6 +468,14 @@ class Mind:
             days = cal.lines_for(question)
             if days:
                 ctx = days + "\n\n" + (ctx or "")
+        kn = getattr(self, "knowledge", None)
+        if kn and store is self.store:
+            try:
+                ref = await asyncio.to_thread(kn.reference_lines, question)
+            except Exception:  # noqa: BLE001
+                ref = ""
+            if ref:
+                ctx = (ctx + "\n\n" if ctx else "") + ref
         return about_names(store.fix_typos(question), hits), procs, ctx
 
     FALLBACK = ["haiku"]        # set from the app's "fallback" option
@@ -517,6 +525,9 @@ class Mind:
         if not chain:
             chain = [model]
         sysmsg = system or (ANSWER_SYSTEM if use_brain else ALONE_SYSTEM)
+        if use_brain and "REFERENCE (offline Wikipedia" in (ctx or ""):
+            sysmsg += (" REFERENCE passages come from an offline encyclopedia: use them for general facts the memory "
+                       "notes don't cover, never for facts about the user, and say an answer came from Wikipedia.")
         if procs:
             sysmsg += "\n\nProcedures you know:\n" + "\n".join(f"- {p['title']}: {p['body']}" for p in procs)
         content = (f"TODAY: {_ts(store.clock())}\n\nMEMORY:\n{ctx or '(nothing found)'}\n\nQUESTION: {asked(store, question)}") \

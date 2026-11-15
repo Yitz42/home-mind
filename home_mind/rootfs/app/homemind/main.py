@@ -22,6 +22,7 @@ from .overnight import ConvLog, Overnight
 from .pantry import Pantry
 from . import nutrition
 from .patterns import FACTOR, Patterns
+from .knowledge import Knowledge
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -116,6 +117,9 @@ class App:
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
+        self.knowledge = Knowledge(DATA, self.opts)
+        self.mind.knowledge = self.knowledge
+        self.pantry.knowledge = self.knowledge
         self.morning.pantry = self.pantry
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
         self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
@@ -278,6 +282,12 @@ class App:
                     log.debug("conversation log: %s", e)
             if self.ha.available:
                 await self.morning.tick()
+            if now - last.get("knowledge", 0) > 60:
+                last["knowledge"] = now
+                try:
+                    await self.knowledge.tick()
+                except Exception:  # noqa: BLE001
+                    log.exception("knowledge")
             if self.ha.available and now - last.get("patterns", 0) > 240:
                 last["patterns"] = now
                 try:
@@ -650,6 +660,31 @@ def build(app_state):
     @r.post("/api/morning/send")
     async def morning_send(_):
         return J(await A.morning.send())
+
+    @r.get("/api/knowledge")
+    async def knowledge_get(q):
+        return J(A.knowledge.summary())
+
+    @r.get("/api/knowledge/food")
+    async def knowledge_food(q):
+        if q.query.get("upc"):
+            return J({"match": A.knowledge.by_upc(q.query["upc"])})
+        return J({"matches": await asyncio.to_thread(A.knowledge.food, q.query.get("q", ""), int(q.query.get("n", 3)))})
+
+    @r.get("/api/knowledge/search")
+    async def knowledge_search(q):
+        qq = q.query.get("q", "")
+        if q.query.get("passages"):
+            return J({"passages": await asyncio.to_thread(A.knowledge.passages, qq, int(q.query.get("n", 2)))})
+        res = await asyncio.to_thread(A.knowledge.search, qq, int(q.query.get("n", 3)))
+        return J({"results": [{"title": x["title"], "intro": (x["text"] or [""])[0][:500]} for x in res]})
+
+    @r.post("/api/knowledge/{op}")
+    async def knowledge_op(q):
+        op = q.match_info["op"]
+        if op in ("food", "wiki"):
+            return J({"state": A.knowledge.start_now(op)})
+        return J({"error": "unknown"}, status=404)
 
     @r.get("/api/patterns")
     async def patterns_get(q):

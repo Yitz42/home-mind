@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.13.2"
+version: "0.14.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -15,6 +15,8 @@ panel_icon: mdi:brain
 panel_title: Home Mind
 homeassistant_api: true
 backup: hot
+backup_exclude:
+  - "knowledge/*"
 map:
   - type: homeassistant_config
     read_only: false
@@ -48,6 +50,9 @@ options:
   patterns_evening_time: "19:00"
   patterns_report_day: 5
   patterns_report_time: "08:00"
+  knowledge_food: true
+  knowledge_wikipedia: true
+  knowledge_window: "00:00-07:00"
   calendar_quiet:
     - calendar.hebcal_baltimore
     - calendar.hebcal_baltimore_2
@@ -84,6 +89,9 @@ schema:
   patterns_evening_time: str
   patterns_report_day: int(0,6)
   patterns_report_time: str
+  knowledge_food: bool
+  knowledge_wikipedia: bool
+  knowledge_window: str
   calendar_quiet:
     - str
   overnight_time: str
