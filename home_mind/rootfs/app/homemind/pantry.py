@@ -335,7 +335,7 @@ class Pantry:
         except Exception:  # noqa: BLE001
             return 0
         if not isinstance(r, dict):               # Home Assistant restarting: try again next time
-            return {"added": [], "skipped": "home assistant not answering"}
+            return 0
         items = ((r.get("service_response") or {}).get(entity) or {}).get("items") or []
         n = 0
         for it in items:
