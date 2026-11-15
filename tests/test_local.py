@@ -18,6 +18,8 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, "home_mind", "rootfs", "app")
 FAILS = []
+with open(os.path.join(APP, "homemind", "data", "nutrition.json"), encoding="utf-8") as _f:
+    N_STUDIES = len(json.load(_f)["studies"])      # filed into the real mind at start
 
 
 def port():
@@ -173,7 +175,7 @@ def main():
                 print("     ", {k: v for k, v in rr["summary"].items() if k in ("accuracy", "hit1", "stale_above", "stale_answers")})
         alone = [r for r in done.values() if r["arm"] == "model"]
         check("model alone knows nothing (sanity floor)", alone and alone[0]["summary"]["accuracy"] == 0.0)
-        check("sandbox did not leak into the real mind", call("/api/status")[1]["items"] < 20)
+        check("sandbox did not leak into the real mind", call("/api/status")[1]["items"] < 20 + N_STUDIES)
         check("sandbox files cleaned up", not os.listdir(os.path.join(data, "sandbox")))
         _, tr = call("/api/trend?suite=update&name=accuracy")
         check("trend has points", len(tr) >= 4)

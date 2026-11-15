@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.0
+- Nutrition evidence: 45 studies picked from Yitz's evidence tracker (protein and muscle, losing weight, timing, and the foods in the house) ship with the app and are filed on the shelf nutrition/evidence at start, so questions like "do chickpeas help cholesterol?" find them.
+- Meal ideas get the studies that apply to what's in the house (plus protein target, protein while cutting, portions and ultra-processed food every time) and name them briefly in the reason; preliminary findings are called preliminary, and stated dislikes beat any study.
+- Protein target: about 1.6 g per kg of the latest weigh-in (where muscle gains top out), in meal ideas and the morning summary.
+
 ## 0.11.12
 - Pantry: snacks, chocolate, candy, soda and nuts added, so pizza snacks and milk chocolate stay in the pantry.
 

@@ -1,0 +1,621 @@
+{
+ "source": "Nutrition Research Evidence Tracker (Yitz), curated for muscle, weight loss and the foods at home",
+ "studies": [
+  {
+   "topic": "Mediterranean diet (olive oil, nuts)",
+   "category": "Diet pattern",
+   "finding": "About 30% fewer heart attacks, strokes and cardiovascular deaths vs. a low-fat-advice diet. The 2013 paper was retracted for randomization errors and republished in 2018 with the same conclusion.",
+   "evidence": "Strong",
+   "takeaway": "Use extra-virgin olive oil as your main fat; eat a handful of nuts most days, plus vegetables, legumes and fish.",
+   "study": "PREDIMED — Estruch et al., NEJM 2018",
+   "design": "RCT; 7,447 high-risk adults aged 55–80, Spain; median 4.8 yrs",
+   "match": [
+    "olive oil",
+    "nut",
+    "almond",
+    "cashew"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Dietary fiber, whole grains, pulses",
+   "category": "Fiber & whole grains",
+   "finding": "The highest fiber eaters had 15–30% lower all-cause and cardiovascular death, coronary heart disease, stroke, type 2 diabetes and colorectal cancer. Benefits start at 25–29 g/day.",
+   "evidence": "Strong",
+   "takeaway": "Aim for 25–29 g+ fiber a day from whole grains, beans, lentils, vegetables and whole fruit.",
+   "study": "Reynolds et al., The Lancet 2019 (WHO-commissioned)",
+   "design": "Systematic review & meta-analysis; 185 cohort studies (135M person-years) + 58 trials",
+   "match": [
+    "chickpea",
+    "bean",
+    "oat",
+    "pasta",
+    "kale",
+    "pea"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Oats & barley (beta-glucan)",
+   "category": "Heart health",
+   "finding": "≥3 g/day of oat beta-glucan lowered LDL by 0.25 mmol/L and total cholesterol by 0.30 mmol/L, with no effect on HDL or triglycerides.",
+   "evidence": "Strong",
+   "takeaway": "About 1.5 cups of cooked oatmeal, or oats plus barley, gives roughly 3 g of beta-glucan.",
+   "study": "Whitehead et al., Am J Clin Nutr 2014",
+   "design": "Meta-analysis of 28 RCTs",
+   "match": [
+    "oat"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Fermented foods",
+   "category": "Gut health",
+   "finding": "Going to ~6 servings a day raised gut-bacteria diversity and lowered 19 inflammatory markers, including IL-6. The high-fiber group showed no change in those markers.",
+   "evidence": "Preliminary",
+   "takeaway": "Add yogurt, kefir, kimchi, sauerkraut or miso daily.",
+   "study": "Wastyk et al. (Stanford), Cell 2021",
+   "design": "RCT; 36 healthy adults; 10 weeks",
+   "match": [
+    "yogurt"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Ultra-processed foods",
+   "category": "Processed food",
+   "finding": "People ate ~500 kcal/day more on the ultra-processed diet and gained ~2 lb in 2 weeks; they lost ~2 lb on the unprocessed diet. The diets were matched for calories, sugar, fat and fiber.",
+   "evidence": "Moderate",
+   "takeaway": "Cook mostly from whole ingredients; limit packaged snacks, sugary drinks and processed meats.",
+   "study": "Hall et al. (NIH), Cell Metabolism 2019",
+   "design": "Inpatient crossover RCT; 20 adults; 2 weeks per diet",
+   "match": [],
+   "always": true
+  },
+  {
+   "topic": "Protein",
+   "category": "Activity / muscle",
+   "finding": "Protein increased strength and muscle gains from resistance training. There was no further gain above ~1.6 g/kg/day. It helped less with age and more in trained people.",
+   "evidence": "Strong",
+   "takeaway": "If you lift: about 1.6 g protein per kg body weight a day, spread over meals. Food works; supplements are optional.",
+   "study": "Morton et al., Br J Sports Med 2018",
+   "design": "Meta-analysis of 49 RCTs; 1,863 participants",
+   "match": [],
+   "always": true
+  },
+  {
+   "topic": "Early time-restricted eating",
+   "category": "Meal timing",
+   "finding": "A 6-hour eating window ending before 3 pm improved insulin sensitivity, blood pressure and oxidative stress, without weight loss.",
+   "evidence": "Preliminary",
+   "takeaway": "A bigger breakfast/lunch and an earlier, lighter dinner may help blood sugar.",
+   "study": "Sutton et al., Cell Metabolism 2018",
+   "design": "Crossover controlled feeding RCT; 8 men with prediabetes; 5 weeks",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Low-fat vs. low-carb",
+   "category": "Weight loss",
+   "finding": "Healthy low-fat and healthy low-carb diets gave similar weight loss at 12 months; genotype and insulin secretion did not predict who did better.",
+   "evidence": "Strong",
+   "takeaway": "Pick the healthy pattern you can stick with; food quality matters more than the macro split.",
+   "study": "DIETFITS — Gardner et al., JAMA 2018",
+   "design": "RCT; 609 adults; 12 months",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "16:8 time-restricted eating",
+   "category": "Meal timing",
+   "finding": "Eating within an 8-hour window did not produce meaningful weight loss compared with three meals a day.",
+   "evidence": "No benefit",
+   "takeaway": "Eating windows aren't magic for weight; total intake matters.",
+   "study": "TREAT — Lowe et al., JAMA Intern Med 2020",
+   "design": "RCT; 116 adults with overweight; 12 weeks",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Time-restricted eating + calorie restriction",
+   "category": "Meal timing",
+   "finding": "Adding an 8 am–4 pm eating window to calorie restriction gave no significant extra weight loss over calorie restriction alone.",
+   "evidence": "No benefit",
+   "takeaway": "Calorie restriction drives weight loss; timing added little.",
+   "study": "Liu et al., NEJM 2022",
+   "design": "RCT; 139 adults with obesity; 12 months",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Breakfast & weight",
+   "category": "Meal timing",
+   "finding": "Eating breakfast did not help weight loss; breakfast eaters consumed ~260 more calories a day.",
+   "evidence": "Moderate",
+   "takeaway": "Eat breakfast if you enjoy it, but it isn't a weight-loss tool.",
+   "study": "Sievert et al., BMJ 2019",
+   "design": "Meta-analysis of 13 RCTs",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Late eating",
+   "category": "Meal timing",
+   "finding": "Eating later in the day increased hunger, lowered calories burned and shifted fat-tissue gene activity toward fat storage.",
+   "evidence": "Preliminary",
+   "takeaway": "Shift meals earlier when you can.",
+   "study": "Vujovic et al., Cell Metabolism 2022",
+   "design": "Controlled crossover trial; 16 adults",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Carbohydrate intake & lifespan",
+   "category": "Carbohydrates",
+   "finding": "Mortality was lowest with 50–55% of calories from carbs. Low-carb diets were linked to higher mortality when animal-based and lower mortality when plant-based.",
+   "evidence": "Moderate",
+   "takeaway": "If you eat lower-carb, use plant fats and proteins.",
+   "study": "ARIC + meta-analysis — Seidelmann et al., Lancet Public Health 2018",
+   "design": "Cohort of 15,428 + meta-analysis of 432,179 people",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Glycemic index",
+   "category": "Carbohydrates",
+   "finding": "High-glycemic-index diets were linked to more cardiovascular disease and death, especially in people with existing heart disease.",
+   "evidence": "Moderate",
+   "takeaway": "Choose slower carbs: beans, intact whole grains, vegetables.",
+   "study": "PURE — Jenkins et al., NEJM 2021",
+   "design": "Prospective cohort; 137,851 adults, 20 countries",
+   "match": [
+    "rice",
+    "ramen",
+    "pasta",
+    "bread",
+    "grits"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Nuts (dose-response)",
+   "category": "Nuts",
+   "finding": "28 g/day of nuts was linked to ~21% lower cardiovascular disease and ~22% lower all-cause mortality.",
+   "evidence": "Moderate",
+   "takeaway": "About one small handful (28 g) a day.",
+   "study": "Aune et al., BMC Medicine 2016",
+   "design": "Meta-analysis of 20 cohort studies",
+   "match": [
+    "nut",
+    "almond",
+    "cashew",
+    "peanut",
+    "walnut"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Olive oil & mortality",
+   "category": "Fats",
+   "finding": "More than ½ tablespoon of olive oil a day was linked to 19% lower total mortality vs. rarely or never.",
+   "evidence": "Moderate",
+   "takeaway": "Swap butter and margarine for olive oil.",
+   "study": "Guasch-Ferré et al., J Am Coll Cardiol 2022",
+   "design": "Prospective cohorts; 92,383 US adults; 28 yrs",
+   "match": [
+    "olive oil"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Eggs & heart disease",
+   "category": "Eggs",
+   "finding": "Up to one egg a day was not associated with higher cardiovascular disease risk.",
+   "evidence": "Moderate",
+   "takeaway": "An egg a day is fine for most people.",
+   "study": "Drouin-Chartier et al., BMJ 2020",
+   "design": "3 US cohorts + meta-analysis; ~1.7 million people",
+   "match": [
+    "egg"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Fish & heart disease",
+   "category": "Fish",
+   "finding": "1–2 servings of fatty fish a week was linked to ~36% lower risk of dying from heart disease; benefits outweigh mercury risks for most adults.",
+   "evidence": "Strong",
+   "takeaway": "Eat fatty fish about twice a week.",
+   "study": "Mozaffarian & Rimm, JAMA 2006",
+   "design": "Systematic review of trials and cohorts",
+   "match": [
+    "tuna",
+    "salmon",
+    "fish"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Yogurt & diabetes",
+   "category": "Dairy",
+   "finding": "One serving of yogurt a day was linked to ~18% lower type 2 diabetes risk.",
+   "evidence": "Moderate",
+   "takeaway": "Plain yogurt is a good daily food.",
+   "study": "Chen et al., BMC Medicine 2014",
+   "design": "3 US cohorts + meta-analysis",
+   "match": [
+    "yogurt"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Coffee",
+   "category": "Beverages",
+   "finding": "3–4 cups a day was associated with the lowest mortality and lower risk of several diseases; caution advised in pregnancy.",
+   "evidence": "Moderate",
+   "takeaway": "Moderate coffee is fine or beneficial for most people.",
+   "study": "Poole et al., BMJ 2017",
+   "design": "Umbrella review of 201 meta-analyses",
+   "match": [
+    "coffee"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Tea",
+   "category": "Beverages",
+   "finding": "Drinking ≥2 cups of black tea a day was linked to 9–13% lower mortality.",
+   "evidence": "Moderate",
+   "takeaway": "Tea is a healthy drink choice.",
+   "study": "UK Biobank — Inoue-Choi et al., Ann Intern Med 2022",
+   "design": "Prospective cohort; ~498,000 adults",
+   "match": [
+    "tea"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Sugar-sweetened beverages",
+   "category": "Beverages",
+   "finding": "Two or more sugary drinks a day was linked to 21% higher mortality vs. less than one a month.",
+   "evidence": "Moderate",
+   "takeaway": "Replace soda with water, coffee or tea.",
+   "study": "Malik et al., Circulation 2019",
+   "design": "Prospective cohorts; ~118,000 US adults",
+   "match": [
+    "root beer",
+    "soda",
+    "cola"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Non-sugar sweeteners",
+   "category": "Beverages",
+   "finding": "WHO advised against using non-sugar sweeteners for weight control, citing no long-term benefit and possible risks.",
+   "evidence": "Moderate",
+   "takeaway": "Diet drinks aren't a weight-loss strategy; water is best.",
+   "study": "WHO guideline 2023 (review: Rios-Leyvraz & Montez 2022)",
+   "design": "Guideline based on systematic review",
+   "match": [
+    "water enhancer",
+    "diet"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Whole grains (dose-response)",
+   "category": "Whole grains",
+   "finding": "90 g/day of whole grains was linked to 17% lower all-cause mortality and 19% lower coronary heart disease.",
+   "evidence": "Moderate",
+   "takeaway": "About three servings a day (oats, brown rice, whole-wheat bread).",
+   "study": "Aune et al., BMJ 2016",
+   "design": "Meta-analysis of 45 cohort studies",
+   "match": [
+    "oat",
+    "whole grain",
+    "triscuit"
+   ],
+   "always": false
+  },
+  {
+   "topic": "\"5 a day\"",
+   "category": "Fruit & vegetables",
+   "finding": "5 servings a day (2 fruit + 3 vegetables) was linked to 13% lower mortality; starchy vegetables and fruit juice didn't add benefit.",
+   "evidence": "Moderate",
+   "takeaway": "Two fruits and three vegetables daily, favoring greens, citrus and berries.",
+   "study": "Wang et al., Circulation 2021",
+   "design": "2 US cohorts + meta-analysis; ~2 million people",
+   "match": [
+    "kale",
+    "pea",
+    "fruit",
+    "blueberr",
+    "mango",
+    "orange"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Berries & heart attack",
+   "category": "Berries",
+   "finding": "Eating blueberries and strawberries ≥3 times a week was linked to ~32% lower heart-attack risk in young and middle-aged women.",
+   "evidence": "Preliminary",
+   "takeaway": "Add berries several times a week.",
+   "study": "Nurses' Health Study II — Cassidy et al., Circulation 2013",
+   "design": "Prospective cohort; 93,600 women",
+   "match": [
+    "blueberr",
+    "strawberr",
+    "berr"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Cocoa flavanols",
+   "category": "Cocoa",
+   "finding": "Cocoa extract didn't significantly lower total cardiovascular events but was linked to 27% fewer cardiovascular deaths.",
+   "evidence": "Preliminary",
+   "takeaway": "Not a reason to eat lots of chocolate; the evidence is for a flavanol extract.",
+   "study": "COSMOS — Sesso et al., Am J Clin Nutr 2022",
+   "design": "RCT; 21,442 US adults; ~3.6 yrs",
+   "match": [
+    "cocoa",
+    "chocolate"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Ultra-processed foods (umbrella review)",
+   "category": "Processed food",
+   "finding": "UPF intake was linked to 32 health outcomes; the strongest evidence was for cardiovascular death, type 2 diabetes and common mental disorders.",
+   "evidence": "Moderate",
+   "takeaway": "Cutting ultra-processed foods is one of the most broadly supported changes.",
+   "study": "Lane et al., BMJ 2024",
+   "design": "Umbrella review; 45 meta-analyses, ~10 million people",
+   "match": [
+    "ramen",
+    "mac and cheese",
+    "bagel snackers",
+    "french toast",
+    "frozen",
+    "meal"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Pulses & LDL cholesterol",
+   "category": "Legumes",
+   "finding": "About one serving a day of beans, lentils, chickpeas or peas lowered LDL cholesterol by ~5%.",
+   "evidence": "Moderate",
+   "takeaway": "Add a serving of legumes daily.",
+   "study": "Ha et al., CMAJ 2014",
+   "design": "Meta-analysis of 26 RCTs",
+   "match": [
+    "chickpea",
+    "bean",
+    "pea",
+    "lentil"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Pulses & weight",
+   "category": "Legumes",
+   "finding": "Adding pulses produced a small weight loss (~0.34 kg over ~6 weeks) even without calorie restriction.",
+   "evidence": "Preliminary",
+   "takeaway": "Beans and lentils help fill you up.",
+   "study": "Kim et al., Am J Clin Nutr 2016",
+   "design": "Meta-analysis of 21 RCTs",
+   "match": [
+    "chickpea",
+    "bean",
+    "lentil"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Fried foods & heart disease",
+   "category": "Fried food",
+   "finding": "The highest fried-food intake was linked to ~28% higher major cardiovascular events vs. the lowest.",
+   "evidence": "Moderate",
+   "takeaway": "Limit deep-fried foods.",
+   "study": "Qin et al., Heart 2021",
+   "design": "Meta-analysis of 19 studies; ~560,000 people",
+   "match": [
+    "fried",
+    "puri",
+    "jalebi",
+    "chorafali",
+    "french toast",
+    "chips"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Whole fruit vs. fruit juice & diabetes",
+   "category": "Fruit",
+   "finding": "Whole fruits, especially blueberries, grapes and apples, were linked to lower type 2 diabetes risk; fruit juice was linked to higher risk.",
+   "evidence": "Moderate",
+   "takeaway": "Eat fruit whole rather than as juice.",
+   "study": "Muraki et al., BMJ 2013",
+   "design": "3 prospective cohorts; ~187,000 adults",
+   "match": [
+    "juice",
+    "mango",
+    "orange",
+    "fruit"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Water before meals",
+   "category": "Weight loss",
+   "finding": "Drinking 500 ml of water before each meal led to ~2 kg more weight loss over 12 weeks in older adults on a diet.",
+   "evidence": "Preliminary",
+   "takeaway": "A glass or two of water before meals may help with appetite.",
+   "study": "Dennis et al., Obesity 2010",
+   "design": "RCT; 48 middle-aged and older adults; 12 weeks",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Higher-protein diets for weight loss",
+   "category": "Protein",
+   "finding": "Higher-protein, calorie-restricted diets produced slightly more weight and fat loss and better preservation of lean mass.",
+   "evidence": "Moderate",
+   "takeaway": "Keep protein up when cutting calories.",
+   "study": "Wycherley et al., Am J Clin Nutr 2012",
+   "design": "Meta-analysis of 24 RCTs",
+   "match": [],
+   "always": true
+  },
+  {
+   "topic": "Plant vs. animal protein & mortality",
+   "category": "Protein",
+   "finding": "Replacing animal protein with plant protein was linked to lower mortality, especially when it replaced processed red meat.",
+   "evidence": "Moderate",
+   "takeaway": "Swap some meat for beans, lentils, tofu or nuts.",
+   "study": "Song et al., JAMA Intern Med 2016",
+   "design": "Prospective cohorts; ~131,000 US adults",
+   "match": [
+    "chickpea",
+    "bean",
+    "lentil",
+    "tofu",
+    "nut",
+    "almond",
+    "cashew",
+    "peanut"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Coffee & heart rhythm",
+   "category": "Beverages",
+   "finding": "Coffee didn't increase extra beats from the upper heart chambers; it slightly increased ones from the lower chambers, raised daily steps and cut sleep by ~36 minutes.",
+   "evidence": "Preliminary",
+   "takeaway": "Coffee is generally safe for heart rhythm; avoid it late if it hurts your sleep.",
+   "study": "CRAVE — Marcus et al., NEJM 2023",
+   "design": "Randomized crossover trial; 100 adults; wearable monitoring",
+   "match": [
+    "coffee"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Processed vs. unprocessed red meat",
+   "category": "Meat",
+   "finding": "Each 50 g/day of processed meat was linked to 42% higher coronary heart disease and 19% higher diabetes; unprocessed red meat wasn't linked to heart disease.",
+   "evidence": "Moderate",
+   "takeaway": "Processed meat is the main concern.",
+   "study": "Micha et al., Circulation 2010",
+   "design": "Meta-analysis of 20 studies; ~1.2 million people",
+   "match": [
+    "pepperoni",
+    "bacon",
+    "sausage",
+    "hot dog",
+    "deli"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Sugar & body weight",
+   "category": "Sugar",
+   "finding": "Cutting free sugars led to ~0.8 kg weight loss and adding them ~0.75 kg gain; swapping sugar for other carbs at equal calories changed nothing.",
+   "evidence": "Strong",
+   "takeaway": "Sugar adds weight mainly through extra calories.",
+   "study": "Te Morenga et al., BMJ 2012 (WHO-commissioned)",
+   "design": "Meta-analysis of 30 RCTs + 38 cohorts",
+   "match": [
+    "candy",
+    "chocolate",
+    "cookie",
+    "oreo",
+    "jalebi",
+    "sweet"
+   ],
+   "always": false
+  },
+  {
+   "topic": "Mediterranean vs. low-carb vs. low-fat",
+   "category": "Weight loss",
+   "finding": "Mediterranean and low-carb diets gave more weight loss than low-fat over 2 years; low-carb gave the best lipids and Mediterranean the best blood sugar in people with diabetes.",
+   "evidence": "Strong",
+   "takeaway": "Mediterranean and low-carb are both effective options.",
+   "study": "DIRECT — Shai et al., NEJM 2008",
+   "design": "RCT; 322 adults with obesity; 2 yrs",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Portion size",
+   "category": "Weight loss",
+   "finding": "Larger portions and packages consistently made people eat more.",
+   "evidence": "Strong",
+   "takeaway": "Serve smaller portions and use smaller packages.",
+   "study": "Hollands et al., Cochrane Review 2015",
+   "design": "Systematic review of 72 studies",
+   "match": [],
+   "always": true
+  },
+  {
+   "topic": "Eating speed",
+   "category": "Weight loss",
+   "finding": "Fast eaters had about twice the odds of obesity of slower eaters.",
+   "evidence": "Moderate",
+   "takeaway": "Slow down; put your fork down between bites.",
+   "study": "Ohkuma et al., Int J Obesity 2015",
+   "design": "Meta-analysis of 23 studies",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "High protein & kidney function",
+   "category": "Protein",
+   "finding": "Higher protein intake did not harm kidney function in healthy adults.",
+   "evidence": "Moderate",
+   "takeaway": "Healthy people need not fear higher protein; people with kidney disease should follow their doctor.",
+   "study": "Devries et al., J Nutr 2018",
+   "design": "Meta-analysis of 28 studies",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Protein timing",
+   "category": "Sports",
+   "finding": "Total daily protein, not eating it right after a workout, explained muscle gains.",
+   "evidence": "Moderate",
+   "takeaway": "Hit your daily protein total; the 'anabolic window' matters less.",
+   "study": "Schoenfeld et al., JISSN 2013",
+   "design": "Meta-analysis of 23 studies",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "Protein + resistance training",
+   "category": "Sports",
+   "finding": "Protein supplements increased gains in lean mass and strength from resistance training in both younger and older adults.",
+   "evidence": "Strong",
+   "takeaway": "Pair strength training with enough protein.",
+   "study": "Cermak et al., Am J Clin Nutr 2012",
+   "design": "Meta-analysis of 22 RCTs",
+   "match": [],
+   "always": false
+  },
+  {
+   "topic": "White rice & diabetes",
+   "category": "Carbohydrates",
+   "finding": "Each daily serving of white rice was linked to ~11% higher type 2 diabetes risk, more so in Asian populations who eat more of it.",
+   "evidence": "Moderate",
+   "takeaway": "Swap some white rice for brown rice or other whole grains.",
+   "study": "Hu et al., BMJ 2012",
+   "design": "Meta-analysis of 4 cohorts; 352,384 people",
+   "match": [
+    "rice"
+   ],
+   "always": false
+  }
+ ]
+}

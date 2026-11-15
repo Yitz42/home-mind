@@ -20,6 +20,7 @@ from .calendars import Calendars
 from .morning import Morning
 from .overnight import ConvLog, Overnight
 from .pantry import Pantry
+from . import nutrition
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
@@ -115,6 +116,12 @@ class App:
                                self.opts.get("morning_notify") or "")
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
         self.morning.pantry = self.pantry
+        try:
+            n = nutrition.file_into(self.mind.store)
+            if n:
+                log.info("filed %d nutrition studies", n)
+        except Exception as e:                       # the studies are a nice-to-have, never block start-up
+            log.warning("nutrition studies not filed: %s", e)
         mt = self.morning.at
         if (datetime.now().hour, datetime.now().minute) >= mt:
             self.morning.done_for = datetime.now().date()      # started after the time: wait for tomorrow

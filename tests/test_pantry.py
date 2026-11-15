@@ -9,6 +9,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "home_mind", "rootfs", "app"))
 from homemind.store import Store  # noqa: E402
 from homemind.pantry import Pantry, estimate, guess_location  # noqa: E402
+from homemind import nutrition  # noqa: E402
 
 
 class FakeHA:
@@ -94,6 +95,19 @@ async def main():
     soon = [i["name"] for i in p.soon(2)]
     assert "milk" in soon and "chicken" in soon, soon
     assert "past its date" in p.lines()
+    # nutrition evidence: the curated studies, the ones that apply, the protein target
+    studies = nutrition.load()
+    assert len(studies) >= 40 and all(s["study"] and s["evidence"] for s in studies)
+    rel = [s["topic"] for s in nutrition.relevant(["canned chickpeas", "almonds", "root beer"])]
+    assert "Protein" in rel and "Pulses & LDL cholesterol" in rel and "Sugar-sweetened beverages" in rel, rel
+    assert "Eggs & heart disease" not in rel
+    assert "STUDIES THAT APPLY" in models.chef.last and "Portion size" in models.chef.last
+    assert nutrition.protein_target(200) == 145 and nutrition.protein_target(None) is None
+    st.remember(text="200 lb", title="Weigh-in", shelf="body/weight", meta={"weight": 200.0})
+    assert (await p.today())["protein_target_g"] == 145
+    n1 = nutrition.file_into(st)
+    assert n1 == len(studies) and nutrition.file_into(st) == 0        # filed once, not again on the next start
+    assert any("Pulses" in r["title"] for r in st.recall("do chickpeas help cholesterol", limit=5))
     print("PANTRY OK")
 
 

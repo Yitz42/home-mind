@@ -21,6 +21,8 @@ import time
 import uuid
 from datetime import datetime, timedelta
 
+from . import nutrition
+
 log = logging.getLogger("homemind.pantry")
 
 # typical days until use, by where it's kept: (fridge, freezer, pantry). Rough, on the safe side.
@@ -92,7 +94,10 @@ MEAL_SYSTEM = (
     "goals. Prefer real meals they can actually make in under 30 minutes unless asked otherwise; keep it practical. "
     "Only use pantry staples (salt, pepper, oil, common spices) beyond the listed food unless you put the extra "
     "ingredient in 'missing'. Give rough estimates only (protein in grams, calories), and say they are estimates. "
-    "Never suggest skipping meals or very low calories. Reply with JSON only: {\"focus\": \"one short line on today's "
+    "Never suggest skipping meals or very low calories. Aim for roughly a third of the daily protein target in a main "
+    "meal. When one of the listed studies supports a choice, name it briefly in 'why' (for example 'beans lower LDL ~5%, "
+    "26 trials'); call preliminary findings preliminary and never overstate them. Their stated dislikes beat any study. "
+    "Reply with JSON only: {\"focus\": \"one short line on today's "
     "focus\", \"meals\": [{\"name\": \"...\", \"meal\": \"breakfast|lunch|dinner|snack\", \"uses\": [\"pantry items "
     "used\"], \"missing\": [\"items to buy, if any\"], \"why\": \"one line: what it uses up and how it fits today\", "
     "\"protein_g\": number, \"calories\": number, \"steps\": \"2-4 short steps\"}]}")
@@ -378,7 +383,9 @@ class Pantry:
             trend = {"latest": round(v1, 1), "change": round(v1 - v0, 1), "since": datetime.fromtimestamp(t0).strftime("%b %d")}
         elif weights:
             trend = {"latest": round(weights[0][1], 1)}
-        return {"tired": bool(tired_why), "tired_why": tired_why, "signals": sig, "weight": trend}
+        target = nutrition.protein_target(trend["latest"]) if trend else None
+        return {"tired": bool(tired_why), "tired_why": tired_why, "signals": sig, "weight": trend,
+                "protein_target_g": target}
 
     # ---- meals ------------------------------------------------------------------------------------------------------------
     async def suggest(self, meal=None, model=None, n=3, request=""):
@@ -403,14 +410,18 @@ class Pantry:
         if day["weight"]:
             wt = day["weight"]
             focus.append(f"Weight {wt['latest']} lb" + (f", {wt['change']:+} lb since {wt['since']}" if "change" in wt else ""))
+        if day.get("protein_target_g"):
+            focus.append(f"Protein target about {day['protein_target_g']} g/day (1.6 g/kg for muscle; more adds nothing)")
+        studies = nutrition.relevant([i["name"] for i in items])
         content = (f"Today: {datetime.now():%A %b %d, %I:%M %p}\n"
                    f"Today's focus: {'; '.join(focus)}\n"
                    f"Goals: {'; '.join(g.get('goals') or [])}\n"
                    + (f"Avoid: {', '.join(g['avoid'])}\n" if g.get("avoid") else "")
                    + (f"Notes: {g['notes']}\n" if g.get("notes") else "")
                    + f"Meal wanted: {meal or 'the next meal'}" + (f" ({request})" if request else "") + "\n"
-                   f"Suggest {n} options.\n\nIN THE HOUSE (soonest to expire first):\n" + ("\n".join(lines) or "- nothing recorded"))
-        r = await self.models.get(model).chat(MEAL_SYSTEM, [{"role": "user", "content": content}], max_tokens=1200,
+                   f"Suggest {n} options.\n\nIN THE HOUSE (soonest to expire first):\n" + ("\n".join(lines) or "- nothing recorded")
+                   + ("\n\nSTUDIES THAT APPLY (from their nutrition evidence tracker):\n" + nutrition.lines(studies) if studies else ""))
+        r = await self.models.get(model).chat(MEAL_SYSTEM, [{"role": "user", "content": content}], max_tokens=1600,
                                               temperature=0.5)
         m = re.search(r"\{.*\}", r["text"], re.S)
         try:
@@ -420,6 +431,7 @@ class Pantry:
         plan.setdefault("meals", [])
         plan["today"] = day
         plan["model"] = model
+        plan["studies"] = [x["topic"] for x in studies]
         if not plan["meals"]:
             plan["raw"] = r["text"][:1500]
         return plan

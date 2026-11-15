@@ -2,10 +2,13 @@
 last 24 hours on its own or from what you told it, plus anything that went wrong and today's calendar. Sent to your
 phone (the first mobile_app notify service, or option morning_notify) and as a Home Assistant notification, and kept
 on summaries/morning. Anything filed wrongly can be forgotten from Memory > Recently added."""
+import json
 import logging
 import re
 import time
 from datetime import datetime
+
+from . import nutrition
 
 log = logging.getLogger("homemind.morning")
 
@@ -64,6 +67,11 @@ class Morning:
                 s = datetime.fromisoformat(e["meta"]["start"])
                 return f"{s:%I:%M %p}".lstrip("0") + f" {t}"
             lines.append("Today: " + "; ".join(brief(e) for e in today[:5]) + (" …" if len(today) > 5 else ""))
+        last_w = self.store.db.execute("SELECT meta FROM items WHERE shelf='body/weight' AND status='active' "
+                                       "ORDER BY created DESC LIMIT 1").fetchone()
+        target = nutrition.protein_target(json.loads(last_w["meta"] or "{}").get("weight")) if last_w else None
+        if target:
+            lines.append(f"Protein today: aim for about {target} g (1.6 g per kg, the level where muscle gains top out)")
         pantry = getattr(self, "pantry", None)
         if pantry:
             soon = pantry.soon(2)
