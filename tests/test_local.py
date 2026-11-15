@@ -122,6 +122,8 @@ def main():
         # ask with the mock model
         _, ans = call("/api/ask", {"question": "What is the garage door code?", "model": "mock"})
         check("ask (mock + brain)", "9020" in ans["answer"], ans)
+        _, use = call("/api/usage")
+        check("model use reported", "models" in use and "today" in use, use)
         check("ask says which note", ans.get("sources") and ans["sources"][0]["id"] == b["id"] and ans["weak"] is False, ans)
 
         # MCP

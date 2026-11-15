@@ -809,6 +809,25 @@ class Store:
             self.log("fade", None, n=cur.rowcount, days=days)
         return cur.rowcount
 
+    def prune_events(self, keep_days):
+        """The event log keeps every search, answer and change. Past `keep_days` the rows are rolled up into daily
+        counts per type (event_days) and removed; notes themselves are never touched. 0 = keep everything. SQLite reuses
+        the freed space, so the file stops growing rather than shrinking."""
+        if not keep_days:
+            return 0
+        cut = self.clock() - keep_days * 86400
+        with self.lock:
+            self.db.execute("CREATE TABLE IF NOT EXISTS event_days (day TEXT, type TEXT, n INTEGER, "
+                            "PRIMARY KEY (day, type))")
+            self.db.execute("INSERT INTO event_days(day, type, n) SELECT date(ts, 'unixepoch', 'localtime'), type, COUNT(*) "
+                            "FROM events WHERE ts < ? GROUP BY 1, 2 "
+                            "ON CONFLICT(day, type) DO UPDATE SET n = n + excluded.n", (cut,))
+            cur = self.db.execute("DELETE FROM events WHERE ts < ?", (cut,))
+            self.db.commit()
+        if cur.rowcount:
+            self.log("prune_events", None, n=cur.rowcount, days=keep_days)
+        return cur.rowcount
+
     def stats(self):
         q = lambda s, a=(): self.db.execute(s, a).fetchone()[0]
         kinds = {r[0]: r[1] for r in self.db.execute(

@@ -38,6 +38,21 @@ def _move_daily(job, value):
     job.done_for = now.date() if (now.hour, now.minute) >= job.at else None
 
 
+def quiet_window(opts):
+    """Quiet hours from the options, as ((h, m), (h, m)), or None when off."""
+    if opts.get("quiet_hours") is False:
+        return None
+    try:
+        a, b = (tuple(int(x) for x in str(opts.get(k)).split(":")[:2]) for k in ("quiet_start", "quiet_end"))
+        return (a, b) if a != b else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _quiet(A, v=None):
+    A.ha.quiet = quiet_window(A.opts)
+
+
 # Each setting: kind, label, icon, its range (numbers), and how to apply it to the running app.
 SETTINGS = {
     "comfort": {"kind": "switch", "label": "Bedroom comfort brain", "icon": "mdi:thermometer-auto",
@@ -56,12 +71,25 @@ SETTINGS = {
                      "apply": lambda A, v: setattr(A.mind, "ORDER", "edges" if v else "default")},
     "answer_notes_first": {"kind": "switch", "label": "Name the notes before answering", "icon": "mdi:note-search",
                            "apply": lambda A, v: setattr(A.mind, "NOTES_FIRST", bool(v))},
+    "quiet_hours": {"kind": "switch", "label": "Quiet hours for phone notifications", "icon": "mdi:bell-sleep",
+                    "apply": _quiet},
+    "checkin_old_facts": {"kind": "switch", "label": "Ask about old facts in the morning", "icon": "mdi:calendar-question",
+                          "apply": lambda A, v: setattr(A.morning, "checkin_on", bool(v))},
     "voice_seconds": {"kind": "number", "label": "Voice time limit", "icon": "mdi:timer-outline", "min": 2, "max": 60,
                       "step": 1, "unit": "s", "apply": lambda A, v: setattr(A.mind, "VOICE_SECONDS", float(v))},
     "fade_days": {"kind": "number", "label": "Fade unused notes after", "icon": "mdi:archive-clock", "min": 0,
                   "max": 3650, "step": 1, "unit": "d", "apply": lambda A, v: None},
     "auto_test_hours": {"kind": "number", "label": "Brain tests every", "icon": "mdi:test-tube", "min": 0, "max": 168,
                         "step": 1, "unit": "h", "apply": lambda A, v: None},
+    "notify_daily_cap": {"kind": "number", "label": "Phone notifications a day (0 = no limit)", "icon": "mdi:bell-badge",
+                         "min": 0, "max": 50, "step": 1, "apply": lambda A, v: setattr(A.ha, "cap", int(v))},
+    "events_keep_days": {"kind": "number", "label": "Keep the detailed activity log for", "icon": "mdi:history",
+                         "min": 0, "max": 3650, "step": 1, "unit": "d", "apply": lambda A, v: None},
+    "checkin_after_days": {"kind": "number", "label": "Ask about facts older than", "icon": "mdi:calendar-question",
+                           "min": 30, "max": 3650, "step": 1, "unit": "d",
+                           "apply": lambda A, v: setattr(A.morning, "checkin_days", int(v))},
+    "quiet_start": {"kind": "time", "label": "Quiet hours start", "icon": "mdi:bell-sleep", "apply": _quiet},
+    "quiet_end": {"kind": "time", "label": "Quiet hours end", "icon": "mdi:bell-ring", "apply": _quiet},
     "morning_time": {"kind": "time", "label": "Morning summary time", "icon": "mdi:clock-outline",
                      "apply": lambda A, v: _move_daily(A.morning, v)},
     "overnight_time": {"kind": "time", "label": "Overnight learning time", "icon": "mdi:clock-outline",
@@ -225,6 +253,20 @@ class Control:
         if eng is not None:
             put("automations_owned", "Automations run by Home Mind", len(getattr(eng, "owned", ()) or ()),
                 "mdi:robot-happy", "automations")
+        u = getattr(A, "usage", None)
+        if u is not None:
+            try:
+                t = u.summary(1)["today"]
+                put("model_calls_today", "Model calls today", t["calls"], "mdi:robot", "calls")
+                put("model_tokens_today", "Model tokens today", t["tokens"], "mdi:counter", "tokens")
+                if t["cost"] is not None:
+                    put("model_cost_today", "Model cost today", t["cost"], "mdi:currency-usd", "USD")
+            except Exception:  # noqa: BLE001
+                pass
+        ha = getattr(A, "ha", None)
+        if ha is not None:
+            put("notifications_waiting", "Phone notifications waiting for quiet hours to end",
+                len(getattr(ha, "held", []) or []), "mdi:bell-sleep", "notifications")
         put("version", "Version", VERSION, "mdi:information-outline")
         return out
 

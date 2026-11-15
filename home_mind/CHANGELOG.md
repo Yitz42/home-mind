@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0
+- Model use: calls, failures, tokens in/out and time per model per day; a table on the Models tab, `GET /api/usage`, and today's calls, tokens and cost as sensors on the Home Mind device. Optional `price_in` / `price_out` per model (dollars per million tokens) for cost.
+- Activity log: events older than `events_keep_days` (default 90) are rolled up into daily counts and removed once a day, so the database stops growing; notes are never touched.
+- Quiet hours (default on, 22:00-07:00): phone notifications wait and go out when they end; optional daily limit (`notify_daily_cap`). The Home Assistant notification list still gets everything at once.
+- Old facts: the morning summary asks about one old, unconfirmed fact a day with Still true / It changed buttons (`checkin_old_facts`, `checkin_after_days`, default 180).
+- The morning summary hides secret values in the titles it lists (it shows on the phone's lock screen).
+- Prompt caching left out on purpose: Home Mind's fixed instructions (about 500 tokens) are below Claude's minimum cacheable length (1,024 to 4,096 tokens), so it would change nothing.
+- New switches, numbers and times for these on the Home Mind device; sensor for phone notifications waiting.
+
 ## 0.16.0
 - Past days: a question about yesterday, a past weekday, a date or weeks ago also searches replaced versions, and the version current that day comes first. On the hard suite the right version is now first for yesterday 60/60 (was 0/60) and a past weekday 52/60 (was 14/60), so a brain-only answer gives it too.
 - "Nothing close": the model is told when the best note is a poor match (rare question words count more; a word no note has counts most), and to say it doesn't know unless a note plainly answers. New `abstain` suite: about 7 in 10 never-filed answers flagged (names alone caught 4 in 10), about 1 in 30 answerable questions. Answers carry `weak`.

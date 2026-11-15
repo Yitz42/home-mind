@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from aiohttp import web
 
 from .comfort import Comfort
-from .control import Control
+from .control import Control, quiet_window
 from .body import Body
 from .home import Home, plan_action
 from .automations import Engine
@@ -30,6 +30,8 @@ from .mind import Mind
 from .models import Models
 from .suites import SUITE_INFO
 from .updater import Updater
+from .usage import Usage
+from . import models as models_mod
 from .version import VERSION
 
 DATA = os.environ.get("HOME_MIND_DATA", "/data")
@@ -45,6 +47,8 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": "", "overnight_time": "03:00", "overnight_model": "",
             "overnight_enabled": True, "morning_enabled": True,
             "answer_edges": False, "answer_notes_first": False,
+            "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
+            "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -84,6 +88,10 @@ class App:
         self.token = load_token()
         self.models = Models(self.opts.get("models"))
         self.mind = Mind(DATA, self.models)
+        self.usage = Usage(self.mind.store, {m["name"]: (float(m["price_in"]), float(m["price_out"]))
+                                             for m in (self.opts.get("models") or [])
+                                             if m.get("price_in") is not None and m.get("price_out") is not None})
+        models_mod.USAGE = self.usage.record
         self.updater = Updater(self.mind.store, self.opts.get("update_url"))
         self.mcp = MCP(self)
         self.ha = None
@@ -103,6 +111,8 @@ class App:
     async def on_start(self, _app):
         await self.models.start()
         self.ha = HA(self.models.session)
+        self.ha.quiet = quiet_window(self.opts)
+        self.ha.cap = int(self.opts.get("notify_daily_cap") or 0)
         self.comfort = Comfort(self.mind, self.ha)
         self.body = Body(self.mind.store, self.ha)
         self.home = Home(self.mind.store, self.ha, self.opts)
@@ -124,6 +134,8 @@ class App:
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False
+        self.morning.checkin_on = self.opts.get("checkin_old_facts", True) is not False
+        self.morning.checkin_days = int(self.opts.get("checkin_after_days") or 180)
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
@@ -132,6 +144,8 @@ class App:
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
         self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
             lambda d: self.patterns.on_action(d.get("action")))
+        self.engine.event_handlers["mobile_app_notification_action"].append(
+            lambda d: self.morning.on_action(d.get("action")))
         try:
             n = nutrition.file_into(self.mind.store)
             if n:
@@ -347,6 +361,14 @@ class App:
                 if now - last["fade"] > 86400:
                     last["fade"] = now
                     self.mind.store.fade(int(self.opts.get("fade_days") or 0))
+                    n = self.mind.store.prune_events(int(self.opts.get("events_keep_days") or 0))
+                    if n:
+                        log.info("event log: rolled up and removed %d rows older than %s days", n,
+                                 self.opts.get("events_keep_days"))
+                if self.ha.available:
+                    n = await self.ha.flush_held()
+                    if n:
+                        log.info("quiet hours over: sent %d held phone notifications", n)
                 if now - last["packs"] > 12 * 3600:
                     last["packs"] = now
                     await (self.updater.apply() if self.opts.get("auto_update_packs") else self.updater.check())
@@ -544,6 +566,11 @@ def build(app_state):
     @r.get("/api/trend")
     async def trend(q):
         return J(st.trend(q.query["suite"], q.query.get("name", "accuracy"), q.query.get("arm")))
+
+    @r.get("/api/usage")
+    async def usage(q):
+        days = int(q.query.get("days", 30))
+        return J(dict(A.usage.summary(days), rows=A.usage.rows(days)))
 
     @r.get("/api/events")
     async def events(q):

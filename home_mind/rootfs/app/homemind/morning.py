@@ -1,7 +1,10 @@
 """The morning summary: once a day (option morning_time, default 07:30) a short note of what Home Mind filed in the
 last 24 hours on its own or from what you told it, plus anything that went wrong and today's calendar. Sent to your
 phone (the first mobile_app notify service, or option morning_notify) and as a Home Assistant notification, and kept
-on summaries/morning. Anything filed wrongly can be forgotten from Memory > Recently added."""
+on summaries/morning. Anything filed wrongly can be forgotten from Memory > Recently added.
+
+It also asks about one old fact a day ("Still true? ..."), with Still true / It changed buttons on the phone, so
+facts nobody has confirmed in a long time get checked (secret values are never shown, only what they are for)."""
 import json
 import logging
 import re
@@ -20,6 +23,74 @@ class Morning:
         self.notify = notify
         self.done_for = None
         self.enabled = True          # the Morning summary switch; off skips the daily send (not a button press)
+        self.checkin_on = True       # option checkin_old_facts
+        self.checkin_days = 180      # option checkin_after_days: a fact this old and not confirmed since gets asked
+        self._checkin = None
+
+    # ---- old facts: still true? ----------------------------------------------------------------------------------
+    SKIP_SOURCES = ("home", "calendar", "automations", "journal", "scale", "morning", "patterns", "check-in", "test",
+                    "pantry", "nutrition")
+
+    def pick_checkin(self):
+        """The old fact most worth checking: a current fact you told it (not one it filed from the house), older than
+        checkin_days, not confirmed or asked about within that time, most used first."""
+        if not self.checkin_on:
+            return None
+        cut = time.time() - self.checkin_days * 86400
+        rows = self.store.db.execute(
+            f"SELECT * FROM items WHERE kind='fact' AND status='active' AND created < ? AND source NOT IN "
+            f"({','.join('?' * len(self.SKIP_SOURCES))}) AND source NOT LIKE 'pack:%' "
+            "ORDER BY use_count DESC, created LIMIT 40", (cut, *self.SKIP_SOURCES)).fetchall()
+        for r in rows:
+            d = self.store._row(r)
+            m = d["meta"] or {}
+            if max(m.get("confirmed") or 0, m.get("checked") or 0) >= cut:
+                continue
+            # an unkeyed fact may have a newer version that the search groups with it: skip those
+            if any(h.get("newer") == d["id"] for h in self.store.recall(d["title"], limit=5, touch=False)):
+                continue
+            return d
+        return None
+
+    def _checkin_line(self, d):
+        from . import privacy
+        when = datetime.fromtimestamp(d["created"]).strftime("%b %Y")
+        if privacy.is_sensitive(d["title"] + " " + d["body"], d["meta"]):
+            what = re.sub(r"\s+(?:is|are|was|=|:)(?:\s.*)?$", "", d["title"], flags=re.I)
+            what = re.sub(r"^(?:the|my|our)\s+", "", what, flags=re.I).strip()
+            what = privacy.mask(what, "", lambda x: [], lambda x: set()) or "saved code"
+            return f"Still true? The {what} you saved in {when}: has it changed?"
+        return f"Still true? {_short(d)} (noted {when})"
+
+    def _mark_checked(self, item_id):
+        d = self.store.get(item_id)
+        if not d:
+            return
+        meta = dict(d["meta"] or {}, checked=time.time())
+        self.store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), item_id))
+        self.store.db.commit()
+
+    async def on_action(self, action):
+        """A tapped Still true / It changed button from the morning summary."""
+        m = re.fullmatch(r"HM_(STILL|CHANGED)_(\d+)", action or "")
+        if not m:
+            return None
+        i = int(m.group(2))
+        d = self.store.get(i)
+        if not d:
+            return None
+        meta = dict(d["meta"] or {}, checked=time.time())
+        if m.group(1) == "STILL":
+            meta["confirmed"] = time.time()
+            self.store.feedback(i, True, "confirmed still true")
+        else:
+            meta["doubted"] = time.time()
+            self.store.feedback(i, False, "said it changed")
+            await self.ha.notify("Home Mind: what changed?", f"You said this changed: {d['title']}. Tell Jeeves or "
+                                 "Home Mind the new value and it will replace the old one.", "hm_changed")
+        self.store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), i))
+        self.store.db.commit()
+        return {"id": i, "answer": m.group(1).lower()}
 
     def _rows(self, where, args=()):
         return [self.store._row(r) for r in self.store.db.execute(
@@ -86,6 +157,9 @@ class Morning:
                              + " (tell Jeeves \"I used…\" or \"I tossed…\")")
         if not lines:
             lines.append("Nothing new was filed in the last day.")
+        self._checkin = self.pick_checkin()
+        if self._checkin:
+            lines.append(self._checkin_line(self._checkin))
         return "\n".join(lines)
 
     async def send(self, text=None):
@@ -94,15 +168,23 @@ class Morning:
         await self.ha.notify(title, text + "\n\nReview or forget anything in Home Mind › Memory › Recently added.",
                              "home_mind_morning")
         target = self.notify or await self._phone()
+        pushed = None
         if target:
-            dom, svc = target.split(".", 1)
+            data = {"title": title, "message": text}
+            if self._checkin:
+                data["data"] = {"tag": "hm_morning", "actions": [
+                    {"action": f"HM_STILL_{self._checkin['id']}", "title": "Still true"},
+                    {"action": f"HM_CHANGED_{self._checkin['id']}", "title": "It changed"}]}
             try:
-                await self.ha.call(dom, svc, {"title": title, "message": text})
+                pushed = await self.ha.push(target, data)
             except Exception as e:  # noqa: BLE001
                 log.warning("morning notify %s: %s", target, e)
         self.store.remember(text=text, title=f"Morning summary {datetime.now():%a %b %d %Y}", kind="note",
                             shelf="summaries/morning", tags=["summary"], source="morning")
-        return {"sent_to": target or "Home Assistant notifications", "text": text}
+        if self._checkin:
+            self._mark_checked(self._checkin["id"])
+        return {"sent_to": target or "Home Assistant notifications", "text": text, "phone": pushed,
+                "checkin": self._checkin and self._checkin["id"]}
 
     async def _phone(self):
         svcs = await self.ha.get_json("services") or []
@@ -127,5 +209,11 @@ class Morning:
 
 
 def _short(d):
+    """A note's title for the summary, with any secret value hidden (the summary shows on a phone's lock screen)."""
+    from . import privacy
     t = d["title"]
+    if privacy.is_sensitive(t + " " + (d.get("body") or ""), d.get("meta")):
+        # everything after the secret word goes ("Guest wifi password sunflower88" -> "Guest wifi password [hidden]")
+        cut = re.sub(rf"(\b{privacy.SECRET_WORDS}\b).*$", r"\1 [hidden]", t, flags=re.I)
+        t = cut if cut != t else privacy.mask(t, "", lambda x: [], lambda x: set())
     return t if len(t) <= 60 else t[:57] + "…"

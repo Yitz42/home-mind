@@ -2,7 +2,7 @@
 directly (Anthropic API), and the models Home Assistant already has set up (AI Task / conversation agents), so
 Haiku can be used with no second API key.
 
-Every model is used the same way: chat(system, messages) -> {"text", "ms", "tokens"}.
+Every model is used the same way: chat(system, messages) -> {"text", "ms", "tokens", "tokens_in", "tokens_out"}.
 """
 import asyncio
 import os
@@ -12,10 +12,19 @@ import time
 import aiohttp
 
 SUPERVISOR = "http://supervisor"
+USAGE = None        # set by the app: f(model, ok, tokens_in, tokens_out, ms) records each call (see usage.py)
 
 
 class ModelError(Exception):
     pass
+
+
+def _use(*a):
+    if USAGE:
+        try:
+            USAGE(*a)
+        except Exception:  # noqa: BLE001  (counting must never break a call)
+            pass
 
 
 class Model:
@@ -38,12 +47,20 @@ class Model:
             raise ModelError(f"unknown model type {self.type}")
         try:
             text, tokens = await fn(system, messages, max_tokens, temperature)
-        except asyncio.TimeoutError as e:
-            raise ModelError(f"{self.name}: timed out after {self.timeout.total:g}s") from e
-        except aiohttp.ClientError as e:
-            raise ModelError(f"{self.name}: {type(e).__name__}: {e}") from e
-        return {"text": (text or "").strip(), "ms": int((time.monotonic() - t0) * 1000), "tokens": tokens,
-                "model": self.name}
+        except Exception as e:
+            _use(self.name, False, None, None, int((time.monotonic() - t0) * 1000))
+            if isinstance(e, asyncio.TimeoutError):
+                raise ModelError(f"{self.name}: timed out after {self.timeout.total:g}s") from e
+            if isinstance(e, aiohttp.ClientError):
+                raise ModelError(f"{self.name}: {type(e).__name__}: {e}") from e
+            raise
+        tin, tout = tokens if isinstance(tokens, tuple) else (None, None)
+        total = (tin or 0) + (tout or 0) if isinstance(tokens, tuple) else tokens
+        ms = int((time.monotonic() - t0) * 1000)
+        if self.type != "mock":
+            _use(self.name, True, tin, tout, ms)
+        return {"text": (text or "").strip(), "ms": ms, "tokens": total if total else None,
+                "tokens_in": tin, "tokens_out": tout, "model": self.name}
 
     async def check(self):
         try:
@@ -73,7 +90,7 @@ class Model:
         j = await self._post(url, {"model": self.cfg.get("model", ""), "messages": msgs, "max_tokens": max_tokens,
                                    "temperature": temperature, "stream": False}, headers)
         u = j.get("usage") or {}
-        return j["choices"][0]["message"].get("content", ""), u.get("total_tokens")
+        return j["choices"][0]["message"].get("content", ""), (u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0)
 
     # ---- Ollama native ---------------------------------------------------------------------------------------------
     async def _chat_ollama(self, system, messages, max_tokens, temperature):
@@ -84,7 +101,7 @@ class Model:
                                                  "options": {"num_predict": max_tokens, "temperature": temperature}})
         text = (j.get("message") or {}).get("content", "")
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
-        return text, (j.get("prompt_eval_count") or 0) + (j.get("eval_count") or 0)
+        return text, (j.get("prompt_eval_count") or 0, j.get("eval_count") or 0)
 
     # ---- Anthropic API -----------------------------------------------------------------------------------------------
     async def _chat_anthropic(self, system, messages, max_tokens, temperature):
@@ -96,7 +113,8 @@ class Model:
                              {"x-api-key": self.cfg["api_key"], "anthropic-version": "2023-06-01"})
         text = "".join(b.get("text", "") for b in j.get("content", []) if b.get("type") == "text")
         u = j.get("usage") or {}
-        return text, (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0)
+        tin = (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+        return text, (tin, u.get("output_tokens") or 0)
 
     # ---- Home Assistant's own models -----------------------------------------------------------------------------
     def _ha_headers(self):
