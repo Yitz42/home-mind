@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.25.0"
+version: "0.25.1"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -190,9 +190,9 @@ schema:
   backup_keep: int(1,365)
   learn_filing: bool
   docs_folder: str?
-  homebox_url: url?
+  homebox_url: str?
   homebox_token: password?
-  paperless_url: url?
+  paperless_url: str?
   paperless_token: password?
   rerank_model: str?
   markdown_folder: str?
@@ -206,7 +206,7 @@ schema:
   telegram_chats:
     - str?
   web_search: list(off|searxng|brave)?
-  web_search_url: url?
+  web_search_url: str?
   web_search_key: password?
   email_host: str?
   email_user: str?
