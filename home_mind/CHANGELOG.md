@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.25.1
+- 0.25.0 couldn't be installed over an existing setup: three new options (homebox_url, paperless_url, web_search_url)
+  were typed as URLs with an empty default, which the Supervisor refuses. They're plain text now (the app checks them
+  itself), and a new test checks every default against its type the way the Supervisor does.
+
 ## 0.25.0
 The rest of the roadmap, built overnight as a stack of ten pull requests (#12–#21) and brought onto this version in one
 piece. Their own version numbers clashed with 0.23–0.24.1 here, so they're listed below under the set they came from.
