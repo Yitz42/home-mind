@@ -108,6 +108,15 @@ async def main():
     n1 = nutrition.file_into(st)
     assert n1 == len(studies) and nutrition.file_into(st) == 0        # filed once, not again on the next start
     assert any("Pulses" in r["title"] for r in st.recall("do chickpeas help cholesterol", limit=5))
+    # a reply cut off mid-meal still gives the meals that finished, and the prompt asks for compact output
+    from homemind.pantry import parse_plan, MEAL_SYSTEM
+    whole = '{"focus": "tired day", "meals": [{"name": "Egg rice bowl", "uses": ["eggs", "rice"], "protein_g": 25}, ' \
+            '{"name": "Bean tacos", "uses": ["beans"], "protein_g": 20}, {"name": "Chicken so'
+    cut = parse_plan(whole)
+    assert cut["focus"] == "tired day" and [m["name"] for m in cut["meals"]] == ["Egg rice bowl", "Bean tacos"], cut
+    assert cut["cut_off"] and parse_plan("no json here") == {}
+    assert parse_plan('{"focus": "x", "meals": []}') == {"focus": "x", "meals": []}
+    assert "under 35 words" in MEAL_SYSTEM
     print("PANTRY OK")
 
 

@@ -74,6 +74,72 @@
   .list { display:flex; flex-direction:column } .li { display:flex; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line) } .li:last-child { border-bottom:0 }
   .li .main { flex:1; min-width:0 } .li .main .t { overflow-wrap:anywhere } .li .sub { font-size:12px; color:var(--mute) } .li .acts { font-size:12px; white-space:nowrap; display:flex; gap:10px }
   .days-b { min-width:56px; text-align:center; border-radius:10px; padding:4px 6px; font:600 14px var(--head); background:var(--card2) } .days-b.hot { background:var(--food-bg); color:var(--food-ink); border:1px solid var(--food-line) } .days-b.gone { color:var(--bad) }
+  /* Home controls */
+  .wpill { display:flex; align-items:center; gap:8px; padding:7px 12px; border-radius:14px; background:color-mix(in srgb, var(--acc) 12%, var(--card)); border:1px solid color-mix(in srgb, var(--acc) 30%, var(--line)); font-size:12px; color:var(--mute) }
+  .wpill b { font:600 17px var(--head); color:var(--ink) }
+  .hc-scenes { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:12px; max-width:560px }
+  .hc-scenes button { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-height:66px; border-radius:18px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-size:12px; cursor:pointer }
+  .hc-scenes button.on { background:var(--ink); color:var(--bg); font-weight:600 }
+  .hc-tip { display:flex; gap:12px; align-items:center; padding:12px 14px; border-radius:18px; background:var(--health-bg); border:1px solid var(--health-line); margin-bottom:12px }
+  .hc-tip b { font-size:14px } .hc-tip .t { flex:1; display:flex; flex-direction:column } .hc-tip .t span { font-size:12px; color:var(--health-ink) }
+  .hc-row { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start } .hc-row > .card { margin-bottom:12px }
+  .hc-mapcard { flex:1.5 1 480px; min-width:0 } .hc-side { flex:1 1 340px; min-width:0; display:flex; flex-direction:column } .hc-side > .card { margin-bottom:12px }
+  .hc-all { display:inline-flex; align-items:center; gap:6px; min-height:38px; padding:0 14px; border-radius:99px; font:inherit; font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--card2); color:var(--ink) }
+  .hc-all.on { background:#ff890e; color:#1a1205; border-color:#ff890e } .hc-all.sel { box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--ink) }
+  .hc-map { position:relative; width:100%; aspect-ratio:326 / 390; max-height:560px; margin:0 auto; border-radius:16px; background:color-mix(in srgb, var(--bg) 70%, var(--card)); overflow:hidden; --f:color-mix(in srgb, var(--card2) 80%, var(--line)); --w:color-mix(in srgb, var(--line) 70%, var(--mute)) }
+  .hc-map .f { position:absolute; pointer-events:none }
+  .f.room { left:3%; top:3%; right:3%; bottom:3%; border:3px solid var(--w); border-radius:4px; background:var(--card) }
+  .f.window { left:30%; top:2.2%; width:40%; height:2.4%; border-radius:2px; background:color-mix(in srgb, var(--acc) 35%, var(--card)) }
+  .f.blinds { left:33%; top:2.9%; width:34%; height:.8%; background:repeating-linear-gradient(90deg, color-mix(in srgb, var(--acc) 60%, var(--card)) 0 4px, transparent 4px 7px) }
+  .f.bed { left:52%; top:6%; width:44%; height:50%; border-radius:8px; background:var(--f); border:1px solid var(--line) }
+  .f.pil1, .f.pil2 { top:7.5%; width:17%; height:7%; border-radius:5px; background:color-mix(in srgb, var(--f) 70%, var(--mute)) } .f.pil1 { left:55% } .f.pil2 { left:75% }
+  .f.quilt { left:52%; top:18%; width:44%; height:38%; border-radius:0 0 8px 8px; background:repeating-linear-gradient(0deg, color-mix(in srgb, var(--f) 85%, var(--mute)) 0 18px, var(--f) 18px 36px) }
+  .f.rope { left:73%; top:1.6%; width:22%; height:3.6% }
+  .f.desk1 { left:4%; top:6%; width:15%; height:54%; border-radius:4px; background:var(--f); border:1px solid var(--line) }
+  .f.desk2 { left:4%; top:6%; width:44%; height:9%; border-radius:4px; background:var(--f); border:1px solid var(--line) }
+  .f.mon { left:4.6%; width:3px; border-radius:2px; background:color-mix(in srgb, var(--acc) 40%, var(--line)) } .f.m1 { top:18%; height:13% } .f.m2 { top:32%; height:11% } .f.m3 { top:44%; height:11% }
+  .f.drawers { left:83%; top:57%; width:13%; height:18%; border-radius:4px; background:var(--f); border:1px solid var(--line) }
+  .f.closet { left:56%; top:76%; width:40%; height:21%; background:var(--card2); border-top:3px solid var(--w); border-left:3px solid var(--w) }
+  .f.mirror { left:58%; top:77.5%; width:36%; height:4px; background:linear-gradient(90deg, var(--line), var(--mute), var(--line)) }
+  .f.cart { left:43%; top:80%; width:11%; height:15%; border-radius:3px; border:1px dashed var(--w) }
+  .f.doorgap { left:6%; top:96%; width:30%; height:1.6%; background:color-mix(in srgb, var(--bg) 70%, var(--card)) }
+  .f.swing { left:6%; top:75%; width:30%; height:21.5%; border-top-right-radius:100%; border-top:1px dashed var(--w); border-right:1px dashed var(--w) }
+  .hc-glow { position:absolute; inset:0; pointer-events:none }
+  .hc-status { position:absolute; left:35.5%; top:42%; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; font-size:12px; color:var(--mute); pointer-events:none; text-align:center }
+  .hc-status b { font:600 22px var(--head); color:var(--ink) }
+  .hc-dev { position:absolute; transform:translate(-50%,-50%); width:44px; height:44px; border:0; background:none; padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center }
+  .hc-dev .halo { position:absolute; border-radius:99px; pointer-events:none }
+  .hc-dev .disc { position:relative; width:38px; height:38px; border-radius:99px; display:flex; align-items:center; justify-content:center; background:var(--card2); color:var(--mute); border:1px solid var(--line) }
+  .hc-dev.on .disc { color:#1a1205; border-color:transparent } .hc-dev.sel .disc { box-shadow:0 0 0 3px var(--card), 0 0 0 5px var(--ink) } .hc-dev.na .disc { opacity:.45 }
+  .hc-panel { background:color-mix(in srgb, var(--acc) 6%, var(--card)) }
+  .hc-ptop { display:flex; justify-content:space-between; align-items:center; gap:10px } .hc-ptop b { font:600 18px var(--head) }
+  .sw { position:relative; width:52px; height:30px; border-radius:99px; border:0; cursor:pointer; flex:none; background:var(--line) }
+  .sw::after { content:''; position:absolute; top:3px; left:3px; width:24px; height:24px; border-radius:99px; background:#fff; transition:left .15s }
+  .sw.on { background:var(--sw, var(--house)) } .sw.on::after { left:25px } .sw.sm { width:42px; height:24px } .sw.sm::after { width:18px; height:18px } .sw.sm.on::after { left:21px }
+  .hc-slider { position:relative; height:52px; border-radius:16px; background:color-mix(in srgb, var(--bg) 70%, var(--card)); overflow:hidden; margin-top:6px }
+  .hc-slider .fill { position:absolute; left:0; top:0; bottom:0; border-radius:16px; background:var(--sc, var(--food)) }
+  .hc-slider input, .hc-tall input { position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:pointer }
+  .hc-tall input { writing-mode:vertical-lr; direction:rtl }
+  .hc-lab { display:flex; justify-content:space-between; font-size:13px; margin-top:14px; color:var(--mute) } .hc-lab b { color:var(--ink) }
+  .hc-sw { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap } .hc-sw button { width:34px; height:34px; border-radius:99px; cursor:pointer; border:2px solid var(--line) } .hc-sw button.on { border:3px solid var(--ink) }
+  .hc-pills { display:flex; gap:6px; margin-top:12px; flex-wrap:wrap } .hc-pills button { min-height:34px; padding:0 12px; border-radius:99px; border:1px solid var(--line); background:none; color:var(--ink); font:inherit; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px }
+  .hc-pills button.on { background:var(--food); color:var(--food-on); border-color:var(--food); font-weight:600 } .hc-pills i { width:9px; height:9px; border-radius:99px; display:inline-block }
+  .hc-talls { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px }
+  .hc-tall { position:relative; height:190px; border-radius:24px; background:color-mix(in srgb, var(--bg) 70%, var(--card)); overflow:hidden; border:1px solid var(--line) }
+  .hc-tall .fill { position:absolute; left:0; right:0; bottom:0 } .hc-tall .v { position:absolute; left:0; right:0; top:14px; display:flex; flex-direction:column; align-items:center; pointer-events:none }
+  .hc-tall .v b { font:600 24px/1 var(--head) } .hc-tall .v span { font-size:11px; color:var(--mute) }
+  .hc-tcap { text-align:center; margin-top:6px } .hc-tcap b { display:block; font-size:13px } .hc-tcap span { font-size:11px; color:var(--mute) } .hc-tcap span.warn { color:var(--bad) }
+  .hc-chip { min-height:32px; padding:0 12px; border-radius:99px; font:inherit; font-size:12px; font-weight:600; cursor:pointer; border:1px solid var(--house-line); background:none; color:var(--house-ink) } .hc-chip.on { background:var(--house); color:var(--house-on); border-color:var(--house) }
+  .hc-hours { display:flex; justify-content:space-between; gap:4px } .hc-hours div { display:flex; flex-direction:column; align-items:center; gap:3px; font-size:12px } .hc-hours span { color:var(--mute); font-size:11px }
+  .hc-days { margin-top:10px } .hc-days > div { display:flex; align-items:center; gap:10px; padding:6px 0; border-top:1px solid var(--line); font-size:13px }
+  .hc-days .rng { flex:1; position:relative; height:6px; border-radius:99px; background:var(--line) } .hc-days .rng i { position:absolute; top:0; height:6px; border-radius:99px; background:linear-gradient(90deg, var(--acc), var(--food)) }
+  .hc-rt { display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-top:1px solid var(--line) } .hc-rt .tm { min-width:70px; font-size:12px; font-weight:600; padding:3px 8px; border-radius:8px; text-align:center; background:var(--card2); margin-right:10px }
+  .hc-plugs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px 6px } .hc-plugs button { display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:0; color:var(--ink); font:inherit; cursor:pointer; padding:0 }
+  .hc-plugs .pring { width:52px; height:52px; border-radius:99px; display:flex; align-items:center; justify-content:center; background:var(--card2); color:var(--mute); border:1px solid var(--line) }
+  .hc-plugs .on .pring { background:var(--ink); color:var(--bg); border-color:var(--ink) } .hc-plugs .nm { font-size:12px; text-align:center; line-height:1.15 } .hc-plugs .st { font-size:11px; color:var(--mute) }
+  .hc-pr { display:flex; gap:12px; margin-top:12px } .hc-cam { width:110px; height:110px; flex:none; border-radius:14px; background:color-mix(in srgb, var(--bg) 70%, var(--card)); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; text-align:center; font-size:11px; color:var(--mute); padding:8px; box-sizing:border-box }
+  .hc-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:12px } .hc-stats div { background:color-mix(in srgb, var(--bg) 70%, var(--card)); border-radius:10px; padding:6px 8px; display:flex; flex-direction:column } .hc-stats span { font-size:10px; color:var(--mute) } .hc-stats b { font-size:13px }
+  .hc-btns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:12px } .hc-btns button { min-height:40px; border-radius:12px; border:1px solid var(--line); background:var(--card2); color:var(--ink); font:inherit; font-size:13px; cursor:pointer } .hc-btns button:disabled { opacity:.4; cursor:default } .hc-btns .stop { color:var(--bad) }
   .room { max-width:560px }
   @media (min-width: 861px) {
     main { padding:20px 26px 32px } .ph { margin-bottom:12px } .ph h1 { font-size:23px } .ph .sub { font-size:12px }
@@ -86,8 +152,8 @@
     .li { padding:8px 0 } .stat b { font-size:19px } #nav button { min-height:36px; padding:7px 10px }
   }
   @media (max-width: 860px) {
-    .app { display:block } main { padding:16px 14px 96px }
-    #nav { position:fixed; z-index:5; left:0; right:0; bottom:0; top:auto; width:auto; height:auto; flex-direction:row; padding:6px 6px calc(10px + env(safe-area-inset-bottom)); border-right:0; border-top:1px solid var(--line); gap:2px }
+    .app { display:block } main { padding:16px 14px 80px }
+    #nav { position:fixed; z-index:5; left:0; right:0; bottom:0; top:auto; width:auto; height:auto; flex-direction:row; padding:6px 6px 6px; border-right:0; border-top:1px solid var(--line); gap:2px }
     #nav .brand, #nav .grp, #nav .foot, #nav .sys { display:none } #nav .badge { display:none }
     #nav button { flex:1; flex-direction:column; gap:3px; padding:6px 2px; font-size:11px; justify-content:center; min-height:52px; text-align:center }
     .ph h1 { font-size:26px } .bento { grid-template-columns:1fr } .card { border-radius:16px; padding:14px 16px }
@@ -106,7 +172,7 @@
   <div class="grp">BRAIN</div>
   <button data-t="memory" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span>Memory</span><b class="badge hide" id="nav_review"></b></button>
   <button data-t="worked" class="sys" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/></svg><span>Worked out</span></button>
-  <button data-t="house" style="--tint:var(--house)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg><span>House</span></button>
+  <button data-t="house" style="--tint:var(--house)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg><span>Home</span></button>
   <div class="grp">SYSTEM</div>
   <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>More</span></button>
   <button data-t="tests" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg><span>Tests</span></button>
@@ -209,13 +275,49 @@
     <p class="mute">Kept when you say "that's wrong" and then the right value. The <b>corrections</b> suite on the Tests tab asks them again.</p></div>
 </section>
 <section id="house" class="hide">
-  <div class="ph"><div><div class="sub" style="color:var(--house-ink)" id="ho_sub">Habits, usual ranges and automations</div><h1>House</h1></div></div>
-  <div class="card house"><div class="hrow"><h2>Bedroom</h2><span id="ho_comfort" style="font-size:12px;color:var(--house-ink)"></span></div><div class="room" id="ho_room"></div>
-    <div class="choice" id="ho_choice">
-      <button data-f="cold" onclick="vote('cold')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 2v20M4.9 7l14.2 10M19.1 7L4.9 17M9 4l3 2 3-2M9 20l3-2 3 2"/></svg>I'm cold</button>
-      <button data-f="ok" onclick="vote('ok')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg>Just right</button>
-      <button data-f="hot" onclick="vote('hot')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8zM12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>I'm hot</button>
-      <span class="msg" id="ho_vote"></span></div></div>
+  <div class="ph"><div><div class="sub" style="color:var(--house-ink)" id="ho_sub">Bedroom</div><h1>Home</h1></div>
+    <div class="wpill" id="hc_wpill"></div></div>
+  <div class="seg"><button class="on" id="hs_c" onclick="homeTab('c')">Controls</button><button id="hs_l" onclick="homeTab('l')">Learned &amp; automations</button></div>
+  <div id="h_controls">
+    <div class="hc-scenes" id="hc_scenes"></div>
+    <div class="hc-tip hide" id="hc_tip"></div>
+    <div class="hc-row">
+      <div class="card hc-mapcard">
+        <div class="hrow" style="align-items:center"><div><h2 style="margin:0">Your room</h2><span class="mute" style="font-size:12px">tap anything</span></div><button class="hc-all" id="hc_all" onclick="homeSel('all')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>All lights</button></div>
+        <div class="hc-map" id="hc_map">
+          <div class="hc-glow" id="hc_glow"></div>
+          <div class="f room"></div>
+          <div class="f window"></div><div class="f blinds"></div>
+          <div class="f bed"></div><div class="f pil1"></div><div class="f pil2"></div><div class="f quilt"></div>
+          <svg class="f rope" viewBox="0 0 70 14" preserveAspectRatio="none" aria-hidden="true"><path id="hc_rope" d="M2 7C10 1 16 13 24 7S38 1 46 7S60 13 68 7" fill="none" stroke="var(--line)" stroke-width="3" stroke-linecap="round"/></svg>
+          <div class="f desk1"></div><div class="f desk2"></div><div class="f mon m1"></div><div class="f mon m2"></div><div class="f mon m3"></div>
+          <div class="f drawers"></div><div class="f closet"></div><div class="f mirror"></div><div class="f cart"></div>
+          <div class="f doorgap"></div><div class="f swing"></div>
+          <div class="hc-status" id="hc_status"></div>
+          <div id="hc_devs"></div>
+        </div>
+      </div>
+      <div class="hc-side">
+        <div class="card hc-panel" id="hc_panel"></div>
+        <div class="card">
+          <div class="hrow" style="align-items:center"><h2 style="margin:0">Comfort</h2><button class="hc-chip" id="hc_brain" onclick="homeBrain()"></button></div>
+          <div class="hc-talls" id="hc_talls"></div>
+          <div class="choice" id="ho_choice" style="justify-content:center">
+            <button data-f="cold" onclick="vote('cold')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 2v20M4.9 7l14.2 10M19.1 7L4.9 17M9 4l3 2 3-2M9 20l3-2 3 2"/></svg>I'm cold</button>
+            <button data-f="ok" onclick="vote('ok')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg>Just right</button>
+            <button data-f="hot" onclick="vote('hot')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8zM12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>I'm hot</button>
+            <span class="msg" id="ho_vote"></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="hc-row">
+      <div class="card hc-mapcard"><div class="hrow"><h2>Tonight &amp; tomorrow</h2><span class="mute" style="font-size:12px" id="hc_alarm"></span></div>
+        <div class="hc-hours" id="hc_hours"></div><div class="hc-days" id="hc_days"></div><div id="hc_routines" class="list" style="margin-top:6px"></div></div>
+      <div class="hc-side"><div class="card"><h2>Plugs &amp; media</h2><div class="hc-plugs" id="hc_plugs"></div>
+        <div class="mute" style="font-size:12px;margin-top:10px">Batteries: <span id="hc_batt"></span></div></div></div>
+    </div>
+  </div>
+  <div id="h_learned" class="hide">
   <div class="card"><div class="row"><h2 style="margin:0;flex:1">Notable today</h2><span class="mute" id="h_at"></span> <button class="go" onclick="houseLearn()">Learn now</button></div><table id="h_notable"></table>
     <p class="mute">Locks, garage doors, things at an unusual hour and readings far outside their usual range. Routine changes are left out (and rank lower in answers).</p></div>
   <div class="card"><h2>Habits <span class="mute">from the last 4 weeks, checked against chance</span></h2><ul id="h_habits"></ul></div>
@@ -227,6 +329,7 @@
     <div class="row hide" id="ad_install"><input id="ad_pin" type="password" placeholder="PIN (only for unlocking or opening)"> <button class="go" onclick="installAuto()">Install switched off</button> <span id="ad_res" class="mute"></span></div>
     <p class="mute">A model writes it; Home Mind checks every entity, service and trigger against Home Assistant before anything is installed. Unlocking, opening a garage door or disarming needs option automation_pin.</p></div>
   <div class="card"><h2>Usual ranges</h2><table id="h_base"></table></div>
+  </div>
 </section>
 <section id="pantry" class="hide">
   <div class="ph"><div><div class="sub" style="color:var(--food-ink)" id="pa_sub">Food in the house</div><h1>Food</h1></div></div>
@@ -334,7 +437,7 @@ async function todayAsk() { const q = $('#td_q').value.trim(); if (!q) return; $
 $('#td_q').addEventListener('keydown', e => e.key === 'Enter' && todayAsk());
 const TAGS = {sleep: ['SLEEP', 'var(--acc-ink)'], bed: ['SLEEP', 'var(--acc-ink)'], wake: ['SLEEP', 'var(--acc-ink)'], nap: ['SLEEP', 'var(--acc-ink)'], step: ['PACING', 'var(--food-ink)'], away: ['PACING', 'var(--food-ink)'], stress: ['STRESS', 'var(--bad)'], calm: ['STRESS', 'var(--bad)'],
   room: ['ROOM', 'var(--house-ink)'], pm: ['ROOM', 'var(--house-ink)'], voc: ['ROOM', 'var(--house-ink)'], aqi: ['ROOM', 'var(--house-ink)'], daylight: ['WEATHER', 'var(--house-ink)'], pressure: ['WEATHER', 'var(--house-ink)'], temp: ['WEATHER', 'var(--house-ink)'],
-  caff: ['FOOD', 'var(--food-ink)'], meal: ['FOOD', 'var(--food-ink)'], late: ['FOOD', 'var(--food-ink)'], hrv: ['BODY', 'var(--health-ink)'], ready: ['BODY', 'var(--health-ink)'], readiness: ['BODY', 'var(--health-ink)'], outdoor: ['ROOM', 'var(--house-ink)'], cold: ['WEATHER', 'var(--house-ink)'], short: ['WEATHER', 'var(--house-ink)'], vote: ['ROOM', 'var(--house-ink)'], busy: ['PACING', 'var(--food-ink)'], cal: ['PACING', 'var(--food-ink)'], resting: ['BODY', 'var(--health-ink)'], night: ['BODY', 'var(--health-ink)'], wakeups: ['SLEEP', 'var(--acc-ink)']};
+  caff: ['FOOD', 'var(--food-ink)'], meal: ['FOOD', 'var(--food-ink)'], late: ['FOOD', 'var(--food-ink)'], hrv: ['BODY', 'var(--health-ink)'], fluid: ['BODY', 'var(--health-ink)'], ready: ['BODY', 'var(--health-ink)'], readiness: ['BODY', 'var(--health-ink)'], outdoor: ['ROOM', 'var(--house-ink)'], cold: ['WEATHER', 'var(--house-ink)'], short: ['WEATHER', 'var(--house-ink)'], vote: ['ROOM', 'var(--house-ink)'], busy: ['PACING', 'var(--food-ink)'], cal: ['PACING', 'var(--food-ink)'], resting: ['BODY', 'var(--health-ink)'], night: ['BODY', 'var(--health-ink)'], wakeups: ['SLEEP', 'var(--acc-ink)']};
 const tag = f => { const k = Object.keys(TAGS).find(k => f.startsWith(k)); return TAGS[k] || ['OTHER', 'var(--mute)']; };
 async function loadHealth() {
   const p = await api('api/patterns?days=14'), need = 10;
@@ -363,12 +466,6 @@ async function vote(feeling) {
   document.querySelectorAll('#ho_choice button').forEach(b => b.classList.toggle('on', b.dataset.f === feeling));
   const r = await api('api/comfort/vote', {feeling, source: 'web'}), t = (T && T.room && T.room.temp != null) ? ` at ${Math.round(T.room.temp)}°` : '';
   $('#ho_vote').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg>Logged: ${{cold: 'cold', ok: 'just right', hot: 'hot'}[feeling]}${t}. Comfort learns from these.`;
-}
-async function houseTop() {
-  const t = T || await api('api/today'), r = t.room || {};
-  $('#ho_room').innerHTML = [['temp', v => nf(v) + '°'], ['humidity', v => nf(v) + '%'], ['aqi', v => nf(v)], ['pm', v => nf(v)]].map(([k, f]) => `<div><b>${r[k] == null ? '–' : f(r[k])}</b><span>${{temp: 'temp', humidity: 'humidity', aqi: 'air quality', pm: 'particulates'}[k]}</span></div>`).join('');
-  $('#ho_comfort').textContent = t.comfort ? `comfort control ${t.comfort.enabled ? 'on' : 'off'}${t.comfort.preferred ? ' · prefers ' + t.comfort.preferred + '° (' + t.comfort.situation + ')' : ''}` : '';
-  $('#ho_sub').textContent = `${t.house.habits} habits · ${t.house.baselines} usual ranges · ${t.outside ? Math.round(t.outside.temp) + '° ' + t.outside.state + ' outside' : ''}`;
 }
 async function loadMore() {
   const s = await api('api/status'); $('#ver').textContent = 'v' + s.version;
@@ -399,7 +496,7 @@ async function load(t) {
   if (t === 'more') loadMore();
   if (t === 'memory') { browse(''); recent(); review(); }
   if (t === 'worked') { worked(); }
-  if (t === 'house') { houseTop(); houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
+  if (t === 'house') { homeLoad(); if (HTAB === 'l') houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
   if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${k}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
@@ -563,6 +660,146 @@ async function checkModels() { const rs = await api('api/models/check', {}); rs.
 async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); $('#a_out').textContent = r.error || (r.answer + '\n\n— ' + (r.ms || '') + ' ms; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ')); }
 async function checkUpd() { $('#upd').textContent = '…'; const r = await api('api/updates'); delete r.manifest; $('#upd').textContent = JSON.stringify(r, null, 1); }
 async function applyUpd() { $('#upd').textContent = '…'; $('#upd').textContent = JSON.stringify(await api('api/updates/apply', {}), null, 1); }
+// ---- Home controls (#61) ------------------------------------------------------------------------------------------
+let H = null, HSEL = 'all', HTAB = 'c', HBUSY = 0, HTIMER = null;
+const HI = {
+  bulb: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z',
+  sun: 'M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1',
+  climate: 'M7 4v14M12 4v14M17 4v14M5 20h14M5 4h14', fan: 'M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M12 10V3c3 0 4 3 2 5M14 12h7c0 3-3 4-5 2M12 14v7c-3 0-4-3-2-5M10 12H3c0-3 3-4 5-2',
+  humidifier: 'M12 3c3 4 6 7 6 11a6 6 0 0 1-12 0c0-4 3-7 6-11z', cover: 'M4 4h16M5 4v12M19 4v12M5 8h14M5 12h14M5 16h14', printer: 'M4 20h16M6 20V9l6-5 6 5v11M10 20v-5h4v5',
+  therm: 'M12 3v11M9 17a3 3 0 1 0 6 0a3 3 0 0 0-1-2.2V5a2 2 0 0 0-4 0v9.8A3 3 0 0 0 9 17z',
+  bedtime: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z', wake: 'M12 4v2M4.9 7.9l1.4 1.4M19.1 7.9l-1.4 1.4M3 15h18M7 15a5 5 0 0 1 10 0M5 19h14',
+  focus: 'M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8zM12 2v3M12 19v3M2 12h3M19 12h3', alloff: 'M12 3v8M6.4 6.4a8 8 0 1 0 11.2 0',
+  desk_plug: 'M3 7h18v4H3zM5 11v8M19 11v8', printer_plug: 'M6 9V3h12v6M6 18H4v-7h16v7h-2M6 14h12v7H6z', speaker: 'M6 3h12v18H6zM12 15m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M12 7h.01',
+  tv: 'M3 5h18v12H3zM8 21h8', adaptive: 'M12 3v2M12 19v2M5 12H3M21 12h-2M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8z', sleepmode: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
+  halloween: 'M12 6c-5 0-8 3-8 7s3 7 8 7 8-3 8-7-3-7-8-7zM12 6c0-2 1-3 2-3M9 16c2 1 4 1 6 0',
+  moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z', part: 'M8 7a4 4 0 0 1 7.6 1.2M6.5 19h10a3.5 3.5 0 0 0 0-7h-.6a5.5 5.5 0 0 0-10.4 2A2.5 2.5 0 0 0 6.5 19z',
+  cloud: 'M6.5 19h10a3.5 3.5 0 0 0 0-7h-.6a5.5 5.5 0 0 0-10.4 2A2.5 2.5 0 0 0 6.5 19z', rain: 'M6.5 15h10a3.5 3.5 0 0 0 0-7h-.6a5.5 5.5 0 0 0-10.4 2A2.5 2.5 0 0 0 6.5 15zM8 18l-1 3M12 18l-1 3M16 18l-1 3' };
+const svg = (d, s = 18, w = 1.9) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+const wIcon = s => ({ 'clear-night': 'moon', sunny: 'sun', partlycloudy: 'part', cloudy: 'cloud', rainy: 'rain', pouring: 'rain', snowy: 'cloud', fog: 'cloud' }[s] || 'part');
+const wColor = k => ({ moon: 'var(--acc-ink)', sun: 'var(--food-ink)' }[k] || 'var(--mute)');
+const hclock = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const DEVCOL = { climate: '#fbbf24', fan: '#2dd4bf', humidifier: '#2dd4bf', cover: '#93b8ff', printer: '#93b8ff' };
+const dev = id => (H.devices || []).find(d => d.id === id);
+function homeTab(t) { HTAB = t; $('#hs_c').classList.toggle('on', t === 'c'); $('#hs_l').classList.toggle('on', t === 'l'); $('#h_controls').classList.toggle('hide', t !== 'c'); $('#h_learned').classList.toggle('hide', t !== 'l'); if (t === 'l') houseTab(); }
+async function homeLoad() {
+  if (HBUSY > 0) return;
+  H = await api('api/controls'); homeRender();
+  clearTimeout(HTIMER); HTIMER = setTimeout(() => !$('#house').classList.contains('hide') && HTAB === 'c' && homeLoad(), 10000);
+}
+function homeRender() {
+  if (!H) return;
+  const r = H.room || {}, w = H.weather;
+  $('#ho_sub').textContent = `Bedroom · ${nf(r.temp)}° · ${nf(r.humidity)}% · air ${r.aqi == null ? '–' : r.aqi <= 50 ? 'good' : r.aqi <= 100 ? 'fair' : 'poor'}`;
+  $('#hc_wpill').innerHTML = w ? `<span style="color:${wColor(wIcon(w.state))}">${svg(HI[wIcon(w.state)], 20, 1.7)}</span><b>${nf(w.temp)}°</b><span>${esc((w.state || '').replace('-', ' ').replace('partlycloudy', 'partly cloudy'))}${w.daily && w.daily[0] ? ` · ${nf(w.daily[0].hi)}° / ${nf(w.daily[0].lo)}°` : ''}</span>` : '';
+  $('#hc_wpill').classList.toggle('hide', !w);
+  $('#hc_scenes').innerHTML = [['bedtime', 'Bedtime'], ['wake', 'Wake up'], ['focus', 'Focus'], ['alloff', 'All off']].map(([k, l]) => `<button onclick="homeScene('${k}', this)">${svg(HI[k], 24, 1.8)}<span>${l}</span></button>`).join('');
+  const s = H.suggestion;
+  $('#hc_tip').classList.toggle('hide', !s || homeTip === s.title);
+  if (s) $('#hc_tip').innerHTML = `<span style="color:var(--health-ink)">${svg('M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z', 26, 1.7)}</span><div class="t"><b>${esc(s.title)}</b><span>${esc(s.text)}</span></div><button class="go" style="background:var(--health);color:var(--health-on)" onclick="homeScene('${s.scene}')">Run</button><a onclick="homeTip='${esc(s.title)}';homeRender()" aria-label="Dismiss" style="font-size:20px;color:var(--mute);padding:0 4px">×</a>`;
+  const lit = H.devices.filter(d => d.kind === 'light' && d.id !== 'all' && d.on);
+  $('#hc_glow').style.background = `radial-gradient(circle at 60% 35%, rgba(255,150,40,${(lit.length * 0.03).toFixed(2)}), transparent 70%)`;
+  const all = dev('all'); $('#hc_all').classList.toggle('on', !!(all && all.on)); $('#hc_all').classList.toggle('sel', HSEL === 'all');
+  const wall = dev('wall'); $('#hc_rope').setAttribute('stroke', wall && wall.on ? (wall.color || '#ff5f8a') : 'var(--line)');
+  $('#hc_status').innerHTML = `<b>${nf(r.temp)}°</b><span>${nf(r.humidity)}% · air ${r.aqi == null ? '–' : r.aqi <= 50 ? 'good' : 'fair'}</span>`;
+  $('#hc_devs').innerHTML = H.devices.filter(d => d.x != null).map(d => {
+    const col = d.kind === 'light' ? (d.color || '#ffb35c') : DEVCOL[d.kind], glow = d.kind === 'light' && d.on ? Math.round(36 + (d.level || 0) * 0.45) : 0;
+    return `<button class="hc-dev ${d.on ? 'on' : ''} ${HSEL === d.id ? 'sel' : ''} ${d.available ? '' : 'na'}" style="left:${d.x}%;top:${d.y}%" onclick="homeSel('${d.id}')" aria-label="${esc(d.name)}">
+      ${glow ? `<span class="halo" style="width:${glow * 2}px;height:${glow * 2}px;background:radial-gradient(circle, ${col}66, transparent 70%)"></span>` : ''}
+      <span class="disc" style="${d.on ? 'background:' + col : ''}">${svg(d.kind === 'light' ? HI.bulb : HI[d.kind])}</span></button>`; }).join('');
+  homePanel(); homeComfort(); homeTonight(); homePlugs();
+}
+let homeTip = null;
+function homeSel(id) { HSEL = id; homeRender(); if (innerWidth <= 860) $('#hc_panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+function homePanel() {
+  const d = dev(HSEL) || dev('all'); if (!d) return;
+  const col = d.kind === 'light' ? '#fbbf24' : DEVCOL[d.kind], p = $('#hc_panel');
+  let sub = d.available ? (d.on ? 'on' : 'off') : 'unavailable', lev = '', extra = '';
+  const slider = (name, val, min, max, unit, step) => `<div class="hc-lab"><span>${name}</span><b id="hp_v">${val == null ? '–' : Math.round(val) + unit}</b></div>
+    <div class="hc-slider" style="--sc:${col}${d.on || d.kind === 'cover' ? '' : '66'}"><div class="fill" id="hp_f" style="width:${Math.max(6, ((val ?? min) - min) / (max - min) * 100)}%"></div>
+    <input type="range" min="${min}" max="${max}" step="${step || 1}" value="${val ?? min}" aria-label="${name}" oninput="homeSlide(this, ${min}, ${max}, '${unit}')" onchange="homeLevel(this.value)"></div>`;
+  if (d.kind === 'light') {
+    sub = d.on ? `on · ${d.level}%${d.kelvin ? ' · ' + d.kelvin + ' K' : ''}` : (d.available ? 'off' : 'unavailable');
+    lev = slider('Brightness', d.level, 1, 100, '%');
+    extra = `<div class="hc-sw">${[['#ff890e', [255, 137, 14]], ['#ffd9a8', 2700], ['#f4f7ff', 5000], ['#ff3b3b', [255, 59, 59]], ['#7c5cff', [124, 92, 255]], ['#2dd4bf', [45, 212, 191]]]
+      .map(([c, v]) => `<button style="background:${c}" class="${(d.color || '').toLowerCase() === c ? 'on' : ''}" aria-label="color" onclick='homeColor(${JSON.stringify(v)})'></button>`).join('')}</div>`
+      + (d.id === 'all' ? `<div class="hc-pills">${H.presets.map(pr => `<button onclick="homePreset('${pr.id}')"><i style="background:${pr.color}"></i>${esc(pr.name)}</button>`).join('')}</div>` : '');
+  } else if (d.kind === 'climate') {
+    sub = d.on ? `${d.action || d.mode} · room ${nf(d.current)}°` : 'off';
+    lev = slider('Target', d.level, d.min || 60, d.max || 80, '°');
+    extra = `<div class="hc-pills">${(d.presets || []).map(m => `<button class="${d.preset === m ? 'on' : ''}" onclick="homeAct('climate.bedroom_temp','set_preset_mode',{preset_mode:'${m}'})">${m === 'none' ? 'Manual' : m[0].toUpperCase() + m.slice(1)}</button>`).join('')}</div>`;
+  } else if (d.kind === 'humidifier') {
+    sub = `${d.on ? 'on' : 'off'} · room ${nf(d.current)}%`;
+    lev = slider('Target humidity', d.level, d.min || 30, d.max || 70, '%');
+    if ((d.level || 0) > 55) extra = `<div style="font-size:12px;color:var(--bad);margin-top:8px">Above 55% can feel clammy and grow mold; 40–50% is typical for a bedroom.</div>`;
+  } else if (d.kind === 'fan') {
+    sub = `${d.on ? 'on' : 'off'} · filter ${nf(H.room.filter)}%`;
+    lev = slider('Speed', d.level, 0, 100, '%', 10);
+    extra = `<div class="hc-pills">${(d.presets || []).map(m => `<button class="${d.preset === m ? 'on' : ''}" onclick="homeAct('${d.entity}','set_preset_mode',{preset_mode:'${m}'})">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}<button class="${d.night ? 'on' : ''}" onclick="homeAct('switch.dyson_c2a_us_mdb9996a_night_mode','${d.night ? 'turn_off' : 'turn_on'}')">Night mode</button></div>`;
+  } else if (d.kind === 'cover') {
+    sub = d.level == null ? 'tilt –' : `tilt ${d.level}`;
+    lev = slider('Tilt', d.level, 0, 100, '');
+    extra = `<div class="hc-pills"><button onclick="homeAct('${d.entity}','close_cover_tilt')">Close</button><button onclick="homeAct('${d.entity}','set_cover_tilt_position',{tilt_position:50})">Half</button><button onclick="homeAct('${d.entity}','open_cover_tilt')">Open</button></div>`;
+  } else if (d.kind === 'printer') {
+    const pr = d.printer || {}, live = pr.live, run = d.on;
+    sub = live ? pr.status.replace('_', ' ') : 'offline right now';
+    extra = `<div class="hc-pr"><div class="hc-cam">${live ? 'camera is in Home Assistant' : 'camera shows a picture once a print starts'}</div>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px"><b style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(live && pr.task && !['unknown', 'unavailable'].includes(pr.task) ? pr.task : 'No print loaded')}</b>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mute)"><span>Layer ${esc(live ? pr.layer || '–' : '–')} of ${esc(live ? pr.layers || '–' : '–')}</span><b style="color:var(--ink)">${pr.progress == null ? '–' : Math.round(pr.progress) + '%'}</b></div>
+      <div class="meter"><i style="width:${pr.progress || 0}%;background:var(--acc)"></i></div><span style="font-size:12px;color:var(--mute)">${live && pr.remaining ? esc(pr.remaining) + ' min left' : 'Turn the printer on and it shows up here'}</span></div></div>
+      <div class="hc-stats">${[['Stage', pr.stage], ['Nozzle', pr.nozzle && pr.nozzle + '°C'], ['Bed', pr.bed && pr.bed + '°C'], ['Filament', pr.weight && Math.round(pr.weight) + ' g']].map(([k, v]) => `<div><span>${k}</span><b>${esc(live && v && !String(v).startsWith('unknown') ? v : '–')}</b></div>`).join('')}</div>
+      <div class="hc-ptop" style="margin-top:12px"><span>Chamber light</span><button class="sw sm ${pr.chamber ? 'on' : ''}" style="--sw:var(--acc)" ${live ? '' : 'disabled'} onclick="homeAct('light.a1_chamber_light','toggle')" aria-label="Chamber light"></button></div>
+      <div class="hc-btns"><button ${run ? '' : 'disabled'} onclick="homeAct('button.a1_pause_printing','press')">Pause</button><button ${run ? '' : 'disabled'} onclick="homeAct('button.a1_resume_printing','press')">Resume</button><button class="stop" ${run ? '' : 'disabled'} onclick="confirm('Stop the current print?') && homeAct('button.a1_stop_printing','press')">Stop…</button></div>`;
+  }
+  const canSwitch = !['printer', 'cover'].includes(d.kind) && d.available;
+  p.innerHTML = `<div class="hc-ptop"><div><b>${esc(d.name)}</b><div class="mute" style="font-size:12px">${esc(sub)}</div></div>${canSwitch ? `<button class="sw ${d.on ? 'on' : ''}" style="--sw:${col}" onclick="homeToggle()" aria-label="On or off"></button>` : ''}</div>${d.available || d.kind === 'printer' ? lev + extra : '<div class="mute" style="margin-top:10px">Not reachable in Home Assistant right now.</div>'}`;
+}
+function homeSlide(el, min, max, unit) { HBUSY = 1; $('#hp_v').textContent = Math.round(el.value) + unit; $('#hp_f').style.width = Math.max(6, (el.value - min) / (max - min) * 100) + '%'; }
+async function homeAct(entity, service, data) {
+  HBUSY = 1; const r = await api('api/controls/act', { entity, service, data: data || {} }); HBUSY = 0;
+  if (r.error) alert(r.error); setTimeout(homeLoad, 700);
+}
+function homeLevel(v, id) {
+  const d = dev(id || HSEL); v = +v;
+  if (d.kind === 'light') homeAct(d.entity, 'turn_on', { brightness_pct: v });
+  else if (d.kind === 'climate') homeAct(d.entity, 'set_temperature', { temperature: v });
+  else if (d.kind === 'humidifier') homeAct(d.entity, 'set_humidity', { humidity: v });
+  else if (d.kind === 'fan') homeAct(d.entity, v ? 'set_percentage' : 'turn_off', v ? { percentage: v } : {});
+  else if (d.kind === 'cover') homeAct(d.entity, 'set_cover_tilt_position', { tilt_position: v });
+}
+function homeToggle() { const d = dev(HSEL); homeAct(d.entity, d.kind === 'climate' ? 'set_hvac_mode' : (d.on ? 'turn_off' : 'turn_on'), d.kind === 'climate' ? { hvac_mode: d.on ? 'off' : 'heat' } : {}); }
+function homeColor(v) { const d = dev(HSEL); homeAct(d.entity, 'turn_on', Array.isArray(v) ? { rgb_color: v } : { color_temp_kelvin: v }); }
+function homePreset(id) { const p = { white: 'script.all_lights_white', warm: 'script.bedroom_warm', dim: 'script.bedroom_dim', night: 'script.nightlight_mode', rope: 'script.nightlight_rope' }[id]; homeAct(p, 'turn_on'); }
+async function homeScene(name, btn) { if (btn) btn.classList.add('on'); HBUSY = 1; const r = await api('api/controls/scene', { name }); HBUSY = 0; if (r.error) alert(r.error); homeTip = H && H.suggestion ? H.suggestion.title : null; setTimeout(homeLoad, 900); }
+async function homeBrain() { await homeAct('input_boolean.mind_comfort_enabled', H.comfort ? 'turn_off' : 'turn_on'); }
+function homeComfort() {
+  const b = $('#hc_brain'); b.textContent = H.comfort ? 'Home Mind is running it' : 'Let Home Mind run it'; b.classList.toggle('on', !!H.comfort);
+  const ht = dev('heater') || {}, hu = dev('humid') || {}, fa = dev('purifier') || {};
+  const T = [['heater', 'Heat', ht.level, ht.min || 60, ht.max || 80, '°', ht.on ? (ht.action || 'heat') : 'off', '#fbbf24', HI.therm, `room ${nf(ht.current)}°`, false],
+    ['humid', 'Humidity', hu.level, hu.min || 30, hu.max || 70, '%', hu.on ? 'target' : 'off · target', '#2dd4bf', HI.humidifier, `room ${nf(hu.current)}%`, (hu.level || 0) > 55],
+    ['purifier', 'Fan', fa.level, 0, 100, '%', fa.on ? 'speed' : 'off', '#93b8ff', HI.fan, `air ${H.room.aqi == null ? '–' : H.room.aqi <= 50 ? 'good' : 'fair'}`, false]].filter(t => dev(t[0]));
+  $('#hc_talls').style.gridTemplateColumns = `repeat(${T.length},minmax(0,1fr))`;
+  $('#hc_talls').innerHTML = T.map(([id, name, v, min, max, u, sub, col, ic, note, warn]) => `<div><div class="hc-tall"><div class="fill" id="tf_${id}" style="background:${col};height:${Math.max(18, ((v ?? min) - min) / (max - min) * 100)}%"></div>
+    <div class="v" id="tl_${id}" style="${((v ?? min) - min) / (max - min) > 0.72 ? 'color:#0b0f17' : ''}"><b id="tv_${id}">${v == null ? '–' : Math.round(v) + u}</b><span style="color:inherit;opacity:.75">${sub}</span></div><span style="position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:center;color:var(--bg);pointer-events:none">${svg(ic, 22, 2)}</span>
+    <input type="range" min="${min}" max="${max}" step="${id === 'purifier' ? 10 : 1}" value="${v ?? min}" aria-label="${name}" oninput="HBUSY=1;$('#tv_${id}').textContent=Math.round(this.value)+'${u}';$('#tf_${id}').style.height=Math.max(18,(this.value-${min})/(${max - min})*100)+'%';$('#tl_${id}').style.color=(this.value-${min})/(${max - min})>0.72?'#0b0f17':''" onchange="homeLevel(this.value,'${id}')"></div>
+    <div class="hc-tcap"><b>${name}</b><span class="${warn ? 'warn' : ''}">${warn ? 'high: 40–50% is typical' : note}</span></div></div>`).join('');
+}
+function homeTonight() {
+  const w = H.weather;
+  $('#hc_alarm').textContent = H.alarm ? 'alarm ' + H.alarm : '';
+  $('#hc_hours').innerHTML = w ? w.hourly.map(h => `<div><span>${new Date(h.t).toLocaleTimeString([], { hour: 'numeric' }).replace(' ', '').toLowerCase()}</span><span style="color:${wColor(wIcon(h.state))}">${svg(HI[wIcon(h.state)], 20, 1.7)}</span><b>${nf(h.temp)}°</b></div>`).join('') : '<span class="mute">no forecast</span>';
+  const lo = w ? Math.min(...w.daily.map(d => d.lo ?? d.hi)) : 0, hi = w ? Math.max(...w.daily.map(d => d.hi)) : 1;
+  $('#hc_days').innerHTML = w ? w.daily.slice(0, 5).map((d, i) => `<div><span style="width:44px">${i ? new Date(d.t).toLocaleDateString([], { weekday: 'short' }) : 'Today'}</span><span style="color:${wColor(wIcon(d.state))}">${svg(HI[wIcon(d.state)], 18, 1.7)}</span><span class="mute" style="width:34px;text-align:right">${nf(d.lo)}°</span><span class="rng"><i style="left:${((d.lo ?? d.hi) - lo) / (hi - lo || 1) * 100}%;width:${(d.hi - (d.lo ?? d.hi)) / (hi - lo || 1) * 100}%"></i></span><b style="width:34px">${nf(d.hi)}°</b></div>`).join('')
+    + (w.sunrise ? `<div class="mute" style="font-size:12px">Sunrise ${hclock(w.sunrise)} · sunset ${hclock(w.sunset)} · wind ${nf(w.wind)} ${esc(w.wind_unit || '')} · outdoor air ${nf(w.aqi)}</div>` : '') : '';
+  $('#hc_routines').innerHTML = H.routines.map(r => `<div class="hc-rt"><div style="display:flex;align-items:center"><span class="tm">${esc(r.time || '')}</span><span>${esc(r.name)} <span class="mute" style="font-size:12px">· ${esc(r.sub)}</span></span></div>
+    <button class="sw sm ${r.on ? 'on' : ''}" ${r.supported ? '' : 'disabled'} onclick="homeRoutine('${r.entity}', ${!r.on})" aria-label="${esc(r.name)}"></button></div>`).join('');
+}
+async function homeRoutine(entity, on) { const r = await api('api/controls/routine', { entity, on }); if (r.error) alert(r.error); homeLoad(); }
+function homePlugs() {
+  $('#hc_plugs').innerHTML = H.plugs.map(p => `<button class="${p.on ? 'on' : ''}" onclick="${p.entity.startsWith('media_player') ? `homeAct('${p.entity}','media_play_pause')` : `homeAct('${p.entity}','toggle')`}" aria-label="${esc(p.name)}"><span class="pring">${svg(HI[p.id] || HI.bulb, 22, 1.8)}</span><span class="nm">${esc(p.name)}</span><span class="st">${esc(p.state == null ? '–' : p.state)}</span></button>`).join('');
+  const b = H.batteries || {}; $('#hc_batt').innerHTML = `phone <b style="color:${(b.phone ?? 100) <= 25 ? 'var(--bad)' : 'var(--ink)'}">${nf(b.phone)}%</b> · laptop <b>${nf(b.laptop)}%</b>`;
+}
+
 load('today'); setInterval(() => !$('#today').classList.contains('hide') && loadToday(), 60000);
 </script>
 </body>

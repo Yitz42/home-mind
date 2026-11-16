@@ -75,6 +75,7 @@ FACTORS = [
     ("stress_prev", "3+ stress alerts the day before", ("ge", 3, "le", 1), False,
      "A 5-minute Steady breathing session after each stress alert, for 2 weeks."),
     ("readiness", "morning readiness under 50", ("lt", 50, "ge", 65), False, None),
+    ("fluid", "a higher fluid-balance reading on the scale (0.89+)", ("ge", 0.89, "lt", 0.88), False, None),
     ("hrv", "lower HRV than usual", ("rel_lt", 0.85, "rel_ge", 1.0), False, None),
     ("wakeups", "3+ wake-ups in the night", ("ge", 3, "le", 1), False, None),
     ("room_night_temp", "a warmer bedroom overnight", ("rel_gt", 1.03, "rel_le", 1.0), False,
@@ -267,6 +268,15 @@ class Patterns:
                 out[rows[0]["entity_id"]] = rows
         return out
 
+    def _fluid(self, d0):
+        """The scale's fluid-balance reading (100/20 kHz impedance ratio) from that day's last weigh-in, if any."""
+        lo = d0.timestamp()
+        r = self.store.db.execute("SELECT meta FROM items WHERE shelf='body/weight' AND created >= ? AND created < ? "
+                                  "AND meta LIKE '%fluid_balance%' ORDER BY created DESC LIMIT 1", (lo, lo + 86400)).fetchone()
+        if not r:
+            return None
+        return json.loads(r["meta"] or "{}").get("wyze_scale_fluid_balance_100_20_khz_impedance_ratio")
+
     def build_day(self, day, hist):
         """One day's row from fetched history (and Home Mind's own notes)."""
         S = {k: Series(hist.get(eid), button=k in BUTTONS) for k, eid in E.items() if k != "weather"}
@@ -281,6 +291,7 @@ class Patterns:
         for k in ("readiness", "recovery", "hrv", "resting_hr", "night_low_hr"):
             row[k] = S[k].last(h(3), h(14), nonzero=True)
         row["wakeups"] = S["wakeups"].last(h(3), h(14))
+        row["fluid"] = self._fluid(d0)
         bt = S["bedtime"].times(h(-6), h(6))
         row["bedtime"] = round(_hours(bt[-1], day - timedelta(days=1)), 2) if bt else None
         wk = S["wake"].times(h(4), h(13))

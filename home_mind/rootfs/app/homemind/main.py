@@ -820,6 +820,32 @@ def build(app_state):
             return J({"error": str(e)}, status=400)
         return J({"error": f"unknown op {op}"}, status=404)
 
+    @r.get("/api/controls")
+    async def controls_get(_):
+        from . import home_ctrl
+        return J(await home_ctrl.build(A))
+
+    @r.post("/api/controls/{op}")
+    async def controls_op(q):
+        from . import home_ctrl
+        b = await q.json() if q.can_read_body else {}
+        op = q.match_info["op"]
+        if not (A.ha and A.ha.available):
+            return J({"error": "Home Assistant is not reachable"}, status=503)
+        try:
+            if op == "act":
+                return J(await home_ctrl.act(A, b.get("entity", ""), b.get("service", ""), b.get("data") or {}))
+            if op == "scene":
+                return J(await home_ctrl.scene(A, b.get("name", "")))
+            if op == "routine":
+                ent = b.get("entity", "")
+                if ent not in {r["entity"] for r in home_ctrl.ROUTINES}:
+                    raise ValueError(f"{ent} is not one of the routines on the Home tab")
+                return J(await (A.engine.takeover([ent]) if b.get("on") else A.engine.retire([ent])))
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+        return J({"error": f"unknown op {op}"}, status=404)
+
     @r.get("/api/today")
     async def today_get(_):
         from . import today

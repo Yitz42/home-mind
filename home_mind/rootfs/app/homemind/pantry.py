@@ -99,10 +99,39 @@ MEAL_SYSTEM = (
     "protein and calories on those (ignore a match that is clearly a different food) and estimate only the rest. "
     "When one of the listed studies supports a choice, name it briefly in 'why' (for example 'beans lower LDL ~5%, "
     "26 trials'); call preliminary findings preliminary and never overstate them. Their stated dislikes beat any study. "
+    "Keep every field short so the answer stays compact: meal name under 6 words, 'why' under 20 words, 'steps' "
+    "under 35 words in total, and no text outside the JSON. "
     "Reply with JSON only: {\"focus\": \"one short line on today's "
     "focus\", \"meals\": [{\"name\": \"...\", \"meal\": \"breakfast|lunch|dinner|snack\", \"uses\": [\"pantry items "
     "used\"], \"missing\": [\"items to buy, if any\"], \"why\": \"one line: what it uses up and how it fits today\", "
     "\"protein_g\": number, \"calories\": number, \"steps\": \"2-4 short steps\"}]}")
+
+
+def parse_plan(text):
+    """The meal plan JSON, or as much of it as finished if the reply was cut off mid-way."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    try:
+        plan = json.loads(m.group(0)) if m else {}
+        if isinstance(plan, dict):
+            return plan
+    except ValueError:
+        pass
+    plan = {}
+    f = re.search(r'"focus"\s*:\s*"((?:[^"\\]|\\.)*)"', text or "")
+    if f:
+        plan["focus"] = json.loads('"' + f.group(1) + '"')
+    meals = []
+    for chunk in re.findall(r"\{[^{}]*\}", text or ""):   # each meal is a flat object
+        try:
+            o = json.loads(chunk)
+        except ValueError:
+            continue
+        if isinstance(o, dict) and o.get("name"):
+            meals.append(o)
+    plan["meals"] = meals
+    if meals:
+        plan["cut_off"] = True
+    return plan
 
 
 def _norm(name):
@@ -469,11 +498,7 @@ class Pantry:
                    + ("\n\nSTUDIES THAT APPLY (from their nutrition evidence tracker):\n" + nutrition.lines(studies) if studies else ""))
         r = await self.models.get(model).chat(MEAL_SYSTEM, [{"role": "user", "content": content}], max_tokens=3000,
                                               temperature=0.5)
-        m = re.search(r"\{.*\}", r["text"], re.S)
-        try:
-            plan = json.loads(m.group(0)) if m else {}
-        except ValueError:
-            plan = {}
+        plan = parse_plan(r["text"])
         plan.setdefault("meals", [])
         plan["today"] = day
         plan["model"] = model

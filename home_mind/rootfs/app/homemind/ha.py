@@ -7,7 +7,7 @@ import socket
 
 import aiohttp
 
-SUPERVISOR = "http://supervisor"
+SUPERVISOR = os.environ.get("HOME_MIND_SUPERVISOR", "http://supervisor")   # overridable for local testing
 HA_CONFIG = "/homeassistant"
 BRIDGE_SRC = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bridge", "home_mind_bridge")
 
