@@ -59,8 +59,12 @@ def import_(store, data, dry_run=False):
         raise ValueError("export has no items list")
     seen = {(r["title"], r["body"], round(r["created"], 3)) for r in
             store.db.execute("SELECT title, body, created FROM items")}
-    new_id, added, skipped, bad = {}, 0, 0, 0
+    new_id, added, skipped, bad, sealed = {}, 0, 0, 0, 0
     existing = {}
+    # notes are matched against what was here before the import, not against notes it just added: two notes of the
+    # file filed in the same millisecond (two secret notes masked alike, a value and the one that replaced it) are
+    # two notes
+    mine = set()
     for it in sorted(items, key=lambda x: (x.get("id") or 0) if isinstance(x, dict) else 0):
         if not isinstance(it, dict) or not isinstance(it.get("body", ""), str) or "created" not in it:
             bad += 1
@@ -75,14 +79,17 @@ def import_(store, data, dry_run=False):
             # a masked secret: the same note if one filed at that moment masks to the same text
             from .privacy import mask_all
             for r in store.db.execute("SELECT id, title, body FROM items WHERE abs(created-?)<0.001", (created,)):
+                if r["id"] in mine:
+                    continue
                 if mask_all(r["body"]) == k[1] or r["body"] == k[1]:
                     seen.add(k)
                     break
         if k in seen:
             skipped += 1
-            r = store.db.execute("SELECT id FROM items WHERE title=? AND body=? AND abs(created-?)<0.001",
-                                 (k[0], k[1], created)).fetchone() or \
-                store.db.execute("SELECT id FROM items WHERE abs(created-?)<0.001", (created,)).fetchone()
+            r = next((x for x in store.db.execute("SELECT id FROM items WHERE title=? AND body=? AND abs(created-?)<0.001",
+                                                  (k[0], k[1], created)) if x[0] not in mine), None) or \
+                next((x for x in store.db.execute("SELECT id FROM items WHERE abs(created-?)<0.001", (created,))
+                      if x[0] not in mine), None)
             if r and it.get("id") is not None:
                 existing[it["id"]] = r[0]
             continue
@@ -92,14 +99,15 @@ def import_(store, data, dry_run=False):
         meta["imported"] = True
         if dry_run:
             added += 1
-            seen.add(k)
             continue
         from .store import clean_tags, clean_shelf
         tags = it.get("tags") or []
         try:
             row = (str(it.get("kind") or "note"), str(it["key"]) if it.get("key") else None, str(k[0]), k[1],
                    clean_tags(tags if isinstance(tags, (list, str)) else []), clean_shelf(str(it.get("shelf") or "inbox")),
-                   it.get("status") if it.get("status") in ("active", "faded", "archived", "superseded") else "active",
+                   # a note held for review (#16) stays held: importing must not make it searchable
+                   it.get("status") if it.get("status") in ("active", "faded", "archived", "superseded", "review")
+                   else "active",
                    created, float(it.get("updated") or created),
                    float(it["last_used"]) if it.get("last_used") else None, int(it.get("use_count") or 0),
                    float(it.get("strength") or 1.0), str(it.get("source") or "import"), json.dumps(meta, default=str))
@@ -120,9 +128,9 @@ def import_(store, data, dry_run=False):
             except Exception:  # noqa: BLE001
                 pass
         if store.vault_key and meta.get("sensitive") and not it.get("masked"):
-            store.seal_item(nid)
+            sealed += bool(store.seal_item(nid, _scrub=False))
         added += 1
-        seen.add(k)
+        mine.add(nid)
     if not dry_run:
         ids = {**existing, **new_id}
         with store.lock:
@@ -139,6 +147,8 @@ def import_(store, data, dry_run=False):
                     store.db.execute("INSERT OR IGNORE INTO links(a,b,kind) VALUES(?,?,?)", (a, b, str(ln.get("kind") or "same_thing")))
                     nl += 1
             store.db.commit()
+        if sealed:
+            store._scrub_index()        # once, not per note: the clear text the index held before sealing
         store._vocab_n = None
         store.log("import", None, added=added, skipped=skipped, bad=bad)
     else:
