@@ -712,6 +712,7 @@ def spoken(text, limit=None, ids=()):
     t = re.sub(r"(?:\b(?:notes?|item)\s+)?#(\d{1,12})\b", lambda m: "" if m.group(1) in ids else f"number {m.group(1)}",
                t, flags=re.I)
     t = re.sub(r"\b(?:https?://|www\.)\S+", "a link", t)
+    t = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]+", " ", t)   # emoji: read as their names
     t = re.sub(r"(\*\*|__|`+|~~)", "", t)
     t = re.sub(r"(?<!\w)[*_](?=\S)(.+?)(?<=\S)[*_](?!\w)", r"\1", t)
     t = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*•]\s+|\d+[.)]\s+|>\s*)", "", t)
@@ -893,7 +894,17 @@ class Mind:
                         r"nevermind|forget it|leave it|skip it|ignore it|nothing|ok(?:ay)?|no thanks|thanks?|thank you|"
                         r"fine|good|right|correct|alright|all right|cool|great|no problem|not important|whatever)\b", re.I)
 
-    HANDOFF_SECONDS = 600      # a conversation moves with its person to another device for this long (#53)
+    # a whole utterance that only dismisses ("stop", "never mind", "no thanks"), and one that is only a filler word or a
+    # misheard wake word: neither is something to search memory for
+    DISMISS = re.compile(r"^\s*(?:(?:oh|ah|um+|uh+)[,\s]+)?(?:stop|cancel|never ?mind|nevermind|forget it|forget about it|"
+                         r"no thanks|no thank you|that'?s all|that'?s it|nothing|no|nope|ok(?:ay)?|thanks?|thank you|"
+                         r"quiet|be quiet|shut up|silence|abort|all done|done)(?:[,\s]+(?:thanks|thank you|please))?"
+                         r"[\s.!]*$", re.I)
+    MISHEARD = re.compile(r"^\s*(?:yes|yeah|yep|what|huh|um+|uh+|hm+|mm+|er+|ah+|eh|oh|the|a|an|and|so|hey|hi|hello|"
+                          r"sorry|pardon|ok nabu|okay nabu|hey nabu|hey jarvis|jarvis|alexa|hey google|ok google|"
+                          r"hey mycroft)[\s.!?,]*$", re.I)
+
+    HANDOFF_SECONDS = 600     # a conversation moves with its person to another device for this long (#53)
 
     def _conversations(self, store=None):
         """The live conversations; read back once from the database after a restart (#53)."""
@@ -1026,6 +1037,12 @@ class Mind:
             # nothing to search for: no "best matching note" for an empty question (bug-hunt set)
             return {"answer": "Ask me something, or tell me something to remember.", "hits": [], "model": None,
                     "empty": True}
+        if self.DISMISS.match(said):
+            # "stop", "never mind", "no thanks": nothing to look up (it read out "Mind the step..." or the wifi code)
+            return {"answer": "OK.", "hits": [], "model": None, "dismissed": True}
+        if self.MISHEARD.match(said):
+            # a wake-word mishear or a lone "yes"/"what"/"um": not a question, and no note is "the best match" for it
+            return {"answer": "Sorry, I didn't catch that.", "hits": [], "model": None, "empty": True}
         vw = getattr(self, "views", None)
         if vw is not None and store is self.store:
             name = vw.find(question)

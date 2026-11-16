@@ -98,7 +98,9 @@ TOOLS = [
                      "and garage doors need confirm=true, only after the user said yes. Logged in memory.",
      S({"entity_id": STR, "action": STR, "value": STR, "confirm": BOOL}, ["entity_id", "action"])),
     ("mind_do", "A request in words ('dim the desk light to 30%'): a connected model picks one action from the "
-                "control list, then it is checked and done like mind_control.", S({"text": STR, "model": STR}, ["text"])),
+                "control list, then it is checked and done like mind_control. A lock, alarm or garage door is only "
+                "asked about (confirm_needed): pass the user's reply (\"yes\") as text with the same conversation_id "
+                "within 30 seconds to do it.", S({"text": STR, "model": STR, "conversation_id": STR}, ["text"])),
     ("mind_automations", "Home Assistant automations run by Home Mind. action: list (default; who runs each, last run), "
                          "takeover (ids, or all=true), retire (stop running and leave the HA copy off), release (hand back to Home Assistant; ids or all), run (id, "
                          "optional trigger id), reload (re-read configs after editing in Home Assistant).",
@@ -318,7 +320,8 @@ class MCP:
             return await app.home.act(a["entity_id"], a["action"], a.get("value"), source="claude",
                                       confirm=a.get("confirm") is True)
         if name == "mind_do":
-            return await app.do(a["text"], a.get("model"), source="claude")
+            return await app.do(a["text"], a.get("model"), source="claude",
+                                conversation_id=str(a["conversation_id"]) if a.get("conversation_id") else None)
         if name == "mind_automations":
             eng, act = app.engine, a.get("action", "list")
             if act == "list":
