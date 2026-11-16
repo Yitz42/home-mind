@@ -15,9 +15,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "home_mind", "r
 from homemind.mind import Mind  # noqa: E402
 
 # suite: (questions per type, floor). Floors sit at the current scores; raise them when a suite improves.
-SUITES = {"recall": (None, 1.0), "update": (None, 0.98), "locate": (None, 0.8), "tasks": (None, 1.0),
+SUITES = {"recall": (None, 1.0), "update": (None, 0.98), "locate": (None, 0.9), "tasks": (None, 1.0),
           "tricky": (4, 1.0), "tricky2": (4, 1.0), "hard": (3, 1.0), "hard2": (2, 1.0),
-          "followup": (4, 1.0), "abstain": (None, 0.82),
+          "followup": (4, 1.0), "abstain": (None, 0.85),
           "recurring": (None, 1.0), "chores": (None, 1.0), "places": (None, 1.0), "typed": (None, 1.0),
           "valid": (None, 1.0), "profile": (None, 1.0), "tidy": (None, 1.0), "attacks": (None, 1.0),
           "sources": (None, 1.0), "injections": (None, 1.0), "conflicts": (None, 1.0), "reminders": (None, 1.0),

@@ -139,8 +139,8 @@ def evolve():
     a = st.remember(text="The Quillon bike is blue.")
     st.remember(text="The Quillon bike was stolen from the Pemberly station rack.")
     keys = (st.get(a["id"]).get("keys") or "")
-    check("an older linked note learns rare words of the newer one", "pemberly" in keys.lower() or
-          any("Quillon" in h["body"] for h in st.recall("Pemberly station")), keys)
+    check("an older linked note learns rare words of the newer one", "pemberly" in keys.lower() and
+          a["id"] in [h["id"] for h in st.recall("Pemberly station")], keys)
     st3 = new()
     q = st3.remember(text="The Quoven spare key is in the red tin.")
     st3.remember(text="The Pupax spare key is gone now.")

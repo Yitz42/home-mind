@@ -39,7 +39,7 @@ async def main():
     assert "192.168.8.137" in c, c
     c = ctx("Tell me about the Dyson", Cloud())
     assert "192.168.8.137" not in c, c
-    assert "9921" in ctx("Where is the Kosk locker?", Local()) or True
+    assert "4417" in ctx("Where is the Kosk locker?", Local()), "a local model sees the code the cloud one does not"
     assert privacy.is_cloud(Cloud()) and not privacy.is_cloud(Local())
     assert st.recall("Kosk locker code", limit=1)[0]["meta"].get("sensitive") is True
     print("PRIVACY OK")
