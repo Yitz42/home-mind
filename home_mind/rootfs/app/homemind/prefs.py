@@ -10,7 +10,7 @@ learned preference:
 """
 import statistics
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DOMAINS = {"light": "brightness", "fan": "percentage", "cover": "current_position", "media_player": "volume_level"}
 ACTION = {"light": "brightness", "fan": "speed"}
@@ -29,7 +29,10 @@ def band(ts):
             part = name
     if d.hour < 5:
         part = "night"
-    return ("weekend " if d.weekday() >= 5 else "weekday ") + part
+    # a night is one situation from 22:00 to 05:00, named for the day it ends on: Friday 23:30 and Saturday 00:30 are
+    # both a weekend night, Sunday 23:30 and Monday 00:30 both a weekday night (not split at midnight)
+    wd = (d + timedelta(days=1)).weekday() if d.hour >= 22 else d.weekday()
+    return ("weekend " if wd >= 5 else "weekday ") + part
 
 
 def value_of(dom, attrs, state):
@@ -83,11 +86,11 @@ class Prefs:
 
     def learned(self, now=None):
         now = now or time.time()
-        rows = self.store.db.execute("SELECT eid, band, value FROM pref_obs WHERE ts > ? ORDER BY ts",
+        rows = self.store.db.execute("SELECT eid, ts, value FROM pref_obs WHERE ts > ? ORDER BY ts",
                                      (now - DAYS * 86400,)).fetchall()
         groups = {}
-        for r in rows:
-            groups.setdefault((r["eid"], r["band"]), []).append(r["value"])
+        for r in rows:          # the situation from the time, so settings kept before a change to band() still count
+            groups.setdefault((r["eid"], band(r["ts"])), []).append(r["value"])
         out = []
         for (eid, b), vs in groups.items():
             vs = vs[-30:]
@@ -112,12 +115,14 @@ class Prefs:
         """One note per learned preference, kept up to date by key (a changed preference replaces the old note)."""
         names = names or {}
         n = 0
+        keep = set()
         for p in self.learned(now):
             dom = p["entity_id"].split(".")[0]
             what = {"light": "brightness", "fan": "speed", "cover": "open", "media_player": "volume"}[dom]
             name = names.get(p["entity_id"]) or p["entity_id"]
             text = f"{name}: usually {p['value']}% {what} on {p['band']}s (learned from {p['n']} settings)."
             key = f"preference|{p['entity_id']}|{p['band']}"
+            keep.add(key)
             old = self.store.active_by_key(key)
             if old and old["body"].split(" (learned")[0] == text.split(" (learned")[0]:
                 continue
@@ -125,4 +130,10 @@ class Prefs:
                                 source="prefs", meta={"category": "preference", "entity_id": p["entity_id"],
                                                       "band": p["band"], "value": p["value"]})
             n += 1
+        # a preference that no longer holds (the settings stopped agreeing, or are older than DAYS) stops being told as
+        # one: its note is archived, as habits no longer found are
+        for r in self.store.db.execute("SELECT id, key FROM items WHERE status IN ('active','faded') AND source='prefs' "
+                                       "AND key LIKE 'preference|%'").fetchall():
+            if r["key"] not in keep:
+                self.store.set_status(r["id"], "archived")
         return n

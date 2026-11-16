@@ -6,6 +6,7 @@ CONFIDENT, and that shelf has at least MIN_NOTES notes); otherwise it stays in t
 for the inbox review (#59). Moving a note to another shelf teaches it: the next model is built from the shelves as
 they are. Rebuilt at most every few minutes.
 """
+import json
 import math
 import time
 from collections import Counter, defaultdict
@@ -14,6 +15,20 @@ CONFIDENT = 0.85
 MIN_NOTES = 5
 SKIP = ("home", "automations", "calendar", "habits", "tidy", "evening", "morning", "patterns", "journal", "scale",
         "comfort", "test-extract", "lme")
+
+
+def trains(meta):
+    """Whether a note on a shelf teaches filing: a person put it there (or moved or kept it). A note the model filed
+    itself and no one has touched since is the model's own guess: learning from it would make filing ever surer of its
+    own mistakes (a shelf grows with what it pulled in and pulls in more)."""
+    m = meta if isinstance(meta, dict) else {}
+    if isinstance(meta, str):
+        try:
+            m = json.loads(meta or "{}")
+        except ValueError:
+            m = {}
+    return not (m.get("filed_by") in ("learned", "reshelved") and m.get("moved_from") is None
+                and not m.get("keep_shelf"))
 
 
 class Filer:
@@ -27,11 +42,12 @@ class Filer:
 
     def build(self):
         rows = self.store.db.execute(
-            f"SELECT shelf, title, body FROM items WHERE status IN ('active','faded') AND shelf != 'inbox' AND "
+            f"SELECT shelf, title, body, meta FROM items WHERE status IN ('active','faded') AND shelf != 'inbox' AND "
             f"kind NOT IN ('procedure') AND shelf NOT LIKE 'home/%' AND shelf NOT LIKE 'comfort/%' AND "
             f"shelf NOT LIKE 'summaries%' AND shelf NOT LIKE 'procedures/%' AND source NOT LIKE 'pack:%' AND "
             f"source NOT IN ({','.join('?' * len(SKIP))})", SKIP).fetchall()
         docs, words = Counter(), defaultdict(Counter)
+        rows = [r for r in rows if trains(r["meta"])]
         for r in rows:
             docs[r["shelf"]] += 1
             words[r["shelf"]].update(set(self._words(f"{r['title']} {r['body']}")))
@@ -94,7 +110,6 @@ def reshelve(filer, now=None, apply=True, limit=500):
     where it is, is left alone."""
     st = filer.store
     now = now or time.time()
-    import json
     m = filer.model()
     rows = st.db.execute(
         f"SELECT id, shelf, title, body, meta, source FROM items WHERE status='active' AND kind NOT IN ('procedure','task') "
@@ -106,7 +121,8 @@ def reshelve(filer, now=None, apply=True, limit=500):
         meta = json.loads(r["meta"] or "{}")
         if meta.get("moved_from") is not None or meta.get("keep_shelf") or meta.get("sensitive"):
             continue
-        best, p = filer.guess(f"{r['title']} {r['body']}", without=r["shelf"])
+        # leave the note itself out of what the model learned, if it taught it at all
+        best, p = filer.guess(f"{r['title']} {r['body']}", without=r["shelf"] if trains(meta) else None)
         if not best or best == r["shelf"] or p < RESHELVE_P or m["docs"].get(best, 0) < MIN_NOTES + 1:
             continue
         machine = r["shelf"] == "inbox" or meta.get("filed_by") in ("learned", "reshelved")

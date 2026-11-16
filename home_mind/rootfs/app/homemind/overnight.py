@@ -249,7 +249,10 @@ class Overnight:
         self.at = tuple(int(x) for x in (at or "03:00").split(":"))
         self.model = model
         self.done_for = None
-        self.last = None
+        try:            # the last run survives a restart (the panel and the sensors read it)
+            self.last = store.kv_get("overnight_last")
+        except Exception:  # noqa: BLE001
+            self.last = None
         self.enabled = True          # the Overnight learning switch; off skips the nightly run (not a button press)
         self.structure_on = False    # option overnight_structure: the model reads structure the patterns missed
 
@@ -351,6 +354,7 @@ class Overnight:
                      "unknown_voices": len(guests), "keys_added": keyed, "links_moved": relinked, "tagged_languages": tagged,
                      "reshelved": len(reshelved["moved"]), "reshelve_suggested": len(reshelved["suggested"]),
                      "ids": filed, **({"structure_read": read} if read is not None else {})}
+        self.store.kv_set("overnight_last", self.last)
         return self.last
 
     EXTRACT_TRIES = 3
@@ -474,6 +478,9 @@ class Overnight:
         if (now.hour, now.minute) >= self.at and (now.hour, now.minute) < (self.at[0] + 3, self.at[1]) \
                 and self.done_for != now.date():
             self.done_for = now.date()
+            if self.store.kv_get("overnight_done_for") == str(now.date()):
+                return          # a restart inside the window after tonight's run: don't run it again
+            self.store.kv_set("overnight_done_for", str(now.date()))
             if not self.enabled:
                 self.last = {"at": time.time(), "skipped": "overnight learning switched off"}
                 return

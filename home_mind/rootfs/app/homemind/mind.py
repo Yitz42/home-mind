@@ -1003,7 +1003,10 @@ class Mind:
             self._save_conversations(store)
         cl = getattr(self, "convlog", None)
         if cl and store is self.store:
-            cl.add(time.time(), original, text, conversation_id, None, "home_mind")
+            from .speakers import VIEWER as _V
+            who = _V.get()       # the person asking, when known (a voice, a person token, Telegram): learned as theirs
+            cl.add(time.time(), original, text, conversation_id, None, "home_mind",
+                   **({"speaker": who, "how": "ask"} if who else {}))
         from .privacy import mask_all
         logged = mask_all(text[:500]) if store.vault_key else text[:500]      # #66: no secret values in the log
         store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=logged,
