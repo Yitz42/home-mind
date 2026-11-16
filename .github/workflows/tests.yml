@@ -38,6 +38,8 @@ jobs:
         run: python tests/test_house.py
       - name: LongMemEval harness (self-test on a sample in its format)
         run: python tests/longmemeval.py selftest
+      - name: People and search keys (speaker, personal notes, unknown voices, keys)
+        run: python tests/test_people.py
       - name: Extraction bench scoring
         run: python tests/test_extract.py
       - name: Pantry

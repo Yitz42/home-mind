@@ -17,6 +17,8 @@ import re
 import time
 from datetime import datetime
 
+from .speakers import FIRST_PERSON
+
 log = logging.getLogger("homemind.overnight")
 
 EXTRACT_SYSTEM = (
@@ -143,14 +145,24 @@ class ConvLog:
         store.db.execute("""CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY, ts REAL, conversation_id TEXT, run_id TEXT UNIQUE, pipeline TEXT,
             user_text TEXT, reply TEXT, processed INTEGER DEFAULT 0)""")
+        for col in ("speaker TEXT", "speaker_how TEXT", "device_id TEXT"):
+            try:
+                store.db.execute(f"ALTER TABLE conversations ADD COLUMN {col}")
+            except Exception:  # noqa: BLE001 - already there
+                pass
         store.db.commit()
+        self.who = None          # device_id -> (name or None, how); set by the app from option people (#3)
 
-    def add(self, ts, user_text, reply, conversation_id=None, run_id=None, pipeline=None):
+    def add(self, ts, user_text, reply, conversation_id=None, run_id=None, pipeline=None, speaker=None, how=None,
+            device_id=None):
         if not (user_text or "").strip():
             return False
+        if speaker is None and device_id and self.who:
+            speaker, how = self.who(device_id)
         try:
-            self.store.db.execute("INSERT INTO conversations(ts,conversation_id,run_id,pipeline,user_text,reply) "
-                                  "VALUES(?,?,?,?,?,?)", (ts, conversation_id, run_id, pipeline, user_text, reply))
+            self.store.db.execute("INSERT INTO conversations(ts,conversation_id,run_id,pipeline,user_text,reply,speaker,"
+                                  "speaker_how,device_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                                  (ts, conversation_id, run_id, pipeline, user_text, reply, speaker, how, device_id))
             self.store.db.commit()
             return True
         except Exception:  # noqa: BLE001 - duplicate run id
@@ -171,12 +183,13 @@ class ConvLog:
                     continue
                 d = await ws_call({"type": "assist_pipeline/pipeline_debug/get", "pipeline_id": p["id"],
                                    "pipeline_run_id": rid}) or {}
-                said, reply, conv, ts = None, None, None, None
+                said, reply, conv, ts, dev = None, None, None, None, None
                 for ev in d.get("events", []):
                     data = ev.get("data") or {}
                     if ev.get("type") == "intent-start":
                         said = data.get("intent_input")
                         conv = data.get("conversation_id") or conv
+                        dev = data.get("device_id") or dev
                     elif ev.get("type") == "stt-end":
                         said = said or (data.get("stt_output") or {}).get("text")
                     elif ev.get("type") == "intent-end":
@@ -188,7 +201,7 @@ class ConvLog:
                             ts = datetime.fromisoformat(ev["timestamp"].replace("Z", "+00:00")).timestamp()
                         except ValueError:
                             pass
-                if self.add(ts or time.time(), said, reply, conv, rid, p.get("name")):
+                if self.add(ts or time.time(), said, reply, conv, rid, p.get("name"), device_id=dev):
                     added += 1
         return added
 
@@ -210,6 +223,8 @@ class ConvLog:
 class Overnight:
     def __init__(self, store, models, convlog, at="03:00", model=None):
         self.store, self.models, self.log = store, models, convlog
+        self.keys_on = True          # the model adds extra search keys to recent notes (#71)
+        self.known_only = False      # True once option people lists anyone: unknown voices (guests) aren't learned from
         self.at = tuple(int(x) for x in (at or "03:00").split(":"))
         self.model = model
         self.done_for = None
@@ -241,10 +256,14 @@ class Overnight:
             return self.last
         rows = self.log.pending()
         convs = {}
+        guests = []
         for r in rows:
-            convs.setdefault(r["conversation_id"] or f"run-{r['id']}", []).append(r)
-        filed, skipped, done = [], 0, []
-        for cid, rs in convs.items():
+            if self.known_only and not r.get("speaker"):
+                guests.append(r["id"])      # #79: an unknown voice (a guest, the TV) doesn't become memory
+                continue
+            convs.setdefault((r["conversation_id"] or f"run-{r['id']}", r.get("speaker")), []).append(r)
+        filed, skipped, done = [], 0, list(guests)
+        for (cid, who), rs in convs.items():
             for i in range(0, len(rs), limit_turns):
                 chunk = rs[i:i + limit_turns]
                 turns = []
@@ -262,14 +281,28 @@ class Overnight:
                 except Exception as e:  # noqa: BLE001
                     log.warning("extract %s: %s", cid, e)
                     continue
-                f, s = file_facts(self.store, facts, meta={"conversation_id": cid})
-                filed += f
-                skipped += s
+                mine = [r["user_text"] for r in chunk if who and FIRST_PERSON.search(r["user_text"] or "")]
+                personal = [x for x in facts if mine and max(_overlap(x["text"], u) for u in mine) >= 0.4]
+                rest = [x for x in facts if x not in personal]
+                base = {"conversation_id": cid, **({"said_by": who} if who else {})}
+                for group, extra in ((rest, {}), (personal, {"scope": "personal", "owner": who})):
+                    if group:
+                        f, s = file_facts(self.store, group, meta=dict(base, **extra))
+                        filed += f
+                        skipped += s
                 done += [r["id"] for r in chunk]
         self.log.mark(done)
         self.log.prune()
         read = await self.read_structure(model) if self.structure_on else None
+        keyed = 0
+        if self.keys_on:
+            from .keys import model_keys
+            try:
+                keyed = await model_keys(self.store, model)     # #71: other words for recent notes
+            except Exception as e:  # noqa: BLE001
+                log.warning("search keys: %s", e)
         self.last = {"at": time.time(), "model": name, "turns": len(done), "filed": len(filed), "already_known": skipped,
+                     "unknown_voices": len(guests), "keys_added": keyed,
                      "ids": filed, **({"structure_read": read} if read is not None else {})}
         return self.last
 

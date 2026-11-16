@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.22.0"
+version: "0.23.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -67,6 +67,9 @@ options:
   evening_notify: ""
   house_notices: true
   automation_pin: ""
+  people: []
+  personal_rule: first_person
+  unknown_caller: admin
   answer_edges: false
   answer_notes_first: false
   events_keep_days: 90
@@ -122,6 +125,14 @@ schema:
   evening_notify: str?
   house_notices: bool
   automation_pin: password?
+  people:
+    - name: str
+      ha_users: str?
+      devices: str?
+      areas: str?
+      persons: str?
+  personal_rule: list(first_person|household)
+  unknown_caller: list(admin|guest)
   answer_edges: bool
   answer_notes_first: bool
   events_keep_days: int(0,3650)

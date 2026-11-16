@@ -62,16 +62,16 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 
 FTS = """
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
-  title, body, tags, shelf, content='items', content_rowid='id', tokenize='porter unicode61');
+  title, body, tags, shelf, keys, content='items', content_rowid='id', tokenize='porter unicode61');
 CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
-  INSERT INTO items_fts(rowid, title, body, tags, shelf) VALUES (new.id, new.title, new.body, new.tags, new.shelf);
+  INSERT INTO items_fts(rowid, title, body, tags, shelf, keys) VALUES (new.id, new.title, new.body, new.tags, new.shelf, new.keys);
 END;
 CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
-  INSERT INTO items_fts(items_fts, rowid, title, body, tags, shelf) VALUES('delete', old.id, old.title, old.body, old.tags, old.shelf);
+  INSERT INTO items_fts(items_fts, rowid, title, body, tags, shelf, keys) VALUES('delete', old.id, old.title, old.body, old.tags, old.shelf, old.keys);
 END;
-CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE OF title, body, tags, shelf ON items BEGIN
-  INSERT INTO items_fts(items_fts, rowid, title, body, tags, shelf) VALUES('delete', old.id, old.title, old.body, old.tags, old.shelf);
-  INSERT INTO items_fts(rowid, title, body, tags, shelf) VALUES (new.id, new.title, new.body, new.tags, new.shelf);
+CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE OF title, body, tags, shelf, keys ON items BEGIN
+  INSERT INTO items_fts(items_fts, rowid, title, body, tags, shelf, keys) VALUES('delete', old.id, old.title, old.body, old.tags, old.shelf, old.keys);
+  INSERT INTO items_fts(rowid, title, body, tags, shelf, keys) VALUES (new.id, new.title, new.body, new.tags, new.shelf, new.keys);
 END;
 """
 
@@ -236,11 +236,27 @@ class Store:
         with self.lock:
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.executescript(SCHEMA)
+            cols = {r[1] for r in self.db.execute("PRAGMA table_info(items)")}
+            fresh_keys = "keys" not in cols
+            if fresh_keys:
+                # 0.23: a hidden column of extra search keys (#71); the search index is rebuilt to include it
+                self.db.execute("ALTER TABLE items ADD COLUMN keys TEXT")
+                for t in ("items_ai", "items_ad", "items_au"):
+                    self.db.execute(f"DROP TRIGGER IF EXISTS {t}")
+                self.db.execute("DROP TABLE IF EXISTS items_fts")
+                # fill the keys before the index and its triggers exist: an update trigger on an index that doesn't
+                # hold the row yet would corrupt it
+                from .keys import lexicon_keys
+                rows = self.db.execute("SELECT id, title, body FROM items").fetchall()
+                self.db.executemany("UPDATE items SET keys=? WHERE id=?",
+                                    [(" ".join(lexicon_keys(f"{r['title']} {r['body']}")) or None, r["id"]) for r in rows])
             try:
                 self.db.executescript(FTS)
                 self.fts = True
             except sqlite3.OperationalError:
                 self.fts = False
+            if fresh_keys and self.fts:
+                self.db.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')")
             self.db.commit()
 
     def close(self):
@@ -362,6 +378,11 @@ class Store:
                 (kind, key, title, text, tags, shelf, "review" if hold else "active", old["id"] if old else None, now,
                  now, source, json.dumps(m)))
             new_id = cur.lastrowid
+            if self.KEYS and source not in ("home", "automations", "calendar"):
+                from .keys import lexicon_keys
+                kw = lexicon_keys(f"{title} {text}")
+                if kw:
+                    self.db.execute("UPDATE items SET keys=? WHERE id=?", (" ".join(kw), new_id))
             if old:
                 self.db.execute("UPDATE items SET status='superseded', updated=? WHERE id=?", (now, old["id"]))
             self.db.commit()
@@ -537,6 +558,22 @@ class Store:
                 continue
             out.append({k: d[k] for k in ("id", "title", "body", "shelf", "source", "created", "status")} | {"why": why})
         return out[:limit]
+
+    def add_keys(self, item_id, words, by="lexicon"):
+        """Extra search keys for a note (#71): kept apart from its text, read only by search."""
+        with self.lock:
+            r = self.db.execute("SELECT keys, meta FROM items WHERE id=?", (int(item_id),)).fetchone()
+            if not r:
+                return None
+            have = (r["keys"] or "").split()
+            new = have + [w for w in words if w not in have]
+            m = json.loads(r["meta"] or "{}")
+            if by != "lexicon":
+                m["keys_by"] = by
+            self.db.execute("UPDATE items SET keys=?, meta=? WHERE id=?", (" ".join(new)[:600] or None, json.dumps(m),
+                                                                          int(item_id)))
+            self.db.commit()
+        return new
 
     def purge_about(self, name):
         """Delete for good every note that mentions a name (any status), with everything purge() removes."""
@@ -768,6 +805,10 @@ class Store:
         statuses = ("active", "faded", "superseded") if include_old else ("active", "faded")
         where = [f"i.status IN ({','.join('?' * len(statuses))})"]
         args = list(statuses)
+        from .speakers import sql as _vis
+        vs, va = _vis("i.")
+        where.append(vs)            # personal notes only for their owner (#48)
+        args += va
         if shelf:
             where.append("(i.shelf = ? OR i.shelf LIKE ?)")
             args += [clean_shelf(shelf), clean_shelf(shelf) + "/%"]
@@ -866,16 +907,19 @@ class Store:
                                     "status=CASE WHEN status='faded' THEN 'active' ELSE status END WHERE id=?",
                                     [(now, d["id"]) for d in res])
                 self.db.commit()
+        from .speakers import visible as _visible
+        res = [d for d in res if _visible(d.get("meta"))]      # and whatever was reached through links or hops
         if not quiet:          # the nightly checks search a lot; they don't fill the activity log
             self.log("recall", None, query=query, shelf=shelf, kind=kind, ids=[d["id"] for d in res])
         return res
 
     # recall settings (class-level so tests can compare with and without)
+    KEYS = True          # extra search keys from the built-in word list when filing (#71)
     ROUTINE_W = 0.7      # routine house changes (a light going off at its usual time) rank this much lower
     PROBATION_W = 0.85   # facts learned overnight rank this much lower until confirmed (or PROBATION_DAYS pass)
     PROBATION_DAYS = 7
     STRUCTURE = True     # read recurrence, chores, places, fields, aliases and "since when" from notes as they are filed
-    BM25 = "4.0, 1.0, 2.0, 1.5"  # weights for title, body, tags, shelf
+    BM25 = "4.0, 1.0, 2.0, 1.5, 0.6"  # weights for title, body, tags, shelf, keys (other words: count less)
     LINK_PRONOUNS = True # a note that says "its"/"it" and names nothing is linked to the note just before it
     LINK_SECONDS = 7200  # ...if that note is at most this old
     FIX_SOUNDS = True    # ...or to a stored word that sounds the same

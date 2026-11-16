@@ -246,6 +246,37 @@ was remembered, and suggested automations waiting. It goes to the same phone as 
 evening_notify names another. Nothing is sent on a day with nothing notable. A switch, a time and a "send now" button
 are on the Home Mind device in Home Assistant.
 
+## Who is speaking
+
+Home Mind works out who is asking from the strongest clue it has:
+
+1. **Signed in**: the Home Assistant user. Text chats and the app know it; in an LLM tool script pass
+   `user: "{{ context.user_id }}"` to `/api/ask`. Person entities with a linked user are recognised without setup.
+2. **Their device**: a phone or voice satellite listed for one person in option `people` (`devices`, comma-separated
+   device IDs). Voice runs from the Assist pipeline carry the satellite's device ID, so overnight learning knows who
+   spoke too.
+3. **The room**: a satellite's area when only one person is listed for it (`areas`).
+4. **Only one home**: exactly one listed person's person entity is home.
+
+Otherwise the speaker is unknown.
+
+- **Personal and household notes.** What a known person files about themselves ("my bank PIN", "I'm allergic to…")
+  is personal: only they see it. Everything else is household. Change a note on its card (Make personal / Share with
+  household), or set option `personal_rule: household` to share everything.
+- **Unknown voices** get household notes only, never a code or password, and nothing when they ask for every secret
+  or for the whole memory.
+- **Calls with no speaker information at all** (the panel, Claude through MCP, the API without `user`, `device_id`,
+  `area` or `speaker`) see everything, as before. Set option `unknown_caller: guest` to treat them as unknown.
+- **Learning.** Once option `people` lists anyone, overnight learning skips turns from voices it can't recognise, and
+  marks each fact with who said it.
+
+## Extra search keys
+
+Each note also files under broader words for what it names, which are searched but never shown: a beagle under dog,
+pet and breed; a Civic under car; a dentist under doctor and appointment (a built-in word list for household things).
+Overnight, the model adds other words for recent notes. So "what's our new dog called?" finds "We adopted a beagle
+named Rufus".
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press

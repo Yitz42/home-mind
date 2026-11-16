@@ -59,6 +59,15 @@ configuration:
   house_notices:
     name: Notices about unusual house events
     description: A phone notice for very few things (a lock opened at an unusual hour, a reading far outside its usual range), at most one a day for each.
+  people:
+    name: People
+    description: "Who lives here, so Home Mind knows who is speaking: name, and any of ha_users (Home Assistant user names or IDs), devices (phone or satellite device IDs), areas (rooms where only they have a satellite), persons (their person entities), each comma-separated. Signed-in users are recognised from person entities with no setup. Once anyone is listed, overnight learning skips voices it can't recognise."
+  personal_rule:
+    name: Personal notes
+    description: first_person = what a known person files about themselves ("my", "I") is theirs alone; household = everything is shared.
+  unknown_caller:
+    name: Calls with no speaker
+    description: admin = calls that say nothing about who is asking (the panel, Claude, the API) see everything, as before; guest = they see household notes only.
   automation_pin:
     name: PIN for automations that open the house
     description: Drafted automations that unlock, open a garage door or disarm an alarm are installed only with this PIN. Empty = never.

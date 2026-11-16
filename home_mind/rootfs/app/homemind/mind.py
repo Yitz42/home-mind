@@ -305,11 +305,24 @@ def guarded_context(store, question, hits, voice=False):
     secret value hidden (for any model, local or cloud); a request for the whole memory gets only a few notes and no
     lists; by voice a list is cut to a few lines. Returns (context, gathered ids, hits used)."""
     from . import privacy
+    from .speakers import VIEWER
     kind = privacy.bulk(question)
+    unknown = VIEWER.get() == ""
+    if unknown and kind:
+        # #78: someone the house doesn't recognise asked for everything: nothing is listed
+        return ("AN UNKNOWN VOICE ASKED FOR " + ("EVERY SECRET" if kind == "secrets" else "THE WHOLE MEMORY") +
+                ": share nothing from memory; say you can only do that for someone you recognise (signed in, or on "
+                "their own device)."), [], []
     if kind == "dump":
         hits = hits[:privacy.BULK_MAX]
     ctx, gids = build_context(store, question, hits, lists=kind != "dump",
                               list_max=privacy.VOICE_LIST_MAX if voice else None)
+    if unknown and voice:
+        # #78: codes and passwords are never read out to a voice the house doesn't recognise
+        masked = privacy.mask_all(ctx)
+        if masked != ctx:
+            ctx = ("AN UNKNOWN VOICE IS ASKING: secret values are hidden; say you can give codes and passwords only to "
+                   "someone you recognise.\n\n" + masked)
     if kind:
         ctx = privacy.mask_all(ctx)
         ctx = ("ASKED FOR " + ("EVERY SECRET AT ONCE: secret values are hidden; give names only, and say codes and "
@@ -713,7 +726,22 @@ class Mind:
         return full
 
     async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False,
-                  voice=False, deadline=None, fallback=True, conversation_id=None):
+                  voice=False, deadline=None, fallback=True, conversation_id=None, speaker=None):
+        """speaker: None = no speaker information (sees everything, as before); "" = unknown (household notes only,
+        no secrets by voice, no bulk lists); a name = that person (their personal notes too). (#3, #48, #78)"""
+        from .speakers import VIEWER
+        tok = VIEWER.set(speaker)
+        try:
+            out = await self._ask(question, model, use_brain, k, shelf, store, system, expand, voice, deadline, fallback,
+                                  conversation_id)
+        finally:
+            VIEWER.reset(tok)
+        if speaker is not None:
+            out["speaker"] = speaker or "unknown"
+        return out
+
+    async def _ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False,
+                   voice=False, deadline=None, fallback=True, conversation_id=None):
         """Answer with a model. If it fails or is too slow, try the fallbacks (option "fallback", default Haiku through
         Home Assistant), and if none answers, give the best matching note. voice=True caps the whole answer at
         VOICE_SECONDS so a voice question never hangs."""
@@ -754,7 +782,11 @@ class Mind:
         hits, procs, ctx = (await self.context_for(store, question, k, shelf, model, expand, voice)) if use_brain \
             else ([], [], "")
         from . import privacy
-        if privacy.bulk(question):          # brain-only answers and returned hits follow the same rule as the page
+        from .speakers import VIEWER
+        if VIEWER.get() == "" and privacy.bulk(question):
+            hits = []                       # unknown voice asking for everything: nothing (#78)
+        if privacy.bulk(question) or (VIEWER.get() == "" and voice):
+            # brain-only answers and returned hits follow the same rule as the page
             hits = [dict(h, body=privacy.mask_all(h.get("body") or ""), title=privacy.mask_all(h.get("title") or ""))
                     for h in hits]
         weak = bool(use_brain and (ctx or "").find(LOW_MATCH) >= 0)
@@ -993,8 +1025,9 @@ class Mind:
                                         key=ev.get("key") if cfg.get("keyed") or ev.get("always_key") else None,
                                         source="overnight" if ev.get("overnight") else "mcp"
                                         if ev.get("inferred") or ev.get("relayed") else "test",
-                                        meta={"learned_overnight": True} if ev.get("overnight") else
-                                        {"inferred": True} if ev.get("inferred") else None)
+                                        meta=dict({"learned_overnight": True} if ev.get("overnight") else
+                                                  {"inferred": True} if ev.get("inferred") else {},
+                                                  **(ev.get("meta") or {})) or None)
                         if cfg.get("ingest") == "structure" and r.get("id") and r.get("action") != "reinforced":
                             # what overnight_structure does: the model reads what the patterns missed
                             item = sb.get(r["id"])
@@ -1055,7 +1088,13 @@ class Mind:
                 if run["suite"] == "drafts" and (arm == "brain") == bool(q.get("request")):
                     continue        # the brain arm checks drafts; model arms draft the requests
                 clock["t"] += 600
-                details.append(await self._question(run, sb, q, refs, log))
+                from .speakers import VIEWER
+                tok = VIEWER.set(q.get("speaker")) if "speaker" in q else None     # people suite (#48)
+                try:
+                    details.append(await self._question(run, sb, q, refs, log))
+                finally:
+                    if tok is not None:
+                        VIEWER.reset(tok)
             run["details"] = details
             run["summary"] = summarize(details, run, time.monotonic() - t0, len(world["events"]))
             if extraction:
@@ -1161,7 +1200,7 @@ class Mind:
                     return d
                 if q.get("attack"):
                     a = q["attack"]
-                    page, _, used = guarded_context(sb, q["q"], hits)
+                    page, _, used = guarded_context(sb, q["q"], hits, voice=bool(q.get("voice")))
                     if a == "leak":          # what a local model would be shown holds none of the secret values
                         leaked = [v for v in q["safe"] if contains(page, v)]
                         d.update(answer="leaked: " + ", ".join(leaked) if leaked else "nothing leaked", correct=not leaked)

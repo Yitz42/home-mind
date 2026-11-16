@@ -47,7 +47,8 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "home": True, "home_controls": [], "home_fan_max": 100,
             "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": "", "overnight_time": "03:00", "overnight_model": "",
             "overnight_enabled": True, "morning_enabled": True, "evening_enabled": True, "evening_time": "21:00",
-            "evening_notify": "", "house_notices": True, "automation_pin": "",
+            "evening_notify": "", "house_notices": True, "automation_pin": "", "people": [],
+            "personal_rule": "first_person", "unknown_caller": "admin",
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
@@ -152,6 +153,8 @@ class App:
         if (datetime.now().hour, datetime.now().minute) >= self.evening.at:
             self.evening.done_for = datetime.now().date()      # started after the time: wait for tomorrow
         self.house_notices = self.opts.get("house_notices", True) is not False
+        self.overnight.known_only = bool(self.opts.get("people"))
+        self.convlog.who = self.who_by_device
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
@@ -421,6 +424,40 @@ class App:
             await asyncio.sleep(20)
 
 
+    def people(self):
+        """Option people plus Home Assistant's person entities (#3)."""
+        from .speakers import people_from
+        persons = [{"entity_id": e, "attributes": dict(c.get("attrs") or {}, friendly_name=c.get("name"))}
+                   for e, c in (self.home.catalog or {}).items() if e.startswith("person.")]
+        return people_from(self.opts.get("people") or [], persons)
+
+    def who_by_device(self, device_id):
+        from .speakers import resolve
+        home = {e: c.get("state") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
+        return resolve(self.people(), device=device_id, home=home)
+
+    def speaker_for(self, b):
+        """From a request body: (viewer, how). viewer None = no speaker information given (sees everything) unless
+        option unknown_caller is "guest"; "" = unknown; else a name."""
+        from .speakers import resolve
+        if b.get("speaker") is not None:
+            return str(b["speaker"]).strip(), "given"
+        clues = {k: b.get(k) for k in ("user", "user_id", "device_id", "area")}
+        if not any(clues.values()):
+            return (None, "no speaker information") if self.opts.get("unknown_caller") != "guest" else ("", "unknown")
+        home = {e: c.get("state") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
+        name, how = resolve(self.people(), user=clues["user"] or clues["user_id"], device=clues["device_id"],
+                            area=clues["area"], home=home)
+        return (name or ""), how
+
+    def scope_meta(self, meta, text, viewer):
+        """A known person filing in the first person: personal (#48)."""
+        from .speakers import scope_for
+        if viewer and "scope" not in meta:
+            scope, owner = scope_for(text, viewer, self.opts.get("personal_rule") or "first_person")
+            meta = dict(meta, said_by=viewer, scope=scope, **({"owner": owner} if owner else {}))
+        return meta
+
     def learn_house(self):
         """The nightly house model (#19, #39, #40, #41): habits filed as notes, suggestions kept for the panel."""
         from . import house
@@ -572,6 +609,11 @@ def build(app_state):
     async def remember(q):
         b = await q.json()
         meta = dict(b.get("meta") or {}, **({"inferred": True} if b.get("inferred") else {}))
+        if b.get("scope") in ("personal", "household"):
+            meta["scope"] = b["scope"]
+            if b["scope"] == "personal":
+                meta["owner"] = b.get("owner") or A.speaker_for(b)[0] or ""
+        meta = A.scope_meta(meta, b.get("text", ""), A.speaker_for(b)[0])
         return J(st.remember(text=b.get("text", ""), title=b.get("title", ""), kind=b.get("kind", "note"),
                              shelf=b.get("shelf", "inbox"), tags=b.get("tags"), key=b.get("key"), meta=meta or None,
                              source=b.get("source", "api"), at=b.get("at")))
@@ -636,6 +678,20 @@ def build(app_state):
             return J(st.feedback(i, bool(b.get("helpful")), b.get("note", "")))
         if op == "confirm":
             return J(st.confirm(i))
+        if op == "scope":          # personal (one person) or household (everyone), #48
+            b = await q.json()
+            d = st.get(i)
+            if not d or b.get("scope") not in ("personal", "household"):
+                raise ValueError("scope is personal or household")
+            m = dict(d["meta"], scope=b["scope"])
+            if b["scope"] == "personal":
+                m["owner"] = b.get("owner") or m.get("owner") or m.get("said_by") or ""
+                if not m["owner"]:
+                    raise ValueError("a personal note needs an owner")
+            with st.lock:
+                st.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(m), i))
+                st.db.commit()
+            return J({"id": i, "scope": b["scope"], "owner": m.get("owner")})
         if op == "purge":          # delete for good: needs {"confirm": true}
             b = await q.json() if q.can_read_body else {}
             if b.get("confirm") is not True:
@@ -666,10 +722,13 @@ def build(app_state):
     @r.post("/api/ask")
     async def ask(q):
         b = await q.json()
+        who, how = A.speaker_for(b)
         res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
                                expand=bool(b.get("expand")), voice=bool(b.get("voice")),
                                deadline=b.get("deadline"), fallback=b.get("fallback", True),
-                               conversation_id=b.get("conversation_id"))
+                               conversation_id=b.get("conversation_id"), speaker=who)
+        if who is not None:
+            res["speaker_how"] = how
         res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
         return J(res)
 
@@ -875,6 +934,12 @@ def build(app_state):
     @r.post("/api/evening/send")
     async def evening_send(_):
         return J(await A.evening.send())
+
+    @r.get("/api/people")
+    async def people_get(_):
+        """Who Home Mind can recognise, and how (#3)."""
+        return J({"people": A.people(), "learn_from_unknown_voices": not A.overnight.known_only,
+                  "unknown_caller": A.opts.get("unknown_caller") or "admin"})
 
     @r.get("/api/house")
     async def house_get(_):

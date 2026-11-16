@@ -208,9 +208,9 @@ def selftest():
     json.dump(sample(), open(path, "w"))
     a = argparse.Namespace(data=path, limit=0, type=None, k="1,5", user_only=False)
     tot = retrieve(a)
-    # q1 ("what breed is my new dog?" over "I just adopted a beagle") shares no word with its evidence: keyword search
-    # misses it, which is the gap embeddings (#10) would close. The other two are found first.
-    ok = len(tot["any@1"]) == 3 and sum(tot["any@1"]) == 2 and sum(tot["all@5"]) == 2
+    # q1 ("what breed is my new dog?" over "I just adopted a beagle") shares no word with its evidence: it is found
+    # through the extra search keys (#71: beagle files under dog, breed). All three come first.
+    ok = len(tot["any@1"]) == 3 and sum(tot["any@1"]) == 3 and sum(tot["all@5"]) == 3
     print("\nselftest", "passed" if ok else "FAILED")
     return 0 if ok else 1
 

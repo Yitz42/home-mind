@@ -413,8 +413,10 @@ def _words(s):
 
 
 def _rows(store, where, args=()):
+    from .speakers import sql as _vis
+    vs, va = _vis()
     return [store._row(r) for r in store.db.execute(
-        f"SELECT * FROM items WHERE status IN ('active','faded') AND {where}", args).fetchall()]
+        f"SELECT * FROM items WHERE status IN ('active','faded') AND {vs} AND ({where})", list(va) + list(args)).fetchall()]
 
 
 def eff(h):

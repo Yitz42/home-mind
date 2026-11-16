@@ -113,8 +113,11 @@ def tidying():
     t = {"now": time.time()}
     st = fresh(lambda: t["now"])
     old = []
-    for k in range(5):
-        t["now"] = time.time() - (200 - k) * DAY
+    from datetime import datetime as _dt
+    mid = _dt.now().replace(day=10, hour=12, minute=0, second=0, microsecond=0)
+    mid = mid.replace(year=mid.year - 1) if mid.month > 6 else mid.replace(year=mid.year - 1, month=mid.month + 6)
+    for k in range(5):            # five in the middle of one month, long ago (not across a month's end)
+        t["now"] = mid.timestamp() + k * DAY
         old.append(st.remember(text=f"Set the bedroom to {66 + k}°F.", title=f"Comfort action (too warm {k})",
                                kind="episode", shelf="comfort/actions", source="comfort")["id"])
     t["now"] = time.time() - 5 * DAY

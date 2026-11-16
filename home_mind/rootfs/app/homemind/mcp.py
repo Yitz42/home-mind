@@ -26,7 +26,7 @@ TOOLS = [
      "rather than the user telling you: it then ranks below what they said, and doesn't replace it, until they "
      "confirm it.",
      S({"text": STR, "title": STR, "kind": STR, "shelf": STR, "tags": {"type": "array", "items": STR}, "key": STR,
-        "meta": {"type": "object"}, "inferred": BOOL}, ["text"])),
+        "meta": {"type": "object"}, "inferred": BOOL, "scope": STR, "owner": STR}, ["text"])),
     ("mind_recall", "Find stored items for a query, best first. Optional shelf and kind filters. include_old adds "
      "superseded versions.", S({"query": STR, "shelf": STR, "kind": STR, "limit": INT, "include_old": BOOL}, ["query"])),
     ("mind_get", "One item by id, with its version history.", S({"id": INT}, ["id"])),
@@ -146,7 +146,9 @@ class MCP:
         if name == "mind_remember":
             return st.remember(text=a["text"], title=a.get("title", ""), kind=a.get("kind", "note"),
                                shelf=a.get("shelf", "inbox"), tags=a.get("tags"), key=a.get("key"),
-                               meta=dict(a.get("meta") or {}, **({"inferred": True} if a.get("inferred") else {})),
+                               meta=dict(a.get("meta") or {}, **({"inferred": True} if a.get("inferred") else {}),
+                                         **({"scope": a["scope"], "owner": a.get("owner") or ""}
+                                            if a.get("scope") == "personal" and a.get("owner") else {})),
                                source="mcp")
         if name == "mind_recall":
             from .mind import lookup
