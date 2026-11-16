@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import types
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "home_mind", "rootfs", "app"))
 try:
@@ -113,8 +114,9 @@ def tidying():
     t = {"now": time.time()}
     st = fresh(lambda: t["now"])
     old = []
+    base = (datetime.now().replace(day=10) - timedelta(days=200)).replace(day=10, hour=12).timestamp()  # mid-month
     for k in range(5):
-        t["now"] = time.time() - (200 - k) * DAY
+        t["now"] = base + k * DAY
         old.append(st.remember(text=f"Set the bedroom to {66 + k}°F.", title=f"Comfort action (too warm {k})",
                                kind="episode", shelf="comfort/actions", source="comfort")["id"])
     t["now"] = time.time() - 5 * DAY

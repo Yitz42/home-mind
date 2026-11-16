@@ -5,44 +5,170 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home Mind</title>
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --ink:#1c1f24; --mute:#68707c; --line:#e3e6ea; --acc:#3b6fd8; --ok:#1f8a4c; --bad:#c2410c; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111317; --card:#1b1e24; --ink:#e8eaee; --mute:#9aa3ae; --line:#2b3039; --acc:#7aa2ff; --ok:#4ade80; --bad:#fb923c; } }
-  * { box-sizing:border-box } body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink) }
-  header { display:flex; gap:18px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0 }
-  header h1 { font-size:17px; margin:0 12px 0 0 } nav button { background:none; border:0; color:var(--mute); font:inherit; padding:6px 2px; cursor:pointer; border-bottom:2px solid transparent }
-  nav button.on { color:var(--ink); border-color:var(--acc) } main { padding:20px; max-width:1100px; margin:0 auto }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px }
-  .stat b { display:block; font-size:24px; font-weight:600 } .stat span { color:var(--mute); font-size:12px }
-  h2 { font-size:14px; margin:0 0 10px } table { width:100%; border-collapse:collapse } td,th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top }
-  th { color:var(--mute); font-weight:500; font-size:12px } input,select,textarea { font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink) }
-  button.go { background:var(--acc); color:#fff; border:0; border-radius:7px; padding:7px 14px; font:inherit; cursor:pointer } button.go:disabled { opacity:.5 }
+  :root { color-scheme: dark; --bg:#0d111a; --card:#161c29; --card2:#1d222e; --ink:#e9ecf2; --mute:#9aa4b5; --line:#252d3d; --acc:#4b7bec; --acc-ink:#93b8ff; --ok:#4ade80; --bad:#fb923c;
+    --food:#f59e0b; --food-ink:#fbbf24; --food-bg:#2a2013; --food-line:#4a3818; --health:#a78bfa; --health-ink:#c4b5fd; --health-bg:#1b1830; --health-line:#3a3266;
+    --house:#2dd4bf; --house-ink:#5eead4; --house-bg:#10262a; --house-line:#1d4a4f; --mem:#60a5fa; --mem-bg:#13213a; --mem-line:#27406b;
+    --head:'Space Grotesk',ui-rounded,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; }
+  @media (prefers-color-scheme: light) { :root { color-scheme: light; --bg:#f4f6fa; --card:#ffffff; --card2:#f1f3f7; --ink:#161a22; --mute:#5c6574; --line:#e1e5eb; --acc:#2f63cc; --acc-ink:#234ea3; --ok:#15803d; --bad:#c2410c;
+    --food:#d97706; --food-ink:#9a5208; --food-bg:#fff6e6; --food-line:#f3dcae; --health:#7c3aed; --health-ink:#5b21b6; --health-bg:#f4f0ff; --health-line:#ddd2fb;
+    --house:#0d9488; --house-ink:#0f6b63; --house-bg:#e8f7f5; --house-line:#bfe7e1; --mem:#2563eb; --mem-bg:#eaf1ff; --mem-line:#c9dafd; } }
+  * { box-sizing:border-box } body { margin:0; font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink) }
+  .app { display:flex; min-height:100vh }
+  #nav { flex:none; width:228px; background:var(--card); border-right:1px solid var(--line); padding:20px 12px; display:flex; flex-direction:column; gap:4px; position:sticky; top:0; height:100vh; overflow:auto }
+  #nav .brand { font:700 18px var(--head); padding:0 10px 14px; display:flex; align-items:center; gap:8px }
+  #nav .grp { font-size:11px; font-weight:600; letter-spacing:.08em; color:var(--mute); padding:14px 10px 4px }
+  #nav button { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:none; border:0; color:var(--ink); font:inherit; padding:9px 10px; border-radius:10px; cursor:pointer; min-height:40px }
+  #nav button svg { flex:none; color:var(--mute) } #nav button:hover { background:var(--card2) }
+  #nav button.on { background:color-mix(in srgb, var(--tint, var(--acc)) 22%, transparent); font-weight:600 } #nav button.on svg { color:var(--tint, var(--acc-ink)) }
+  #nav .badge { margin-left:auto; background:var(--mem-line); color:var(--ink); border-radius:99px; padding:0 7px; font-size:12px }
+  #nav .foot { margin-top:auto; font-size:12px; color:var(--mute); padding:10px; display:flex; align-items:center; gap:6px }
+  .dot { width:8px; height:8px; border-radius:99px; background:var(--ok); display:inline-block; flex:none }
+  main { flex:1; min-width:0; padding:26px 30px 40px } main > section { max-width:1080px; margin:0 auto }
+  .ph { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:16px }
+  .ph h1 { margin:0; font:700 28px/1.15 var(--head); letter-spacing:-.01em } .ph .sub { color:var(--mute); font-size:13px }
+  .bento { display:grid; grid-template-columns:repeat(auto-fit,minmax(400px,1fr)); gap:14px; margin-bottom:14px } .wide { grid-column:1 / -1 }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:14px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px 18px; margin-bottom:14px; overflow-x:auto } .bento > .card { margin-bottom:0 }
+  .card.food { background:var(--food-bg); border-color:var(--food-line) } .card.health { background:var(--health-bg); border-color:var(--health-line) }
+  .card.house { background:var(--house-bg); border-color:var(--house-line) } .card.mem { background:var(--mem-bg); border-color:var(--mem-line) }
+  .stat { background:var(--card2); border-radius:12px; padding:10px 12px; display:flex; flex-direction:column } .stat b { font:600 22px var(--head) } .stat span { color:var(--mute); font-size:12px }
+  h2 { font:600 16px var(--head); margin:0 0 10px } .hrow { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:10px } .hrow h2 { margin:0 }
+  table { width:100%; border-collapse:collapse } td,th { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top } th { color:var(--mute); font-weight:500; font-size:12px }
+  input,select,textarea { font:inherit; padding:9px 11px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); min-height:40px }
+  button.go, label.go { background:var(--acc); color:#fff; border:0; border-radius:10px; padding:9px 16px; font:inherit; font-weight:600; cursor:pointer; min-height:40px; display:inline-flex; align-items:center; gap:6px } button.go:disabled { opacity:.5 }
+  .food button.go, .food label.go, button.go.food { background:var(--food); color:#1f1406 } .house button.go { background:var(--house); color:#062420 } .health button.go { background:var(--health); color:#160f33 }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px } .mute { color:var(--mute) } .ok { color:var(--ok) } .bad { color:var(--bad) }
-  .pill { display:inline-block; padding:1px 8px; border-radius:99px; background:var(--bg); border:1px solid var(--line); font-size:12px; margin:0 4px 4px 0; cursor:pointer }
-  pre { white-space:pre-wrap; background:var(--bg); padding:10px; border-radius:7px; max-height:360px; overflow:auto; font-size:12px }
-  .hide { display:none } a { color:var(--acc); cursor:pointer } .num { font-variant-numeric:tabular-nums }
+  .pill { display:inline-block; padding:2px 10px; border-radius:99px; background:var(--card2); border:1px solid var(--line); font-size:12px; margin:0 4px 4px 0; cursor:pointer }
+  pre { white-space:pre-wrap; background:var(--bg); padding:10px; border-radius:10px; max-height:360px; overflow:auto; font-size:12px }
+  .hide { display:none !important } a { color:var(--acc-ink); cursor:pointer } .num { font-variant-numeric:tabular-nums }
+  .seg { display:flex; gap:4px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:4px; margin-bottom:14px; max-width:420px }
+  .seg button { flex:1; border:0; background:none; color:var(--mute); font:inherit; border-radius:10px; min-height:38px; cursor:pointer } .seg button.on { background:var(--acc); color:#fff; font-weight:600 }
+  /* Today */
+  .ring { position:relative; width:110px; height:110px; flex:none } .ring svg { display:block } .ring .v { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center }
+  .ring .v b { font:700 30px/1 var(--head) } .ring .v span { font-size:11px; color:var(--mute) }
+  .kv { display:flex; justify-content:space-between; gap:10px; padding:4px 0 } .kv span { color:var(--mute) } .kv b { font-family:var(--head); font-weight:600 }
+  .fog { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:6px; margin-top:12px }
+  .fog button { min-height:48px; border-radius:12px; border:1px solid var(--health-line); color:var(--ink); font:600 18px var(--head); cursor:pointer; background:color-mix(in srgb, var(--health) calc(var(--l) * 14% + 8%), var(--card)) }
+  .fog button.on { background:var(--health); color:#160f33; border-color:var(--health-ink) }
+  .scale { display:flex; justify-content:space-between; font-size:12px; color:var(--health-ink); margin-top:6px }
+  .week { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; align-items:end; height:150px }
+  .week .col { display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:5px; height:150px }
+  .week .bar { width:100%; max-width:64px; border-radius:7px; background:var(--acc) } .week .bar.low { background:var(--food) } .week .bar.none { border:1px dashed var(--line); background:none; height:12px }
+  .week .fd { width:24px; height:24px; border-radius:99px; background:var(--health); color:#160f33; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center } .week .fd.none { background:none }
+  .week .h { font-size:11px; color:var(--mute) } .days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; margin-top:6px; text-align:center; font-size:12px; color:var(--mute) }
+  .legend { display:flex; gap:14px; font-size:12px; color:var(--mute); flex-wrap:wrap } .legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px } .tile { border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; background:var(--card2); border:1px solid var(--line) }
+  .tile b { font:600 22px var(--head) } .tile.hot { background:var(--food-bg); border-color:var(--food-line) } .tile.hot b { color:var(--food-ink) }
+  .room { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; text-align:center } .room div { background:color-mix(in srgb, var(--house) 12%, var(--card)); border-radius:12px; padding:10px 4px; display:flex; flex-direction:column }
+  .room b { font:600 20px var(--head) } .room span { font-size:11px; color:var(--house-ink) }
+  .meter { height:10px; background:var(--line); border-radius:99px; overflow:hidden } .meter i { display:block; height:100%; background:var(--food); border-radius:99px }
+  .feed { display:flex; flex-direction:column; gap:10px } .feed > div { display:flex; gap:12px; align-items:flex-start } .feed .ic { width:34px; height:34px; flex:none; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; background:var(--mem-bg); color:var(--acc-ink) }
+  .chip { display:inline-block; font-size:11px; font-weight:600; border-radius:99px; padding:2px 8px; background:var(--card2) }
+  .hb { display:flex; flex-direction:column; gap:4px } .hb .t { display:flex; justify-content:space-between; font-size:14px } .hb .meter i { background:var(--acc) } .hb .meter i.alt { background:var(--mute) }
+  .list { display:flex; flex-direction:column } .li { display:flex; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line) } .li:last-child { border-bottom:0 }
+  .li .main { flex:1; min-width:0 } .li .main .t { overflow-wrap:anywhere } .li .sub { font-size:12px; color:var(--mute) } .li .acts { font-size:12px; white-space:nowrap; display:flex; gap:10px }
+  .days-b { min-width:56px; text-align:center; border-radius:10px; padding:4px 6px; font:600 14px var(--head); background:var(--card2) } .days-b.hot { background:var(--food-bg); color:var(--food-ink); border:1px solid var(--food-line) } .days-b.gone { color:var(--bad) }
+  @media (max-width: 860px) {
+    .app { display:block } main { padding:16px 14px 96px }
+    #nav { position:fixed; z-index:5; left:0; right:0; bottom:0; top:auto; width:auto; height:auto; flex-direction:row; padding:6px 6px calc(10px + env(safe-area-inset-bottom)); border-right:0; border-top:1px solid var(--line); gap:2px }
+    #nav .brand, #nav .grp, #nav .foot, #nav .sys { display:none } #nav .badge { display:none }
+    #nav button { flex:1; flex-direction:column; gap:3px; padding:6px 2px; font-size:11px; justify-content:center; min-height:52px; text-align:center }
+    .ph h1 { font-size:26px } .bento { grid-template-columns:1fr } .card { border-radius:16px; padding:14px 16px }
+    .week { gap:6px } .days { gap:6px }
+  }
 </style>
 </head>
 <body>
-<header><h1>🧠 Home Mind</h1>
-  <nav><button data-t="overview" class="on">Overview</button> <button data-t="memory">Memory</button> <button data-t="worked">Worked out</button> <button data-t="house">House</button> <button data-t="pantry">Pantry</button> <button data-t="tests">Tests</button> <button data-t="models">Models</button> <button data-t="updates">Updates</button></nav>
-  <span class="mute" id="ver" style="margin-left:auto"></span></header>
+<div class="app">
+<nav id="nav" aria-label="Sections">
+  <div class="brand"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--acc-ink)"><path d="M3 11l9-7 9 7M5 10v10h14V10M9 15a3 3 0 0 1 6 0"/></svg>Home Mind</div>
+  <div class="grp">DAILY</div>
+  <button data-t="today" class="on"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8zM12 3v2M12 19v2M3 12h2M19 12h2"/></svg><span>Today</span></button>
+  <button data-t="pantry" style="--tint:var(--food)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 3v8a2 2 0 0 0 2 2v8M10 3v8M16 3c-2 2-2 6 0 8v10"/></svg><span>Food</span></button>
+  <button data-t="health" style="--tint:var(--health)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span>Health</span></button>
+  <div class="grp">BRAIN</div>
+  <button data-t="memory" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span>Memory</span><b class="badge hide" id="nav_review"></b></button>
+  <button data-t="worked" class="sys" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/></svg><span>Worked out</span></button>
+  <button data-t="house" style="--tint:var(--house)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg><span>House</span></button>
+  <div class="grp">SYSTEM</div>
+  <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>More</span></button>
+  <button data-t="tests" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg><span>Tests</span></button>
+  <button data-t="models" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16v10H4zM8 21h8M12 17v4"/></svg><span>Models</span></button>
+  <button data-t="updates" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Updates</span></button>
+  <div class="foot"><span class="dot"></span><span id="ver"></span></div>
+</nav>
 <main>
-<section id="overview">
+<section id="today">
+  <div class="ph"><div><div class="sub" id="td_date"></div><h1 id="td_hello">Today</h1></div>
+    <div class="row" style="margin:0;flex:0 1 460px"><input id="td_q" placeholder="Ask anything, or search your notes…" style="flex:1;min-width:0" aria-label="Ask Home Mind"> <button class="go" onclick="todayAsk()">Ask</button></div></div>
+  <pre id="td_ans" class="hide"></pre>
+  <div class="bento">
+    <div class="card" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+      <div class="ring"><svg width="110" height="110" viewBox="0 0 110 110" role="img" aria-label="Readiness"><circle cx="55" cy="55" r="46" fill="none" stroke="var(--line)" stroke-width="11"/><circle id="td_ring" cx="55" cy="55" r="46" fill="none" stroke="var(--acc)" stroke-width="11" stroke-linecap="round" stroke-dasharray="0 289" transform="rotate(-90 55 55)"/></svg>
+        <div class="v"><b id="td_ready">–</b><span>readiness</span></div></div>
+      <div style="flex:1;min-width:150px" id="td_sleep"></div>
+    </div>
+    <div class="card health">
+      <div class="hrow"><h2>How's your head?</h2><span class="mute" id="td_fogsub" style="font-size:12px;color:var(--health-ink)"></span></div>
+      <div class="fog" id="td_fog"></div>
+      <div class="scale"><span>clear</span><span>heavy fog</span></div>
+      <div class="mute" id="td_fognote" style="margin-top:10px;font-size:13px"></div>
+    </div>
+    <div class="card wide">
+      <div class="hrow" style="flex-wrap:wrap"><h2>Sleep &amp; fog this week</h2><div class="legend"><span><i style="background:var(--acc)"></i>sleep</span><span><i style="background:var(--food)"></i>under 6 h</span><span><i style="background:var(--health);border-radius:99px"></i>fog</span><span><i style="background:var(--house)"></i>readiness</span></div></div>
+      <div class="week" id="td_week"></div><div class="days" id="td_days"></div>
+    </div>
+    <div class="card food">
+      <div class="hrow"><h2>Eat these first</h2><a onclick="go('pantry')" style="color:var(--food-ink)">Suggest a meal</a></div>
+      <div class="tiles" id="td_soon"></div>
+      <div style="margin-top:12px"><div class="kv" style="padding:0 0 6px"><span>Protein today</span><b id="td_prot"></b></div><div class="meter"><i id="td_protbar" style="width:0"></i></div></div>
+      <div class="mute" id="td_food" style="margin-top:8px;font-size:13px"></div>
+    </div>
+    <div class="card">
+      <div class="hrow"><h2>Bedroom</h2><span id="td_housesub" style="font-size:12px;color:var(--house-ink)"></span></div>
+      <div class="room" id="td_room"></div>
+      <div class="mute" id="td_house" style="margin-top:10px;font-size:13px"></div>
+    </div>
+  </div>
+  <a class="card mem" onclick="go('memory')" style="display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--ink)"><span><b>Remembered today</b> <span class="mute" id="td_mem"></span></span><span style="color:var(--acc-ink);font-weight:600">Memory ›</span></a>
+</section>
+<section id="health" class="hide">
+  <div class="ph"><div><div class="sub" style="color:var(--health-ink)">Brain fog and what goes with it</div><h1>Health</h1></div><button class="go" style="background:var(--health);color:#160f33" onclick="sendReport()">Send report now</button></div>
+  <div class="bento">
+    <div class="card health" style="display:flex;gap:18px;align-items:center">
+      <div class="ring"><svg width="110" height="110" viewBox="0 0 110 110" role="img" aria-label="Rated days"><circle cx="55" cy="55" r="46" fill="none" stroke="var(--health-line)" stroke-width="11"/><circle id="hl_ring" cx="55" cy="55" r="46" fill="none" stroke="var(--health)" stroke-width="11" stroke-linecap="round" stroke-dasharray="0 289" transform="rotate(-90 55 55)"/></svg>
+        <div class="v"><b id="hl_days">–</b><span>rated days</span></div></div>
+      <div><b style="font:600 17px var(--head)" id="hl_head"></b><div class="mute" id="hl_sub" style="font-size:13px"></div></div>
+    </div>
+    <div class="card"><h2>This week</h2><pre id="hl_report" style="background:none;padding:0;font:inherit;font-size:13px;color:var(--ink);max-height:none"></pre></div>
+    <div class="card wide"><h2>Last 14 days</h2><div id="hl_table" style="overflow-x:auto"></div></div>
+    <div class="card wide"><div class="hrow"><h2>Suspects being watched</h2><span class="mute" style="font-size:12px">tested once there are enough days on both sides</span></div><div id="hl_find" style="display:flex;flex-direction:column;gap:8px"></div></div>
+    <div class="card" style="border-style:dashed"><h2>2-week experiment</h2><div id="hl_exp" class="mute"></div></div>
+  </div>
+</section>
+<section id="more" class="hide">
+  <div class="ph"><div><div class="sub" id="mo_sub"></div><h1>System</h1></div></div>
   <div class="grid" id="stats"></div>
+  <div class="bento">
+    <div class="card"><div class="hrow"><h2>Does the brain help?</h2><a onclick="go('tests')">Tests</a></div><div class="mute" id="mo_bench_sub" style="font-size:13px;margin-bottom:12px"></div><div id="mo_bench" style="display:flex;flex-direction:column;gap:12px"></div></div>
+    <div class="card"><h2>Offline reference</h2><div id="mo_ref" class="feed"></div></div>
+  </div>
+  <div class="row"><button class="go" onclick="go('tests')">Tests</button> <button class="go" onclick="go('models')">Models</button> <button class="go" onclick="go('updates')">Updates</button> <button class="go" onclick="go('worked')">Worked out</button></div>
   <div class="card"><h2>Latest test results</h2><table id="latest"></table></div>
-  <div class="card"><h2>Recent activity</h2><table id="events"></table></div>
+  <div class="card"><h2>Recent activity</h2><div class="list" id="events"></div></div>
 </section>
 <section id="memory" class="hide">
+  <div class="ph"><div><div class="sub" id="mem_sub" style="color:var(--mem)">Everything Home Mind has been told or learned</div><h1>Memory</h1></div></div>
+  <div class="seg"><button class="on" onclick="go('memory')">Notes</button><button  onclick="go('worked')">Worked out</button></div>
   <div class="card hide" id="itemcard"></div>
   <div class="card hide" id="reviewcard"><h2>To review <span class="mute">learned or guessed, not checked yet</span></h2><table id="review"></table>
     <p class="mute">Held notes read like instructions to the assistant and are left out of answers until approved. Unconfirmed ones are shown to models marked UNCONFIRMED.</p></div>
   <div class="card"><div class="row"><h2 style="margin:0">Recently added</h2>
       <select id="rf" onchange="recent()"><option value="told">Told or learned</option><option value="all">Everything</option><option value="calendar">Calendar</option><option value="house">House readings</option><option value="automations">Automation runs</option><option value="archived">Forgotten</option></select>
       <select id="rh" onchange="recent()"><option value="24">last day</option><option value="72" selected>last 3 days</option><option value="168">last week</option><option value="720">last 30 days</option></select></div>
-    <table id="recent"></table></div>
+    <div class="list" id="recent"></div></div>
   <div class="card"><div class="row"><input id="q" placeholder="Search memory…" style="flex:1"> <label class="mute"><input type="checkbox" id="old"> old versions</label> <button class="go" onclick="search()">Search</button></div>
-    <table id="hits"></table></div>
+    <div class="list" id="hits"></div></div>
   <div class="card"><h2>Shelves <span class="mute" id="shelfpath"></span></h2><div id="shelves"></div><table id="shelfitems"></table></div>
   <div class="card"><h2>Remember something</h2>
     <div class="row"><input id="r_title" placeholder="Title (optional)" style="flex:1"> <input id="r_shelf" placeholder="shelf e.g. projects/pebble"> <input id="r_key" placeholder="key (subject|attribute)"></div>
@@ -50,6 +176,8 @@
     <div class="row"><button class="go" onclick="remember()">Remember</button> <span id="r_out" class="mute"></span></div></div>
 </section>
 <section id="worked" class="hide">
+  <div class="ph"><div><div class="sub" style="color:var(--mem)">Pulled out of your notes</div><h1>Worked out</h1></div></div>
+  <div class="seg"><button  onclick="go('memory')">Notes</button><button class="on" onclick="go('worked')">Worked out</button></div>
   <div class="card"><h2>About you and the house <span class="mute">always shown to models</span></h2><ul id="w_profile"></ul>
     <p class="mute">From notes like "Dana is my partner" (they go on the profile shelf). Edit or forget them in Memory.</p></div>
   <div class="card"><h2>Chores</h2><table id="w_chores"></table>
@@ -64,6 +192,9 @@
     <p class="mute">Kept when you say "that's wrong" and then the right value. The <b>corrections</b> suite on the Tests tab asks them again.</p></div>
 </section>
 <section id="house" class="hide">
+  <div class="ph"><div><div class="sub" style="color:var(--house-ink)" id="ho_sub">Habits, usual ranges and automations</div><h1>House</h1></div></div>
+  <div class="card house"><div class="hrow"><h2>Bedroom</h2><span id="ho_comfort" style="font-size:12px;color:var(--house-ink)"></span></div><div class="room" id="ho_room"></div>
+    <div class="row" style="margin:12px 0 0"><button class="go" onclick="vote('cold')">I'm cold</button> <button class="go" onclick="vote('ok')">Just right</button> <button class="go" onclick="vote('hot')">I'm hot</button> <span class="mute" id="ho_vote"></span></div></div>
   <div class="card"><div class="row"><h2 style="margin:0;flex:1">Notable today</h2><span class="mute" id="h_at"></span> <button class="go" onclick="houseLearn()">Learn now</button></div><table id="h_notable"></table>
     <p class="mute">Locks, garage doors, things at an unusual hour and readings far outside their usual range. Routine changes are left out (and rank lower in answers).</p></div>
   <div class="card"><h2>Habits <span class="mute">from the last 4 weeks, checked against chance</span></h2><ul id="h_habits"></ul></div>
@@ -77,7 +208,8 @@
   <div class="card"><h2>Usual ranges</h2><table id="h_base"></table></div>
 </section>
 <section id="pantry" class="hide">
-  <div class="card"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
+  <div class="ph"><div><div class="sub" style="color:var(--food-ink)" id="pa_sub">Food in the house</div><h1>Food</h1></div></div>
+  <div class="card food"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
       <select id="m_meal"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select>
       <input id="m_req" placeholder="anything else? (quick, no cooking…)" style="width:240px"> <button class="go" onclick="meals()">Suggest</button></div>
     <div id="m_today" class="mute"></div><div id="m_out"></div></div>
@@ -86,13 +218,14 @@
     <div class="row"><input id="p_text" placeholder="e.g. chicken, 2 lb ground beef and a dozen eggs" style="flex:1">
       <select id="p_loc"><option value="">where? (guess)</option><option>fridge</option><option>freezer</option><option>pantry</option></select>
       <button class="go" onclick="padd()">Add</button> <span id="p_out" class="mute"></span></div>
-    <table id="p_items"></table></div>
+    <div class="list" id="p_items"></div></div>
   <div class="card"><h2>Goals</h2>
     <div class="row"><textarea id="g_goals" rows="2" style="flex:1" placeholder="one goal per line"></textarea></div>
     <div class="row"><input id="g_tired" style="flex:1" placeholder="on tired days"></div>
     <div class="row"><input id="g_avoid" style="flex:1" placeholder="foods to avoid, comma separated"> <button class="go" onclick="saveGoals()">Save</button> <span id="g_out" class="mute"></span></div></div>
 </section>
 <section id="tests" class="hide">
+  <div class="ph"><div><div class="sub">How well the brain finds and keeps things</div><h1>Tests</h1></div><a onclick="go('more')">‹ System</a></div>
   <div class="card"><h2>Run a test</h2>
     <div class="row"><select id="t_suite"></select>
       <select id="t_arm"><option value="brain">brain (no model)</option><option value="model+brain">model + brain</option><option value="model+context">model + whole log</option><option value="model">model alone</option></select>
@@ -106,6 +239,7 @@
   <div class="card hide" id="runcard"><h2>Run <span id="runid"></span></h2><pre id="run"></pre></div>
 </section>
 <section id="models" class="hide">
+  <div class="ph"><div><div class="sub">Connected models and what they cost</div><h1>Models</h1></div><a onclick="go('more')">‹ System</a></div>
   <div class="card"><div class="row"><h2 style="margin:0">Connected models</h2> <button class="go" onclick="checkModels()">Check all</button></div><table id="mlist"></table>
   <p class="mute">Add or change models in Settings › Apps › Home Mind › Configuration.</p></div>
   <div class="card"><h2>Use, last 30 days</h2><table id="usage"></table>
@@ -114,30 +248,133 @@
     <div class="row"><input id="a_q" placeholder="Question" style="flex:1"> <button class="go" onclick="ask()">Ask</button></div><pre id="a_out" class="hide"></pre></div>
 </section>
 <section id="updates" class="hide">
+  <div class="ph"><div><div class="sub">App and knowledge packs</div><h1>Updates</h1></div><a onclick="go('more')">‹ System</a></div>
   <div class="card"><div class="row"><button class="go" onclick="checkUpd()">Check for updates</button> <button class="go" onclick="applyUpd()">Install packs</button></div><pre id="upd">…</pre></div>
 </section>
 </main>
+</div>
 <script>
 const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function api(path, body) { const r = await fetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); return r.json(); }
 const ago = t => { const s = Date.now()/1000 - t; return s < 90 ? Math.round(s)+'s ago' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
 const pct = v => v === undefined ? '' : Math.round(v*100)+'%';
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => { document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b)); document.querySelectorAll('main section').forEach(s => s.classList.toggle('hide', s.id !== b.dataset.t)); load(b.dataset.t); });
+const PARENT = {worked: 'memory', tests: 'more', models: 'more', updates: 'more'};
+function go(t) {
+  const btn = document.querySelector(`#nav button[data-t="${t}"]`), shown = btn && getComputedStyle(btn).display !== 'none', mark = shown ? t : (PARENT[t] || t);
+  document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x.dataset.t === mark));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('hide', s.id !== t)); window.scrollTo(0, 0); load(t);
+}
+document.querySelectorAll('#nav button').forEach(b => b.onclick = () => go(b.dataset.t));
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const dayName = d => DAYS[new Date(d + 'T12:00').getDay()];
+const fmtH = h => h == null ? '' : (h => { const H = Math.floor(h) % 24, M = Math.round((h % 1) * 60); return ((H % 12) || 12) + ':' + String(M).padStart(2, '0') + (H < 12 ? ' AM' : ' PM'); })(h);
+const nf = (v, d = 0) => v == null ? '–' : Number(v).toFixed(d);
+let T = null;
+const short = s => String(s || '').replace(/^Ate:\s*/, '').replace(/\s*\([^)]*\)\s*$/, '').replace(/^Weigh-in .*:\s+/, 'Weigh-in ').replace(/^Comfort:\s*/, '');
+function ring(el, v, max) { const c = 2 * Math.PI * 46; $(el).setAttribute('stroke-dasharray', `${Math.max(0, Math.min(1, (v || 0) / max)) * c} ${c}`); }
+async function loadToday() {
+  const t = T = await api('api/today');
+  $('#ver').textContent = 'v' + t.version;
+  const now = new Date(), hr = now.getHours();
+  $('#td_hello').textContent = (hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening');
+  $('#td_date').textContent = now.toLocaleDateString([], {weekday: 'long', month: 'long', day: 'numeric'}) + (t.outside && t.outside.temp != null ? ` · ${Math.round(t.outside.temp)}° ${t.outside.state} outside` : '');
+  const sig = (t.day && t.day.signals) || {}, last = t.week[t.week.length - 1] || {};
+  const ready = sig.readiness ?? last.readiness;
+  $('#td_ready').textContent = nf(ready); ring('#td_ring', ready, 100);
+  const sl = t.week.filter(w => w.sleep_h != null), avg = sl.length ? sl.reduce((a, w) => a + w.sleep_h, 0) / sl.length : null;
+  $('#td_sleep').innerHTML = [['Sleep last night', sig.sleep_hours ?? last.sleep_h, v => nf(v, 1) + ' h'], ['In bed', last.bedtime, fmtH], ['Week average', avg, v => nf(v, 1) + ' h'],
+    ['Weight', t.day && t.day.weight ? t.day.weight.latest : null, v => nf(v, 1) + ' lb']].filter(r => r[1] != null).map(([k, v, f]) => `<div class="kv"><span>${k}</span><b>${f(v)}</b></div>`).join('')
+    + (t.day && t.day.tired ? `<div class="mute" style="font-size:12px;margin-top:4px">tired day: ${esc(t.day.tired_why.join(', '))}</div>` : '');
+  const fogToday = sig.fog_today ?? (last.day === now.toISOString().slice(0, 10) ? last.fog : null);
+  const rated = fogToday != null && t.week.some(w => w.day === new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10) && w.fog != null);
+  $('#td_fog').innerHTML = [0, 1, 2, 3, 4, 5].map(n => `<button style="--l:${n}" class="${rated && fogToday === n ? 'on' : ''}" onclick="rateFog(${n})" aria-label="Fog ${n}">${n}</button>`).join('');
+  const miss = t.week.filter(w => w.fog == null).length;
+  $('#td_fogsub').textContent = rated ? 'rated today' : 'not rated today';
+  $('#td_fognote').textContent = `${t.fog_days} of ${t.fog_needed} rated days until patterns unlock` + (miss ? ` · ${miss} of the last 7 days missing` : '') + ' · report Saturday 8 AM';
+  const wk = t.week;
+  $('#td_week').innerHTML = wk.map(w => `<div class="col"><span class="fd ${w.fog == null ? 'none' : ''}">${w.fog == null ? '' : nf(w.fog)}</span><span class="h">${w.sleep_h == null ? 'no data' : nf(w.sleep_h, 1) + ' h'}</span>
+    <div class="bar ${w.sleep_h == null ? 'none' : w.sleep_h < 6 ? 'low' : ''}" style="${w.sleep_h == null ? '' : 'height:' + Math.round(Math.min(w.sleep_h, 10) / 9 * 92) + 'px'}"></div></div>`).join('');
+  $('#td_days').innerHTML = wk.map(w => `<span>${dayName(w.day)} · <span style="color:var(--house-ink)">${nf(w.readiness)}</span></span>`).join('');
+  $('#td_soon').innerHTML = t.soon.slice(0, 6).map(i => `<div class="tile ${i.days <= 2 ? 'hot' : ''}"><b>${i.days < 1 ? 'today' : Math.round(i.days) + 'd'}</b><span>${esc(i.name)}</span></div>`).join('') || '<span class="mute">nothing close to its date</span>';
+  $('#td_prot').textContent = `${Math.round(t.protein_g)} g` + (t.protein_target_g ? ` / ${t.protein_target_g} g` : '');
+  $('#td_protbar').style.width = t.protein_target_g ? Math.min(100, t.protein_g / t.protein_target_g * 100) + '%' : '0';
+  $('#td_food').textContent = (t.meals.length ? 'Ate: ' + t.meals.map(m => short(m.title) + (m.protein_g ? ` (${Math.round(m.protein_g)} g protein)` : '')).join(' · ') : 'No meals logged today') + (t.expired.length ? ` · ${t.expired.length} past its date (${t.expired.map(e => e.name).slice(0, 2).join(', ')})` : '');
+  const r = t.room || {};
+  const roomHtml = [['temp', v => nf(v) + '°'], ['humidity', v => nf(v) + '%'], ['aqi', v => nf(v)], ['filter', v => nf(v) + '%']].map(([k, f]) => `<div><b>${r[k] == null ? '–' : f(r[k])}</b><span>${k === 'aqi' ? 'air quality' : k}</span></div>`).join('');
+  $('#td_room').innerHTML = roomHtml;
+  const h = t.house || {};
+  $('#td_housesub').textContent = h.notable ? `${h.notable} notable today` : 'nothing unusual';
+  $('#td_house').textContent = `${h.habits || 0} habits learned · ${h.baselines || 0} usual ranges · ${h.suggestions || 0} suggested automations` + (t.comfort ? ` · comfort control ${t.comfort.enabled ? 'on' : 'off'}` : '');
+  $('#td_mem').textContent = t.remembered.length ? '· ' + t.remembered.slice(0, 4).map(x => short(x.title)).join(' · ') : '· nothing yet today';
+  $('#nav_review').textContent = t.review; $('#nav_review').classList.toggle('hide', !t.review);
+}
+async function rateFog(n) { await api('api/patterns/answer', {action: 'HM_FOG_' + n}); loadToday(); }
+async function todayAsk() { const q = $('#td_q').value.trim(); if (!q) return; $('#td_ans').classList.remove('hide'); $('#td_ans').textContent = '…'; const r = await api('api/ask', {question: q}); $('#td_ans').textContent = r.error || r.answer; }
+$('#td_q').addEventListener('keydown', e => e.key === 'Enter' && todayAsk());
+const TAGS = {sleep: ['SLEEP', 'var(--acc-ink)'], bed: ['SLEEP', 'var(--acc-ink)'], wake: ['SLEEP', 'var(--acc-ink)'], nap: ['SLEEP', 'var(--acc-ink)'], step: ['PACING', 'var(--food-ink)'], away: ['PACING', 'var(--food-ink)'], stress: ['STRESS', 'var(--bad)'], calm: ['STRESS', 'var(--bad)'],
+  room: ['ROOM', 'var(--house-ink)'], pm: ['ROOM', 'var(--house-ink)'], voc: ['ROOM', 'var(--house-ink)'], aqi: ['ROOM', 'var(--house-ink)'], daylight: ['WEATHER', 'var(--house-ink)'], pressure: ['WEATHER', 'var(--house-ink)'], temp: ['WEATHER', 'var(--house-ink)'],
+  caff: ['FOOD', 'var(--food-ink)'], meal: ['FOOD', 'var(--food-ink)'], late: ['FOOD', 'var(--food-ink)'], hrv: ['BODY', 'var(--health-ink)'], ready: ['BODY', 'var(--health-ink)'], readiness: ['BODY', 'var(--health-ink)'], outdoor: ['ROOM', 'var(--house-ink)'], cold: ['WEATHER', 'var(--house-ink)'], short: ['WEATHER', 'var(--house-ink)'], vote: ['ROOM', 'var(--house-ink)'], busy: ['PACING', 'var(--food-ink)'], cal: ['PACING', 'var(--food-ink)'], resting: ['BODY', 'var(--health-ink)'], night: ['BODY', 'var(--health-ink)'], wakeups: ['SLEEP', 'var(--acc-ink)']};
+const tag = f => { const k = Object.keys(TAGS).find(k => f.startsWith(k)); return TAGS[k] || ['OTHER', 'var(--mute)']; };
+async function loadHealth() {
+  const p = await api('api/patterns?days=14'), need = 10;
+  const fd = p.fog_days ?? p.days.filter(d => d.fog != null).length;
+  $('#hl_days').innerHTML = `${fd}<span style="font-size:15px;color:var(--health-ink)">/${need}</span>`; ring('#hl_ring', fd, need);
+  $('#hl_head').textContent = fd >= 21 ? 'Patterns are reliable now' : fd >= need ? 'Patterns are unlocking' : `Patterns unlock at ${need}`;
+  $('#hl_sub').textContent = fd >= 21 ? 'Findings below are tested against chance.' : 'They get reliable around 21 days. One tap a day on the check-in is all it needs.';
+  $('#hl_report').textContent = p.report || '';
+  const rows = p.days.slice(-14), cell = (v, d, cls) => `<td class="num ${cls || ''}" style="text-align:center">${v == null ? '<span class="mute">–</span>' : nf(v, d)}</td>`;
+  $('#hl_table').innerHTML = `<table><tr><th></th>${rows.map(r => `<th style="text-align:center">${dayName(r.day).slice(0, 2)}<br>${r.day.slice(8)}</th>`).join('')}</tr>
+    <tr><td style="color:var(--health-ink)">Fog</td>${rows.map(r => cell(r.fog, 0)).join('')}</tr>
+    <tr><td style="color:var(--acc-ink)">Sleep</td>${rows.map(r => cell(r.sleep_h, 1, r.sleep_h != null && r.sleep_h < 6 ? 'bad' : '')).join('')}</tr>
+    <tr><td style="color:var(--house-ink)">Ready</td>${rows.map(r => cell(r.readiness, 0)).join('')}</tr>
+    <tr><td class="mute">Bed</td>${rows.map(r => `<td class="mute num" style="text-align:center;font-size:12px">${r.bedtime == null ? '–' : fmtH(r.bedtime).replace(' ', '')}</td>`).join('')}</tr></table>`;
+  const st = {holding: ['holding', 'var(--ok)'], candidate: ['showing up', 'var(--food-ink)'], 'not enough days': ['waiting', 'var(--mute)'], 'no link': ['no link', 'var(--mute)']};
+  const rank = f => ({holding: 0, candidate: 1}[f.status] ?? (f.hunch ? 2 : 3)), all = (p.findings || []).slice().sort((a, b) => rank(a) - rank(b) || ((b.diff || 0) - (a.diff || 0)));
+  const showAll = window._hlAll, list = showAll ? all : all.slice(0, 6);
+  $('#hl_find').innerHTML = list.map(f => { const [tg, c] = tag(f.factor), s = st[f.status] || [f.status, 'var(--mute)'];
+    return `<div style="display:flex;align-items:center;gap:10px;background:var(--card2);border-radius:12px;padding:10px 12px;flex-wrap:wrap"><span class="chip" style="color:${c}">${tg}</span><span style="flex:1;min-width:160px">${esc(f.label)}</span>
+      <span class="mute" style="font-size:12px">${f.n_risk ?? 0} vs ${f.n_base ?? 0} days${f.diff != null ? ' · ' + (f.diff > 0 ? '+' : '') + nf(f.diff, 1) + ' fog' : ''}</span><span style="font-size:12px;color:${s[1]};min-width:70px;text-align:right">${f.hunch ? 'your hunch · ' : ''}${s[0]}</span></div>`; }).join('') + (all.length > 6 ? `<a onclick="window._hlAll=!window._hlAll;loadHealth()" style="padding:4px 2px">${showAll ? 'Show fewer' : 'Show all ' + all.length}</a>` : '');
+  const e = p.experiment;
+  $('#hl_exp').innerHTML = e && e.factor ? `<b style="color:var(--ink)">${esc(e.change || e.factor)}</b><br>${esc(e.start)} to ${esc(e.end)}` : 'None running. One unlocks when a suspect holds up, like keeping the same bedtime within 30 minutes every night.';
+}
+async function sendReport() { const r = await api('api/patterns/send', {}); alert(r.error || 'Sent.'); }
+async function vote(feeling) { const r = await api('api/comfort/vote', {feeling, source: 'web'}); $('#ho_vote').textContent = r.error || 'noted'; }
+async function houseTop() {
+  const t = T || await api('api/today'), r = t.room || {};
+  $('#ho_room').innerHTML = [['temp', v => nf(v) + '°'], ['humidity', v => nf(v) + '%'], ['aqi', v => nf(v)], ['pm', v => nf(v)]].map(([k, f]) => `<div><b>${r[k] == null ? '–' : f(r[k])}</b><span>${{temp: 'temp', humidity: 'humidity', aqi: 'air quality', pm: 'particulates'}[k]}</span></div>`).join('');
+  $('#ho_comfort').textContent = t.comfort ? `comfort control ${t.comfort.enabled ? 'on' : 'off'}${t.comfort.preferred ? ' · prefers ' + t.comfort.preferred + '° (' + t.comfort.situation + ')' : ''}` : '';
+  $('#ho_sub').textContent = `${t.house.habits} habits · ${t.house.baselines} usual ranges · ${t.outside ? Math.round(t.outside.temp) + '° ' + t.outside.state + ' outside' : ''}`;
+}
+async function loadMore() {
+  const s = await api('api/status'); $('#ver').textContent = 'v' + s.version;
+  $('#mo_sub').innerHTML = `<span class="dot"></span> v${esc(s.version)} · ${s.updates && s.updates.app && s.updates.app.update_available ? 'update available' : 'up to date'} · bridge ${esc(s.bridge || '—')}`;
+  $('#stats').innerHTML = [['notes', s.items], ['shelves', s.shelves], ['old versions', s.versions - s.items], ['faded', s.faded], ['events', s.events], ['test runs', s.runs]]
+    .map(([k, v]) => `<div class="stat"><b class="num">${esc(Number(v).toLocaleString())}</b><span>${k}</span></div>`).join('');
+  const runs = await api('api/runs?limit=200'), seen = {}, rows = [];
+  for (const r of runs) { const k = r.suite + '|' + r.arm + '|' + (r.model || ''); if (!seen[k] && r.status === 'done') { seen[k] = 1; rows.push(r); } }
+  $('#latest').innerHTML = '<tr><th>suite</th><th>arm</th><th>model</th><th>accuracy</th><th>found first</th><th>stale on top</th><th>when</th></tr>' + rows.map(r => `<tr><td>${r.suite}</td><td>${r.arm}</td><td>${esc(r.model || '')}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.stale_above)}</td><td class="mute">${ago(r.ts)}</td></tr>`).join('');
+  // the brain's lift: the newest suite that has both a model+brain and a model+context run for the same model
+  let bench = [], suite = null;
+  for (const r of rows) { if (r.arm !== 'model+brain' || !r.model) continue; const c = rows.find(x => x.suite === r.suite && x.model === r.model && x.arm === 'model+context'); if (c) { if (!suite) suite = r.suite; if (r.suite === suite) bench.push([r, c]); } }
+  $('#mo_bench_sub').textContent = suite ? `"${suite}" suite: the same model with Home Mind, and with the whole log pasted in instead.` : 'Run a suite with model + brain and model + whole log to compare.';
+  $('#mo_bench').innerHTML = bench.slice(0, 3).map(([b, c]) => [[b.model + ' + brain', b.summary.accuracy, ''], [b.model + ', whole log', c.summary.accuracy, 'alt']]).flat()
+    .map(([k, v, cls]) => `<div class="hb"><div class="t"><span>${esc(k)}</span><b class="num" style="font-family:var(--head)">${pct(v)}</b></div><div class="meter"><i class="${cls}" style="width:${Math.round((v || 0) * 100)}%"></i></div></div>`).join('');
+  const k = await api('api/knowledge'), fd = k.food || {}, wk = k.wiki || {}, wdl = wk;
+  const refRow = (ok, title, sub) => `<div><span class="dot" style="margin-top:6px;background:${ok ? 'var(--ok)' : 'var(--food)'}"></span><div><div>${title}</div><div class="mute" style="font-size:12px">${sub}</div></div></div>`;
+  $('#mo_ref').innerHTML = refRow(k.food_ready, 'USDA food data', k.food_ready ? `${Number(fd.foods || 0).toLocaleString()} foods · ready` : esc(fd.state || 'not built'))
+    + refRow(k.wiki_ready, 'Wikipedia (text only)', k.wiki_ready ? 'ready' : wdl.total ? `downloading · ${Math.round(100 * (wdl.done || 0) / wdl.total)}%` : esc(wk.state || 'not started') + ' · downloads overnight')
+    + `<div class="kv"><span>Disk free</span><b>${nf(k.disk_free_gb)} GB</b></div>`;
+  const ev = await api('api/events?limit=15');
+  $('#events').innerHTML = ev.map(e => `<div class="li"><div class="main"><div class="t">${e.type} <span class="sub">· ${ago(e.ts)}</span></div><div class="sub">${esc(e.data).slice(0, 140)}</div></div></div>`).join('');
+}
 
 async function load(t) {
-  if (t === 'overview') {
-    const s = await api('api/status'); $('#ver').textContent = 'v' + s.version;
-    $('#stats').innerHTML = [['items', s.items], ['shelves', s.shelves], ['old versions', s.versions - s.items], ['faded', s.faded], ['events', s.events], ['test runs', s.runs], ['bridge', s.bridge || '—']]
-      .map(([k, v]) => `<div class="card stat"><b class="num">${esc(v)}</b><span>${k}</span></div>`).join('');
-    const runs = await api('api/runs?limit=200'), seen = {}, rows = [];
-    for (const r of runs) { const k = r.suite + '|' + r.arm + '|' + (r.model || ''); if (!seen[k] && r.status === 'done') { seen[k] = 1; rows.push(r); } }
-    $('#latest').innerHTML = '<tr><th>suite</th><th>arm</th><th>model</th><th>accuracy</th><th>found first</th><th>stale on top</th><th>when</th></tr>' + rows.map(r => `<tr><td>${r.suite}</td><td>${r.arm}</td><td>${esc(r.model || '')}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.stale_above)}</td><td class="mute">${ago(r.ts)}</td></tr>`).join('');
-    const ev = await api('api/events?limit=15');
-    $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${e.type}</td><td class="mute">${esc(e.data).slice(0, 140)}</td></tr>`).join('');
-  }
+  if (t === 'today') loadToday();
+  if (t === 'health') loadHealth();
+  if (t === 'more') loadMore();
   if (t === 'memory') { browse(''); recent(); review(); }
   if (t === 'worked') { worked(); }
-  if (t === 'house') { houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
+  if (t === 'house') { houseTop(); houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
   if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${k}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
@@ -167,7 +404,7 @@ let draftCfg = null;
 async function houseTab() {
   const h = await api('api/house'), none = (n, m) => `<tr><td class="mute" colspan="${n}">${m}</td></tr>`;
   $('#h_at').textContent = h.at ? 'learned ' + when(h.at) : 'not learned yet';
-  $('#h_notable').innerHTML = h.notable.map(x => `<tr><td class="mute num" style="white-space:nowrap">${when(x.created)}</td><td><a onclick="document.querySelector('nav button[data-t=memory]').click(); item(${x.id})">${esc(x.unusual || x.title)}</a></td><td class="mute">${esc((x.why || []).join(', '))}</td></tr>`).join('') || none(3, 'nothing notable in the last day');
+  $('#h_notable').innerHTML = h.notable.map(x => `<tr><td class="mute num" style="white-space:nowrap">${when(x.created)}</td><td><a onclick="go('memory'); item(${x.id})">${esc(x.unusual || x.title)}</a></td><td class="mute">${esc((x.why || []).join(', '))}</td></tr>`).join('') || none(3, 'nothing notable in the last day');
   $('#h_habits').innerHTML = h.habits.map(x => `<li>${esc(x.text)}</li>`).join('') || '<li class="mute">none found yet (it needs at least 5 days of the same thing)</li>';
   $('#h_sug').innerHTML = h.suggestions.map(x => `<tr><td><b>${esc(x.config.alias)}</b><br><span class="mute">${esc(x.habit)}</span></td><td style="white-space:nowrap"><button class="go" onclick="sugOp('${x.id}', 'create')">Create (off)</button> <button class="go" style="background:var(--mute)" onclick="sugOp('${x.id}', 'dismiss')">Dismiss</button></td></tr>`).join('') || none(2, 'none');
   $('#h_base').innerHTML = '<tr><th>reading</th><th class="num">usually</th><th class="num">middle</th><th class="num">readings</th></tr>' + (h.baselines.map(b => `<tr><td>${esc(b.name)}</td><td class="num">${b.low}–${b.high}</td><td class="num">${b.middle}</td><td class="num mute">${b.readings}</td></tr>`).join('') || none(4, 'not enough readings yet'));
@@ -188,7 +425,7 @@ async function installAuto() {
 async function worked() {
   const w = await api('api/structure');
   const none = (n, msg) => `<tr><td class="mute" colspan="${n}">${msg}</td></tr>`;
-  const link = (id, text) => `<a onclick="document.querySelector('nav button[data-t=memory]').click(); item(${id})">${esc(text)}</a>`;
+  const link = (id, text) => `<a onclick="go('memory'); item(${id})">${esc(text)}</a>`;
   $('#w_profile').innerHTML = w.profile.map(x => `<li>${esc(x)}</li>`).join('') || '<li class="mute">nothing yet</li>';
   $('#w_chores').innerHTML = '<tr><th>chore</th><th>every</th><th>last done</th><th>next due</th></tr>' + (w.chores.map(c =>
     `<tr><td>${link(c.id, c.verb + ' the ' + c.thing)}</td><td class="num">${c.every} days</td><td>${esc(c.last || 'never noted')}</td><td class="${c.left < 0 ? 'bad' : c.left <= 1 ? '' : 'mute'}">${esc(c.due)} · ${esc(c.state)}</td></tr>`).join('') || none(4, 'no chores yet'));
@@ -206,7 +443,8 @@ async function worked() {
 async function dropCase(id) { await api('api/cases/' + id + '/remove', {}); worked(); }
 async function search() {
   const hits = await api('api/recall?raw=1&q=' + encodeURIComponent($('#q').value) + ($('#old').checked ? '&old=1' : '') + '&touch=0');
-  $('#hits').innerHTML = hits.map(h => `<tr><td class="num mute">${h.score}</td><td><a onclick="item(${h.id})">${esc(h.title)}</a><div class="mute">${esc(h.body).slice(0, 200)}</div></td><td class="mute">${esc(h.shelf)}<br>${h.kind}${h.status !== 'active' ? ' · ' + h.status : ''}</td></tr>`).join('') || '<tr><td class="mute">nothing found</td></tr>';
+  $('#hits').innerHTML = hits.map(h => `<div class="li"><div class="main"><a class="t" onclick="item(${h.id})">${esc(h.title)}</a><div class="mute" style="font-size:13px">${esc(h.body).slice(0, 200)}</div>
+    <div class="sub">${esc(h.shelf)} · ${h.kind}${h.status !== 'active' ? ' · ' + h.status : ''} · score ${h.score}</div></div></div>`).join('') || '<span class="mute">nothing found</span>';
 }
 $('#q').addEventListener('keydown', e => e.key === 'Enter' && search());
 async function browse(shelf) {
@@ -218,7 +456,8 @@ async function browse(shelf) {
 const when = t => new Date(t * 1000).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
 async function recent() {
   const rs = await api('api/recent?filter=' + $('#rf').value + '&hours=' + $('#rh').value + '&limit=150');
-  $('#recent').innerHTML = rs.map(i => `<tr><td class="mute num" style="white-space:nowrap">${when(i.created)}</td><td><a onclick="item(${i.id})">${esc(i.title)}</a>${i.meta && i.meta.sensitive ? ' <span class="pill">🔒</span>' : ''}${i.status !== 'active' ? ` <span class="mute">· ${i.status}</span>` : ''}</td><td class="mute">${esc(i.shelf)}<br>${esc(i.source || '')}</td></tr>`).join('') || '<tr><td class="mute">nothing in this stretch</td></tr>';
+  $('#recent').innerHTML = rs.map(i => `<div class="li"><div class="main"><a class="t" onclick="item(${i.id})">${esc(i.title)}</a>${i.meta && i.meta.sensitive ? ' <span class="pill">🔒</span>' : ''}${i.status !== 'active' ? ` <span class="mute">· ${i.status}</span>` : ''}
+    <div class="sub">${when(i.created)} · ${esc(i.shelf)}${i.source ? ' · ' + esc(i.source) : ''}</div></div></div>`).join('') || '<span class="mute">nothing in this stretch</span>';
 }
 async function item(id) {
   const d = await api('api/item/' + id), c = $('#itemcard'); c.classList.remove('hide'); c.scrollIntoView({behavior:'smooth'});
@@ -241,11 +480,14 @@ async function item(id) {
 }
 async function pantry() {
   const r = await api('api/pantry');
-  $('#p_items').innerHTML = '<tr><th>item</th><th>where</th><th>use within</th><th></th></tr>' + r.items.map(i => {
-    const d = i.days_left, cls = d === null ? '' : d < 0 ? 'bad' : d < 2 ? 'bad' : d < 4 ? '' : 'ok';
-    const when = d === null ? '' : d < 0 ? 'past its date' : d < 1 ? 'today' : Math.round(d) + (Math.round(d) === 1 ? ' day' : ' days');
-    return `<tr><td>${esc(i.name)} <span class="mute">${esc(i.amount || '')}</span></td><td class="mute">${i.location}</td><td class="${cls}">${when}</td>
-      <td><a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','used')">used</a> · <a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','tossed')">tossed</a> · <a class="mute" onclick="premove(${i.id})">remove</a></td></tr>`; }).join('') || '<tr><td class="mute">nothing yet: add from a photo or type what you bought</td></tr>';
+  const where = {}; r.items.forEach(i => where[i.location] = (where[i.location] || 0) + 1);
+  $('#pa_sub').textContent = `${r.items.length} things · ` + Object.entries(where).map(([k, v]) => `${v} ${k}`).join(' · ');
+  $('#p_items').innerHTML = r.items.map(i => {
+    const d = i.days_left, cls = d === null ? '' : d < 0 ? 'gone' : d <= 2 ? 'hot' : '';
+    const when = d === null ? '–' : d < 0 ? 'past date' : d < 1 ? 'today' : Math.round(d) + 'd';
+    const n = esc(i.name).replace(/'/g, "\\'");
+    return `<div class="li"><span class="days-b ${cls}">${when}</span><div class="main"><div class="t">${esc(i.name)}</div><div class="sub">${esc(i.amount || '')}${i.amount ? ' · ' : ''}${i.location}</div></div>
+      <div class="acts"><a onclick="puse('${n}','used')">used</a><a onclick="puse('${n}','tossed')">tossed</a><a class="mute" onclick="premove(${i.id})">remove</a></div></div>`; }).join('') || '<span class="mute">nothing yet: add from a photo or type what you bought</span>';
   const g = r.goals; $('#g_goals').value = (g.goals || []).join('\n'); $('#g_tired').value = g.tired_days || ''; $('#g_avoid').value = (g.avoid || []).join(', ');
 }
 async function padd() { const r = await api('api/pantry/add', {text: $('#p_text').value, location: $('#p_loc').value || null, source: 'web'}); $('#p_out').textContent = r.error || ('added ' + (r.added || []).map(a => a.name).join(', ')); $('#p_text').value = ''; pantry(); }
@@ -296,7 +538,7 @@ async function checkModels() { const rs = await api('api/models/check', {}); rs.
 async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); $('#a_out').textContent = r.error || (r.answer + '\n\n— ' + (r.ms || '') + ' ms; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ')); }
 async function checkUpd() { $('#upd').textContent = '…'; const r = await api('api/updates'); delete r.manifest; $('#upd').textContent = JSON.stringify(r, null, 1); }
 async function applyUpd() { $('#upd').textContent = '…'; $('#upd').textContent = JSON.stringify(await api('api/updates/apply', {}), null, 1); }
-load('overview'); setInterval(() => !$('#overview').classList.contains('hide') && load('overview'), 30000);
+load('today'); setInterval(() => !$('#today').classList.contains('hide') && loadToday(), 60000);
 </script>
 </body>
 </html>
