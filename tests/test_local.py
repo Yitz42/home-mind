@@ -177,7 +177,12 @@ def main():
         check("reshelve dry run answers", "moved" in rs and "suggested" in rs, rs)
         _, pr = call("/api/preferences")
         check("preferences list", isinstance(pr, list), pr)
-        code, _ = call("/api/photo/..%2Fm.db")
+        try:
+            urllib.request.urlopen(urllib.request.Request(base + "/api/photo/..%2Fm.db",
+                                                          headers={"X-Home-Mind-Token": token}), timeout=30)
+            code = 200
+        except urllib.error.HTTPError as e:
+            code = e.code
         check("photo path traversal -> 404", code == 404)
         _, c = call("/api/compare")
         check("comparison status", "runs" in c and c.get("every_days") == 0, c)
