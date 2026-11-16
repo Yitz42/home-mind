@@ -47,7 +47,7 @@ def picture(store, thing, now, cap=14):
         if x in above:
             continue        # "the garage is next to the toolbox" while the toolbox is in the garage: not inside it
         chain, y, seen = [], x, set()
-        while y in cur and y not in seen and len(chain) < 6:
+        while y in cur and y not in seen and len(chain) < 6 and structure._held(cur, y):   # "next to" doesn't hold
             seen.add(y)
             y = cur[y][0]
             chain.append(y)

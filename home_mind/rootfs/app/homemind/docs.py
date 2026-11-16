@@ -33,6 +33,32 @@ MAX_SECTION = 1500
 MIN_SCORE = 2.0          # bm25 (negated): weaker matches than this aren't shown
 
 
+def decode(data):
+    """Text from a file's bytes: UTF-8 (a BOM dropped), UTF-16 with a BOM (Windows Notepad), else Windows-1252 /
+    Latin-1, as older manuals and recipes are saved; never the replacement character for every accented letter."""
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16", "replace")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+    try:
+        return data.decode("cp1252")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
+
+
+def _stem(w):
+    """A rough stem, to tell whether a section has a question's word in some form (FTS matches 'filters' to 'filter'
+    and 'cleaning' to 'clean'; the check after it must too)."""
+    if w.endswith("ies") and len(w) > 4:
+        return w[:-3] + "y"
+    for suf in ("ing", "ed", "es", "s"):
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            return w[:-len(suf)]
+    return w
+
+
 def pages_of(name, data):
     """[(page, heading, text)] from a file's bytes."""
     low = name.lower()
@@ -41,14 +67,26 @@ def pages_of(name, data):
             from pypdf import PdfReader
         except ImportError as e:  # pragma: no cover - pypdf is in the image
             raise RuntimeError("reading PDFs needs pypdf") from e
+        rd = PdfReader(io.BytesIO(data))
+        if rd.is_encrypted:
+            try:
+                ok = rd.decrypt("")                 # many manuals are "encrypted" only against editing
+            except Exception:  # noqa: BLE001
+                ok = 0
+            if not ok:
+                raise ValueError(f"{name}: the PDF is password-protected (save an unlocked copy)")
         out = []
-        for i, pg in enumerate(PdfReader(io.BytesIO(data)).pages, 1):
-            t = re.sub(r"[ \t]+", " ", pg.extract_text() or "").strip()
+        for i, pg in enumerate(rd.pages, 1):
+            try:
+                t = pg.extract_text() or ""
+            except Exception:  # noqa: BLE001 - one broken page doesn't lose the rest (page numbers stay right)
+                continue
+            t = re.sub(r"[ \t]+", " ", t).strip()
             if t:
                 first = next((x.strip() for x in t.splitlines() if len(x.strip()) > 3), "")[:80]
                 out.append((i, first, t))
         return out
-    text = data.decode("utf-8", "replace")
+    text = decode(data)
     if low.endswith((".html", ".htm")):
         text = re.sub(r"(?is)<(script|style).*?</\1>", " ", text)
         text = re.sub(r"(?i)<(h[1-4])[^>]*>", "\n# ", text)
@@ -87,8 +125,12 @@ class Docs:
         if not data:
             raise ValueError(f"{name}: empty file")
         sha = hashlib.sha256(data).hexdigest()
-        have = self.store.db.execute("SELECT id FROM docs WHERE sha=?", (sha,)).fetchone()
+        have = self.store.db.execute("SELECT id, path FROM docs WHERE sha=?", (sha,)).fetchone()
         if have:
+            if path and have[1] and have[1] != path and not os.path.exists(have[1]):
+                with self.store.lock:           # the file was renamed or moved (or a copy is all that is left)
+                    self.store.db.execute("UPDATE docs SET name=?, path=? WHERE id=?", (name, path, have[0]))
+                    self.store.db.commit()
             return {"id": have[0], "name": name, "already": True}
         try:
             secs = pages_of(name, data)
@@ -123,26 +165,35 @@ class Docs:
         """Add new files from the docs folder; drop documents whose file is gone."""
         if not self.folder or not os.path.isdir(self.folder):
             return {"added": 0}
-        added, seen = 0, set()
+        added, changed, seen = 0, 0, set()
+        top = os.path.join(self.folder, "")
         for root, _, files in os.walk(self.folder):
             for f in files:
                 if not f.lower().endswith(EXTS):
                     continue
                 p = os.path.join(root, f)
                 seen.add(p)
-                if self.store.db.execute("SELECT 1 FROM docs WHERE path=?", (p,)).fetchone():
-                    continue
+                old = self.store.db.execute("SELECT id, sha, added FROM docs WHERE path=?", (p,)).fetchone()
                 try:
+                    if old and os.path.getmtime(p) <= old[2]:
+                        continue
                     with open(p, "rb") as fh:
-                        r = self.add(f, fh.read(), p)
-                    added += not r.get("already")
+                        data = fh.read()
+                    if old and hashlib.sha256(data).hexdigest() == old[1]:
+                        continue
+                    r = self.add(f, data, p)
+                    if old:                     # the file was edited: its new text replaces the old
+                        self.remove(old[0])
+                        changed += 1
+                    else:
+                        added += not r.get("already")
                 except Exception:  # noqa: BLE001 - one bad file doesn't stop the rest
                     continue
         gone = [r[0] for r in self.store.db.execute("SELECT id, path FROM docs WHERE path IS NOT NULL")
-                if r[1].startswith(self.folder) and r[1] not in seen]
+                if r[1].startswith(top) and r[1] not in seen]
         for g in gone:
             self.remove(g)
-        return {"added": added, "removed": len(gone)}
+        return {"added": added, "removed": len(gone), "changed": changed}
 
     def search(self, question, k=2):
         from .store import STOP, words
@@ -157,10 +208,15 @@ class Docs:
                 "ORDER BY bm25(doc_fts, 2.0, 1.0) LIMIT ?", (q, k * 3)).fetchall()
         except Exception:  # noqa: BLE001 - an odd question for FTS: no documents
             return []
+        # bm25 scores words by how rare they are among all sections: with only a few short documents every word is
+        # "common" and scores near 0, so the floor applies once there are enough sections for scores to mean something
+        n = self.store.db.execute("SELECT COUNT(*) FROM doc_sections").fetchone()[0]
+        floor = MIN_SCORE if n >= 20 else 0.0
         out = []
         for r in rows:
-            hit = sum(1 for w in set(ws) if w in (r["text"] + " " + (r["heading"] or "")).lower())
-            if r["score"] >= MIN_SCORE and hit >= min(2, len(set(ws))):
+            body = (r["text"] + " " + (r["heading"] or "")).lower()
+            hit = sum(1 for w in set(ws) if _stem(w) in body)
+            if r["score"] >= floor and hit >= min(2, len(set(ws))):
                 out.append(dict(r))
         return out[:k]
 

@@ -65,6 +65,8 @@ class Apps:
 
     async def lines(self, question):
         jobs = {}
+        if not _terms(question):        # "where is it?": an empty search lists the first items, which aren't an answer
+            return ""
         if "homebox" in self.configured and THINGS.search(question):
             jobs["HOMEBOX (inventory)"] = self.homebox(question)
         if "paperless" in self.configured and PAPERS.search(question):
