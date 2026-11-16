@@ -7,6 +7,7 @@ arch:
   - amd64
   - aarch64
 init: false
+timeout: 30
 startup: application
 boot: auto
 ingress: true
@@ -15,9 +16,11 @@ panel_icon: mdi:brain
 panel_title: Home Mind
 homeassistant_api: true
 backup: hot
+backup_pre: python3 /app/backup_pre.py
 backup_exclude:
   - "knowledge/*"
   - "vault.key"
+  - "sandbox/*"
 map:
   - type: homeassistant_config
     read_only: false

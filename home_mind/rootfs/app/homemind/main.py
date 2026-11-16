@@ -38,6 +38,8 @@ from .version import VERSION
 
 DATA = os.environ.get("HOME_MIND_DATA", "/data")
 PORT = int(os.environ.get("HOME_MIND_PORT", "8099"))
+STOP_GRACE = 30                 # config.yaml timeout: seconds between SIGTERM and SIGKILL
+REQUESTS_GRACE, TASKS_GRACE = 10, 10
 INGRESS_IPS = {"172.30.32.2"}
 # events that carry what someone asked or wrote: not for a token tied to another person (#48)
 PRIVATE_EVENTS = {"ask", "recall", "mdsync_edit", "forget_about", "feedback", "email", "revise", "remember", "browse"}
@@ -258,7 +260,9 @@ class App:
         for t in live:
             t.cancel()
         if live:
-            await asyncio.wait(live, timeout=10)        # let them finish before the session closes (never hang)
+            # let them finish before the session closes (never hang). Home Assistant kills the add-on STOP_GRACE
+            # seconds after SIGTERM (config.yaml timeout), so the whole shutdown has to fit inside it.
+            await asyncio.wait(live, timeout=TASKS_GRACE)
         await self.models.stop()
 
     def _fix_kg_backfill(self):
@@ -1732,7 +1736,9 @@ def build(app_state):
 
 def main():
     state = App()
-    web.run_app(build(state), host="0.0.0.0", port=PORT, access_log=None)
+    # aiohttp waits 60 s by default for requests in flight (a slow model answer); Home Assistant would SIGKILL the
+    # add-on long before on_stop ran. Requests get REQUESTS_GRACE s, background tasks TASKS_GRACE s.
+    web.run_app(build(state), host="0.0.0.0", port=PORT, access_log=None, shutdown_timeout=REQUESTS_GRACE)
 
 
 if __name__ == "__main__":

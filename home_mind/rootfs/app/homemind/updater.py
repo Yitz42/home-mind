@@ -48,7 +48,23 @@ class Updater:
     def installed(self):
         return self.store.kv_get("packs", {})
 
+    @staticmethod
+    def _valid(pack):
+        """Check a whole pack before any of it is filed, so a bad entry can't leave it half-installed (some
+        procedures at the new version, the pack still recorded at the old one, and the same failure every night)."""
+        if not isinstance(pack, dict) or not isinstance(pack.get("id"), str) or not pack["id"] \
+                or not isinstance(pack.get("version"), (str, int, float)):
+            raise ValueError("pack has no id/version")
+        procs = pack.get("procedures", [])
+        if not isinstance(procs, list):
+            raise ValueError("pack procedures is not a list")
+        for i, p in enumerate(procs):
+            if not isinstance(p, dict) or not all(isinstance(p.get(k), str) and p.get(k) for k in ("id", "title", "body")) \
+                    or not isinstance(p.get("tags", []), list):
+                raise ValueError(f"pack procedure {i} needs id, title and body")
+
     def install_pack(self, pack, source):
+        self._valid(pack)
         pid, ver = pack["id"], str(pack["version"])
         n = 0
         for p in pack.get("procedures", []):
@@ -98,6 +114,10 @@ class Updater:
                     if not signed:
                         raise RuntimeError("the manifest's signature doesn't match Home Mind's key; nothing installed")
                 man = json.loads(raw_man)
+            if not isinstance(man, dict) or not isinstance(man.get("packs", []), list) or not all(
+                    isinstance(p, dict) and isinstance(p.get("id"), str) and p.get("version") is not None
+                    and isinstance(p.get("url"), str) for p in man.get("packs", [])):
+                raise ValueError("the manifest isn't a list of packs with id, version and url")
         except Exception as e:  # noqa: BLE001
             self.last = {"error": f"{type(e).__name__}: {e}"[:300]}
             return self.last
