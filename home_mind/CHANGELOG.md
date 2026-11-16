@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.0
+- Telegram (#52): options `telegram_token` and `telegram_chats` ("chat id: name"). Ask anything, or say "remember ..." to file a note. A photo with a caption is filed with the photo. Each chat is its own conversation and asks as its person, so personal notes stay personal. Chats not on the list are ignored (except /start, which only says the chat id).
+- Web lookups for current facts (#55): option `web_search` (`searxng` with `web_search_url`, or `brave` with `web_search_key`). Used only when a question is about the world now ("latest version", "open today", "price of") and the notes don't answer it. Results are dated and linked in the context. Only the question is sent, never one with a secret or a household member's name.
+- Email ingestion (#64): options `email_host`, `email_user`, `email_password`, `email_folder`, `email_senders`, `email_minutes`. Mail from allowed senders becomes a note: the subject is the title, the text the note (HTML turned to text, quoted replies cut), dated by the email. PDF and text attachments go to Documents; images become photos of the note. Each message is read once.
+- Prompt caching (#45), revisited: Anthropic models now mark long repeated prefixes for caching. That means a system prompt or a message prefix of at least `cache_min_tokens` (default 4,096, per model), such as the whole log in model + whole-log tests, which is sent again for every question. Cached tokens are reported. Everyday answers are still too short to be cached, as before. Turn it off with `cache: false` on a model.
+- `/api/connections` shows whether Telegram, web lookups and email are on and how the last try went.
+
 ## 0.29.0
 - Learned settings (#30): how bright you like each light, how fast each fan, how far each blind and how loud each speaker, by time of day and weekday or weekend. Only settings a person chose count (not automations, not Home Mind). Five that agree make a preference: it is filed as a note and used when you ask to turn a light or fan on without saying how much (option `use_preferences`). `/api/preferences`.
 - Reshelving over time (#32): each night, notes filed by the model (or left in the inbox) a week or more ago move when filing now clearly knows better, and say where they came from. A note you placed yourself only gets a suggestion; one you moved or kept stays put. `/api/reshelve`.

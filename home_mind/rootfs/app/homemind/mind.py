@@ -715,6 +715,14 @@ class Mind:
                 ref = ""
             if ref:
                 ctx = (ctx + "\n\n" if ctx else "") + ref
+        wb = getattr(self, "web", None)
+        if wb and store is self.store and wb.on:
+            try:
+                wl = await wb.lines(question, nothing_close(store, question, hits))   # #55
+            except Exception:  # noqa: BLE001
+                wl = ""
+            if wl:
+                ctx = (ctx + "\n\n" if ctx else "") + wl
         return about_names(store.fix_typos(question), hits), procs, ctx
 
     async def _with_meaning(self, store, question, hits, k):
@@ -1275,7 +1283,8 @@ class Mind:
                 content, sysmsg = "LOG:\n" + "\n".join(log)[-16000:] + f"\n\nQUESTION: {q['q']}", CONTEXT_SYSTEM
             else:
                 content, sysmsg = q["q"], ALONE_SYSTEM
-            r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
+            r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}],
+                                                  **({"cache_until": "\n\nQUESTION:"} if arm == "model+context" else {}))
             d.update(answer=r["text"][:400], ms=r["ms"],
                      correct=any(contains(r["text"], g) for g in [q["gold"]] + q.get("also", [])))
             return d
@@ -1470,7 +1479,8 @@ class Mind:
                                CONTEXT_SYSTEM)
         else:
             content, sysmsg = q["q"], ALONE_SYSTEM
-        r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}])
+        r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}],
+                                              **({"cache_until": "\n\nQUESTION:"} if arm == "model+context" else {}))
         if arm == "model+brain":
             text, named = read_answer(r["text"], bool(run["config"].get("notes_first")))
             r = dict(r, text=text)

@@ -131,6 +131,33 @@ configuration:
   use_preferences:
     name: Use learned settings
     description: When you ask to turn on a light or fan without saying how much, use the brightness or speed you usually choose at this time of day.
+  telegram_token:
+    name: Telegram bot token
+    description: From @BotFather. Ask and tell Home Mind from Telegram. Empty = off.
+  telegram_chats:
+    name: Telegram chats allowed
+    description: One per line as "chat id: name" (the name from People). Send /start to the bot to see your chat id.
+  web_search:
+    name: Web lookups
+    description: For questions about current facts the memory can't answer. searxng (your own SearXNG) or brave (Brave Search API). Only the question is sent, never one with a secret or a household name.
+  web_search_url:
+    name: SearXNG address
+  web_search_key:
+    name: Brave Search API key
+  email_host:
+    name: Email (IMAP) server
+    description: A mailbox Home Mind reads (TLS). Forward receipts, warranties and notes to it.
+  email_user:
+    name: Email user
+  email_password:
+    name: Email password
+  email_folder:
+    name: Email folder
+  email_senders:
+    name: Email senders allowed
+    description: Only mail from these addresses is read.
+  email_minutes:
+    name: Check email every (minutes)
   label_url:
     name: Address for QR labels
     description: Where a scanned label opens, for example https://ha.example.com/hassio/ingress/local_home_mind. Empty = the address you are using the panel from.

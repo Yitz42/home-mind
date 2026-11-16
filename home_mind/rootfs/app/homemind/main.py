@@ -55,6 +55,9 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "paperless_url": "", "paperless_token": "", "rerank_model": "",
             "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
             "compare_suites": ["recall", "tricky", "hard"], "use_preferences": True, "label_url": "",
+            "telegram_token": "", "telegram_chats": [], "web_search": "off", "web_search_url": "", "web_search_key": "",
+            "email_host": "", "email_user": "", "email_password": "", "email_folder": "INBOX", "email_senders": [],
+            "email_minutes": 10,
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
@@ -151,6 +154,12 @@ class App:
         from .photos import Photos
         self.prefs = Prefs(self.mind.store)
         self.photos = Photos(self.mind.store, os.path.join(DATA, "photos"))
+        from .weblook import Web
+        from .messaging import Telegram
+        from .mailbox import Mailbox
+        self.mind.web = Web(self.opts, lambda: self.models.session)
+        self.telegram = Telegram(self, self.opts.get("telegram_token"), self.opts.get("telegram_chats"))
+        self.mailbox = Mailbox(self, self.opts)
         self.compare = Compare(self.mind, self.opts.get("compare_models") or [], self.opts.get("compare_days") or 0,
                                self.opts.get("compare_suites") or None)
         self.comforts = self.comfort_rooms()
@@ -234,6 +243,8 @@ class App:
         # build the word list for typo/sound repair now, so the first question doesn't wait for it
         await asyncio.get_running_loop().run_in_executor(None, self.mind.store.vocab)
         self.tasks = [asyncio.create_task(self.upkeep())]
+        if self.telegram.on:
+            self.tasks.append(asyncio.create_task(self.telegram.run_forever()))      # #52
         if self.ha.available:
             self.tasks.append(asyncio.create_task(self.engine.run_forever()))
         log.info("Home Mind %s up on port %s (bridge: %s)", VERSION, PORT, self.bridge)
@@ -401,6 +412,15 @@ class App:
                         log.info("markdown sync: %s", r)
                 except Exception as e:  # noqa: BLE001
                     log.warning("markdown sync: %s", e)
+            if self.mailbox.on and now - last.get("mail", 0) > 60 * self.mailbox.minutes:
+                last["mail"] = now
+                try:
+                    r = await asyncio.to_thread(self.mailbox.run)       # #64
+                    if r.get("read"):
+                        log.info("email: %s", r)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("email: %s", e)
+                    self.mailbox.last = {"error": str(e)[:200], "at": now}
             if self.compare.due(now):
                 try:
                     r = await self.compare.run()
@@ -1193,6 +1213,23 @@ def build(app_state):
         rows = st.db.execute("SELECT * FROM items WHERE status='active' AND shelf != 'inbox' AND "
                              "meta LIKE '%\"suggested_shelf\"%' ORDER BY id DESC LIMIT 100").fetchall()
         return J([{k: v for k, v in st._row(r).items() if k in ("id", "title", "body", "shelf", "meta")} for r in rows])
+
+    @r.get("/api/connections")
+    async def connections(_):
+        """Telegram (#52), web lookups (#55) and email (#64): on or off, and how the last try went."""
+        return J({"telegram": {"on": A.telegram.on, "chats": len(A.telegram.chats), "error": A.telegram.last_error},
+                  "web": {"on": A.mind.web.on, "kind": A.mind.web.kind or None},
+                  "email": {"on": A.mailbox.on, "folder": A.mailbox.folder, "senders": len(A.mailbox.senders),
+                            "last": A.mailbox.last}})
+
+    @r.post("/api/email/check")
+    async def email_check(_):
+        if not A.mailbox.on:
+            return J({"error": "set email_host, email_user and email_password first"}, status=400)
+        try:
+            return J(await asyncio.to_thread(A.mailbox.run))
+        except Exception as e:  # noqa: BLE001
+            return J({"error": str(e)[:200]}, status=502)
 
     @r.get("/api/preferences")
     async def preferences(_):

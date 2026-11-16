@@ -349,6 +349,13 @@ Assistant doesn't have.
 - **QR labels.** Memory tab > Make a label. Stick it on a box or shelf; scanning it opens that thing in the panel. If the panel is reached at another address from your phone, set `label_url`.
 - **Across devices.** Ask the kitchen speaker, follow up on your phone: it carries over for the same person for 10 minutes.
 
+## Telegram, web and email (0.30)
+
+- **Telegram.** Create a bot with @BotFather, put its token in `telegram_token`, send it /start, and add the chat id it replies with to `telegram_chats` as `12345: Dana`. Then ask it questions or say "remember the plumber is coming Tuesday". Send a photo with a caption to file both.
+- **Web lookups.** Set `web_search` to `searxng` (and `web_search_url` to your SearXNG, with JSON output on) or `brave` (and `web_search_key`). Questions about current facts your notes can't answer get a few dated search results. Nothing from your notes is sent.
+- **Email.** Make a mailbox just for Home Mind and fill in the `email_*` options. Put your own addresses in `email_senders`. Forward receipts, warranties and notes to it; they're filed within `email_minutes`.
+- **Prompt caching** happens on its own for Anthropic models when a long prefix repeats (mostly in tests). Add `cache: false` to a model to turn it off.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press

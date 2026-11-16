@@ -40,11 +40,35 @@ class Model:
         d["has_key"] = bool(self.cfg.get("api_key"))
         return d
 
-    async def chat(self, system, messages, max_tokens=800, temperature=0.2):
+    # #45: Anthropic prompt caching. Claude caches a prefix only when it is long enough (1,024 to 4,096 tokens by
+    # model), so only long, repeated prefixes are marked: a big system prompt, and the part of a message before
+    # cache_until (the whole log in model+context tests, asked again for every question).
+    CACHE_MIN_TOKENS = 4096
+
+    def _cacheable(self, text):
+        return len(text or "") / 4 >= int(self.cfg.get("cache_min_tokens") or self.CACHE_MIN_TOKENS)
+
+    def _with_cache(self, messages, cache_until):
+        if self.type != "anthropic" or not cache_until or not messages or self.cfg.get("cache") is False:
+            return messages
+        m0 = messages[0]
+        c = m0.get("content")
+        if not isinstance(c, str) or cache_until not in c:
+            return messages
+        head, tail = c.split(cache_until, 1)
+        if not self._cacheable(head):
+            return messages
+        blocks = [{"type": "text", "text": head, "cache_control": {"type": "ephemeral"}},
+                  {"type": "text", "text": cache_until + tail}]
+        return [dict(m0, content=blocks)] + list(messages[1:])
+
+    async def chat(self, system, messages, max_tokens=800, temperature=0.2, cache_until=None):
         t0 = time.monotonic()
         fn = getattr(self, f"_chat_{self.type}", None)
         if fn is None:
             raise ModelError(f"unknown model type {self.type}")
+        messages = self._with_cache(messages, cache_until)
+        self._cached = None
         try:
             text, tokens = await fn(system, messages, max_tokens, temperature)
         except Exception as e:
@@ -59,8 +83,11 @@ class Model:
         ms = int((time.monotonic() - t0) * 1000)
         if self.type != "mock":
             _use(self.name, True, tin, tout, ms)
-        return {"text": (text or "").strip(), "ms": ms, "tokens": total if total else None,
-                "tokens_in": tin, "tokens_out": tout, "model": self.name}
+        out = {"text": (text or "").strip(), "ms": ms, "tokens": total if total else None,
+               "tokens_in": tin, "tokens_out": tout, "model": self.name}
+        if getattr(self, "_cached", None):
+            out["tokens_cached"] = self._cached
+        return out
 
     async def check(self):
         try:
@@ -126,12 +153,16 @@ class Model:
         if not self.cfg.get("api_key"):
             raise ModelError(f"{self.name}: needs api_key")
         url = (self.cfg.get("url") or "https://api.anthropic.com").rstrip("/") + "/v1/messages"
+        sysp = system or ""
+        if sysp and self.cfg.get("cache") is not False and self._cacheable(sysp):
+            sysp = [{"type": "text", "text": sysp, "cache_control": {"type": "ephemeral"}}]
         j = await self._post(url, {"model": self.cfg.get("model") or "claude-haiku-5-5", "max_tokens": max_tokens,
-                                   "temperature": temperature, "system": system or "", "messages": messages},
+                                   "temperature": temperature, "system": sysp, "messages": messages},
                              {"x-api-key": self.cfg["api_key"], "anthropic-version": "2023-06-01"})
         text = "".join(b.get("text", "") for b in j.get("content", []) if b.get("type") == "text")
         u = j.get("usage") or {}
         tin = (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+        self._cached = u.get("cache_read_input_tokens") or None
         return text, (tin, u.get("output_tokens") or 0)
 
     # ---- Home Assistant's own models -----------------------------------------------------------------------------

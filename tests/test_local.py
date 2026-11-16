@@ -184,6 +184,11 @@ def main():
         except urllib.error.HTTPError as e:
             code = e.code
         check("photo path traversal -> 404", code == 404)
+        # set 8 (0.30)
+        _, cn = call("/api/connections")
+        check("connections are all off by default", not cn["telegram"]["on"] and not cn["web"]["on"] and not cn["email"]["on"], cn)
+        code, _ = call("/api/email/check", {})
+        check("email check without a server -> 400", code == 400)
         _, c = call("/api/compare")
         check("comparison status", "runs" in c and c.get("every_days") == 0, c)
 
