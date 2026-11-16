@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.32.0
+Six rounds of expert code review (24 reviewers: security, privacy, concurrency, search, data integrity, LLM safety, Home Assistant, web panel, performance, overnight learning, network integrations, API contract, cryptography, time, asking, test quality, MCP, documents, maintainability, storage growth, red team, voice, packaging, first run). Each fix has a regression check in `tests/test_review_*.py`, run in CI.
+
+**Behavior you'll notice**
+- Locks, alarms, valves and garage doors (and scripts, scenes or switches that open them) need confirmation. By voice, Home Mind asks and a "yes" within 30 seconds does it. Drafted automations that open the house need the PIN in more cases.
+- A token tied to a person only sees and changes that person's personal notes and household notes, and can't file notes as someone else. House control over HTTP needs an admin token.
+- Short replies like "yes", "um" or "never mind" no longer read out a stored note. "That's wrong… never mind" no longer overwrites the fact; "No, it's 5512" updates it in one step.
+- Raw house readings older than `events_keep_days` (at least 30) roll up into one daily note per thing. Database growth drops from ~140 to ~20 KiB a day.
+- Shelves keep non-ASCII letters ("Küche"); a shelf already stored under its old name keeps it.
+- The panel shows a getting-started card on a fresh install. DOCS now lists every option, all API routes with their scopes, and the MCP tools.
+
+**Important fixes**
+- Purging one note could delete unrelated notes, and over MCP a blank name purged everything.
+- A missing vault key led to a new key that later replaced sealed secrets with "[hidden]". Home Mind now refuses and reports it.
+- Secrets reached cloud models through the re-ranker, procedures, overnight passes and journal summaries. They are now masked.
+- The panel had XSS holes through onclick values and model output.
+- One error stopped the upkeep loop for good, and a silent mail server hung it. Emails that failed to file were lost.
+- Monthly and yearly reminders drifted (30/365-day months), and journal entries were lost on the DST night.
+- Filing learned from its own guesses.
+- People with accented names couldn't find their own personal notes.
+- Small sets of documents were never found by search.
+- A forged future-dated email made a planted fact impossible to correct.
+
+**Speed (30,000 notes):** context per question 57 → 22 ms, search 23 → 14 ms, daily duplicate check 20 s → 0.4 s.
+
+**Tests:** two test files that could never fail now assert. Hand mutation testing went from 19 to 41 of 43 mutants killed. New CI checks: lint (AST), fuzzing of every route and MCP tool, docs coverage, and config/schema/translation consistency.
+
 ## 0.31.0
 A bug-hunting test set (`tests/test_bugs.py`, in CI): odd inputs, many threads at once, an old database, failing and hanging models, unreadable model replies, broken files and corrupt saved state. Fixes for what it found:
 - **Threads could clash on the database.** Concurrent remember and search from worker threads (documents, Markdown sync, email, backups) raised `InterfaceError` or returned broken rows, 20+ times in a 200-note run. Every statement now runs under the store's lock and reads its rows before letting go: 0 errors, nothing lost.
