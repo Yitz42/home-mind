@@ -313,10 +313,11 @@ def file_habits(store, model):
         key = f"habit:{h['entity_id']}|{h['state']}|{h['daytype']}"
         keep.add(key)
         text = habit_text(h)
+        title = re.sub(r" \(\d+ of the last \d+ days\)\.$", "", text)
         old = store.active_by_key(key)
-        if old and old["body"] == text:
-            continue
-        store.remember(text=text, title=re.sub(r" \(\d+ of the last \d+ days\)\.$", "", text), kind="fact",
+        if old and (old["body"] == text or old["title"] == title):
+            continue        # the same habit at the same time: only its day count moved, not worth a new version a night
+        store.remember(text=text, title=title, kind="fact",
                        shelf="home/patterns", source="habits", key=key, meta={"habit": h})
     for r in store.db.execute("SELECT id, key FROM items WHERE status='active' AND source='habits'").fetchall():
         if r["key"] and r["key"] not in keep:

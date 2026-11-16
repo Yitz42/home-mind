@@ -27,6 +27,11 @@ class Journal:
             "ORDER BY created", (start, end)).fetchall()
         return [self.store._row(r) for r in rows]
 
+    def summarized(self, day):
+        return self.store.db.execute(
+            "SELECT 1 FROM items WHERE shelf='journal/summaries' AND status IN ('active','faded') AND "
+            "json_extract(meta, '$.day') = ? LIMIT 1", (str(day),)).fetchone() is not None
+
     async def summarize(self, day=None, model=None):
         day = day or datetime.now().date()
         ents = self.entries(day)
@@ -74,6 +79,8 @@ class Journal:
         now = datetime.now()
         if (now.hour, now.minute) >= self.at and self.done_for != now.date():
             self.done_for = now.date()
+            if self.summarized(now.date()):
+                return          # a restart after tonight's summary: done_for was lost, the summary wasn't
             try:
                 r = await self.summarize(now.date())
                 log.info("journal summary: %s", {k: v for k, v in r.items() if k != "summary"})

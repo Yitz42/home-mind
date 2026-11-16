@@ -227,8 +227,7 @@ class App:
         if (datetime.now().hour, datetime.now().minute) >= mt:
             self.morning.done_for = datetime.now().date()      # started after the time: wait for tomorrow
         self.mind.calendars = self.calendars
-        if datetime.now().hour * 60 + datetime.now().minute >= 23 * 60 + 30:
-            self.journal.done_for = datetime.now().date()     # started after 23:30: don't summarize at once
+        # started after 23:30: the journal's tick summarizes today unless a summary for today is already filed
         self.mind.on_test_done = self.test_done
         for r in self.updater.install_bundled():
             log.info("installed bundled pack %s %s", r["id"], r["version"])
