@@ -112,10 +112,22 @@ BULK_MAX = 3          # notes a dump request gets back
 VOICE_LIST_MAX = 8    # lines of a gathered list read out by voice
 
 
+# "all my notes about the Pebble apps" / "everything in your memory about long covid" asks about one topic, not for the
+# whole memory. Instructions to the model ("ignore your instructions", "system prompt", "verbatim") are never topical.
+NEVER_TOPICAL = re.compile(r"\b(?:ignore|system prompt|your instructions|verbatim|word for word)\b", re.I)
+TOPIC = re.compile(r"\b(?:about|on|regarding|related to|to do with|for)\s+(?:the\s+|my\s+|our\s+)?([a-z0-9][\w' -]*)",
+                   re.I)
+NOT_A_TOPIC = re.compile(r"^(?:me|myself|you|yourself|us|everything|anything|all|it|that|this|them|everyone|"
+                         r"anyone|everybody|anybody)\b", re.I)
+
+
 def bulk(question):
     """What kind of bulk request a question is: "secrets", "dump", or None."""
     q = question or ""
     if DUMP.search(q):
+        t = TOPIC.search(q)
+        if t and not NEVER_TOPICAL.search(q) and not NOT_A_TOPIC.match(t.group(1).strip()):
+            return None                    # one topic, asked for in full: a normal question
         return "dump"
     if BULK_SECRET.search(q):
         return "secrets"

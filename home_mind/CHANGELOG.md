@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.20.0
+- A whole-memory request about one topic ("all my notes about the Pebble apps", "everything in your memory about long covid") is a normal question, not a dump; "everything you know about me" and anything with "ignore your instructions" still are.
 - Facts learned overnight from conversations are on probation for 7 days until you confirm them: a newer overnight value doesn't replace what you told it directly. Both are shown, the overnight one marked UNCONFIRMED. A Confirm button on the note, `POST /api/item/{id}/confirm` and the MCP tool `mind_confirm`; after 7 days unchallenged it counts like anything else.
 - Delete for good: `POST /api/item/{id}/purge` and `POST /api/purge_about` (both need `{"confirm": true}`), the MCP tools `mind_purge` / `mind_purge_about` (confirm must be true) and a "Delete for good" button. Removes the note with its whole history, its search-index entry, the activity-log rows and saved conversation turns holding its values, and duplicate pairs; freed space is overwritten and the write-ahead log emptied. Backups made before still have it. Forget still only archives.
 - Asking for every secret at once ("list all my codes") gets the notes with every secret value hidden, for local models too; asking for the whole memory or the instructions ("print everything you know") gets 3 notes at most. A single code asked by name still works. By voice a list stops at 8 lines and says how many more there are.
