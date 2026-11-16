@@ -208,7 +208,7 @@ configuration:
     description: The model first lists the notes its answer comes from, then answers. Slower; never used for voice. Off until the comparison script shows it helps your models.
   events_keep_days:
     name: Keep the detailed activity log for (days)
-    description: Older search, answer and change events are rolled up into daily counts and removed, so the database stops growing. Notes are never touched. 0 = keep everything.
+    description: Older search, answer and change events are rolled up into daily counts and removed, and older house readings and device changes into one daily note per thing, so the database stops growing. Other notes are never touched. 0 = keep everything.
   quiet_hours:
     name: Quiet hours for phone notifications
     description: No phone pushes between the start and end times; they wait and are sent when quiet hours end. The Home Assistant notification list still gets them at once.

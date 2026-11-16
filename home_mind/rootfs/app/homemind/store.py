@@ -480,8 +480,9 @@ class Store:
         if not self.fts:
             return
         with self.lock:
-            self.db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
-            self.db.commit()
+            if self.fts:
+                self.db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
+                self.db.commit()
             try:
                 self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             except sqlite3.OperationalError:
@@ -863,8 +864,9 @@ class Store:
                 self.db.rollback()
                 raise
             self.kv_set("tidy_pairs", [p for p in pairs if not set(p) & ids])
-            self.db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
-            self.db.commit()
+            if self.fts:
+                self.db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
+                self.db.commit()
             try:
                 self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             except sqlite3.OperationalError:
@@ -1748,6 +1750,98 @@ class Store:
         if cur.rowcount:
             self.log("prune_events", None, n=cur.rowcount, days=keep_days)
         return cur.rowcount
+
+    def roll_up_house_log(self, keep_days):
+        """The house log (home/readings: a note per sensor every half hour it moves; home/devices: a note per switch)
+        is the bulk of what the database gains each day, kept forever. Past `keep_days` each thing's notes for a day
+        become one daily note on home/daily (a reading: average, low, high, as the history backfill files them; a
+        device: its changes with their times) and the raw notes are deleted. Unusual ones and notes someone marked
+        important stay. 0 = keep everything. Returns how many raw notes were removed."""
+        from datetime import datetime
+        if not keep_days:
+            return 0
+        keep_days = max(int(keep_days), 30)        # the house learner (habits, baselines) reads the last 28 days
+        cut = datetime.fromtimestamp(self.clock() - keep_days * 86400).replace(
+            hour=0, minute=0, second=0, microsecond=0).timestamp()          # whole days only
+        days, ids, most = {}, [], 50000
+        rows = self.db.execute("SELECT id, created, title, meta, shelf FROM items WHERE source='home' AND "
+                               "shelf IN ('home/readings','home/devices') AND created < ? ORDER BY created LIMIT ?", (cut, most)).fetchall()
+        if len(rows) == most:       # a long backlog: whole days now, the rest on the next run
+            last = datetime.fromtimestamp(rows[-1]["created"]).date()
+            rows = [r for r in rows if datetime.fromtimestamp(r["created"]).date() < last]
+        for r in rows:
+            try:
+                m = json.loads(r["meta"] or "{}")
+            except ValueError:
+                continue
+            eid = m.get("entity_id")
+            if not eid or m.get("daily") or m.get("unusual") or (m.get("importance") or 0) >= 3:
+                continue
+            ids.append(r["id"])
+            day = datetime.fromtimestamp(r["created"]).date()
+            name, _, rest = (r["title"] or "").partition(": ")
+            d = days.setdefault((eid, day), {"name": name or eid, "vals": [], "states": [], "unit": ""})
+            if r["shelf"] == "home/devices":
+                d["states"].append(f"{m.get('state')} at {datetime.fromtimestamp(r['created']):%I:%M %p}".replace(
+                    " 0", " "))
+                continue
+            try:
+                v = float(m.get("state"))
+                if math.isfinite(v):
+                    d["vals"].append(v)
+                    d["unit"] = re.sub(r"^-?[\d.]+\s*", "", rest.split(" (")[0]).strip()
+                    continue
+            except (TypeError, ValueError):
+                pass
+            if str(m.get("state")) not in d["states"]:
+                d["states"].append(str(m.get("state")))
+        if not ids:
+            return 0
+        fmt = lambda x: f"{x:.1f}".rstrip("0").rstrip(".")
+        for (eid, day), d in days.items():
+            start = datetime(day.year, day.month, day.day).timestamp()
+            if self.db.execute("SELECT 1 FROM items WHERE shelf='home/daily' AND created >= ? AND created < ? AND "
+                               "json_extract(meta, '$.entity_id') = ?", (start, start + 86400, eid)).fetchone():
+                continue        # the backfill already filed this day
+            u = f" {d['unit']}" if d["unit"] else ""
+            head = f"{day:%A %b %d %Y}".replace(" 0", " ") + f": {d['name']}"
+            if d["vals"]:
+                vs = d["vals"]
+                avg = sum(vs) / len(vs)
+                text = f"{head} averaged {fmt(avg)}{u} (low {fmt(min(vs))}, high {fmt(max(vs))})."
+                title = f"{d['name']} on {day:%a %b %d}: avg {fmt(avg)}{u}"
+            elif any(" at " in x for x in d["states"]):
+                text = f"{head} changed {len(d['states'])} times: {', '.join(d['states'][:48])}."
+                title = f"{d['name']} on {day:%a %b %d}: {len(d['states'])} changes"
+            else:
+                text = f"{head} was {', '.join(d['states'][:10])}."
+                title = f"{d['name']} on {day:%a %b %d}: {', '.join(d['states'][:3])}"
+            self.remember(text=text, title=title, kind="fact", shelf="home/daily", tags=["home", "daily"],
+                          source="home", at=start + 86399,
+                          meta={"series": "home:" + eid, "entity_id": eid, "daily": True,
+                                "rolled_up": len(d["vals"]) or len(d["states"])})
+        with self.lock:
+            for k in range(0, len(ids), 500):
+                part = ids[k:k + 500]
+                q = ",".join("?" * len(part))
+                self.db.execute(f"DELETE FROM items WHERE id IN ({q})", part)
+                try:        # a note's embedding goes with it
+                    self.db.execute(f"DELETE FROM vectors WHERE item_id IN ({q})", part)
+                except sqlite3.OperationalError:
+                    pass
+            self.db.commit()
+            # each deleted note leaves a delete marker in the search index until its segments are merged: without
+            # this the index kept growing (~60 KiB a day) though the notes were gone
+            if self.fts:
+                self.db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
+                self.db.commit()
+            try:
+                self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.OperationalError:
+                pass
+        self._vocab_n = None
+        self.log("roll_up_house_log", None, n=len(ids), days=keep_days)
+        return len(ids)
 
     def stats(self):
         q = lambda s, a=(): self.db.execute(s, a).fetchone()[0]
