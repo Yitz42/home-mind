@@ -30,14 +30,79 @@ def available():
 def load_key(path, create=True):
     if os.path.exists(path):
         with open(path) as f:
-            return bytes.fromhex(f.read().strip())
+            key = bytes.fromhex(f.read().strip())
+        if len(key) != 32:
+            raise ValueError(f"{path} doesn't hold a 256-bit key (64 hex digits)")
+        return key
     if not create:
         return None
     key = secrets.token_bytes(32)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(key.hex() + "\n")
+    # written in full and on disk before anything is sealed with it: a key file lost or left empty by a power cut
+    # right after the first seal would leave every secret unreadable
+    tmp = f"{path}.{os.getpid()}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(key.hex() + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.link(tmp, path)          # fails if another process made one meanwhile: never replace a key
+    finally:
+        os.unlink(tmp)
+    try:
+        dfd = os.open(os.path.dirname(os.path.abspath(path)), os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    except OSError:
+        pass
     return key
+
+
+def opens(key, store):
+    """True if key opens a sealed note (or none is sealed): another key would seal new secrets that this one can't
+    read, and leave the old ones locked."""
+    rows = store.db.execute("SELECT id, secret FROM items WHERE secret IS NOT NULL ORDER BY id DESC").fetchall()
+    for r in rows:
+        try:
+            open_(key, r[1], aad=str(r[0]).encode())
+            return True
+        except Exception:  # noqa: BLE001 - not this one
+            continue
+    return not rows
+
+
+def setup(store, path, enabled):
+    """Option encrypt_secrets (#66): seal secret notes with the key in path; turned off, open them. A missing key or
+    one that opens none of the sealed notes is reported and not used (a new key would strand the sealed notes: edits
+    of a locked note would keep only its masked copy)."""
+    status = {"enabled": False}
+    if not available():
+        status["error"] = "the cryptography library isn't installed"
+        return status
+    sealed = store.db.execute("SELECT COUNT(*) FROM items WHERE secret IS NOT NULL").fetchone()[0]
+    try:
+        key = load_key(path, create=bool(enabled) and not sealed) if enabled or os.path.exists(path) else None
+    except (OSError, ValueError) as e:
+        key, status["error"] = None, f"vault.key unreadable: {e}"
+    if key is not None and not opens(key, store):
+        key, status["error"] = None, (f"{path} doesn't open the {sealed} sealed notes; put back the key they were "
+                                      "sealed with (GET /api/vault/key showed it)")
+    elif key is None and sealed and enabled and "error" not in status:
+        status["error"] = f"{path} is missing: {sealed} sealed notes stay locked until the key is put back"
+    if key is not None and enabled:
+        store.vault_key = key
+        status.update(enabled=True, key=fingerprint(key), sealed_now=store.seal_all())
+    elif key is not None:
+        store.vault_key = key
+        n = store.unseal_all()         # turned off: back to plain text, so nothing is stranded
+        store.vault_key = None
+        status["opened_now"] = n
+    else:
+        store.vault_key = None
+    status["sealed"] = store.db.execute("SELECT COUNT(*) FROM items WHERE secret IS NOT NULL").fetchone()[0]
+    return status
 
 
 def fingerprint(key):

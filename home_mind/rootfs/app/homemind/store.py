@@ -704,6 +704,10 @@ class Store:
         old = self.get(item_id)
         if not old:
             raise KeyError(f"no item {item_id}")
+        if old.get("locked") and changes.get("body") is None:
+            # sealed with a key that isn't loaded: the row holds only the masked copy, and a new version made from it
+            # would replace the secret with "[hidden]" for good (#66)
+            raise ValueError(f"item {item_id} is sealed and the vault key isn't loaded; put vault.key back to change it")
         f = {k: old[k] for k in ("kind", "key", "title", "body", "shelf", "source")}
         f["tags"], f["meta"] = old["tags"], old["meta"]
         for k, v in changes.items():

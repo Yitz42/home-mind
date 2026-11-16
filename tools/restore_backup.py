@@ -23,10 +23,26 @@ def main():
     blob = open(src, "rb").read()
     if blob[:5] == b"HMBK1":
         from homemind import vault
-        blob = vault.open_file(os.environ.get("HOME_MIND_BACKUP_PASSPHRASE") or getpass.getpass("passphrase: "), blob)
+        try:
+            blob = vault.open_file(os.environ.get("HOME_MIND_BACKUP_PASSPHRASE") or getpass.getpass("passphrase: "), blob)
+        except Exception:  # noqa: BLE001 - InvalidTag: the passphrase, or the file, isn't the one it was made with
+            sys.exit("can't open it: wrong passphrase, or the file was changed or cut short")
+    data = gzip.decompress(blob)
+    if not data.startswith(b"SQLite format 3\0"):
+        sys.exit("not a Home Mind database")
     with open(dst, "wb") as f:
-        f.write(gzip.decompress(blob))
-    print("restored", dst)
+        f.write(data)
+    # the newest note's time comes from inside the (authenticated) backup, not the file's name: an older backup put
+    # in place of a newer one shows here
+    import sqlite3
+    import time
+    try:
+        db = sqlite3.connect(dst)
+        newest = db.execute("SELECT MAX(updated) FROM items").fetchone()[0]
+        db.close()
+    except sqlite3.Error:
+        newest = None
+    print("restored", dst, "- newest note", time.strftime("%Y-%m-%d %H:%M", time.localtime(newest)) if newest else "?")
 
 
 if __name__ == "__main__":

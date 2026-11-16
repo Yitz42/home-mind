@@ -576,22 +576,10 @@ class App:
     def setup_vault(self):
         """Option encrypt_secrets (#66): seal secret notes with a key kept out of backups; turned off, open them."""
         from . import vault
-        st = self.mind.store
-        path = os.path.join(DATA, "vault.key")
-        self.vault_status = {"enabled": False}
-        if not vault.available():
-            self.vault_status["error"] = "the cryptography library isn't installed"
-            return
-        if self.opts.get("encrypt_secrets"):
-            st.vault_key = vault.load_key(path)
-            n = st.seal_all()
-            self.vault_status = {"enabled": True, "key": vault.fingerprint(st.vault_key), "sealed_now": n}
-        elif os.path.exists(path):
-            st.vault_key = vault.load_key(path, create=False)
-            n = st.unseal_all()         # turned off: back to plain text, so nothing is stranded
-            st.vault_key = None
-            self.vault_status = {"enabled": False, "opened_now": n}
-        self.vault_status["sealed"] = st.db.execute("SELECT COUNT(*) FROM items WHERE secret IS NOT NULL").fetchone()[0]
+        self.vault_status = vault.setup(self.mind.store, os.path.join(DATA, "vault.key"),
+                                        self.opts.get("encrypt_secrets"))
+        if self.vault_status.get("error"):
+            log.warning("vault: %s", self.vault_status["error"])
 
     def comfort_rooms(self):
         """Option comfort_rooms (#29): each room's entities, person and helpers; empty = the original bedroom."""

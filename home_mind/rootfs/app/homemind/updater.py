@@ -128,6 +128,9 @@ class Updater:
                 try:
                     url = p["url"] if "://" in p["url"] else f"{base}/{p['url']}"
                     raw = await self._get(s, url)
+                    if chk["signed"] and not p.get("sha256"):
+                        # the signature covers the manifest only: a pack it lists without a hash could be anything
+                        raise RuntimeError("the signed manifest gives no sha256 for this pack; not installed")
                     if p.get("sha256") and hashlib.sha256(raw).hexdigest() != p["sha256"]:
                         raise RuntimeError("sha256 does not match the manifest; not installed")
                     pack = json.loads(raw)
