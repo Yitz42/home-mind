@@ -520,6 +520,12 @@ async def plan_action(model, request, things):
                          max_tokens=120, temperature=0)
     m = re.search(r"\{.*\}", r["text"], re.S)
     try:
-        return json.loads(m.group(0)) if m else {}
+        plan = json.loads(m.group(0)) if m else {}
     except ValueError:
         return {}
+    # only the shapes act() takes: an entity id and an action as text, a value as a number or text
+    if not isinstance(plan.get("entity_id"), str) or not isinstance(plan.get("action"), (str, type(None))):
+        return {"entity_id": None}
+    if not isinstance(plan.get("value"), (str, int, float, type(None))) or isinstance(plan.get("value"), bool):
+        plan["value"] = None
+    return plan
