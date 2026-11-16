@@ -79,7 +79,9 @@ class Views:
             hits = st.recall(v["query"], shelf=v.get("shelf"), kind=v.get("kind"), limit=max(v["limit"] * 3, 30),
                              touch=False, quiet=True)
         else:
-            sql, args = "SELECT * FROM items WHERE status IN ('active','faded') AND kind != 'procedure'", []
+            from .speakers import sql as _vis
+            vs, va = _vis()
+            sql, args = f"SELECT * FROM items WHERE status IN ('active','faded') AND kind != 'procedure' AND {vs}", list(va)
             if v.get("shelf"):
                 sql += " AND (shelf=? OR shelf LIKE ?)"
                 args += [v["shelf"], v["shelf"] + "/%"]

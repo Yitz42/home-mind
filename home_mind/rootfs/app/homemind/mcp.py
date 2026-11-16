@@ -137,9 +137,10 @@ class MCP:
             elif method == "tools/call":
                 name, args = params.get("name"), params.get("arguments") or {}
                 from .tokens import tool_needs, allows
-                if not allows(scope, tool_needs(name)):
+                if not allows(scope, tool_needs(name, args)):
                     return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
-                            f"not allowed: this token can {scope}; {name} needs {tool_needs(name)}"}], "isError": True}}
+                            f"not allowed: this token can {scope}; {name} needs {tool_needs(name, args)}"}],
+                            "isError": True}}
                 try:
                     out = await self.call(name, args)
                     res = {"content": [{"type": "text", "text": json.dumps(out, default=str, indent=1)}],
@@ -156,6 +157,12 @@ class MCP:
 
     async def call(self, name, a):
         app, st = self.app, self.app.mind.store
+        from .speakers import VIEWER
+        bound = VIEWER.get()            # a person-bound token (#48): only their own and household notes
+        if name in ("mind_update", "mind_forget", "mind_restore", "mind_confirm", "mind_feedback", "mind_purge"):
+            st.check_seen(int(a["id"]))
+        if name == "mind_remember" and bound and a.get("scope") == "personal":
+            a = dict(a, owner=bound)    # files personal notes as its own person, never someone else's
         if name == "mind_remember":
             return st.remember(text=a["text"], title=a.get("title", ""), kind=a.get("kind", "note"),
                                shelf=a.get("shelf", "inbox"), tags=a.get("tags"), key=a.get("key"),
@@ -168,7 +175,7 @@ class MCP:
             return lookup(st, a["query"], int(a.get("limit") or 8), a.get("shelf"), a.get("kind"),
                           bool(a.get("include_old")))
         if name == "mind_get":
-            return st.get(int(a["id"]), history=True)
+            return st.seen(int(a["id"]), history=True)
         if name == "mind_update":
             return st.revise(int(a["id"]), title=a.get("title"), body=a.get("text"), shelf=a.get("shelf"),
                              tags=a.get("tags"), key=a.get("key"), meta=a.get("meta"))

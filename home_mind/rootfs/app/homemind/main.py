@@ -38,6 +38,8 @@ from .version import VERSION
 DATA = os.environ.get("HOME_MIND_DATA", "/data")
 PORT = int(os.environ.get("HOME_MIND_PORT", "8099"))
 INGRESS_IPS = {"172.30.32.2"}
+# events that carry what someone asked or wrote: not for a token tied to another person (#48)
+PRIVATE_EVENTS = {"ask", "recall", "mdsync_edit", "forget_about", "feedback", "email", "revise", "remember", "browse"}
 WEB = os.path.join(os.path.dirname(__file__), "web")
 log = logging.getLogger("home_mind")
 
@@ -592,7 +594,9 @@ class App:
     def speaker_for(self, b):
         """From a request body: (viewer, how). viewer None = no speaker information given (sees everything) unless
         option unknown_caller is "guest"; "" = unknown; else a name."""
-        from .speakers import resolve
+        from .speakers import resolve, VIEWER
+        if VIEWER.get():            # a token tied to a person (#48): always that person, whatever the body says
+            return VIEWER.get(), "token"
         if b.get("speaker") is not None:
             return str(b["speaker"]).strip(), "given"
         clues = {k: b.get(k) for k in ("user", "user_id", "device_id", "area")}
@@ -694,7 +698,8 @@ def build(app_state):
             return web.Response(status=204)
         peer = request.remote or ""
         tok = request.headers.get("X-Home-Mind-Token") or request.headers.get("Authorization", "").removeprefix("Bearer ")
-        if peer in INGRESS_IPS or (tok and secrets.compare_digest(tok, app_state.token)):
+        if peer in INGRESS_IPS or (tok and secrets.compare_digest(tok.encode("utf-8", "surrogateescape"),
+                                                                  str(app_state.token).encode())):
             request["scope"] = "admin"
             return await handler(request)
         rec = app_state.tokens.check(tok) if tok else None
@@ -730,6 +735,9 @@ def build(app_state):
             return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=500)
 
     A, st = app_state, app_state.mind.store
+    from .speakers import VIEWER, visible, sql as vis_sql
+    from .tokens import allows
+    seen_id = lambda i: bool(i) and st.seen(int(i)) is not None      # noqa: E731 - may the viewer see this item (#48)
     J = lambda x, status=200: web.json_response(x, status=status, dumps=lambda o: json.dumps(o, default=str))
     r = web.RouteTableDef()
 
@@ -782,7 +790,7 @@ def build(app_state):
         if b.get("scope") in ("personal", "household"):
             meta["scope"] = b["scope"]
             if b["scope"] == "personal":
-                meta["owner"] = b.get("owner") or A.speaker_for(b)[0] or ""
+                meta["owner"] = VIEWER.get() or b.get("owner") or A.speaker_for(b)[0] or ""
         meta = A.scope_meta(meta, b.get("text", ""), A.speaker_for(b)[0])
         return J(st.remember(text=b.get("text", ""), title=b.get("title", ""), kind=b.get("kind", "note"),
                              shelf=b.get("shelf", "inbox"), tags=b.get("tags"), key=b.get("key"), meta=meta or None,
@@ -799,7 +807,7 @@ def build(app_state):
     @r.get("/api/item/{id}")
     async def item(q):
         i = int(q.match_info["id"])
-        d = st.get(i, history=True)
+        d = st.seen(i, history=True)
         if d:
             # other versions of the same fact, as the brain groups them when searching
             res = st.recall(d["title"], limit=12, include_old=True, touch=False)
@@ -820,14 +828,19 @@ def build(app_state):
                  "calendar": "source='calendar'", "house": "source='home'", "automations": "source='automations'",
                  "archived": "status='archived'"}.get(f, "1=1")
         col = "updated" if f == "archived" else "created"
-        rows = st.db.execute(f"SELECT * FROM items WHERE {where} AND {col} >= ? ORDER BY {col} DESC LIMIT ?",
-                             (time.time() - hours * 3600, lim)).fetchall()
+        vs, va = vis_sql()
+        rows = st.db.execute(f"SELECT * FROM items WHERE {where} AND {vs} AND {col} >= ? ORDER BY {col} DESC LIMIT ?",
+                             (*va, time.time() - hours * 3600, lim)).fetchall()
         return J([{k: v for k, v in st._row(r).items() if k in ("id", "title", "body", "shelf", "kind", "source",
                                                                 "created", "status", "meta")} for r in rows])
 
     @r.post("/api/item/{id}/{op}")
     async def item_op(q):
         i, op = int(q.match_info["id"]), q.match_info["op"]
+        try:
+            st.check_seen(i)
+        except KeyError:
+            raise web.HTTPNotFound()
         if op == "forget":
             return J(st.set_status(i, "archived"))
         if op == "restore":
@@ -893,7 +906,7 @@ def build(app_state):
                 raise ValueError("scope is personal or household")
             m = dict(d["meta"], scope=b["scope"])
             if b["scope"] == "personal":
-                m["owner"] = b.get("owner") or m.get("owner") or m.get("said_by") or ""
+                m["owner"] = VIEWER.get() or b.get("owner") or m.get("owner") or m.get("said_by") or ""
                 if not m["owner"]:
                     raise ValueError("a personal note needs an owner")
             with st.lock:
@@ -975,10 +988,10 @@ def build(app_state):
         from .cases import Cases
         out = structure.overview(st, time.time())
         out["duplicates"] = [{"a": {k: x[k] for k in ("id", "title")}, "b": {k: y[k] for k in ("id", "title")}}
-                             for x, y in ((st.get(a), st.get(b)) for a, b in (st.kv_get("tidy_pairs") or []))
+                             for x, y in ((st.seen(a), st.seen(b)) for a, b in (st.kv_get("tidy_pairs") or []))
                              if x and y and x["status"] == "active" and y["status"] == "active"]
         out["conflicts"] = [{"a": {k: x[k] for k in ("id", "title")}, "b": {k: y[k] for k in ("id", "title")}, "why": w}
-                            for x, y, w in ((st.get(a), st.get(b), w) for a, b, w in (st.kv_get("tidy_conflicts") or []))
+                            for x, y, w in ((st.seen(a), st.seen(b), w) for a, b, w in (st.kv_get("tidy_conflicts") or []))
                             if x and y and x["status"] == "active" and y["status"] == "active"]
         out["cases"] = Cases(st).all()
         return J(out)
@@ -991,8 +1004,10 @@ def build(app_state):
     @r.get("/api/tidy")
     async def tidy_get(q):
         from . import tidy
+        if q.query.get("now") == "1" and not allows(q.get("scope", "admin"), "write"):
+            return J({"error": "tidying now rolls up and archives old logs: this needs a write token"}, status=403)
         pairs = tidy.run(st) if q.query.get("now") == "1" else (st.kv_get("tidy_pairs") or [])
-        return J({"pairs": [{"a": st.get(a), "b": st.get(b)} for a, b in pairs]})
+        return J({"pairs": [{"a": st.seen(a), "b": st.seen(b)} for a, b in pairs if seen_id(a) and seen_id(b)]})
 
     @r.get("/api/cases")
     async def cases_get(_):
@@ -1018,8 +1033,11 @@ def build(app_state):
 
     @r.get("/api/events")
     async def events(q):
-        rows = st.db.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?", (int(q.query.get("limit", 100)),))
-        return J([dict(x) for x in rows])
+        rows = [dict(x) for x in st.db.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?",
+                                                (int(q.query.get("limit", 100)),))]
+        if VIEWER.get() is not None:    # a person-bound token: not what others asked, nor events about their notes
+            rows = [x for x in rows if x["type"] not in PRIVATE_EVENTS and (not x["item_id"] or seen_id(x["item_id"]))]
+        return J(rows)
 
     @r.get("/api/updates")
     async def updates(_):
@@ -1129,7 +1147,8 @@ def build(app_state):
         return J({"last": A.overnight.last, "model": A.overnight.pick_model(), "pending_turns": len(A.convlog.pending()),
                   "recent_turns": [{k: t[k] for k in ("ts", "user_text", "reply", "pipeline", "processed")}
                                    for t in A.mind.store.db.execute(
-                                       "SELECT * FROM conversations ORDER BY ts DESC LIMIT 10").fetchall()]})
+                                       "SELECT * FROM conversations ORDER BY ts DESC LIMIT 10").fetchall()
+                                   if VIEWER.get() is None or str(t["speaker"] or "").lower() == VIEWER.get().lower()]})
 
     @r.post("/api/overnight/run")
     async def overnight_run(_):
@@ -1198,20 +1217,24 @@ def build(app_state):
             path, ctype = A.photos.path(q.match_info["name"])
         except (ValueError, KeyError):
             raise web.HTTPNotFound()
+        if not seen_id(int(q.match_info["name"].split("-")[0])):     # a photo of someone else's personal note
+            raise web.HTTPNotFound()
         return web.FileResponse(path, headers={"Content-Type": ctype, "Cache-Control": "private, max-age=86400"})
 
     @r.delete("/api/item/{id}/photo/{name}")
     async def photo_delete(q):
-        return J({"removed": A.photos.remove(int(q.match_info["id"]), q.match_info["name"])})
+        return J({"removed": A.photos.remove(st.check_seen(int(q.match_info["id"])), q.match_info["name"])})
 
     @r.get("/api/reshelve")
     async def reshelve_list(q):
         """Notes on a shelf that filing now thinks belong on another (#32); ?run=1 checks now (dry run)."""
         if q.query.get("run") == "1" and st.filer:
             from .filing import reshelve
-            return J(reshelve(st.filer, apply=False))
+            res = reshelve(st.filer, apply=False)
+            return J({k: [x for x in v if seen_id(x["id"])] for k, v in res.items()})
+        vs, va = vis_sql()
         rows = st.db.execute("SELECT * FROM items WHERE status='active' AND shelf != 'inbox' AND "
-                             "meta LIKE '%\"suggested_shelf\"%' ORDER BY id DESC LIMIT 100").fetchall()
+                             f"meta LIKE '%\"suggested_shelf\"%' AND {vs} ORDER BY id DESC LIMIT 100", va).fetchall()
         return J([{k: v for k, v in st._row(r).items() if k in ("id", "title", "body", "shelf", "meta")} for r in rows])
 
     @r.get("/api/connections")
@@ -1325,9 +1348,10 @@ def build(app_state):
     async def inbox_get(_):
         """Notes in the inbox, newest first, with the shelf filing would suggest (#59)."""
         st = A.mind.store
+        vs, va = vis_sql()
         rows = [st._row(r) for r in st.db.execute(
-            "SELECT * FROM items WHERE shelf='inbox' AND status='active' AND kind != 'procedure' ORDER BY created DESC "
-            "LIMIT 100")]
+            f"SELECT * FROM items WHERE shelf='inbox' AND status='active' AND kind != 'procedure' AND {vs} "
+            "ORDER BY created DESC LIMIT 100", va)]
         out = []
         for d in rows:
             sug = (d["meta"] or {}).get("suggested_shelf")
@@ -1477,7 +1501,7 @@ def build(app_state):
     async def journal_list(q):
         from datetime import date
         day = date.fromisoformat(q.query["day"]) if q.query.get("day") else datetime.now().date()
-        return J({"day": str(day), "entries": A.journal.entries(day)})
+        return J({"day": str(day), "entries": [e for e in A.journal.entries(day) if visible(e.get("meta"))]})
 
     @r.get("/api/calendar")
     async def cal_day(q):
