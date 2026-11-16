@@ -92,6 +92,24 @@ class Model:
         u = j.get("usage") or {}
         return j["choices"][0]["message"].get("content", ""), (u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0)
 
+    async def embed(self, texts):
+        """Vectors for texts (#10): Ollama's /api/embed, or an OpenAI-compatible /v1/embeddings. Option embed_model
+        names the model; its "embed_model" field (or "model") is the embedding model to ask for."""
+        name = self.cfg.get("embed_model") or self.cfg.get("model", "")
+        if self.type == "mock":
+            return [[float(len(t) % 7 + 1), float(len(t.split()) % 5 + 1), 1.0] for t in texts]
+        if self.type == "ollama":
+            url = (self.cfg.get("url") or "http://localhost:11434").rstrip("/")
+            j = await self._post(url + "/api/embed", {"model": name, "input": texts})
+            return j["embeddings"]
+        if self.type == "openai":
+            url = (self.cfg.get("url") or "http://localhost:11434/v1").rstrip("/")
+            url = url + ("/embeddings" if url.endswith("/v1") else "/v1/embeddings")
+            headers = {"Authorization": f"Bearer {self.cfg['api_key']}"} if self.cfg.get("api_key") else {}
+            j = await self._post(url, {"model": name, "input": texts}, headers)
+            return [d["embedding"] for d in sorted(j["data"], key=lambda d: d.get("index", 0))]
+        raise ModelError(f"{self.name}: type {self.type} can't make embeddings (use ollama or openai)")
+
     # ---- Ollama native ---------------------------------------------------------------------------------------------
     async def _chat_ollama(self, system, messages, max_tokens, temperature):
         url = (self.cfg.get("url") or "http://localhost:11434").rstrip("/")

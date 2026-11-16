@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS metrics (
 );
 CREATE INDEX IF NOT EXISTS metrics_suite ON metrics(suite, arm, name, ts);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS links (a INTEGER, b INTEGER, kind TEXT, PRIMARY KEY (a, b, kind));
 """
 
 FTS = """
@@ -134,6 +135,20 @@ def names_in(text):
 # shed now."). "Finish it with lemon" points inside its own sentence and doesn't count.
 SPEAKER = re.compile(r"\b([A-Z][a-z]+)\s+(?:says|said|thinks|thought|told me|mentioned|claims|reckons)\b")
 FOLLOW = re.compile(r"\b(whoever|whose|of the (?:person|one|guy|woman|man)|(?:person|one|guy|woman|man) who)\b", re.I)
+
+
+MOD_STOP = STOP | {"new", "old", "same", "other", "next", "last", "first", "whole", "only", "own", "main", "current"}
+
+
+def modified_things(text):
+    """Things named by a modifier and a noun with no capital ("the blue toolbox", "our garage freezer"):
+    {noun: {modifiers}}. A name ("the Nimsk fern") is left to names_in."""
+    out = {}
+    for mod, noun in re.findall(r"\b(?i:the|my|our|your|his|her|their)\s+([a-z]+)\s+([a-z]{3,})\b", text or ""):
+        if mod in MOD_STOP or noun in STOP or noun.endswith("ly"):
+            continue
+        out.setdefault(singular(noun) if "singular" in globals() else noun, set()).add(mod)
+    return out
 
 
 def thing_word(text, anchor):
@@ -317,6 +332,11 @@ class Store:
         shelf, tags = clean_shelf(shelf), clean_tags(tags)
         now = float(at) if at else self.clock()     # at: when it happened, for readings filed afterwards
         m0 = dict(meta or {})
+        if "category" not in m0 and source not in ("home", "automations", "calendar", "habits", "tidy", "evening"):
+            from .categories import categorize
+            m0["category"], imp = categorize(title + " " + text, kind, source)       # #38, #75
+            if imp != 1:
+                m0["importance"] = imp
         from .privacy import is_sensitive
         if "sensitive" not in m0 and kind != "procedure" and is_sensitive(title + " " + text):
             m0["sensitive"] = True
@@ -387,6 +407,12 @@ class Store:
                 self.db.execute("UPDATE items SET status='superseded', updated=? WHERE id=?", (now, old["id"]))
             self.db.commit()
         self._vocab_add(title, text, tags, new_id)
+        if self.LINKS and kind != "procedure" and source not in ("home", "automations", "calendar", "habits", "tidy",
+                                                                 "evening", "lme-skip"):
+            try:
+                self._link_new(new_id, f"{title} {text}")
+            except sqlite3.Error:
+                pass
         out = {"id": new_id, "action": "held for review" if hold else "updated" if old else "created", "shelf": shelf}
         if old:
             out["previous"] = {"id": old["id"], "title": old["title"], "body": old["body"]}
@@ -479,6 +505,11 @@ class Store:
             self.db.execute("PRAGMA secure_delete = ON")
             q = ",".join("?" * len(ids))
             n_items = self.db.execute(f"DELETE FROM items WHERE id IN ({q})", list(ids)).rowcount
+            try:        # a note's embedding is its content in another form (#10)
+                self.db.execute(f"DELETE FROM vectors WHERE item_id IN ({q})", list(ids))
+            except sqlite3.OperationalError:
+                pass
+            self.db.execute(f"DELETE FROM links WHERE a IN ({q}) OR b IN ({q})", list(ids) * 2)
             n_ev = self.db.execute(f"DELETE FROM events WHERE item_id IN ({q})", list(ids)).rowcount
             evs = self.db.execute("SELECT id, data FROM events").fetchall()
             gone = []
@@ -558,6 +589,64 @@ class Store:
                 continue
             out.append({k: d[k] for k in ("id", "title", "body", "shelf", "source", "created", "status")} | {"why": why})
         return out[:limit]
+
+    LINKS = True
+    LINK_MAX = 5           # a thing named in more notes than this is too common to link on
+
+    def _link_new(self, new_id, text):
+        """#12: link a new note to the notes that name the same specific thing (a rare name, or a thing with a
+        modifier: "the red Trek", "the side gate"), so a question that finds one can be led to the other."""
+        anchors = set()
+        for n in names_in(text):
+            if len(n) >= 3:
+                anchors.add(n)
+        for noun, mods in modified_things(text).items():
+            for m in mods:
+                anchors.add(f"{m} {noun}")
+        found = set()
+        with self.lock:
+            for a in list(anchors)[:6]:
+                rows = self.db.execute("SELECT id FROM items WHERE id != ? AND status IN ('active','faded') AND "
+                                       "kind != 'procedure' AND source NOT IN ('home','automations','calendar') AND "
+                                       "(title LIKE ? OR body LIKE ?) ORDER BY id DESC LIMIT ?",
+                                       (new_id, f"%{a}%", f"%{a}%", self.LINK_MAX + 1)).fetchall()
+                if len(rows) > self.LINK_MAX:
+                    continue
+                found |= {r[0] for r in rows}
+            for o in found:
+                self.db.execute("INSERT OR IGNORE INTO links(a, b, kind) VALUES(?,?,'same_thing')", (new_id, o))
+                self.db.execute("INSERT OR IGNORE INTO links(a, b, kind) VALUES(?,?,'same_thing')", (o, new_id))
+            self.db.commit()
+        return found
+
+    def _follow_links(self, query, res, limit, include_old):
+        """#12: from the best few results, add a linked note that has a word of the question the result lacks (the
+        second step of a two-step question: "where is Dana's bike locked?" -> "Dana's bike is the red Trek" ->
+        "the red Trek is locked at the station")."""
+        qw = {singular(w) for w in words(query)} - STOP
+        have = {d["id"] for d in res}
+        add = []
+        for d in res[:3]:
+            dw = {singular(w) for w in words(d["title"] + " " + d["body"])}
+            for o in self.linked(d["id"]):
+                if o in have or o in {x["id"] for x in add}:
+                    continue
+                r = self.db.execute("SELECT * FROM items WHERE id=?", (o,)).fetchone()
+                if not r or r["status"] not in (("active", "faded", "superseded") if include_old else ("active", "faded")):
+                    continue
+                ow = {singular(w) for w in words(r["title"] + " " + r["body"])}
+                if (qw & ow) - dw:
+                    x = self._row(r)
+                    x["score"], x["via"] = round(d["score"] * 0.9, 3), d["id"]
+                    add.append(x)
+            if len(add) >= 2:
+                break
+        if not add:
+            return res
+        return (res[:1] + add + res[1:])[:max(limit, 1) + len(add)]
+
+    def linked(self, item_id):
+        return [r[0] for r in self.db.execute("SELECT b FROM links WHERE a=?", (int(item_id),))]
 
     def add_keys(self, item_id, words, by="lexicon"):
         """Extra search keys for a note (#71): kept apart from its text, read only by search."""
@@ -841,10 +930,22 @@ class Store:
         idf, matched = self._term_stats(ws, [r for _, r in scored]) if ws else ({}, {})
         total = sum(idf.values()) or 1.0
         qnames = names_in(query) & set(idf)
+        qmods = modified_things(query)
         out = []
         for base, r in scored:
             age_days = max(0.0, (now - r["created"]) / 86400.0)
             boost = 1 + 0.05 * math.log1p(r["use_count"]) + 0.05 * math.log1p(max(0.0, r["strength"] - 1))
+            if self.IMPORTANCE_W and '"importance": ' in (r["meta"] or ""):
+                m_imp = re.search(r'"importance": (\d)', r["meta"])
+                if m_imp:
+                    boost *= 1 + self.IMPORTANCE_W * (int(m_imp.group(1)) - 1)      # #75
+            if qmods and self.OTHER_THING_W != 1:
+                # #11: "the garage freezer" asked; a note about "the chest freezer" is about another freezer
+                nm = modified_things(r["title"] + " " + r["body"])
+                for noun, mods in qmods.items():
+                    if noun in nm and nm[noun] and not (mods & nm[noun]):
+                        boost *= self.OTHER_THING_W
+                        break
             boost *= 1 + 0.02 / (1 + age_days)          # a slight lean toward newer
             if r["status"] == "faded":
                 boost *= 0.7
@@ -895,8 +996,12 @@ class Store:
                         found.append(nm)
             if found:
                 rest = " ".join(w for w in ws if w not in ("whoever", "runs", "run", "person", "one"))
-                more = self.recall(" ".join(n.capitalize() for n in found[:2]) + " " + rest, shelf=shelf, kind=kind,
-                                   limit=3, include_old=include_old, touch=False)
+                self._inner = True          # the hop's own search doesn't follow links (#12)
+                try:
+                    more = self.recall(" ".join(n.capitalize() for n in found[:2]) + " " + rest, shelf=shelf,
+                                       kind=kind, limit=3, include_old=include_old, touch=False)
+                finally:
+                    self._inner = False
                 hop = [dict(d, hop=True) for d in more[:2] if d["id"] != res[0]["id"]]
                 hop_ids = {d["id"] for d in hop}
                 # the first answer, then what its name leads to, then the rest
@@ -907,6 +1012,10 @@ class Store:
                                     "status=CASE WHEN status='faded' THEN 'active' ELSE status END WHERE id=?",
                                     [(now, d["id"]) for d in res])
                 self.db.commit()
+        if self.LINKS and res and len(res) < limit + 3 and not getattr(self, "_inner", False) and \
+                not (self.FOLLOW_NAMES and FOLLOW.search(query)):
+            # (a "whoever runs it" question already has its own hop to the person; links would push it down)
+            res = self._follow_links(query, res, limit, include_old)
         from .speakers import visible as _visible
         res = [d for d in res if _visible(d.get("meta"))]      # and whatever was reached through links or hops
         if not quiet:          # the nightly checks search a lot; they don't fill the activity log
@@ -914,6 +1023,8 @@ class Store:
         return res
 
     # recall settings (class-level so tests can compare with and without)
+    IMPORTANCE_W = 0.03  # per importance step above 1: a slight lean toward what matters (#75)
+    OTHER_THING_W = 0.5  # a note about the same kind of thing with a different modifier (#11)
     KEYS = True          # extra search keys from the built-in word list when filing (#71)
     ROUTINE_W = 0.7      # routine house changes (a light going off at its usual time) rank this much lower
     PROBATION_W = 0.85   # facts learned overnight rank this much lower until confirmed (or PROBATION_DAYS pass)
@@ -1080,15 +1191,25 @@ class Store:
         brought back the moment they are found again. Nothing is deleted."""
         if not days:
             return 0
-        cut = self.clock() - days * 86400
+        from .categories import FADE_X
+        now, total = self.clock(), 0
         with self.lock:
-            cur = self.db.execute(
-                f"UPDATE items SET status='faded' WHERE status='active' AND kind IN ({','.join('?' * len(kinds))}) "
-                "AND COALESCE(last_used, created) < ? AND strength < 3", list(kinds) + [cut])
+            # each category at its own pace (#38); safety, identity and corrections never, importance 3 never (#75)
+            for cat, x in FADE_X.items():
+                if x is None:
+                    continue
+                cut = now - days * x * 86400
+                cond = "json_extract(meta, '$.category') = ?" if cat != "note" else \
+                    "(json_extract(meta, '$.category') IS NULL OR json_extract(meta, '$.category') = ?)"
+                cur = self.db.execute(
+                    f"UPDATE items SET status='faded' WHERE status='active' AND kind IN ({','.join('?' * len(kinds))}) "
+                    f"AND COALESCE(last_used, created) < ? AND strength < 3 AND {cond} AND "
+                    "COALESCE(json_extract(meta, '$.importance'), 1) < 3", list(kinds) + [cut, cat])
+                total += cur.rowcount
             self.db.commit()
-        if cur.rowcount:
-            self.log("fade", None, n=cur.rowcount, days=days)
-        return cur.rowcount
+        if total:
+            self.log("fade", None, n=total, days=days)
+        return total
 
     def prune_events(self, keep_days):
         """The event log keeps every search, answer and change. Past `keep_days` the rows are rolled up into daily

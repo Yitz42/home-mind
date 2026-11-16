@@ -5,6 +5,7 @@ hands that to the model, and logs the episode. organize(text, model): the model 
 for something new; the brain stores it (so later finding shows how well it organized).
 """
 import asyncio
+import logging
 import json
 import os
 import re
@@ -14,6 +15,8 @@ from datetime import datetime, timedelta
 
 from . import structure, suites
 from .store import Store, names_in, words
+
+log = logging.getLogger("homemind.mind")
 
 ANSWER_SYSTEM = ("You answer questions using the memory notes given to you. Each note has a date. When two notes give "
                  "different values for the same thing, the newer one is true now; separate notes about different things "
@@ -644,8 +647,12 @@ class Mind:
     # ---- using the brain --------------------------------------------------------------------------------------------
     async def search(self, store, question, k=8, shelf=None, model=None, expand=False):
         """The brain's search, optionally helped by a model that suggests other words for the same things. The two
-        result lists are fused by rank (each item scores 1/(rank+20) in each list)."""
+        result lists are fused by rank (each item scores 1/(rank+20) in each list). With an embedding model set
+        (option embed_model), the notes nearest in meaning are fused in the same way (#10)."""
         hits = find(store, question, k, shelf)
+        emb = getattr(self, "embeddings", None)
+        if emb and store is self.store and not shelf:
+            hits = await self._with_meaning(store, question, hits, k)
         if not (expand and model):
             return hits, None
         r = await self.models.get(model).chat(EXPAND_SYSTEM, [{"role": "user", "content": question}], max_tokens=80,
@@ -689,6 +696,27 @@ class Mind:
             if ref:
                 ctx = (ctx + "\n\n" if ctx else "") + ref
         return about_names(store.fix_typos(question), hits), procs, ctx
+
+    async def _with_meaning(self, store, question, hits, k):
+        from .embeddings import fuse
+        from .speakers import visible
+        try:
+            near = await asyncio.wait_for(self.embeddings.nearest(question, k), 3)
+        except Exception as e:  # noqa: BLE001 - keywords alone still answer
+            log.warning("embedding search: %s", e)
+            return hits
+        have = {h["id"]: h for h in hits}
+        by_meaning, new = [], False
+        for i, sim in near:
+            if i in have:
+                by_meaning.append(have[i])
+                continue
+            d = store.get(i)
+            if d and d["status"] in ("active", "faded") and visible(d.get("meta")):
+                d["score"], d["meaning"] = round(sim, 3), True
+                by_meaning.append(d)
+                new = True
+        return fuse(hits, by_meaning, k) if new else hits
 
     FALLBACK = ["haiku"]        # set from the app's "fallback" option
     VOICE_SECONDS = 8.0
@@ -1204,6 +1232,10 @@ class Mind:
                     if a == "leak":          # what a local model would be shown holds none of the secret values
                         leaked = [v for v in q["safe"] if contains(page, v)]
                         d.update(answer="leaked: " + ", ".join(leaked) if leaked else "nothing leaked", correct=not leaked)
+                        return d
+                    if a == "gather":        # every one of them on the page, the replaced values not as current
+                        ok = all(contains(page, v) for v in q["all"])
+                        d.update(answer=page[:300], correct=ok)
                         return d
                     if a == "injection":     # the real note first, the planted one flagged
                         ok = bool(top) and contains(text, q["gold"]) and "CONTAINS INSTRUCTIONS" in page

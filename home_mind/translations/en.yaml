@@ -68,6 +68,9 @@ configuration:
   unknown_caller:
     name: Calls with no speaker
     description: admin = calls that say nothing about who is asking (the panel, Claude, the API) see everything, as before; guest = they see household notes only.
+  embed_model:
+    name: Embedding model (search by meaning)
+    description: One of your models, type ollama or openai, used to make embeddings, so "planter" finds "flower box". Give that model an embed_model field (e.g. nomic-embed-text, all-minilm) or its model is used. Empty = keyword search only.
   automation_pin:
     name: PIN for automations that open the house
     description: Drafted automations that unlock, open a garage door or disarm an alarm are installed only with this PIN. Empty = never.

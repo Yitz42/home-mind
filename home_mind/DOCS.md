@@ -277,6 +277,19 @@ pet and breed; a Civic under car; a dentist under doctor and appointment (a buil
 Overnight, the model adds other words for recent notes. So "what's our new dog called?" finds "We adopted a beagle
 named Rufus".
 
+## Search by meaning, links and importance
+
+- **By meaning.** Set option `embed_model` to one of your models (type ollama or openai) that can make embeddings,
+  and give it an `embed_model` field naming the embedding model (for Ollama, e.g. `nomic-embed-text`). Notes are
+  embedded in the background, a batch every 30 seconds, and each question's nearest notes are fused with the keyword
+  results, so "planter" finds "flower box". Without it, search is by keywords (with the extra search keys) as before.
+- **Links.** Notes that name the same specific thing ("the red Trek", a rare name) are linked when filed. A question
+  that finds one note is led to a linked note that has the missing words: "where is Dana's bike locked?" reaches "the
+  red Trek is locked at the station" through "Dana's bike is the red Trek".
+- **Importance and fading.** Each note gets a category when filed. Safety notes (allergies, shutoffs, medication),
+  facts about who people are, and corrections never fade; preferences fade 3 times and device notes 4 times more
+  slowly than other notes (option fade_days). Safety notes also rank a little higher.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press

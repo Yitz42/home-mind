@@ -22,7 +22,8 @@ SUITES = {"recall": (None, 1.0), "update": (None, 0.98), "locate": (None, 0.8), 
           "valid": (None, 1.0), "profile": (None, 1.0), "tidy": (None, 1.0), "attacks": (None, 1.0),
           "sources": (None, 1.0), "injections": (None, 1.0), "conflicts": (None, 1.0), "reminders": (None, 1.0),
           "habits": (None, 0.99), "baselines": (None, 1.0), "salience": (None, 1.0), "drafts": (None, 1.0),
-          "people": (None, 1.0), "keys": (None, 0.94)}
+          "people": (None, 1.0), "keys": (None, 0.94),
+          "lowercase": (None, 0.99), "links": (None, 1.0)}
 
 
 async def main():

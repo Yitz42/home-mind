@@ -40,6 +40,8 @@ jobs:
         run: python tests/longmemeval.py selftest
       - name: People and search keys (speaker, personal notes, unknown voices, keys)
         run: python tests/test_people.py
+      - name: Meaning, links and categories (embeddings, modifiers, links, importance, fading)
+        run: python tests/test_meaning.py
       - name: Extraction bench scoring
         run: python tests/test_extract.py
       - name: Pantry

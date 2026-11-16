@@ -48,7 +48,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": "", "overnight_time": "03:00", "overnight_model": "",
             "overnight_enabled": True, "morning_enabled": True, "evening_enabled": True, "evening_time": "21:00",
             "evening_notify": "", "house_notices": True, "automation_pin": "", "people": [],
-            "personal_rule": "first_person", "unknown_caller": "admin",
+            "personal_rule": "first_person", "unknown_caller": "admin", "embed_model": "",
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
@@ -114,6 +114,12 @@ class App:
     # ---- lifecycle --------------------------------------------------------------------------------------------
     async def on_start(self, _app):
         await self.models.start()
+        if self.opts.get("embed_model"):
+            from .embeddings import Embeddings
+            try:
+                self.mind.embeddings = Embeddings(self.mind.store, self.models.get(self.opts["embed_model"]))
+            except Exception as e:  # noqa: BLE001 - a missing model name: keyword search only
+                log.warning("embed_model: %s", e)
         self.ha = HA(self.models.session)
         self.ha.quiet = quiet_window(self.opts)
         self.ha.cap = int(self.opts.get("notify_daily_cap") or 0)
@@ -338,6 +344,14 @@ class App:
                                 await self.ha.push(target, {"title": title, "message": msg})
                         except Exception as e:  # noqa: BLE001
                             log.warning("house notice: %s", e)
+            emb = getattr(self.mind, "embeddings", None)
+            if emb and now - last.get("embed", 0) > 30:
+                last["embed"] = now
+                try:
+                    await emb.index(32)         # new and changed notes, a batch at a time (#10)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("embedding notes: %s", e)
+                    last["embed"] = now + 600   # the model is down: try again in ten minutes
             if now - last.get("house", 0) > 86400 and self.home.catalog:
                 last["house"] = now
                 try:

@@ -21,6 +21,7 @@ Run (from the repo root; answer needs aiohttp, as the add-on does):
   python tests/longmemeval.py retrieve data/longmemeval_s_cleaned.json                  # all 500
   python tests/longmemeval.py answer data/longmemeval_s_cleaned.json --models models.json --model qwen \\
       --out hyp_qwen.jsonl --limit 50
+  python tests/longmemeval.py retrieve data/longmemeval_s_cleaned.json --models models.json --embed nomic
   python tests/longmemeval.py selftest                                                  # no download needed
 
 models.json is a list in the add-on's "models" format, e.g.
@@ -97,6 +98,8 @@ def load(path, limit, types):
 
 
 def retrieve(args):
+    if getattr(args, "embed", None):
+        return asyncio.run(retrieve_meaning(args))
     from homemind.store import Store
     from homemind.mind import find
     ks = [int(k) for k in args.k.split(",")]
@@ -130,6 +133,46 @@ def retrieve(args):
         print(f"{t:28s}" + "".join(f"{sum(by[t][c]) / len(by[t][c]):9.3f}" for c in cols) + f"{len(by[t][cols[0]]):7d}")
     if tot:
         print(f"{'all':28s}" + "".join(f"{sum(tot[c]) / len(tot[c]):9.3f}" for c in cols) + f"{len(tot[cols[0]]):7d}")
+    return tot
+
+
+async def retrieve_meaning(args):
+    """retrieve, with an embedding model fused in (#10), as Home Mind does with option embed_model."""
+    from homemind.store import Store
+    from homemind.mind import find
+    from homemind.models import Models
+    from homemind.embeddings import Embeddings, fuse
+    models = Models(json.load(open(args.models)))
+    await models.start()
+    ks = [int(k) for k in args.k.split(",")]
+    tot = collections.defaultdict(list)
+    t0 = time.time()
+    try:
+        data = load(args.data, args.limit, args.type)
+        for n, inst in enumerate(data, 1):
+            if inst["question_id"].endswith("_abs"):
+                continue
+            with tempfile.TemporaryDirectory() as d:
+                qt = parse_date(inst.get("question_date")) or time.time()
+                st = Store(os.path.join(d, "m.db"), clock=lambda: qt)
+                fill(st, inst, args.user_only)
+                emb = Embeddings(st, models.get(args.embed))
+                while await emb.index(64):
+                    pass
+                kw = find(st, inst["question"], max(ks) * 4, touch=False)
+                near = [st.get(i) for i, _ in await emb.nearest(inst["question"], max(ks) * 4)]
+                ranked = sessions_ranked(fuse(kw, [x for x in near if x], max(ks) * 4))
+                gold = set(inst["answer_session_ids"])
+                for k in ks:
+                    tot[f"any@{k}"].append(bool(set(ranked[:k]) & gold))
+                    tot[f"all@{k}"].append(gold <= set(ranked[:k]))
+                st.close()
+            if n % 25 == 0:
+                print(f"  {n}/{len(data)} ({time.time() - t0:.0f}s)", file=sys.stderr)
+    finally:
+        await models.stop()
+    print(f"\nRetrieval by session, keywords + {args.embed} ({len(tot[f'any@{ks[0]}'])} questions)")
+    print("  ".join(f"{c} {sum(v) / len(v):.3f}" for c, v in tot.items()))
     return tot
 
 
@@ -226,6 +269,8 @@ def main():
         s.add_argument("--user-only", action="store_true", help="file only what the user said, not the replies")
         if name == "retrieve":
             s.add_argument("--k", default="5,10")
+            s.add_argument("--models", help="models.json, for --embed")
+            s.add_argument("--embed", help="an embedding model from models.json, fused with keywords (#10)")
         else:
             s.add_argument("--models", help="models.json, a list in the add-on's models format")
             s.add_argument("--model", required=True)
