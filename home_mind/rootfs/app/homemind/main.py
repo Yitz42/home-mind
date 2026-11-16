@@ -19,6 +19,7 @@ from .automations import Engine
 from .journal import Journal
 from .calendars import Calendars
 from .morning import Morning
+from .evening import Evening
 from .overnight import ConvLog, Overnight
 from .pantry import Pantry
 from . import nutrition
@@ -45,7 +46,8 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "auto_update_packs": True, "auto_test_hours": 0, "fade_days": 60, "log_level": "info", "comfort": True,
             "home": True, "home_controls": [], "home_fan_max": 100,
             "fallback": ["haiku"], "voice_seconds": 8, "morning_time": "07:30", "morning_notify": "", "overnight_time": "03:00", "overnight_model": "",
-            "overnight_enabled": True, "morning_enabled": True,
+            "overnight_enabled": True, "morning_enabled": True, "evening_enabled": True, "evening_time": "21:00",
+            "evening_notify": "", "house_notices": True, "automation_pin": "",
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
@@ -149,6 +151,13 @@ class App:
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False
         self.morning.checkin_on = self.opts.get("checkin_old_facts", True) is not False
         self.morning.checkin_days = int(self.opts.get("checkin_after_days") or 180)
+        self.evening = Evening(self.mind.store, self.ha, self.opts.get("evening_time") or "21:00",
+                               self.opts.get("evening_notify") or self.opts.get("morning_notify") or "",
+                               phone=self.morning._phone)
+        self.evening.enabled = self.opts.get("evening_enabled", True) is not False
+        if (datetime.now().hour, datetime.now().minute) >= self.evening.at:
+            self.evening.done_for = datetime.now().date()      # started after the time: wait for tomorrow
+        self.house_notices = self.opts.get("house_notices", True) is not False
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
@@ -320,6 +329,25 @@ class App:
                     log.debug("conversation log: %s", e)
             if self.ha.available:
                 await self.morning.tick()
+                await self.evening.tick()
+            if self.ha.available and self.home.notices:
+                notes, self.home.notices = self.home.notices[:2], []      # very few (#40): at most two at a time
+                if self.house_notices:
+                    target = self.evening.notify or await self.morning._phone()
+                    for title, msg in notes:
+                        try:
+                            await self.ha.notify(title, msg, "home_mind_house")
+                            if target:
+                                await self.ha.push(target, {"title": title, "message": msg})
+                        except Exception as e:  # noqa: BLE001
+                            log.warning("house notice: %s", e)
+            if now - last.get("house", 0) > 86400 and self.home.catalog:
+                last["house"] = now
+                try:
+                    r = self.learn_house()
+                    log.info("house: %d habits, %d suggestions, %d baselines", *r)
+                except Exception:  # noqa: BLE001
+                    log.exception("house learning")
             if now - last.get("knowledge", 0) > 60:
                 last["knowledge"] = now
                 try:
@@ -397,6 +425,81 @@ class App:
             except Exception:  # noqa: BLE001
                 log.exception("upkeep")
             await asyncio.sleep(20)
+
+
+    def learn_house(self):
+        """The nightly house model (#19, #39, #40, #41): habits filed as notes, suggestions kept for the panel."""
+        from . import house
+        st = self.mind.store
+        cfgs = [a.get("config") for a in self.engine.autos.values() if a.get("config")]
+        model = house.learn(st, time.time(), cfgs, st.kv_get("suggestions_done") or [])
+        st.kv_set("house_model", model)
+        self.home.model = model
+        house.file_habits(st, model)
+        return len(model["habits"]), len(model["suggestions"]), len(model["baselines"])
+
+    async def house_lists(self):
+        states = await self.engine._get("states") or []
+        services = await self.engine._get("services") or []
+        return states, services
+
+    def house_overview(self):
+        from . import house
+        st = self.mind.store
+        m = st.kv_get("house_model") or {}
+        done = st.kv_get("suggestions_done") or []
+        notable = []
+        for r in st.db.execute("SELECT id, created, title, meta FROM items WHERE source='home' AND created >= ? AND "
+                               "meta LIKE '%salience%' ORDER BY created DESC LIMIT 300", (time.time() - 86400,)):
+            mm = json.loads(r["meta"] or "{}")
+            if (mm.get("salience") or 0) >= house.NOTABLE:
+                notable.append({"id": r["id"], "created": r["created"], "title": r["title"],
+                                "salience": mm["salience"], "why": mm.get("why"), "unusual": mm.get("unusual")})
+        base = [{"entity_id": e, "name": b["name"], "low": round(b["all"]["lo"], 1), "high": round(b["all"]["hi"], 1),
+                 "middle": round(b["all"]["med"], 1), "readings": b["all"]["n"]}
+                for e, b in sorted((m.get("baselines") or {}).items(), key=lambda kv: kv[1]["name"])]
+        return {"at": m.get("at"), "habits": [dict(h, text=house.habit_text(h)) for h in m.get("habits") or []],
+                "suggestions": [x for x in m.get("suggestions") or [] if x["id"] not in done],
+                "baselines": base, "notable": notable}
+
+    async def suggestion(self, sid, op, enable=False):
+        """Create (switched off unless enable) or dismiss a suggested automation. None if there's no such one."""
+        from . import autodraft
+        st = self.mind.store
+        sug = next((x for x in (st.kv_get("house_model") or {}).get("suggestions") or [] if x["id"] == sid), None)
+        if not sug or op not in ("create", "dismiss"):
+            return None
+        done = st.kv_get("suggestions_done") or []
+        if op == "dismiss":
+            st.kv_set("suggestions_done", done + [sid])
+            return {"dismissed": sid}
+        states, services = await self.house_lists()
+        ents, svcs, names, _, _ = autodraft.house_lists(states, services)
+        problems = autodraft.check(sug["config"], ents, svcs, names=names)
+        if problems:
+            return {"problems": problems}
+        r = await self.engine.create(sug["config"], enable=enable)
+        st.kv_set("suggestions_done", done + [sid])
+        return r
+
+    async def draft_automation(self, request, model=None):
+        from . import autodraft
+        if not request.strip():
+            raise ValueError("say what the automation should do")
+        states, services = await self.house_lists()
+        name = model or self.opts.get("overnight_model") or (self.models.list() or [{}])[0].get("name")
+        return await autodraft.draft(self.models.get(name), request, states, services)
+
+    async def install_automation(self, cfg, enable=False, pin=""):
+        """Install a drafted automation, checked again here: never trust a config because it was drafted."""
+        from . import autodraft
+        states, services = await self.house_lists()
+        ents, svcs, names, _, _ = autodraft.house_lists(states, services)
+        problems = autodraft.check(cfg, ents, svcs, pin=str(self.opts.get("automation_pin") or ""),
+                                   given_pin=str(pin or ""), names=names)
+        if problems:
+            return {"installed": False, "problems": problems}
+        return dict(await self.engine.create(cfg, enable=enable), installed=True)
 
 
 # ---- HTTP ------------------------------------------------------------------------------------------------------
@@ -507,7 +610,7 @@ def build(app_state):
         hours = float(q.query.get("hours", 48))
         lim = min(500, int(q.query.get("limit", 100)))
         f = q.query.get("filter", "told")
-        where = {"told": "source NOT IN ('home','calendar','automations') AND source NOT LIKE 'pack:%'", "all": "1=1",
+        where = {"told": "source NOT IN ('home','calendar','automations','habits','tidy','evening') AND source NOT LIKE 'pack:%'", "all": "1=1",
                  "calendar": "source='calendar'", "house": "source='home'", "automations": "source='automations'",
                  "archived": "status='archived'"}.get(f, "1=1")
         col = "updated" if f == "archived" else "created"
@@ -770,6 +873,42 @@ def build(app_state):
     @r.post("/api/overnight/run")
     async def overnight_run(_):
         return J(await A.overnight.run())
+
+    @r.get("/api/evening")
+    async def evening_preview(_):
+        return J({"text": A.evening.build()})
+
+    @r.post("/api/evening/send")
+    async def evening_send(_):
+        return J(await A.evening.send())
+
+    @r.get("/api/house")
+    async def house_get(_):
+        return J(A.house_overview())
+
+    @r.post("/api/house/learn")
+    async def house_learn(_):
+        h, sg, b = A.learn_house()
+        return J({"habits": h, "suggestions": sg, "baselines": b})
+
+    @r.post("/api/house/suggestion/{sid}/{op}")
+    async def house_suggestion(q):
+        b = await q.json() if q.can_read_body else {}
+        r = await A.suggestion(q.match_info["sid"], q.match_info["op"], enable=bool(b.get("enable")))
+        if r is None:
+            raise web.HTTPNotFound()
+        return J(r, status=400 if r.get("problems") else 200)
+
+    @r.post("/api/automations/draft")
+    async def automation_draft(q):
+        b = await q.json()
+        return J(await A.draft_automation(b.get("request") or "", b.get("model")))
+
+    @r.post("/api/automations/install")
+    async def automation_install(q):
+        b = await q.json()
+        r = await A.install_automation(b.get("config"), bool(b.get("enable")), b.get("pin") or "")
+        return J(r, status=400 if r.get("problems") else 200)
 
     @r.get("/api/morning")
     async def morning_preview(q):

@@ -280,7 +280,7 @@ class Overnight:
         from . import structure
         rows = self.store.db.execute(
             "SELECT id, title, body, created, meta FROM items WHERE status='active' AND created > ? AND kind NOT IN "
-            "('procedure','task') AND source NOT IN ('home','calendar','automations','scale','morning','patterns') "
+            "('procedure','task') AND source NOT IN ('home','calendar','automations','scale','morning','patterns','habits','tidy','evening') "
             "AND source NOT LIKE 'pack:%' ORDER BY created DESC LIMIT 200", (time.time() - days * 86400,)).fetchall()
         n = 0
         for r in rows:

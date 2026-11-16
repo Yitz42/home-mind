@@ -809,6 +809,8 @@ class Store:
                 boost *= 0.7
             if r["status"] == "superseded":
                 boost *= 0.5
+            if self.ROUTINE_W != 1 and r["source"] == "home" and '"routine": true' in (r["meta"] or ""):
+                boost *= self.ROUTINE_W            # a house change that happens every day: below what matters (#40)
             if self.PROBATION_W != 1 and _on_probation(r, now, self.PROBATION_DAYS):
                 boost *= self.PROBATION_W          # learned overnight, not confirmed yet: below what you said
             if qnames and self.NAME_BOOST != 1:
@@ -869,6 +871,7 @@ class Store:
         return res
 
     # recall settings (class-level so tests can compare with and without)
+    ROUTINE_W = 0.7      # routine house changes (a light going off at its usual time) rank this much lower
     PROBATION_W = 0.85   # facts learned overnight rank this much lower until confirmed (or PROBATION_DAYS pass)
     PROBATION_DAYS = 7
     STRUCTURE = True     # read recurrence, chores, places, fields, aliases and "since when" from notes as they are filed

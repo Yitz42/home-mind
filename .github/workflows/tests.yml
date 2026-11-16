@@ -34,6 +34,10 @@ jobs:
         run: python tests/test_trust.py
       - name: Source trust, review queue, tidying, reminders
         run: python tests/test_finish.py
+      - name: House and automations (triggers, habits, ranges, notable changes, drafts, evening brief)
+        run: python tests/test_house.py
+      - name: LongMemEval harness (self-test on a sample in its format)
+        run: python tests/longmemeval.py selftest
       - name: Extraction bench scoring
         run: python tests/test_extract.py
       - name: Pantry

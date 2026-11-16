@@ -63,6 +63,10 @@ SETTINGS = {
                           "apply": lambda A, v: setattr(A.overnight, "enabled", bool(v))},
     "morning_enabled": {"kind": "switch", "label": "Morning summary", "icon": "mdi:weather-sunset-up",
                         "apply": lambda A, v: setattr(A.morning, "enabled", bool(v))},
+    "evening_enabled": {"kind": "switch", "label": "Evening home brief", "icon": "mdi:weather-sunset-down",
+                        "apply": lambda A, v: setattr(A.evening, "enabled", bool(v))},
+    "house_notices": {"kind": "switch", "label": "Notices about unusual house events", "icon": "mdi:home-alert",
+                      "apply": lambda A, v: setattr(A, "house_notices", bool(v))},
     "patterns_checkins": {"kind": "switch", "label": "Brain-fog check-ins", "icon": "mdi:head-question",
                           "apply": lambda A, v: setattr(A.patterns, "checkins_on", bool(v))},
     "auto_update_packs": {"kind": "switch", "label": "Install new packs automatically", "icon": "mdi:package-down",
@@ -94,6 +98,8 @@ SETTINGS = {
     "quiet_end": {"kind": "time", "label": "Quiet hours end", "icon": "mdi:bell-ring", "apply": _quiet},
     "morning_time": {"kind": "time", "label": "Morning summary time", "icon": "mdi:clock-outline",
                      "apply": lambda A, v: _move_daily(A.morning, v)},
+    "evening_time": {"kind": "time", "label": "Evening brief time", "icon": "mdi:clock-outline",
+                     "apply": lambda A, v: _move_daily(A.evening, v)},
     "overnight_time": {"kind": "time", "label": "Overnight learning time", "icon": "mdi:clock-outline",
                        "apply": lambda A, v: _move_daily(A.overnight, v)},
 }
@@ -105,6 +111,11 @@ async def _tests(A):
     return {"started": [r["id"] for r in runs]}
 
 
+async def _learn(A):
+    h, s, b = A.learn_house()
+    return {"habits": h, "suggestions": s, "baselines": b}
+
+
 async def _release(A):
     return await A.engine.release(sorted(A.engine.owned))
 
@@ -113,6 +124,8 @@ async def _release(A):
 ACTIONS = {
     "overnight": {"label": "Run overnight learning now", "icon": "mdi:weather-night", "run": lambda A: A.overnight.run()},
     "morning": {"label": "Send the morning summary", "icon": "mdi:message-text", "run": lambda A: A.morning.send()},
+    "evening": {"label": "Send the evening brief", "icon": "mdi:message-text-clock", "run": lambda A: A.evening.send()},
+    "house": {"label": "Learn the house's habits now", "icon": "mdi:home-analytics", "run": lambda A: _learn(A)},
     "calendars": {"label": "Sync calendars", "icon": "mdi:calendar-sync", "run": lambda A: A.calendars.sync()},
     "models": {"label": "Check models", "icon": "mdi:robot", "run": lambda A: A.models.check_all()},
     "packs": {"label": "Install pack updates", "icon": "mdi:package-down", "run": lambda A: A.updater.apply()},

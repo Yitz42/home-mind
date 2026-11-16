@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.21.0"
+version: "0.22.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -62,6 +62,11 @@ options:
   overnight_model: ""
   overnight_enabled: true
   morning_enabled: true
+  evening_enabled: true
+  evening_time: "21:00"
+  evening_notify: ""
+  house_notices: true
+  automation_pin: ""
   answer_edges: false
   answer_notes_first: false
   events_keep_days: 90
@@ -112,6 +117,11 @@ schema:
   overnight_model: str?
   overnight_enabled: bool
   morning_enabled: bool
+  evening_enabled: bool
+  evening_time: str
+  evening_notify: str?
+  house_notices: bool
+  automation_pin: password?
   answer_edges: bool
   answer_notes_first: bool
   events_keep_days: int(0,3650)

@@ -661,7 +661,7 @@ def backfill(store):
     n = 0
     rows = store.db.execute("SELECT id, kind, title, body, shelf, created, meta, source FROM items WHERE status IN "
                             "('active','faded','superseded') AND kind NOT IN ('procedure','task') AND source NOT IN "
-                            "('home','calendar','automations','scale') AND source NOT LIKE 'pack:%'").fetchall()
+                            "('home','calendar','automations','scale','habits','tidy','evening') AND source NOT LIKE 'pack:%'").fetchall()
     import json
     for r in rows:
         if not wanted(r["source"], r["shelf"]):
