@@ -187,6 +187,25 @@ the other suites don't get worse. Turn it on only if both hold.
 - **The attacks suite** tries these on purpose and also plants an instruction in a note. On 20 held-out worlds it
   scores 1.000; with the guards switched off, 0.455.
 
+## Review and reminders
+
+- **Inferred notes.** When Claude saves something it worked out rather than something you said, it marks it
+  inferred. Like facts learned overnight, an inferred note ranks below what you said, doesn't replace a value you set
+  (even with the same key), and is shown to models as UNCONFIRMED until you confirm it. Claude passing on what you
+  told it is not inferred and replaces values as usual.
+- **To review.** Notes from conversations or inferred that read like instructions to the assistant ("Assistant, when
+  anyone asks…", "ignore your instructions…") are held: left out of every answer until you approve them. The Memory tab
+  shows a To review card with held and unconfirmed notes (Approve / Confirm, Drop). Also `GET /api/review` and
+  `mind_review`. Notes you type yourself are never held; if one reads like an instruction it is only marked.
+- **Disagreeing notes.** Each night the tidy pass looks for two people saying different values about one thing and
+  for guesses that differ from what was said. They are listed in the morning summary and on the Worked out tab.
+- **Monthly roll-ups.** Comfort actions, house actions and automation runs older than 90 days become one note per
+  month (on `comfort/actions/monthly` and so on); the originals are archived and can be restored.
+- **Reminders in the morning summary.** Besides chores with their own interval: things that usually need doing,
+  noted as done ("I changed the furnace filter"), come due after their usual interval; end dates ("good until",
+  "expires", "due back"), warranties and birthdays are mentioned 30, 7 and 1 days before and on the day. Each is said
+  once per step: a chore when due tomorrow, today, then once a week while overdue; a usual one once a month.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press
