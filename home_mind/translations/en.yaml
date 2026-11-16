@@ -71,6 +71,31 @@ configuration:
   embed_model:
     name: Embedding model (search by meaning)
     description: One of your models, type ollama or openai, used to make embeddings, so "planter" finds "flower box". Give that model an embed_model field (e.g. nomic-embed-text, all-minilm) or its model is used. Empty = keyword search only.
+  comfort_rooms:
+    name: Comfort rooms
+    description: "Rooms the comfort brain runs, each learning from its own votes: name, person, and the entities climate, temp_sensor, humidifier, fan, phone_battery, alarm; signals (body signals, e.g. hrv=input_number.steady_hrv, steps=sensor.my_steps) and helpers it writes (enabled, target, fan, humidity, min, max, hum_min, hum_max, sleep, wake = input_number/input_boolean entities), comma-separated key=entity. Empty = the original bedroom setup. GET /api/comfort/check?room=NAME lists entities Home Assistant doesn't have."
+  encrypt_secrets:
+    name: Encrypt secrets
+    description: Codes, passwords and other notes marked secret are stored encrypted, with the key in /data/vault.key, which Home Assistant backups leave out. Keep a copy of the key (Home Mind › /api/vault/key); without it sealed secrets can't be read. Turning this off opens them again.
+  backup_target:
+    name: Off-site backup
+    description: folder (a path such as /media/home-mind or a NAS share), webdav (a URL) or s3 (a bucket URL). Empty = Home Assistant backups only.
+  backup_url:
+    name: Backup folder or URL
+  backup_user:
+    name: Backup user (or S3 access key)
+  backup_password:
+    name: Backup password (or S3 secret key)
+  backup_passphrase:
+    name: Backup passphrase
+    description: Off-site backups are encrypted with this; you need it to restore (tools/restore_backup.py). Required for webdav and s3.
+  backup_region:
+    name: S3 region
+  backup_every_hours:
+    name: Back up every (hours)
+    description: Only when the memory has changed.
+  backup_keep:
+    name: Backups to keep
   automation_pin:
     name: PIN for automations that open the house
     description: Drafted automations that unlock, open a garage door or disarm an alarm are installed only with this PIN. Empty = never.

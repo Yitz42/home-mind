@@ -290,6 +290,29 @@ named Rufus".
   facts about who people are, and corrections never fade; preferences fade 3 times and device notes 4 times more
   slowly than other notes (option fade_days). Safety notes also rank a little higher.
 
+## Tokens, signatures, encryption and backups
+
+- **Tokens.** Every client can have its own token (Models tab › Access tokens): read (ask and search), write (also
+  remember, change, forget) or admin (everything). A token tied to a person answers as that person. Revoke one and
+  that client stops working at once; the others don't. The main token (in /data/token) is admin.
+- **Signed packs.** `python tools/sign_manifest.py keygen ~/.home-mind-pack.key` makes a key pair; put the printed
+  public key in `homemind/pack_keys.txt`. After every manifest change, `python tools/sign_manifest.py sign
+  ~/.home-mind-pack.key packs/manifest.json` writes `manifest.json.sig`. Once a key is set, a manifest without a valid
+  signature installs nothing.
+- **Encrypted secrets.** Option `encrypt_secrets` stores notes marked secret encrypted; the key file is left out of
+  Home Assistant backups, so a backup never holds them in the clear. Copy the key somewhere safe from
+  `/api/vault/key`: without it, sealed secrets show only their masked copy. Ordinary notes, the activity log (secret
+  values in logged answers are masked) and recent conversations are not encrypted.
+- **Off-site backups.** Set `backup_target` (folder, webdav or s3), `backup_url`, credentials and
+  `backup_passphrase`. Restore on any machine with `python tools/restore_backup.py FILE mind.db` and the passphrase.
+
+## Comfort in more than one room
+
+Option `comfort_rooms` lists each room: `name`, `person`, the entities `climate`, `temp_sensor`, `humidifier`, `fan`,
+`phone_battery`, `alarm`, and `signals` and `helpers` as comma-separated `key=entity` pairs. Each room learns from its
+own votes; leave the option empty for the original bedroom. `/api/comfort/check?room=NAME` shows which entities Home
+Assistant doesn't have.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press

@@ -26,6 +26,20 @@ def _vt(v):
         return (0,)
 
 
+from . import ed25519
+
+KEYS_FILE = os.path.join(os.path.dirname(__file__), "pack_keys.txt")
+
+
+def pack_keys():
+    """Public keys (hex, one per line) whose signature a pack manifest must carry (#28). Empty: sha256 only, as
+    before (the manifest then checks only that each pack arrived intact, not who wrote it)."""
+    try:
+        with open(KEYS_FILE) as f:
+            return [bytes.fromhex(x.split("#")[0].strip()) for x in f if x.split("#")[0].strip()]
+    except (OSError, ValueError):
+        return []
+
 class Updater:
     def __init__(self, store, url, session_factory=aiohttp.ClientSession):
         self.store, self.url, self.session_factory = store, url, session_factory
@@ -72,7 +86,18 @@ class Updater:
             return {"error": "no update_url set"}
         try:
             async with self.session_factory() as s:
-                man = json.loads(await self._get(s, self.url))
+                raw_man = await self._get(s, self.url)
+                signed = None
+                keys = pack_keys()
+                if keys:            # #28: the manifest must carry a signature by a key built into the app
+                    try:
+                        sig = bytes.fromhex((await self._get(s, self.url + ".sig")).decode().strip())
+                    except Exception as e:  # noqa: BLE001
+                        raise RuntimeError(f"the manifest has no signature ({e}); nothing installed") from e
+                    signed = next((k for k in keys if ed25519.verify(k, raw_man, sig)), None)
+                    if not signed:
+                        raise RuntimeError("the manifest's signature doesn't match Home Mind's key; nothing installed")
+                man = json.loads(raw_man)
         except Exception as e:  # noqa: BLE001
             self.last = {"error": f"{type(e).__name__}: {e}"[:300]}
             return self.last
@@ -86,7 +111,8 @@ class Updater:
         self.last = {"app": {"current": VERSION, "latest": app_latest,
                              "update_available": bool(app_latest) and _vt(app_latest) > _vt(VERSION),
                              "how": "Settings > Apps > Home Mind > Update (or turn on auto-update)"},
-                     "packs": packs, "manifest": man}
+                     "packs": packs, "manifest": man,
+                     "signed": signed.hex()[:16] if signed else (False if not keys else None)}
         return self.last
 
     async def apply(self):

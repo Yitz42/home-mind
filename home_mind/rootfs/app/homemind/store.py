@@ -252,6 +252,8 @@ class Store:
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.executescript(SCHEMA)
             cols = {r[1] for r in self.db.execute("PRAGMA table_info(items)")}
+            if "secret" not in cols:
+                self.db.execute("ALTER TABLE items ADD COLUMN secret TEXT")    # #66: sealed text of a secret note
             fresh_keys = "keys" not in cols
             if fresh_keys:
                 # 0.23: a hidden column of extra search keys (#71); the search index is rebuilt to include it
@@ -279,13 +281,66 @@ class Store:
             self.db.close()
 
     # ---- helpers ------------------------------------------------------------------------------------------
+    vault_key = None       # set by the app with option encrypt_secrets (#66)
+
     def _row(self, r):
         if r is None:
             return None
         d = dict(r)
         d["meta"] = json.loads(d.get("meta") or "{}")
         d["tags"] = d["tags"].split() if d.get("tags") else []
+        sec = d.pop("secret", None)
+        if sec:
+            if self.vault_key:
+                from . import vault
+                try:
+                    real = json.loads(vault.open_(self.vault_key, sec, aad=str(d["id"]).encode()))
+                    d["title"], d["body"] = real["title"], real["body"]
+                except Exception:  # noqa: BLE001 - another key: the masked copy is all there is
+                    d["locked"] = True
+            else:
+                d["locked"] = True      # sealed, and the key isn't loaded: only the masked copy
         return d
+
+    def seal_item(self, item_id):
+        """#66: keep a secret note's real text sealed (AES-GCM, key outside the database) and a masked copy for
+        search. Nothing happens without a key or for a note that isn't sensitive or is sealed already."""
+        if not self.vault_key:
+            return False
+        from . import vault
+        from .privacy import mask_all
+        with self.lock:
+            r = self.db.execute("SELECT id, title, body, meta, secret FROM items WHERE id=?", (int(item_id),)).fetchone()
+            if not r or r["secret"] or not json.loads(r["meta"] or "{}").get("sensitive"):
+                return False
+            sealed = vault.seal(self.vault_key, json.dumps({"title": r["title"], "body": r["body"]}),
+                                aad=str(r["id"]).encode())
+            self.db.execute("UPDATE items SET secret=?, title=?, body=? WHERE id=?",
+                            (sealed, mask_all(r["title"] or ""), mask_all(r["body"] or ""), r["id"]))
+            self.db.commit()
+        return True
+
+    def unseal_item(self, item_id):
+        if not self.vault_key:
+            return False
+        with self.lock:
+            r = self.db.execute("SELECT * FROM items WHERE id=?", (int(item_id),)).fetchone()
+            if not r or not r["secret"]:
+                return False
+            d = self._row(r)
+            if d.get("locked"):
+                return False
+            self.db.execute("UPDATE items SET secret=NULL, title=?, body=? WHERE id=?", (d["title"], d["body"], r["id"]))
+            self.db.commit()
+        return True
+
+    def seal_all(self):
+        ids = [r[0] for r in self.db.execute("SELECT id FROM items WHERE secret IS NULL AND meta LIKE '%\"sensitive\": true%'")]
+        return sum(1 for i in ids if self.seal_item(i))
+
+    def unseal_all(self):
+        ids = [r[0] for r in self.db.execute("SELECT id FROM items WHERE secret IS NOT NULL")]
+        return sum(1 for i in ids if self.unseal_item(i))
 
     def log(self, type_, item_id=None, **data):
         with self.lock:
@@ -413,6 +468,8 @@ class Store:
                 self._link_new(new_id, f"{title} {text}")
             except sqlite3.Error:
                 pass
+        if self.vault_key and m0.get("sensitive"):
+            self.seal_item(new_id)
         out = {"id": new_id, "action": "held for review" if hold else "updated" if old else "created", "shelf": shelf}
         if old:
             out["previous"] = {"id": old["id"], "title": old["title"], "body": old["body"]}
@@ -439,6 +496,8 @@ class Store:
             self.db.execute("UPDATE items SET status='superseded', updated=? WHERE id=?", (now, item_id))
             self.db.commit()
             new_id = cur.lastrowid
+        if self.vault_key and f["meta"].get("sensitive"):
+            self.seal_item(new_id)
         self.log("revise", new_id, previous=item_id, changes=list(changes))
         return {"id": new_id, "action": "updated", "previous": item_id}
 

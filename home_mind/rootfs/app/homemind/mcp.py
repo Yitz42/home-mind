@@ -107,9 +107,9 @@ class MCP:
     def __init__(self, app):
         self.app = app  # the App in main.py
 
-    async def handle(self, msg):
+    async def handle(self, msg, scope="admin"):
         if isinstance(msg, list):
-            out = [r for r in [await self.handle(m) for m in msg] if r is not None]
+            out = [r for r in [await self.handle(m, scope) for m in msg] if r is not None]
             return out or None
         mid, method, params = msg.get("id"), msg.get("method", ""), msg.get("params") or {}
         if mid is None:  # a notification
@@ -124,9 +124,15 @@ class MCP:
             elif method == "ping":
                 res = {}
             elif method == "tools/list":
-                res = {"tools": [{"name": n, "description": d, "inputSchema": s} for n, d, s in TOOLS]}
+                from .tokens import tool_needs, allows
+                res = {"tools": [{"name": n, "description": d, "inputSchema": s} for n, d, s in TOOLS
+                                 if allows(scope, tool_needs(n))]}
             elif method == "tools/call":
                 name, args = params.get("name"), params.get("arguments") or {}
+                from .tokens import tool_needs, allows
+                if not allows(scope, tool_needs(name)):
+                    return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
+                            f"not allowed: this token can {scope}; {name} needs {tool_needs(name)}"}], "isError": True}}
                 try:
                     out = await self.call(name, args)
                     res = {"content": [{"type": "text", "text": json.dumps(out, default=str, indent=1)}],

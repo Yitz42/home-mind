@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.24.0"
+version: "0.25.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -17,6 +17,7 @@ homeassistant_api: true
 backup: hot
 backup_exclude:
   - "knowledge/*"
+  - "vault.key"
 map:
   - type: homeassistant_config
     read_only: false
@@ -71,6 +72,16 @@ options:
   personal_rule: first_person
   unknown_caller: admin
   embed_model: ""
+  comfort_rooms: []
+  encrypt_secrets: false
+  backup_target: ""
+  backup_url: ""
+  backup_user: ""
+  backup_password: ""
+  backup_passphrase: ""
+  backup_region: ""
+  backup_every_hours: 6
+  backup_keep: 14
   answer_edges: false
   answer_notes_first: false
   events_keep_days: 90
@@ -135,6 +146,26 @@ schema:
   personal_rule: list(first_person|household)
   unknown_caller: list(admin|guest)
   embed_model: str?
+  encrypt_secrets: bool
+  backup_target: str?
+  backup_url: str?
+  backup_user: str?
+  backup_password: password?
+  backup_passphrase: password?
+  backup_region: str?
+  backup_every_hours: int(1,168)
+  backup_keep: int(1,365)
+  comfort_rooms:
+    - name: str
+      person: str?
+      climate: str?
+      temp_sensor: str?
+      humidifier: str?
+      fan: str?
+      phone_battery: str?
+      alarm: str?
+      signals: str?
+      helpers: str?
   answer_edges: bool
   answer_notes_first: bool
   events_keep_days: int(0,3650)

@@ -112,6 +112,10 @@
   <p class="mute">Tokens come from the model's own count; Home Assistant's AI Task and conversation models don't report them. Cost shows for models given price_in and price_out (dollars per million tokens) on the Configuration tab.</p></div>
   <div class="card"><h2>Ask</h2><div class="row"><select id="a_model"></select> <label class="mute"><input type="checkbox" id="a_brain" checked> use brain</label></div>
     <div class="row"><input id="a_q" placeholder="Question" style="flex:1"> <button class="go" onclick="ask()">Ask</button></div><pre id="a_out" class="hide"></pre></div>
+  <div class="card"><h2>Access tokens <span class="mute">one per client, each revocable</span></h2><table id="toks"></table>
+    <div class="row"><input id="tk_name" placeholder="who uses it (e.g. Jeeves, phone shortcut)"> <select id="tk_scope"><option>read</option><option>write</option><option>admin</option></select> <input id="tk_person" placeholder="answer as (optional person)" style="width:12em"> <button class="go" onclick="makeToken()">Make token</button></div>
+    <pre id="tk_new" class="mute" style="white-space:pre-wrap"></pre>
+    <p class="mute">read: ask and search. write: also remember, change and forget. admin: everything, as the main token. A token tied to a person is answered as that person (their personal notes). The token is shown once.</p></div>
 </section>
 <section id="updates" class="hide">
   <div class="card"><div class="row"><button class="go" onclick="checkUpd()">Check for updates</button> <button class="go" onclick="applyUpd()">Install packs</button></div><pre id="upd">…</pre></div>
@@ -144,7 +148,7 @@ async function load(t) {
     const ms = await api('api/models'); $('#t_model').innerHTML = '<option value="">(model)</option>' + ms.map(m => `<option>${esc(m.name)}</option>`).join('');
     runs();
   }
-  if (t === 'models') {
+  if (t === 'models') { tokens();
     const ms = await api('api/models');
     $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${m.type}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('');
     $('#a_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join('');
@@ -185,6 +189,16 @@ async function installAuto() {
   const r = await api('api/automations/install', {config: draftCfg, pin: $('#ad_pin').value});
   $('#ad_res').textContent = r.installed ? `installed as ${r.entity_id || r.id} (switched off)` : (r.problems || [r.error]).join('; ');
 }
+async function tokens() {
+  const ts = await api('api/tokens');
+  $('#toks').innerHTML = ts.map(t => `<tr><td>${esc(t.name)}</td><td>${t.scope}${t.person ? ' · as ' + esc(t.person) : ''}</td><td class="mute">${t.last_used ? 'used ' + when(t.last_used) : 'not used yet'}</td><td><button class="go" style="background:var(--bad)" onclick="revokeToken('${t.id}')">Revoke</button></td></tr>`).join('') || '<tr><td class="mute">none yet; clients use the main token</td></tr>';
+}
+async function makeToken() {
+  const r = await api('api/tokens', {name: $('#tk_name').value, scope: $('#tk_scope').value, person: $('#tk_person').value || null});
+  $('#tk_new').textContent = r.error ? r.error : `Token for ${r.name} (${r.scope}), shown once:\n${r.token}`;
+  tokens();
+}
+async function revokeToken(id) { await fetch('api/tokens/' + id, {method: 'DELETE'}); tokens(); }
 async function worked() {
   const w = await api('api/structure');
   const none = (n, msg) => `<tr><td class="mute" colspan="${n}">${msg}</td></tr>`;

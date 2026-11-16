@@ -758,7 +758,7 @@ class Mind:
         """speaker: None = no speaker information (sees everything, as before); "" = unknown (household notes only,
         no secrets by voice, no bulk lists); a name = that person (their personal notes too). (#3, #48, #78)"""
         from .speakers import VIEWER
-        tok = VIEWER.set(speaker)
+        tok = VIEWER.set(speaker if speaker is not None else VIEWER.get())   # keep a person-bound token's viewer
         try:
             out = await self._ask(question, model, use_brain, k, shelf, store, system, expand, voice, deadline, fallback,
                                   conversation_id)
@@ -873,7 +873,9 @@ class Mind:
         cl = getattr(self, "convlog", None)
         if cl and store is self.store:
             cl.add(time.time(), original, text, conversation_id, None, "home_mind")
-        store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=text[:500],
+        from .privacy import mask_all
+        logged = mask_all(text[:500]) if store.vault_key else text[:500]      # #66: no secret values in the log
+        store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=logged,
                   ms=r["ms"], errors=errors or None, sources=[x["id"] for x in sources] or None, weak=weak or None)
         out = {"answer": text, "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"],
                "sources": sources, "weak": weak}

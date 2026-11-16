@@ -49,6 +49,8 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "overnight_enabled": True, "morning_enabled": True, "evening_enabled": True, "evening_time": "21:00",
             "evening_notify": "", "house_notices": True, "automation_pin": "", "people": [],
             "personal_rule": "first_person", "unknown_caller": "admin", "embed_model": "",
+            "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
+            "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
@@ -123,7 +125,13 @@ class App:
         self.ha = HA(self.models.session)
         self.ha.quiet = quiet_window(self.opts)
         self.ha.cap = int(self.opts.get("notify_daily_cap") or 0)
-        self.comfort = Comfort(self.mind, self.ha)
+        from .tokens import Tokens
+        self.tokens = Tokens(self.mind.store)
+        self.setup_vault()
+        from .offsite import Offsite
+        self.offsite = Offsite(self.mind.store, self.opts, lambda: self.models.session)
+        self.comforts = self.comfort_rooms()
+        self.comfort = self.comforts[0]
         self.body = Body(self.mind.store, self.ha)
         self.home = Home(self.mind.store, self.ha, self.opts)
         self.mind.home = self.home if self.opts.get("home", True) else None
@@ -344,6 +352,13 @@ class App:
                                 await self.ha.push(target, {"title": title, "message": msg})
                         except Exception as e:  # noqa: BLE001
                             log.warning("house notice: %s", e)
+            if self.offsite.due(now):
+                try:
+                    r = await self.offsite.run(now)
+                    log.info("off-site backup: %s", r.get("file") or r.get("error"))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("off-site backup: %s", e)
+                    self.offsite.last["at"] = now      # try again next period, not every few seconds
             emb = getattr(self.mind, "embeddings", None)
             if emb and now - last.get("embed", 0) > 30:
                 last["embed"] = now
@@ -400,10 +415,12 @@ class App:
                     log.exception("body")
             if self.opts.get("comfort") and self.ha.available:
                 try:
-                    await self.comfort.poll_buttons()
+                    for c in self.comforts:
+                        await c.poll_buttons()
                     if now - last["comfort"] > 300:
                         last["comfort"] = now
-                        await self.comfort.cycle()
+                        for c in self.comforts:
+                            await c.cycle()
                 except Exception:  # noqa: BLE001
                     log.exception("comfort")
             try:
@@ -437,6 +454,46 @@ class App:
                 log.exception("upkeep")
             await asyncio.sleep(20)
 
+
+    def setup_vault(self):
+        """Option encrypt_secrets (#66): seal secret notes with a key kept out of backups; turned off, open them."""
+        from . import vault
+        st = self.mind.store
+        path = os.path.join(DATA, "vault.key")
+        self.vault_status = {"enabled": False}
+        if not vault.available():
+            self.vault_status["error"] = "the cryptography library isn't installed"
+            return
+        if self.opts.get("encrypt_secrets"):
+            st.vault_key = vault.load_key(path)
+            n = st.seal_all()
+            self.vault_status = {"enabled": True, "key": vault.fingerprint(st.vault_key), "sealed_now": n}
+        elif os.path.exists(path):
+            st.vault_key = vault.load_key(path, create=False)
+            n = st.unseal_all()         # turned off: back to plain text, so nothing is stranded
+            st.vault_key = None
+            self.vault_status = {"enabled": False, "opened_now": n}
+        self.vault_status["sealed"] = st.db.execute("SELECT COUNT(*) FROM items WHERE secret IS NOT NULL").fetchone()[0]
+
+    def comfort_rooms(self):
+        """Option comfort_rooms (#29): each room's entities, person and helpers; empty = the original bedroom."""
+        def pairs(text):         # "hrv=input_number.x, steps=sensor.y" -> dict
+            out = {}
+            for part in (text or "").split(","):
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    out[k.strip()] = v.strip()
+            return out
+        rooms = []
+        for k, r in enumerate(self.opts.get("comfort_rooms") or []):
+            ents = {x: r[x] for x in ("climate", "temp_sensor", "humidifier", "fan", "phone_battery", "alarm") if r.get(x)}
+            sig = pairs(r.get("signals")) if r.get("signals") is not None else None
+            rooms.append(Comfort(self.mind, self.ha, room=ents, signals=sig, vars_=pairs(r.get("helpers")),
+                                 person=r.get("person") or "Yitz", name=r.get("name") or f"room{k + 1}", primary=k == 0))
+        return rooms or [Comfort(self.mind, self.ha)]
+
+    def comfort_for(self, name=None):
+        return next((c for c in self.comforts if c.name == name), None) if name else self.comfort
 
     def people(self):
         """Option people plus Home Assistant's person entities (#3)."""
@@ -556,6 +613,23 @@ def build(app_state):
         peer = request.remote or ""
         tok = request.headers.get("X-Home-Mind-Token") or request.headers.get("Authorization", "").removeprefix("Bearer ")
         if peer in INGRESS_IPS or (tok and secrets.compare_digest(tok, app_state.token)):
+            request["scope"] = "admin"
+            return await handler(request)
+        rec = app_state.tokens.check(tok) if tok else None
+        if rec:                     # a scoped token (#27)
+            from .tokens import needed, allows
+            need = needed(request.method, request.path)
+            if not allows(rec["scope"], need):
+                return web.json_response({"error": f"this token ({rec['name']}) can {rec['scope']}; this needs {need}"},
+                                         status=403)
+            request["scope"], request["token"] = rec["scope"], rec
+            if rec.get("person"):   # answered as that person (#48)
+                from .speakers import VIEWER
+                tv = VIEWER.set(rec["person"])
+                try:
+                    return await handler(request)
+                finally:
+                    VIEWER.reset(tv)
             return await handler(request)
         if os.environ.get("HOME_MIND_OPEN") == "1" and peer in ("127.0.0.1", "::1"):
             return await handler(request)
@@ -686,6 +760,7 @@ def build(app_state):
             meta = dict(d["meta"] or {}, sensitive=bool(b.get("value")))
             st.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), i))
             st.db.commit()
+            st.seal_item(i) if meta["sensitive"] else st.unseal_item(i)
             return J({"id": i, "sensitive": meta["sensitive"]})
         if op == "feedback":
             b = await q.json()
@@ -949,6 +1024,38 @@ def build(app_state):
     async def evening_send(_):
         return J(await A.evening.send())
 
+    @r.get("/api/backup")
+    async def backup_get(_):
+        return J({"target": A.offsite.target or None, "last": A.offsite.last,
+                  "files": A.mind.store.kv_get("offsite_files") or []})
+
+    @r.post("/api/backup/now")
+    async def backup_now(_):
+        return J(await A.offsite.run())
+
+    @r.get("/api/vault")
+    async def vault_get(_):
+        return J(A.vault_status)
+
+    @r.get("/api/vault/key")
+    async def vault_key(_):
+        """The key that opens sealed secrets: keep a copy somewhere safe (admin only)."""
+        k = A.mind.store.vault_key
+        return J({"key": k.hex() if k else None, "file": "/data/vault.key (left out of Home Assistant backups)"})
+
+    @r.get("/api/tokens")
+    async def tokens_list(_):
+        return J(A.tokens.list())
+
+    @r.post("/api/tokens")
+    async def tokens_make(q):
+        b = await q.json()
+        return J(A.tokens.make(b.get("name", ""), b.get("scope", "read"), b.get("person")))
+
+    @r.delete("/api/tokens/{tid}")
+    async def tokens_revoke(q):
+        return J({"revoked": A.tokens.revoke(q.match_info["tid"])})
+
     @r.get("/api/people")
     async def people_get(_):
         """Who Home Mind can recognise, and how (#3)."""
@@ -1082,18 +1189,38 @@ def build(app_state):
         n = await A.body.backfill()
         return J({"filed": n, "debug": getattr(A.body, "debug", None)})
 
+    def _room(q, b=None):
+        c = A.comfort_for((b or {}).get("room") or q.query.get("room"))
+        if not c:
+            raise web.HTTPNotFound(text=json.dumps({"error": "no such comfort room", "rooms": [x.name for x in A.comforts]}),
+                                   content_type="application/json")
+        return c
+
     @r.get("/api/comfort")
-    async def comfort_status(_):
-        return J(A.comfort.status())
+    async def comfort_status(q):
+        out = _room(q).status()
+        out["rooms"] = [c.name for c in A.comforts]
+        return J(out)
 
     @r.post("/api/comfort/vote")
     async def comfort_vote(q):
         b = await q.json()
-        return J(await A.comfort.vote(b["feeling"], b.get("source", "api")))
+        return J(await _room(q, b).vote(b["feeling"], b.get("source", "api")))
 
     @r.post("/api/comfort/cycle")
-    async def comfort_cycle(_):
-        return J(await A.comfort.cycle(reason="asked"))
+    async def comfort_cycle(q):
+        b = await q.json() if q.can_read_body else {}
+        return J(await _room(q, b).cycle(reason="asked"))
+
+    @r.get("/api/comfort/check")
+    async def comfort_check(q):
+        """Which of a room's configured entities Home Assistant doesn't have (#29)."""
+        c = _room(q)
+        states = {s["entity_id"] for s in (await A.engine._get("states") or [])}
+        want = {**{f"room.{k}": v for k, v in c.room.items()}, **{f"signal.{k}": v for k, v in c.signals.items()},
+                **{f"helper.{k}": v for k, v in c.vars.items()}}
+        return J({"room": c.name, "person": c.person, "missing": {k: v for k, v in want.items() if v not in states},
+                  "found": sum(1 for v in want.values() if v in states), "of": len(want)})
 
     # ---- controls for Home Assistant (the bridge makes switches, numbers, times, buttons and sensors of these) -------
     @r.get("/api/control")
@@ -1121,7 +1248,7 @@ def build(app_state):
             msg = await q.json()
         except ValueError:
             return J({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}, 400)
-        out = await A.mcp.handle(msg)
+        out = await A.mcp.handle(msg, scope=q.get("scope", "admin"))
         if out is None:
             return web.Response(status=202)
         return J(out)
