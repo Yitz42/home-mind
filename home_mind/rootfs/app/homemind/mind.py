@@ -81,18 +81,27 @@ def asked_time(question, now):
     end of that day (as a timestamp) and a label, or None."""
     q = (question or "").lower()
     today = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0)
-    nums = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+    nums = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
     day = None
     if re.search(r"\byesterday\b", q):
         day = today - timedelta(days=1)
-    m = re.search(r"\b(\d+|one|two|three|four|five|six|seven) days? ago\b", q)
+    m = re.search(r"\b(\d+|an?|one|two|three|four|five|six|seven) days? ago\b", q)
     if m:
         day = today - timedelta(days=int(nums.get(m.group(1), m.group(1))))
-    m = re.search(r"\b(\d+|one|two|three|four) weeks? ago\b", q)
+    m = re.search(r"\b(\d+|an?|one|two|three|four) weeks? ago\b", q)
     if m:
         day = today - timedelta(days=7 * int(nums.get(m.group(1), m.group(1))))
     if re.search(r"\blast week\b", q):       # how things stood when last week ended
         day = today - timedelta(days=today.weekday() + 1)
+    # "a month ago", "last month": without these the model saw only today's value and gave it as last month's
+    m = re.search(r"\b(\d+|an?|one|two|three|four|five|six) months? ago\b", q)
+    if m:
+        k = int(nums.get(m.group(1), m.group(1)))
+        y, mo = divmod(today.month - 1 - k, 12)
+        last_day = (datetime(today.year + y + (mo == 11), (mo + 1) % 12 + 1, 1) - timedelta(days=1)).day
+        day = today.replace(year=today.year + y, month=mo + 1, day=min(today.day, last_day))
+    if re.search(r"\blast month\b", q):      # how things stood when last month ended
+        day = today.replace(day=1) - timedelta(days=1)
     m = re.search(r"\bon (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* (\d{1,2})\b", q)
     if m:
         mon = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].index(m.group(1)) + 1
@@ -107,7 +116,8 @@ def asked_time(question, now):
             day = today - timedelta(days=back)
     if day is None:
         return None
-    said = re.search(r"\b(yesterday|(?:\d+|one|two|three|four|five|six|seven) (?:days?|weeks?) ago|last week|"
+    said = re.search(r"\b(yesterday|(?:\d+|an?|one|two|three|four|five|six|seven) (?:days?|weeks?|months?) ago|last week|"
+                     r"last month|"
                      r"on (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{1,2}|(?:last|on|this past) "
                      r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b", q)
     return (day + timedelta(days=1)).timestamp(), day.strftime("%a %b %d"), said.group(1) if said else ""
@@ -229,6 +239,15 @@ ATTR_Q = {"code": "What is the code for {t}?", "combination": "What is the code 
           "password": "What is the password for {t}?", "location": "Where is {t}?", "where": "Where is {t}?",
           "color": "What color is {t}?", "lead": "Who leads {t}?", "owner": "Who owns {t}?"}
 PRONOUN_IT = re.compile(r"\b(it|its|it's|that one|this one|that|them|they|their|there)\b", re.I)
+# "it" that stands for no thing: the weather, the time ("is it going to rain?" after "where is the drill?")
+DUMMY_IT = re.compile(r"\b(?:is|was|will|does|did) it (?:going to |gonna |still |be |get )*(?:rain|snow|sunny|cloudy|cold|"
+                      r"hot|warm|chilly|windy|freezing|humid|nice|late|early|dark|light|monday|tuesday|wednesday|"
+                      r"thursday|friday|saturday|sunday|the weekend|a holiday)|\bwhat (?:time|day|date|month) is it\b|"
+                      r"\bhow (?:cold|hot|warm|late|windy) is it\b|\bit(?:'s| is) (?:raining|snowing|sunny|cold|hot|warm|"
+                      r"late|early|dark)\b|\bthat'?s (?:it|all)\b", re.I)
+# a word after "the" that is an attribute of the thing asked about before ("what's the code for it?"), not a new thing
+ATTR_WORDS = {"code", "codes", "combination", "password", "pin", "location", "color", "colour", "number", "name",
+              "address", "lead", "owner", "room", "place", "date", "time", "price", "size", "model", "key", "one"}
 FOLLOW_HEAD = re.compile(r"^\s*(?:and|or|but|also|then)?\s*(?:what about|how about|and|what of|same for|same with)\s+(.+?)\s*\??\s*$", re.I)
 
 
@@ -285,7 +304,12 @@ def followup(question, prev, store):
             i = fp.rfind(last[-1])
             return fp[:i] + x + fp[i + len(last[-1]):]
         return f"{fp.rstrip('?')} — and {x}?"
-    if not q_names and thing and PRONOUN_IT.search(q):  # "where is it?", "when did I change its code?"
+    pm = PRONOUN_IT.search(q)
+    own = [w for w in re.findall(r"\b(?:the|my|a|an|your)\s+([a-z]+)", q[:pm.start()].lower())
+           if w not in ATTR_WORDS] if pm else []
+    if not q_names and thing and pm and not DUMMY_IT.search(q) and not own:
+        # "where is it?", "when did I change its code?"; but not "is it going to rain?", nor "how do I reset the
+        # boiler if it beeps?" (the question names its own thing before the "it")
         def sub(mt):
             w = mt.group(1).lower()
             if w in ("its", "their"):
@@ -526,6 +550,9 @@ def lookup(store, question, k=8, shelf=None, kind=None, include_old=False, touch
     return extra + hits
 
 
+WHEN_WORDS = re.compile(r"\b(?:(?:\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|few|several) (?:days?|weeks?|"
+                        r"months?|years?) ago|yesterday|(?:last|this|this past|since) (?:week|month|year|morning|night|"
+                        r"monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b", re.I)
 WEAK_COVER = 0.35       # the best note holds less than this share of the question's word weight: a low match
 LOW_MATCH = ("LOW MATCH: the notes below share few words with the question and may be about something else. If none "
              "of them plainly answers it, say you don't know.")
@@ -537,7 +564,9 @@ def weak_match(store, question, hits):
     cover. On the abstain suite (held out, with sound-alike repair): flags 141 of 200 never-filed answers (names alone:
     84) and 7 of 200 answerable questions, so it is a caution for the model, never a reason to drop notes."""
     import math
-    fixed = store.fix_typos(question)
+    # the words naming when ("two weeks ago", "last month") are in no note, yet say nothing about what is asked:
+    # counted, they made a plain question about an earlier value a "low match" (the model was told to say it doesn't know)
+    fixed = WHEN_WORDS.sub(" ", store.fix_typos(question))
     qw = list(dict.fromkeys(words(fixed)))
     if not qw:
         return False
@@ -590,6 +619,17 @@ def sources_for(answer, hits, question):
         picked = [h for s, _, h in scored if s >= scored[0][0] * 0.75][:2] if scored else []
     return [{"id": h["id"], "title": h.get("title"), "noted": datetime.fromtimestamp(h["created"]).strftime("%b %d, %Y"),
              **({"replaced_by": h["newer"]} if h.get("newer") else {})} for h in picked if h.get("id")]
+
+
+def best_note(hits, voice=False):
+    """The brain's own answer when no model answers: the best note's text. When it is one side of a disagreement
+    ("Sam says 9999" / "Dana says 4417"), both sides, as the model would be told to give them; by voice, speakable."""
+    best = hits[0]
+    text = best.get("body") or best.get("title") or ""
+    other = next((h for h in hits[1:] if h["id"] == best.get("disagrees") or h.get("disagrees") == best["id"]), None)
+    if other is not None:
+        text = f"{text.rstrip()} But another note disagrees: {other.get('body') or other.get('title') or ''}"
+    return spoken(text, VOICE_NOTE_MAX) if voice else text
 
 
 NOTES_FIRST = (" Reply in two lines. First line: NOTES: the #ids of the notes the answer comes from, or none. "
@@ -652,6 +692,38 @@ def contains(answer, gold):
         a2 = " " + " ".join(NUM_WORDS.get(w, w) for w in a.split()) + " "
         return g in a2
     return False
+
+
+VOICE_SYSTEM = (" This answer is spoken aloud: plain words only, no markdown, lists, links, note #ids or emoji.")
+VOICE_NOTE_MAX = 280        # characters of a note read out by voice when no model answered
+
+
+def spoken(text, limit=None, ids=()):
+    """An answer as it can be read aloud: no markdown, note #ids (ids: the notes it may cite; any other #3 is read as
+    "number 3") or web addresses (a speaker reads them out symbol by symbol), and, with limit, cut at a sentence end
+    near it (a whole manual read out as "the best matching note")."""
+    t = text or ""
+    ids = {str(i) for i in ids}
+    t = re.sub(r"!?\[([^\]]*)\]\((?:https?://|www\.)[^)]*\)", r"\1", t)          # [text](url) -> text
+    cite = lambda m: "" if set(re.findall(r"\d+", m.group(0))) <= ids else m.group(0)
+    t = re.sub(r"\s*[(\[](?:see\s+|from\s+)?(?:notes?\s+)?#\d{1,12}(?:\s*(?:,|and|&)\s*#?\d{1,12})*[)\]]", cite, t,
+               flags=re.I)
+    t = re.sub(r"\b(?:per|from|see|in|according to)\s+(?:the\s+)?(?:notes?\s+)?#\d{1,12}\b[,:]?\s*", cite, t, flags=re.I)
+    t = re.sub(r"(?:\b(?:notes?|item)\s+)?#(\d{1,12})\b", lambda m: "" if m.group(1) in ids else f"number {m.group(1)}",
+               t, flags=re.I)
+    t = re.sub(r"\b(?:https?://|www\.)\S+", "a link", t)
+    t = re.sub(r"(\*\*|__|`+|~~)", "", t)
+    t = re.sub(r"(?<!\w)[*_](?=\S)(.+?)(?<=\S)[*_](?!\w)", r"\1", t)
+    t = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*•]\s+|\d+[.)]\s+|>\s*)", "", t)
+    t = re.sub(r"\s*\n+\s*", ". ", t.strip())
+    t = re.sub(r"\.\s*\.", ".", t)
+    t = re.sub(r"\s+([,.;:!?])", r"\1", re.sub(r"[ \t]{2,}", " ", t)).strip()
+    if t[:1].islower() and (text or "")[:1].isupper():
+        t = t[0].upper() + t[1:]
+    if limit and len(t) > limit:
+        cut = max(t.rfind(". ", 0, limit), t.rfind("! ", 0, limit), t.rfind("? ", 0, limit))
+        t = (t[:cut + 1] if cut > limit // 3 else t[:limit].rsplit(" ", 1)[0] + " …").strip()
+    return t
 
 
 # a voice question is being answered in this task (skips the slow reranker); a ContextVar, not an attribute, so a
@@ -807,7 +879,19 @@ class Mind:
     ASKING = re.compile(r"\?\s*$|^(?:what|where|when|who|which|why|how|is|are|do|does|did|can|could|should|will|would)\b",
                         re.I)
     WRONG = re.compile(r"^\s*(?:no[,.!]?\s*)?(?:that'?s|that is|this is|it'?s)\s+(?:wrong|not right|incorrect|not true|"
-                       r"out of date|outdated|old)\b", re.I)
+                       r"out of date|outdated|old|not[.!]?\s*$)", re.I)
+
+    # "No, it's 5512" / "Actually it's in the shed now" right after an answer: that's wrong and the right value at once
+    RIGHT_IS = re.compile(r"^\s*(?:no|nope|wrong|actually)\b[,.!]?\s*(?:(?:no|actually)\b[,.!]?\s*)?"
+                          r"(?:it'?s|it is|it was changed to|it changed to|that changed to)\s+(?:now\s+)?(\S.*)$", re.I)
+    # after "that's wrong", these are not the right value: a command or a new request, or letting it go
+    NOT_VALUE = re.compile(r"^\s*(?:please\s+)?(?:show|list|tell|give|find|search|look|turn|switch|set|open|close|lock|"
+                           r"unlock|start|stop|play|pause|remind|add|remember|forget|cancel|never ?mind|nevermind|"
+                           r"leave it|skip|ignore|ok(?:ay)?|thanks?|thank you|nothing|whatever|what'?s|whats|"
+                           r"where'?s|who'?s|how'?s|hey|hi|hello)\b", re.I)
+    LET_GO = re.compile(r"^\s*(?:(?:no|nope|actually)\b[,.!]?\s*)?(?:(?:it'?s|it is|that'?s)\s+)?(?:cancel|never ?mind|"
+                        r"nevermind|forget it|leave it|skip it|ignore it|nothing|ok(?:ay)?|no thanks|thanks?|thank you|"
+                        r"fine|good|right|correct|alright|all right|cool|great|no problem|not important|whatever)\b", re.I)
 
     HANDOFF_SECONDS = 600      # a conversation moves with its person to another device for this long (#53)
 
@@ -892,24 +976,42 @@ class Mind:
         convs = self._conversations(store)
         self._handoff(conversation_id, convs)
         last = convs.get(conversation_id) if conversation_id else None
-        if last and last.get("src") and self.WRONG.search(question.replace("’", "'")) and \
-                time.time() - last["t"] <= self.FOLLOW_SECONDS:
+        said = question.replace("’", "'")
+        fresh = bool(last) and time.time() - last["t"] <= self.FOLLOW_SECONDS
+        right = self.RIGHT_IS.match(said.strip()) if fresh and last.get("src") and \
+            not said.rstrip().endswith("?") and not self.LET_GO.match(said) else None
+        if right and re.match(r"(?:not|wrong|incorrect|out of date|outdated|old)\b", right.group(1), re.I):
+            right = None                # "No, it's not right": just "that's wrong"
+        if fresh and last.get("src") and (self.WRONG.search(said) or right):
             # "that's wrong" right after an answer: mark the note it came from, so it ranks lower and can be fixed
             src = last["src"][0]
             store.feedback(src["id"], False, question)
             last.update(awaiting={"q": last.get("q"), "wrong": last.get("a", ""), "src": src}, t=time.time())
-            return {"answer": f"Got it. I marked the note from {src['noted']} (\"{src['title']}\") as wrong. "
-                              "Tell me the right value and I'll file it.", "hits": [], "model": None,
-                    "marked_wrong": src["id"], "sources": last["src"]}
-        if last and last.get("awaiting") and time.time() - last["t"] <= self.FOLLOW_SECONDS and \
-                not self.ASKING.search(question.strip()):
+            if not right:
+                self._save_conversations(store)
+                return {"answer": f"Got it. I marked the note from {src['noted']} (\"{src['title']}\") as wrong. "
+                                  "Tell me the right value and I'll file it.", "hits": [], "model": None,
+                        "marked_wrong": src["id"], "sources": last["src"]}
+            # "No, it's 5512": the right value came with it (before, it was asked as a question about "5512")
+        if fresh and last.get("awaiting") and self.LET_GO.match(said):
+            last.pop("awaiting")
+            self._save_conversations(store)
+            return {"answer": "OK, I'll leave it as it is.", "hits": [], "model": None}
+        if fresh and last.get("awaiting") and not self.ASKING.search(question.strip()) and \
+                not self.NOT_VALUE.match(said):
             # the right value, right after "that's wrong": file it, and keep the mistake as a test case
             aw = last.pop("awaiting")
+            self._save_conversations(store)
             old = store.get(aw["src"]["id"]) or {}
-            text = re.sub(r"^\s*(?:no[,.!]?\s*|it'?s\s+|it is\s+|actually[,]?\s*)+", "", question).strip() or question
-            if not re.search(r"[A-Za-z]{3,}.*\s", text) and old.get("title"):
-                head = re.sub(r"\s+(?:is|are)\s.*$", "", old["title"])
-                text = f"{head} is {text.rstrip('.')}."          # just "5512": say what it is the value of
+            text = re.sub(r"^\s*(?:(?:no|nope|wrong|actually)\b[,.!]?\s*|it'?s\s+|it is\s+|"
+                          r"it (?:was )?changed to\s+|that changed to\s+|now\s+)+", "", said, flags=re.I).strip() or question
+            text = re.sub(r"\s+(?:now|these days|instead)\s*([.!]?)$", r"\1", text, flags=re.I).strip() or text
+            if old.get("title") and not re.search(r"\b(?:is|are|was|were|has|have|had|goes|keep|kept|moved|put|changed)\b",
+                                                  text, re.I) and len(text.split()) <= 4:
+                # just "5512" or "in the blue drawer": say what it is the value of
+                head = re.sub(r"\s+(?:is|are)\s.*$", "", old["title"].strip()).rstrip(".")
+                head = re.sub(r"\s*[:=\-–—]\s*\S.*$", "", head) or head
+                text = f"{head} is {text.rstrip('.')}."
             filed = store.remember(text=text, kind=old.get("kind") or "fact", shelf=old.get("shelf") or "inbox",
                                    key=old.get("key"), source="correction")
             cid = None
@@ -917,7 +1019,9 @@ class Mind:
                 from .cases import Cases
                 cid = Cases(store).add(aw["q"], text, aw.get("wrong", ""), aw["src"]["id"], filed["id"])
             return {"answer": f"Thanks, filed: {text} The old note stays in its history.", "hits": [], "model": None,
-                    "filed": filed, "case": cid}
+                    "filed": filed, "case": cid, **({"marked_wrong": aw["src"]["id"]} if right else {})}
+        if last and last.get("awaiting") and not self.ASKING.search(question.strip()):
+            last.pop("awaiting")        # something else was said instead: the next sentence is not a correction
         if not re.search(r"\w", question or ""):
             # nothing to search for: no "best matching note" for an empty question (bug-hunt set)
             return {"answer": "Ask me something, or tell me something to remember.", "hits": [], "model": None,
@@ -948,7 +1052,7 @@ class Mind:
                     for h in hits]
         weak = bool(use_brain and (ctx or "").find(LOW_MATCH) >= 0)
         if model is None:
-            return {"answer": hits[0]["body"] if hits else None, "hits": hits, "model": None, "weak": weak,
+            return {"answer": best_note(hits, voice) if hits else None, "hits": hits, "model": None, "weak": weak,
                     "sources": sources_for(hits[0]["body"], hits[:1], question) if hits else []}
         chain = self._chain(model) if fallback else [model]
         if not chain:
@@ -959,6 +1063,8 @@ class Mind:
                        "notes don't cover, never for facts about the user, and say an answer came from Wikipedia.")
         proc_text = "\n".join(f"- {p['title']}: {p['body']}" for p in procs)
         notes_first = bool(use_brain and self.NOTES_FIRST and not voice and system is None)
+        if voice:
+            sysmsg += VOICE_SYSTEM
         content = answer_content(store, question, ctx, self.ORDER) if use_brain else question
         errors, r, used = [], None, None
         self._down = getattr(self, "_down", {})
@@ -985,8 +1091,9 @@ class Mind:
                 self._down[m] = time.time()
         if r is None:
             best = hits[0] if hits else None
-            ans = (f"No model answered, and nothing in memory clearly matches. The closest note: {best['body']}"
-                   if best and weak else f"No model answered, so here is the best matching note: {best['body']}" if best
+            said = best_note(hits, voice)
+            ans = (f"No model answered, and nothing in memory clearly matches. The closest note: {said}"
+                   if best and weak else f"No model answered, so here is the best matching note: {said}" if best
                    else "No model answered, and nothing in memory matched.")
             store.log("ask", None, question=question, model=None, ids=[h["id"] for h in hits], answer=ans[:500],
                       errors=errors)
@@ -1011,6 +1118,8 @@ class Mind:
         logged = mask_all(text[:500]) if store.vault_key else text[:500]      # #66: no secret values in the log
         store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=logged,
                   ms=r["ms"], errors=errors or None, sources=[x["id"] for x in sources] or None, weak=weak or None)
+        if voice:
+            text = spoken(text, ids={h["id"] for h in hits}) or text
         out = {"answer": text, "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"],
                "sources": sources, "weak": weak}
         if question != original:
