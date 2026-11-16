@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.23.0
+- New layout for the web panel: 5 sections (Today, Food, Health, Memory, House) plus More for tests, models and updates. A side menu on a computer, tabs along the bottom on a phone. Dark by default, light when the phone or computer is set to light.
+- Today (replaces Overview): readiness ring with last night's sleep, the brain-fog check-in (tap 0-5), a week chart of sleep, fog and readiness, food to eat first with protein so far against the goal, the bedroom's temperature, humidity, air quality and filter, and what was remembered today. New endpoint /api/today gathers it in one call.
+- Health: the brain-fog record on its own page: rated days until patterns unlock, the week's report, a 14-day table of fog, sleep, readiness and bedtime, the suspects being watched (tagged sleep, pacing, room, body...) and any experiment.
+- House starts with the bedroom readings and cold / just right / hot buttons; Food, Memory and activity lists read as two-line rows instead of wide tables; the item/shelf/event counts moved to More.
+- Test fix: the monthly roll-up check failed when its notes straddled a month boundary.
+
 ## 0.22.0
 - Evening brief: "Remembered" lists only notes in your own words, not meals logged, fog check-ins or summaries.
 - Automation engine: new triggers time_pattern (`/15`, `*`), sun (sunrise and sunset with an offset), event (event_type, event_data) and template (fires when it turns true), and the `event` action. Automations using them can now be run by Home Mind.

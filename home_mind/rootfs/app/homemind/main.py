@@ -820,6 +820,11 @@ def build(app_state):
             return J({"error": str(e)}, status=400)
         return J({"error": f"unknown op {op}"}, status=404)
 
+    @r.get("/api/today")
+    async def today_get(_):
+        from . import today
+        return J(await today.build(A))
+
     @r.get("/api/pantry")
     async def pantry_list(q):
         return J({"items": A.pantry.items(q.query.get("status", "in")), "goals": A.pantry.goals()})

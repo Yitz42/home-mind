@@ -46,5 +46,7 @@ jobs:
         run: python tests/test_patterns.py
       - name: Knowledge (food database, offline Wikipedia)
         run: python tests/test_knowledge.py
+      - name: Today screen data
+        run: python tests/test_today.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py
