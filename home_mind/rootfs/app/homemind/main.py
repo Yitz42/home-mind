@@ -1096,7 +1096,8 @@ def build(app_state):
         if not A.home.catalog:
             await A.home.refresh()
         try:
-            return J(await A.home.act(b["entity_id"], b["action"], b.get("value"), b.get("source", "api")))
+            return J(await A.home.act(b["entity_id"], b["action"], b.get("value"), b.get("source", "api"),
+                                      confirm=b.get("confirm") is True))
         except (ValueError, PermissionError) as e:
             return J({"error": str(e)}, status=400)
 

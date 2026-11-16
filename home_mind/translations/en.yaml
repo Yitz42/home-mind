@@ -136,7 +136,7 @@ configuration:
     description: From @BotFather. Ask and tell Home Mind from Telegram. Empty = off.
   telegram_chats:
     name: Telegram chats allowed
-    description: One per line as "chat id: name" (the name from People). Send /start to the bot to see your chat id.
+    description: 'One per line as "chat id: name" (the name from People). Send /start to the bot to see your chat id.'
   web_search:
     name: Web lookups
     description: For questions about current facts the memory can't answer. searxng (your own SearXNG) or brave (Brave Search API). Only the question is sent, never one with a secret or a household name.
