@@ -24,7 +24,7 @@ class Evening:
         return [dict(r) for r in self.store.db.execute(f"SELECT * FROM items WHERE {where} ORDER BY created", args)]
 
     def build(self, now=None):
-        from . import house
+        from . import house, structure
         now = now or self.store.clock()
         start = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         lines = []
@@ -53,6 +53,7 @@ class Evening:
                              "('home','calendar','automations','journal','scale','morning','evening','habits','tidy',"
                              "'patterns','comfort','weather') AND source NOT LIKE 'pack:%' AND shelf NOT LIKE 'summaries%'",
                              (start, now))
+        learned = [r for r in learned if structure.wanted(r["source"], r["shelf"])]   # not meals, check-ins, summaries
         if learned:
             lines.append(f"Remembered {len(learned)}: " + "; ".join(mask_all(r["title"])[:50] for r in learned[:4])
                          + (" …" if len(learned) > 4 else ""))

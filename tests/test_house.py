@@ -215,11 +215,15 @@ def house_tests():
     st.remember(text="Desk lamp: off.", title="Desk lamp: off", kind="fact", shelf="home/devices", source="home",
                 at=t["now"] - 50, meta={"entity_id": "light.desk_lamp", "state": "off", "salience": 0, "routine": True})
     st.remember(text="The spare key is in the blue bowl.", source="api", at=t["now"] - 40)
+    st.remember(text="Ate tuna chickpea penne.", title="Ate tuna chickpea penne", shelf="body/meals", source="api",
+                at=t["now"] - 30)
+    st.remember(text="Fog 3, slept ok.", title="Check-in: fog 3", shelf="body/fog", source="check-in", at=t["now"] - 20)
     st.kv_set("house_model", model)
     text = Evening(st, None).build(t["now"])
     check("evening brief: the notable change, not the routine one", "Front door: unlocked (lock unlocked, unusual time)" in text
           and "Desk lamp: off" not in text, text)
-    check("evening brief: what was remembered and the suggestions waiting", "Remembered 1: The spare key" in text and
+    check("evening brief: what was remembered and the suggestions waiting", "Remembered 1: The spare key" in text and "penne" not in text and
+          "Check-in" not in text and
           "Suggested automations" in text, text)
     st2 = Store(tempfile.mktemp())
     check("evening brief: nothing to say, nothing sent", Evening(st2, None).build() == "")

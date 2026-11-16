@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.22.0
+- Evening brief: "Remembered" lists only notes in your own words, not meals logged, fog check-ins or summaries.
 - Automation engine: new triggers time_pattern (`/15`, `*`), sun (sunrise and sunset with an offset), event (event_type, event_data) and template (fires when it turns true), and the `event` action. Automations using them can now be run by Home Mind.
 - Habits: each night the last 4 weeks of house history are read for things that change to the same state at about the same time on most days ("Dana usually gets home around 6:30 PM on weekdays"). A habit must also beat chance and hold most of that thing's changes, and weekday or weekend habits must hold on more of their days. They are filed as notes on home/patterns, so questions find them. Habits suite: 0.994 (0.844 for a plain "same time on most days" rule, which took a kettle switched at random 8 times a day for a habit).
 - Suggested automations: a habit done by hand on something Home Mind can switch, with no automation already touching it, becomes a drafted automation on the new House tab. Create puts it in Home Assistant switched off; Dismiss hides it.
