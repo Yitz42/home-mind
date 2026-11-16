@@ -48,7 +48,11 @@ def import_(store, data, dry_run=False):
     """Merge an export into this memory. Returns what was (or would be) added and skipped."""
     if not isinstance(data, dict) or data.get("format") != FORMAT:
         raise ValueError("not a Home Mind export (format should be home-mind-export)")
-    if int(data.get("version") or 0) > FORMAT_VERSION:
+    try:
+        version = int(data.get("version") or 0)
+    except (TypeError, ValueError):
+        raise ValueError("export version should be a number") from None
+    if version > FORMAT_VERSION:
         raise ValueError(f"export version {data.get('version')} is newer than this app reads ({FORMAT_VERSION})")
     items = data.get("items")
     if not isinstance(items, list):
@@ -82,10 +86,9 @@ def import_(store, data, dry_run=False):
             if r and it.get("id") is not None:
                 existing[it["id"]] = r[0]
             continue
+        meta = dict(it["meta"]) if isinstance(it.get("meta"), dict) else {}
         if it.get("masked"):
-            meta = dict(it.get("meta") or {}, imported_masked=True)
-        else:
-            meta = dict(it.get("meta") or {})
+            meta["imported_masked"] = True
         meta["imported"] = True
         if dry_run:
             added += 1
@@ -93,14 +96,20 @@ def import_(store, data, dry_run=False):
             continue
         from .store import clean_tags, clean_shelf
         tags = it.get("tags") or []
+        try:
+            row = (str(it.get("kind") or "note"), str(it["key"]) if it.get("key") else None, str(k[0]), k[1],
+                   clean_tags(tags if isinstance(tags, (list, str)) else []), clean_shelf(str(it.get("shelf") or "inbox")),
+                   it.get("status") if it.get("status") in ("active", "faded", "archived", "superseded") else "active",
+                   created, float(it.get("updated") or created),
+                   float(it["last_used"]) if it.get("last_used") else None, int(it.get("use_count") or 0),
+                   float(it.get("strength") or 1.0), str(it.get("source") or "import"), json.dumps(meta, default=str))
+        except (TypeError, ValueError):
+            bad += 1            # one broken item doesn't stop the rest
+            continue
         with store.lock:
             cur = store.db.execute(
                 "INSERT INTO items(kind,key,title,body,tags,shelf,status,created,updated,last_used,use_count,strength,"
-                "source,meta) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (str(it.get("kind") or "note"), it.get("key"), k[0], k[1], clean_tags(tags), clean_shelf(it.get("shelf")),
-                 it.get("status") if it.get("status") in ("active", "faded", "archived", "superseded") else "active",
-                 created, float(it.get("updated") or created), it.get("last_used"), int(it.get("use_count") or 0),
-                 float(it.get("strength") or 1.0), str(it.get("source") or "import"), json.dumps(meta)))
+                "source,meta) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
             store.db.commit()
         nid = cur.lastrowid
         if it.get("id") is not None:

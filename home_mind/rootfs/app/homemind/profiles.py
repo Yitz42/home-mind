@@ -37,8 +37,15 @@ def _has(text, thing):
 def picture(store, thing, now, cap=14):
     """Lines about a thing, grouped; [] when memory knows nothing about it."""
     cur = structure._places(store)
+    above, y = set(), next((x for x in cur if _has(x, thing)), None)
+    while y in cur and y not in above and len(above) < 6:     # where the thing itself is, all the way up
+        above.add(y)
+        y = cur[y][0]
+        above.add(y)
     inside = []                                   # everything whose chain of places reaches the thing
     for x in cur:
+        if x in above:
+            continue        # "the garage is next to the toolbox" while the toolbox is in the garage: not inside it
         chain, y, seen = [], x, set()
         while y in cur and y not in seen and len(chain) < 6:
             seen.add(y)

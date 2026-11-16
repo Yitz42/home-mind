@@ -15,11 +15,12 @@ import time
 SCOPES = ("read", "write", "admin")
 ADMIN_PATHS = [r"^/api/tokens", r"^/api/item/\d+/purge$", r"^/api/purge_about$", r"^/api/automations/(?!draft$)",
                r"^/api/house/suggestion/[^/]+/create$", r"^/api/updates/apply$", r"^/api/backup", r"^/api/restore",
-               r"^/api/import", r"^/api/control/", r"^/api/export", r"^/api/vault/key$"]
-READ_POSTS = [r"^/api/ask$", r"^/api/recall$", r"^/api/search$", r"^/api/lookup$", r"^/api/models/check$"]
+               r"^/api/import", r"^/api/control/", r"^/api/export", r"^/api/vault/key$", r"^/api/compare/run$",
+               r"^/api/email/check$"]
+READ_POSTS = [r"^/api/ask$", r"^/api/recall$", r"^/api/search$", r"^/api/lookup$", r"^/api/models/check$", r"^/api/sql$"]
 MCP_READ = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_tasks", "mind_ask",
             "mind_models", "mind_test_results", "mind_trend", "mind_home", "mind_automations", "mind_status",
-            "mind_updates", "mind_meals", "mind_draft_automation"}
+            "mind_updates", "mind_meals", "mind_draft_automation", "mind_sql"}
 MCP_ADMIN = {"mind_purge", "mind_purge_about", "mind_install_automation", "mind_control", "mind_do", "mind_run_test"}
 
 

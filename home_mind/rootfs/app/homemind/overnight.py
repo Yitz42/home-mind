@@ -40,16 +40,30 @@ EXTRACT_SYSTEM = (
     "reply {\"facts\": []}.")
 
 
-def parse_facts(text):
+class Unreadable(ValueError):
+    """The model's reply has no facts list in it: the turns are tried again another night."""
+
+
+def parse_facts(text, strict=False):
     m = re.search(r"\{.*\}", text or "", re.S)
     if not m:
+        if strict:
+            raise Unreadable("no JSON in the reply")
         return []
     try:
         d = json.loads(m.group(0))
     except ValueError:
+        if strict:
+            raise Unreadable("the reply's JSON doesn't parse") from None
+        return []
+    facts = d.get("facts") if isinstance(d, dict) else None
+    if not isinstance(facts, list):
+        # {"facts": "nope"} would otherwise file one note per letter (bug-hunt set)
+        if strict and not (isinstance(d, dict) and facts is None and not d):
+            raise Unreadable("no facts list in the reply")
         return []
     out = []
-    for f in d.get("facts") or []:
+    for f in facts:
         if isinstance(f, dict) and str(f.get("text") or "").strip():
             out.append({"text": str(f["text"]).strip(), "turn": f.get("turn")})
         elif isinstance(f, str) and f.strip():
@@ -77,7 +91,7 @@ async def extract(model, turns, max_tokens=900):
         idx[i] = t
     r = await model.chat(EXTRACT_SYSTEM, [{"role": "user", "content": "\n".join(lines)}], max_tokens=max_tokens,
                          temperature=0)
-    facts = parse_facts(r["text"])
+    facts = parse_facts(r["text"], strict=True)
     for f in facts:
         t = idx.get(f["turn"]) if isinstance(f["turn"], int) else None
         if t is None or t["who"] != "user":
@@ -279,7 +293,15 @@ class Overnight:
                 try:
                     facts = await extract(model, turns)
                 except Exception as e:  # noqa: BLE001
+                    # an unreadable reply or a failure: these turns wait for another night, three tries at most
                     log.warning("extract %s: %s", cid, e)
+                    tries = self.store.kv_get("extract_tries") or {}
+                    k = str(chunk[0]["id"])
+                    tries[k] = tries.get(k, 0) + 1
+                    if tries[k] >= self.EXTRACT_TRIES:
+                        done += [r["id"] for r in chunk]
+                        tries.pop(k)
+                    self.store.kv_set("extract_tries", dict(list(tries.items())[-500:]))
                     continue
                 mine = [r["user_text"] for r in chunk if who and FIRST_PERSON.search(r["user_text"] or "")]
                 personal = [x for x in facts if mine and max(_overlap(x["text"], u) for u in mine) >= 0.4]
@@ -323,6 +345,8 @@ class Overnight:
                      "reshelved": len(reshelved["moved"]), "reshelve_suggested": len(reshelved["suggested"]),
                      "ids": filed, **({"structure_read": read} if read is not None else {})}
         return self.last
+
+    EXTRACT_TRIES = 3
 
     TAG_SYSTEM = ("The note may be in any language. Reply with JSON only: {\"hedge\": true if the writer isn't sure "
                   "(a guess), \"correction\": true if it corrects an earlier note, \"speaker\": the name of the person "

@@ -15,6 +15,7 @@ import os
 import re
 
 STATE = "mdsync"
+MAX_FILE = 200_000
 SKIP_SOURCES = ("home", "automations", "calendar")
 HEADER = re.compile(r"\A---\n(.*?)\n---\n?", re.S)
 
@@ -117,6 +118,8 @@ class MdSync:
         by_path = {v.get("path"): k for k, v in state.items()}
         for p in files:
             try:
+                if os.path.getsize(p) > MAX_FILE:
+                    continue            # too big for a note: left alone (put long texts in Documents)
                 text = open(p, encoding="utf-8").read()
             except (OSError, UnicodeDecodeError):
                 continue
@@ -150,6 +153,9 @@ class MdSync:
                     # the note was archived or forgotten here: its file goes
                     os.remove(p)
                     stats["removed_files"] += 1
+                elif st.get(iid) is None:
+                    # names a note that was never here (copied from another memory): a new note
+                    new_files.append((p, title, body, {k: v for k, v in head.items() if k != "id"}))
                 continue
             d = notes[cur]
             file_changed = s is None or _h(text) != s.get("file")

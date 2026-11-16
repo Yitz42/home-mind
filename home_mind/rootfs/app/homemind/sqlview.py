@@ -18,8 +18,8 @@ CREATE TEMP VIEW notes AS SELECT id, kind, key, shelf, status, supersedes AS rep
   created AS created_ts, use_count, strength,
   json_extract(meta, '$.category') AS category, json_extract(meta, '$.owner') AS owner,
   json_extract(meta, '$.scope') AS scope
-FROM main.items;
-CREATE TEMP VIEW links AS SELECT a, b, kind FROM main.links;
+FROM main.items WHERE {who};
+CREATE TEMP VIEW links AS SELECT a, b, kind FROM main.links WHERE {lwho};
 """
 HELP = {"notes": ["id", "kind", "key", "shelf", "status", "replaces", "source", "title", "body", "tags", "created",
                   "updated", "created_ts", "use_count", "strength", "category", "owner", "scope"],
@@ -30,9 +30,28 @@ class SqlError(ValueError):
     pass
 
 
-def _connect(path):
+MAX_VALUE = 1_000_000      # bytes in any one value (randomblob/zeroblob/printf can't build a huge one)
+
+
+def _who(viewer):
+    """Which notes the viewer may see (#48): everything (None), household only (""), or also their own."""
+    if viewer is None:
+        return "1=1"
+    house = "COALESCE(json_extract(meta, '$.scope'), '') != 'personal'"
+    if not viewer:
+        return house
+    v = str(viewer).lower().replace("'", "''")
+    return f"({house} OR LOWER(COALESCE(json_extract(meta, '$.owner'), '')) = '{v}')"
+
+
+def _connect(path, viewer=None):
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2, check_same_thread=False)
-    db.executescript(VIEWS)
+    if hasattr(db, "setlimit"):
+        db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_VALUE)
+    who = _who(viewer)
+    lwho = "1=1" if viewer is None else \
+        f"a IN (SELECT id FROM main.items WHERE {who}) AND b IN (SELECT id FROM main.items WHERE {who})"
+    db.executescript(VIEWS.replace("{lwho}", lwho).replace("{who}", who))
     return db
 
 
@@ -40,7 +59,7 @@ ALLOWED = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION}
 BLOCKED_FUNCS = {"load_extension", "readfile", "writefile", "edit", "fts5"}
 
 
-def query(path, sql, params=()):
+def query(path, sql, params=(), viewer="__current__"):
     sql = (sql or "").strip().rstrip(";").strip()
     if not sql:
         raise SqlError("give a query")
@@ -48,7 +67,10 @@ def query(path, sql, params=()):
         raise SqlError("one statement at a time")
     if len(sql) > 4000:
         raise SqlError("query too long")
-    db = _connect(path)
+    if viewer == "__current__":
+        from .speakers import VIEWER
+        viewer = VIEWER.get()
+    db = _connect(path, viewer)
     started = time.monotonic()
 
     def auth(action, a1, a2, dbname, source):
@@ -78,6 +100,8 @@ def query(path, sql, params=()):
         msg = str(e)
         if "interrupted" in msg:
             msg = f"stopped after {MAX_SECONDS:.0f} seconds"
+        elif "too big" in msg:
+            msg = f"a value would be larger than {MAX_VALUE:,} bytes"
         elif "not authorized" in msg or "prohibited" in msg:
             msg = "only SELECT on the notes and links views is allowed"
         raise SqlError(msg) from None
@@ -85,5 +109,6 @@ def query(path, sql, params=()):
         db.set_progress_handler(None, 0)
     db.close()
     more = len(rows) > MAX_ROWS
-    return {"columns": cols, "rows": [list(r) for r in rows[:MAX_ROWS]], "truncated": more,
+    cell = lambda v: f"<{len(v)} bytes>" if isinstance(v, (bytes, bytearray, memoryview)) else v
+    return {"columns": cols, "rows": [[cell(v) for v in r] for r in rows[:MAX_ROWS]], "truncated": more,
             "ms": round((time.monotonic() - started) * 1000)}

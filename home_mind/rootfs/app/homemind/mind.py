@@ -799,9 +799,12 @@ class Mind:
             if st is self.store:
                 saved = st.kv_get("conversations") or {}
                 now = time.time()
-                self._convs = {k: v for k, v in (saved.get("convs") or {}).items()
-                               if now - v.get("t", 0) <= self.FOLLOW_SECONDS}
-                self._person_conv = saved.get("people") or {}
+                try:
+                    self._convs = {k: v for k, v in (saved.get("convs") or {}).items()
+                                   if isinstance(v, dict) and now - float(v.get("t", 0)) <= self.FOLLOW_SECONDS}
+                    self._person_conv = dict(saved.get("people") or {})
+                except (AttributeError, TypeError, ValueError):
+                    self._convs, self._person_conv = {}, {}     # unreadable: start fresh rather than fail every question
         return self._convs
 
     def _handoff(self, conversation_id, convs):
@@ -893,6 +896,10 @@ class Mind:
                 cid = Cases(store).add(aw["q"], text, aw.get("wrong", ""), aw["src"]["id"], filed["id"])
             return {"answer": f"Thanks, filed: {text} The old note stays in its history.", "hits": [], "model": None,
                     "filed": filed, "case": cid}
+        if not re.search(r"\w", question or ""):
+            # nothing to search for: no "best matching note" for an empty question (bug-hunt set)
+            return {"answer": "Ask me something, or tell me something to remember.", "hits": [], "model": None,
+                    "empty": True}
         vw = getattr(self, "views", None)
         if vw is not None and store is self.store:
             name = vw.find(question)

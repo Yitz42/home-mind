@@ -22,7 +22,8 @@ class Views:
         self.store = store
 
     def all(self):
-        return self.store.kv_get(KV) or {}
+        v = self.store.kv_get(KV) or {}
+        return {k: x for k, x in v.items() if isinstance(x, dict)} if isinstance(v, dict) else {}
 
     def save(self, name, query="", shelf=None, kind=None, tags=None, days=None, sort=None, limit=20, sql=None):
         name = _name(name)
@@ -34,7 +35,8 @@ class Views:
             from . import sqlview
             sqlview.query(self.store.path, sql)          # check it now, not when it's first opened
         v = {"query": str(query or "")[:300], "shelf": shelf or None, "kind": kind or None,
-             "tags": [t.lower() for t in (tags or [])][:10], "days": float(days) if days else None,
+             "tags": [str(t).lower() for t in (re.split(r"[,\s]+", tags) if isinstance(tags, str) else tags or []) if t][:10],
+             "days": float(days) if days else None,
              "sort": sort or ("relevance" if query else "newest"), "limit": max(1, min(int(limit or 20), 200)),
              "sql": sql or None, "saved": time.time()}
         allv = self.all()

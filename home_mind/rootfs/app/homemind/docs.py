@@ -83,11 +83,19 @@ class Docs:
             store.db.commit()
 
     def add(self, name, data, path=None):
+        name = os.path.basename(str(name or "").replace("\\", "/")).strip() or "document"   # never a path (bug-hunt set)
+        if not data:
+            raise ValueError(f"{name}: empty file")
         sha = hashlib.sha256(data).hexdigest()
         have = self.store.db.execute("SELECT id FROM docs WHERE sha=?", (sha,)).fetchone()
         if have:
             return {"id": have[0], "name": name, "already": True}
-        secs = pages_of(name, data)
+        try:
+            secs = pages_of(name, data)
+        except ValueError:
+            raise
+        except Exception as e:  # noqa: BLE001 - a broken PDF is the file's problem, not a crash
+            raise ValueError(f"{name}: can't read it ({type(e).__name__})") from None
         if not secs:
             raise ValueError(f"{name}: no text found" + (" (a scanned PDF needs OCR first)" if name.lower().endswith(".pdf")
                                                          else ""))

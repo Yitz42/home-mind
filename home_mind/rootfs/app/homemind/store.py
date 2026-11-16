@@ -258,15 +258,84 @@ def clean_tags(tags):
     return " ".join(sorted({re.sub(r"[^a-z0-9_\-]", "", t.lower()) for t in (tags or []) if t and t.strip()} - {""}))
 
 
+class _Rows:
+    """A finished query: its rows already read, so another thread can use the connection at once."""
+    __slots__ = ("_rows", "lastrowid", "rowcount", "description", "_i")
+
+    def __init__(self, rows, lastrowid, rowcount, description):
+        self._rows, self.lastrowid, self.rowcount, self.description, self._i = rows, lastrowid, rowcount, description, 0
+
+    def fetchone(self):
+        if self._i >= len(self._rows):
+            return None
+        self._i += 1
+        return self._rows[self._i - 1]
+
+    def fetchall(self):
+        out, self._i = self._rows[self._i:], len(self._rows)
+        return out
+
+    def fetchmany(self, n=1):
+        out = self._rows[self._i:self._i + n]
+        self._i += len(out)
+        return out
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+
+class LockedDB:
+    """The one SQLite connection, shared by the event loop and worker threads (documents, Markdown sync, email,
+    backups). Every statement runs under the store's lock and reads its rows before letting go, so two threads never
+    interleave on one connection (bug-hunt set: concurrent remember + recall raised InterfaceError)."""
+
+    def __init__(self, conn, lock):
+        self._c, self._lock = conn, lock
+
+    def execute(self, sql, params=()):
+        with self._lock:
+            cur = self._c.execute(sql, params)
+            return _Rows(cur.fetchall() if cur.description else [], cur.lastrowid, cur.rowcount, cur.description)
+
+    def executemany(self, sql, seq):
+        with self._lock:
+            cur = self._c.executemany(sql, seq)
+            return _Rows([], cur.lastrowid, cur.rowcount, None)
+
+    def executescript(self, sql):
+        with self._lock:
+            self._c.executescript(sql)
+
+    def commit(self):
+        with self._lock:
+            self._c.commit()
+
+    def rollback(self):
+        with self._lock:
+            self._c.rollback()
+
+    def backup(self, *a, **k):
+        with self._lock:
+            return self._c.backup(*a, **k)
+
+    def close(self):
+        with self._lock:
+            self._c.close()
+
+    def __getattr__(self, name):
+        return getattr(self._c, name)
+
+
 class Store:
     def __init__(self, path, clock=None):
         self.path = path
         self.clock = clock or time.time
         if path != ":memory:":
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        self.db = sqlite3.connect(path, check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
+        conn = sqlite3.connect(path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
         self.lock = threading.RLock()
+        self.db = LockedDB(conn, self.lock)
         with self.lock:
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.executescript(SCHEMA)
@@ -300,6 +369,7 @@ class Store:
             self.db.close()
 
     # ---- helpers ------------------------------------------------------------------------------------------
+    MAX_NOTE = 200_000     # characters; longer texts belong in Documents (#50)
     LINK_BY_ATTR = True    # #13: a pronoun note links to the recent note naming its attribute ("its code")
     filer = None           # filing.Filer, set by the app (#58)
     vault_key = None       # set by the app with option encrypt_secrets (#66)
@@ -399,9 +469,19 @@ class Store:
     def remember(self, text="", title="", kind="note", shelf="inbox", tags=None, key=None, source="", meta=None, at=None):
         """Keep something. With a key (e.g. 'tavrin locker|code'), a different value for the same key supersedes
         the old item (kept as history); the same value just strengthens it."""
-        text, title = (text or "").strip(), (title or "").strip()
+        text, title = str(text or "").replace("\x00", "").strip(), str(title or "").replace("\x00", "").strip()
         if not text and not title:
             raise ValueError("nothing to remember")
+        if len(text) > self.MAX_NOTE:
+            raise ValueError(f"note too long ({len(text):,} characters, at most {self.MAX_NOTE:,}): add long texts "
+                             "as documents instead")
+        if meta is not None and not isinstance(meta, dict):
+            raise ValueError("meta must be an object")
+        if at is not None and at != "":
+            try:
+                at = float(at)
+            except (TypeError, ValueError):
+                raise ValueError("at must be a time in seconds since 1970") from None
         if not title:
             title = text.split("\n")[0][:90]
         key = (key or "").strip().lower() or None

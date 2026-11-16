@@ -1568,7 +1568,7 @@ def build(app_state):
     async def mcp_delete(_):
         return web.Response(status=204)
 
-    app = web.Application(middlewares=[auth, errors], client_max_size=8 * 1024 * 1024)
+    app = web.Application(middlewares=[auth, errors], client_max_size=32 * 1024 * 1024)
     app.add_routes(r)
     app.on_startup.append(A.on_start)
     app.on_cleanup.append(A.on_stop)

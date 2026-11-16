@@ -14,7 +14,8 @@ import re
 
 log = logging.getLogger("homemind.telegram")
 API = "https://api.telegram.org"
-TELL = re.compile(r"^\s*(?:/?remember|/?note|/?save|remember that)\b[:,]?\s*(?:that\s+)?(.+)$", re.I | re.S)
+TELL = re.compile(r"^\s*(?:/?remember|/?note|/?save|remember that)\b[:,]?\s*(?:that\s+)?([^\s:,].*\w.*|\w)$",
+                  re.I | re.S)
 MAX_LEN = 4000
 
 

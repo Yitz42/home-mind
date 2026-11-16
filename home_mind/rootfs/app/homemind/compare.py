@@ -23,7 +23,9 @@ class Compare:
         self.running = False
 
     def history(self):
-        return self.mind.store.kv_get(KV) or []
+        h = self.mind.store.kv_get(KV) or []
+        return [x for x in h if isinstance(x, dict) and isinstance(x.get("ts"), (int, float)) and
+                isinstance(x.get("models"), dict)] if isinstance(h, list) else []
 
     def names(self):
         have = [m for m in self.mind.models.models if m != "mock"]

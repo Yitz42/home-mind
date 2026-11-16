@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.31.0
+A bug-hunting test set (`tests/test_bugs.py`, in CI): odd inputs, many threads at once, an old database, failing and hanging models, unreadable model replies, broken files and corrupt saved state. Fixes for what it found:
+- **Threads could clash on the database.** Concurrent remember and search from worker threads (documents, Markdown sync, email, backups) raised `InterfaceError` or returned broken rows, 20+ times in a 200-note run. Every statement now runs under the store's lock and reads its rows before letting go: 0 errors, nothing lost.
+- **SQL could read other people's personal notes.** The read-only SQL view and saved SQL views ignored who was asking. They now show a person only household notes and their own, including links. `/api/sql` and `mind_sql` need only read access. Running a model comparison and checking email now need admin.
+- **SQL could build huge values.** `zeroblob(1e9)` returned a gigabyte. Values are now capped at 1 MB, and blobs show as their size.
+- **An empty model reply used up the night's conversations.** Unreadable replies are now tried again the next night (three nights at most). `{"facts": "nope"}` no longer files one note per letter.
+- **An empty question got a random note** ("No model answered, so here is the best matching note…"). It now asks you to ask something.
+- **Uploads over 8 MB were refused** although photos may be 12 MB. The request limit is now 32 MB, enough for photos and large imports.
+- **Imports:** one broken item no longer stops the rest, and a non-numeric version is a clear error.
+- **Markdown sync:** a file naming a note that was never here (copied from another memory) becomes a new note instead of being ignored forever. Files over 200 KB are left alone.
+- **Documents:** a broken PDF or an empty file is a clear error instead of a crash, and a name can't be a path.
+- **Notes:** over 200,000 characters, meta that isn't an object, and a time that isn't one are refused with a reason. NUL bytes are dropped.
+- **Telegram:** "note:" with nothing after it no longer files ":" as a note.
+- **Saved views:** tags given as text are split into words, not letters. Unreadable saved views, conversations and comparison history no longer break anything.
+- **"Everything about X":** a place that holds the thing ("the garage is next to the toolbox") is no longer listed as kept inside it.
+
 ## 0.30.0
 - Telegram (#52): options `telegram_token` and `telegram_chats` ("chat id: name"). Ask anything, or say "remember ..." to file a note. A photo with a caption is filed with the photo. Each chat is its own conversation and asks as its person, so personal notes stay personal. Chats not on the list are ignored (except /start, which only says the chat id).
 - Web lookups for current facts (#55): option `web_search` (`searxng` with `web_search_url`, or `brave` with `web_search_key`). Used only when a question is about the world now ("latest version", "open today", "price of") and the notes don't answer it. Results are dated and linked in the context. Only the question is sent, never one with a secret or a household member's name.

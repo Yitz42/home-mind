@@ -356,6 +356,12 @@ Assistant doesn't have.
 - **Email.** Make a mailbox just for Home Mind and fill in the `email_*` options. Put your own addresses in `email_senders`. Forward receipts, warranties and notes to it; they're filed within `email_minutes`.
 - **Prompt caching** happens on its own for Anthropic models when a long prefix repeats (mostly in tests). Add `cache: false` to a model to turn it off.
 
+## Limits (0.31)
+
+- A note holds up to 200,000 characters; put longer texts in Documents.
+- Uploads (photos, documents, imports) can be up to 32 MB per request; one photo up to 12 MB.
+- Read-only SQL shows each person household notes and their own personal notes; values are capped at 1 MB and results at 500 rows.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press
