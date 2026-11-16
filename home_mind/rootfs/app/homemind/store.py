@@ -137,6 +137,9 @@ SPEAKER = re.compile(r"\b([A-Z][a-z]+)\s+(?:says|said|thinks|thought|told me|men
 FOLLOW = re.compile(r"\b(whoever|whose|of the (?:person|one|guy|woman|man)|(?:person|one|guy|woman|man) who)\b", re.I)
 
 
+ATTR_THINGS = [({"code", "combination", "pin", "passcode"},
+                {"safe", "locker", "padlock", "lock", "keypad", "gate", "shed", "garage", "alarm", "door", "lockbox"}),
+               ({"password", "passphrase"}, {"router", "wifi", "laptop", "account", "network", "computer", "tablet"})]
 ATTR_SAME = [{"code", "combination", "pin", "passcode", "open", "opens", "number"},
              {"password", "passphrase", "passcode"}]      # attribute words that name the same thing (#13)
 MOD_STOP = STOP | {"new", "old", "same", "other", "next", "last", "first", "whole", "only", "own", "main", "current"}
@@ -430,7 +433,11 @@ class Store:
                 older = any(self.db.execute("SELECT 1 FROM items WHERE (title || ' ' || body) LIKE ? AND "
                                             "(title || ' ' || body) LIKE ? LIMIT 1", (f"%{n}%", f"%{a}%")).fetchone()
                             for n in list(last_names)[:3] for a in list(same_as)[:6])
-                if with_attr and not same and not older:
+                # ... or the last note is about a kind of thing that has one ("check on the Quillon safe": safes
+                # have codes)
+                kind_has = bool({singular(w) for w in words(prev["title"] + " " + prev["body"])} &
+                                {t for g, ts in ATTR_THINGS if same_as & g for t in ts})
+                if with_attr and not same and not older and not kind_has:
                     prev = with_attr[0]        # the last note was about something else: the recent thing with a code
             if prev:
                 title = f"{title} [re: {prev['title'][:100]}]"
