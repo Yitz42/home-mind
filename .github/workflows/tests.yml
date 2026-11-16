@@ -44,6 +44,8 @@ jobs:
         run: python tests/test_meaning.py
       - name: Security and setup (tokens, signatures, encryption, backups, comfort rooms)
         run: python tests/test_security.py
+      - name: Files and filing (documents, filing, apps, pronoun links)
+        run: python tests/test_files.py
       - name: Extraction bench scoring
         run: python tests/test_extract.py
       - name: Pantry

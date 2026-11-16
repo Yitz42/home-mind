@@ -51,6 +51,8 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "personal_rule": "first_person", "unknown_caller": "admin", "embed_model": "",
             "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
+            "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
+            "paperless_url": "", "paperless_token": "",
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
@@ -128,6 +130,13 @@ class App:
         from .tokens import Tokens
         self.tokens = Tokens(self.mind.store)
         self.setup_vault()
+        from .docs import Docs
+        from .apps import Apps
+        self.mind.docs = self.docs = Docs(self.mind.store, self.opts.get("docs_folder") or None)
+        self.mind.apps = Apps(self.opts, lambda: self.models.session)
+        if self.opts.get("learn_filing", True) is not False:
+            from .filing import Filer
+            self.mind.store.filer = Filer(self.mind.store)
         from .offsite import Offsite
         self.offsite = Offsite(self.mind.store, self.opts, lambda: self.models.session)
         self.comforts = self.comfort_rooms()
@@ -352,6 +361,14 @@ class App:
                                 await self.ha.push(target, {"title": title, "message": msg})
                         except Exception as e:  # noqa: BLE001
                             log.warning("house notice: %s", e)
+            if now - last.get("docs", 0) > 3600:
+                last["docs"] = now
+                try:
+                    r = await asyncio.to_thread(self.docs.scan)
+                    if r.get("added") or r.get("removed"):
+                        log.info("documents: %s", r)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("documents folder: %s", e)
             if self.offsite.due(now):
                 try:
                     r = await self.offsite.run(now)
@@ -767,6 +784,23 @@ def build(app_state):
             return J(st.feedback(i, bool(b.get("helpful")), b.get("note", "")))
         if op == "confirm":
             return J(st.confirm(i))
+        if op == "move":           # to another shelf; filing learns from where notes are (#58, #59)
+            b = await q.json()
+            from .store import clean_shelf
+            shelf = clean_shelf(b.get("shelf") or "")
+            if not shelf or shelf == "inbox" and not b.get("allow_inbox"):
+                raise ValueError("give a shelf")
+            d = st.get(i)
+            m = {k: v for k, v in (d["meta"] or {}).items() if k not in ("suggested_shelf", "suggested_p")}
+            if d["shelf"] != shelf:
+                m["moved_from"] = d["shelf"]
+            with st.lock:
+                st.db.execute("UPDATE items SET shelf=?, meta=?, updated=? WHERE id=?", (shelf, json.dumps(m), st.clock(), i))
+                st.db.commit()
+            if st.filer:
+                st.filer._model = None
+            st.log("move", i, shelf=shelf, was=d["shelf"])
+            return J({"id": i, "shelf": shelf})
         if op == "scope":          # personal (one person) or household (everyone), #48
             b = await q.json()
             d = st.get(i)
@@ -1032,6 +1066,47 @@ def build(app_state):
     @r.post("/api/backup/now")
     async def backup_now(_):
         return J(await A.offsite.run())
+
+    @r.get("/api/docs")
+    async def docs_list(q):
+        if q.query.get("q"):
+            return J(A.docs.search(q.query["q"], k=5))
+        return J(A.docs.list())
+
+    @r.post("/api/docs")
+    async def docs_add(q):
+        if q.content_type.startswith("multipart/"):
+            rd = await q.multipart()
+            out = []
+            async for part in rd:
+                if part.filename:
+                    out.append(await asyncio.to_thread(A.docs.add, part.filename, await part.read(decode=False)))
+            return J(out)
+        b = await q.json()
+        return J(A.docs.add(b["name"], (b.get("text") or "").encode()))
+
+    @r.delete("/api/docs/{did}")
+    async def docs_remove(q):
+        return J({"removed": A.docs.remove(q.match_info["did"])})
+
+    @r.get("/api/inbox")
+    async def inbox_get(_):
+        """Notes in the inbox, newest first, with the shelf filing would suggest (#59)."""
+        st = A.mind.store
+        rows = [st._row(r) for r in st.db.execute(
+            "SELECT * FROM items WHERE shelf='inbox' AND status='active' AND kind != 'procedure' ORDER BY created DESC "
+            "LIMIT 100")]
+        out = []
+        for d in rows:
+            sug = (d["meta"] or {}).get("suggested_shelf")
+            if not sug and st.filer:
+                s2, p = st.filer.guess(f"{d['title']} {d['body']}")
+                sug = s2 if s2 and p >= 0.5 else None
+            out.append({"id": d["id"], "title": d["title"], "created": d["created"], "suggested": sug})
+        shelves = [r[0] for r in st.db.execute("SELECT shelf FROM items WHERE status='active' AND shelf != 'inbox' AND "
+                                               "shelf NOT LIKE 'home/%' AND shelf NOT LIKE 'comfort/%' GROUP BY shelf "
+                                               "ORDER BY COUNT(*) DESC LIMIT 40")]
+        return J({"items": out, "shelves": shelves})
 
     @r.get("/api/vault")
     async def vault_get(_):

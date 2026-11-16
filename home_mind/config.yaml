@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.25.0"
+version: "0.26.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -22,6 +22,8 @@ map:
   - type: homeassistant_config
     read_only: false
   - type: media
+    read_only: false
+  - type: share
     read_only: false
 ports:
   8099/tcp: null
@@ -82,6 +84,12 @@ options:
   backup_region: ""
   backup_every_hours: 6
   backup_keep: 14
+  learn_filing: true
+  docs_folder: /share/home-mind/docs
+  homebox_url: ""
+  homebox_token: ""
+  paperless_url: ""
+  paperless_token: ""
   answer_edges: false
   answer_notes_first: false
   events_keep_days: 90
@@ -155,6 +163,12 @@ schema:
   backup_region: str?
   backup_every_hours: int(1,168)
   backup_keep: int(1,365)
+  learn_filing: bool
+  docs_folder: str?
+  homebox_url: url?
+  homebox_token: password?
+  paperless_url: url?
+  paperless_token: password?
   comfort_rooms:
     - name: str
       person: str?

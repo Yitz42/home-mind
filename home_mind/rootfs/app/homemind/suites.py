@@ -1949,6 +1949,67 @@ def links(seed):
     return {"events": events, "questions": questions}
 
 
+FILE_TOPICS = {
+    "kitchen/recipes": (["flour", "oven", "bake", "dough", "sugar", "butter", "simmer", "sauce", "garlic", "roast"],
+                        ["Mix the {a} and {b} for the {c} recipe.", "The {a} {c} needs more {b} next time.",
+                         "Grandma's {c}: {a}, {b}, then bake."]),
+    "car": (["tire", "oil", "brake", "engine", "wiper", "mileage", "garage", "battery", "inspection", "dealer"],
+            ["The car's {a} and {b} were checked at the {c}.", "Need a new {a} before the {c}.",
+             "{a} warning light came on; {b} looked fine."]),
+    "garden": (["soil", "seed", "compost", "tomato", "prune", "mulch", "hose", "bed", "rose", "weed"],
+               ["Put {a} on the {b} by the fence.", "The {a} needs {b} before spring.", "Planted {a} in the {c} {b}."]),
+    "kids/school": (["homework", "teacher", "class", "report", "lunch", "bus", "recess", "semester", "grade", "field"],
+                    ["{a} is due Friday; the {b} said so.", "The school {a} leaves at 7:40 on {b} days.",
+                     "Ben's {a} needs signing for the {b} trip."]),
+    "health": (["doctor", "pills", "dose", "clinic", "blood", "pressure", "appointment", "pharmacy", "refill", "checkup"],
+               ["The {a} changed the {b} to twice a day.", "{a} refill at the {b} on Monday.",
+                "Next {a} is in March; {b} was normal."]),
+}
+
+
+def filing(seed, train=8, test=4):
+    """Where notes go (#58). Each shelf has a few notes filed by hand; new notes like them come in unfiled. Filing must
+    put them on the right shelf (or suggest it) and leave notes about nothing in particular in the inbox."""
+    rng = random.Random(seed)
+    events, questions = [], []
+    for shelf, (vocab, tpls) in FILE_TOPICS.items():
+        for _ in range(train):
+            a, b, c = rng.sample(vocab, 3)
+            events.append({"op": "remember", "text": rng.choice(tpls).format(a=a, b=b, c=c), "shelf": shelf})
+    for shelf, (vocab, tpls) in FILE_TOPICS.items():
+        for _ in range(test):
+            a, b, c = rng.sample(vocab, 3)
+            questions.append({"q": rng.choice(tpls).format(a=a, b=b, c=c), "gold": None, "file": shelf, "type": "topic"})
+    for t in ["Remember to call back about the thing.", "That was a good day.", "Ask about it on Tuesday.",
+              "Dana said maybe later."]:
+        questions.append({"q": t, "gold": None, "file": "inbox", "type": "vague"})
+    return {"events": events, "questions": questions, "filer": True}
+
+
+def pronouns(seed, n=4):
+    """"Its code changed" right after a note about something else (#13): it is about the recent thing that has a
+    code, not just whatever was said last."""
+    rng = random.Random(seed)
+    events, questions, used = [], [], set()
+    for i in range(n):
+        a, b = _fresh(rng, used), _fresh(rng, used)
+        thing, other = rng.choice([("shed", "code"), ("locker", "code"), ("router", "password"), ("safe", "combination")]), \
+            rng.choice(["bike", "kayak", "lamp", "rug"])
+        v1, v2 = (str(x) for x in rng.sample(range(1000, 10000), 2))
+        events += [{"op": "remember", "text": f"The {a} {thing[0]} {thing[1]} is {v1}.", "kind": "fact"},
+                   {"op": "remember", "text": f"The {b} {other} is {rng.choice(COLORS)}."},
+                   {"op": "remember", "text": f"Its {thing[1]} changed to {v2}.", "kind": "fact", "quick": True}]
+        questions.append({"q": f"What is the {thing[1]} for the {a} {thing[0]}?", "gold": v2,
+                          "attack": "probation", "type": "its_attribute"})
+        c = _fresh(rng, used)
+        v3 = str(rng.randint(1000, 9999))
+        events += [{"op": "remember", "text": f"The {c} gate code is {rng.randint(1000, 9999)}.", "kind": "fact"},
+                   {"op": "remember", "text": f"Its code changed to {v3}.", "kind": "fact", "quick": True}]
+        questions.append({"q": f"What is the code for the {c} gate?", "gold": v3, "attack": "probation",
+                          "type": "its_previous"})
+    return {"events": events, "questions": questions, "spacing": 60}
+
+
 def abstain(seed, n=10):
     """Questions whose answer was never filed, next to the same kind of question that can be answered. Half come from
     a locate world (vague, no names), half from a recall world (named facts); for each world, half the questions have
@@ -1978,7 +2039,8 @@ SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, 
           "valid": valid, "profile": profile, "tidy": tidy,
           "paraphrase": paraphrase, "attacks": attacks, "sources": sources, "injections": injections,
           "conflicts": conflicts, "reminders": reminders, "habits": habits, "baselines": baselines,
-          "salience": salience, "drafts": drafts, "people": people, "keys": keys, "lowercase": lowercase, "links": links}
+          "salience": salience, "drafts": drafts, "people": people, "keys": keys, "lowercase": lowercase, "links": links, "filing": filing,
+          "pronouns": pronouns}
 SUITE_INFO = {
     "recurring": "things that repeat (every Tuesday, every other Thursday, the 15th of the month): when is the next one?",
     "chores": "chores with an interval and when each was done: last done, next due, which are overdue",
@@ -2001,6 +2063,8 @@ SUITE_INFO = {
     "keys": "questions worded more broadly than the notes (dog for a beagle, car for a Civic)",
     "lowercase": "things without capitalized names: versions of the blue toolbox, not the red one",
     "links": "two-step questions: which thing is a person's, then where that thing is",
+    "filing": "new notes like the ones on a shelf go there; vague ones stay in the inbox",
+    "pronouns": "'its code changed' after a note about something else",
     "attacks": "asking for every secret, for the whole memory, a planted instruction, a value slipped in overnight, "
                "forget for good; and one code asked by name, which must still work",
     "paraphrase": "the same structure said in ways the patterns miss; brain arm, compare ingest raw with ingest "

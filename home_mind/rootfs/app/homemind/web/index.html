@@ -35,6 +35,10 @@
 </section>
 <section id="memory" class="hide">
   <div class="card hide" id="itemcard"></div>
+  <div class="card hide" id="inboxcard"><h2>Inbox <span class="mute">notes not on a shelf yet; filing learns from where you put them</span></h2><table id="inbox"></table></div>
+  <div class="card"><h2>Documents <span class="mute">manuals, warranties, recipes: searched for questions, answers name the page</span></h2><table id="docs"></table>
+    <div class="row"><input type="file" id="doc_file" multiple accept=".pdf,.txt,.md,.html"> <button class="go" onclick="addDocs()">Add</button> <span id="doc_out" class="mute"></span></div>
+    <p class="mute">Files in the documents folder (option docs_folder, default /share/home-mind/docs) are added every hour.</p></div>
   <div class="card hide" id="reviewcard"><h2>To review <span class="mute">learned or guessed, not checked yet</span></h2><table id="review"></table>
     <p class="mute">Held notes read like instructions to the assistant and are left out of answers until approved. Unconfirmed ones are shown to models marked UNCONFIRMED.</p></div>
   <div class="card"><div class="row"><h2 style="margin:0">Recently added</h2>
@@ -139,7 +143,7 @@ async function load(t) {
     const ev = await api('api/events?limit=15');
     $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${e.type}</td><td class="mute">${esc(e.data).slice(0, 140)}</td></tr>`).join('');
   }
-  if (t === 'memory') { browse(''); recent(); review(); }
+  if (t === 'memory') { browse(''); recent(); review(); inbox(); docsList(); }
   if (t === 'worked') { worked(); }
   if (t === 'house') { houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
   if (t === 'pantry') { pantry(); }
@@ -159,6 +163,27 @@ async function load(t) {
       `<tr><td class="mute" colspan="7">Today: ${n(u.today.calls)} calls, ${n(u.today.tokens)} tokens${u.today.cost == null ? '' : ', $' + u.today.cost.toFixed(2)}</td></tr>`;
   }
 }
+async function inbox() {
+  const r = await api('api/inbox');
+  $('#inboxcard').classList.toggle('hide', !r.items.length);
+  const opts = r.shelves.map(x => `<option>${esc(x)}</option>`).join('');
+  $('#inbox').innerHTML = r.items.map(x => `<tr><td><a onclick="item(${x.id})">${esc(x.title)}</a><br><span class="mute">${when(x.created)}</span></td>
+    <td style="white-space:nowrap">${x.suggested ? `<button class="go" onclick="moveTo(${x.id}, '${esc(x.suggested)}')">File in ${esc(x.suggested)}</button> ` : ''}<select id="mv_${x.id}"><option value="">other shelf…</option>${opts}</select> <button class="go" onclick="moveTo(${x.id}, $('#mv_${x.id}').value)">Move</button></td></tr>`).join('');
+}
+async function moveTo(id, shelf) { if (!shelf) return; await api('api/item/' + id + '/move', {shelf}); inbox(); recent(); }
+async function docsList() {
+  const ds = await api('api/docs');
+  $('#docs').innerHTML = ds.map(d => `<tr><td>${esc(d.name)}</td><td class="num mute">${d.pages} ${d.name.toLowerCase().endsWith('.pdf') ? 'pages' : 'sections'}</td><td><button class="go" style="background:var(--bad)" onclick="docRemove(${d.id})">Remove</button></td></tr>`).join('') || '<tr><td class="mute">none yet</td></tr>';
+}
+async function addDocs() {
+  const f = $('#doc_file').files; if (!f.length) return;
+  const fd = new FormData(); for (const x of f) fd.append('file', x, x.name);
+  $('#doc_out').textContent = 'reading…';
+  const r = await (await fetch('api/docs', {method: 'POST', body: fd})).json();
+  $('#doc_out').textContent = r.error || r.map(x => x.name + (x.already ? ' (already there)' : ` (${x.sections} sections)`)).join(', ');
+  docsList();
+}
+async function docRemove(id) { await fetch('api/docs/' + id, {method: 'DELETE'}); docsList(); }
 async function review() {
   const rs = await api('api/review');
   $('#reviewcard').classList.toggle('hide', !rs.length);

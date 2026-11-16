@@ -137,6 +137,8 @@ SPEAKER = re.compile(r"\b([A-Z][a-z]+)\s+(?:says|said|thinks|thought|told me|men
 FOLLOW = re.compile(r"\b(whoever|whose|of the (?:person|one|guy|woman|man)|(?:person|one|guy|woman|man) who)\b", re.I)
 
 
+ATTR_SAME = [{"code", "combination", "pin", "passcode", "open", "opens", "number"},
+             {"password", "passphrase", "passcode"}]      # attribute words that name the same thing (#13)
 MOD_STOP = STOP | {"new", "old", "same", "other", "next", "last", "first", "whole", "only", "own", "main", "current"}
 
 
@@ -281,6 +283,8 @@ class Store:
             self.db.close()
 
     # ---- helpers ------------------------------------------------------------------------------------------
+    LINK_BY_ATTR = True    # #13: a pronoun note links to the recent note naming its attribute ("its code")
+    filer = None           # filing.Filer, set by the app (#58)
     vault_key = None       # set by the app with option encrypt_secrets (#66)
 
     def _row(self, r):
@@ -387,6 +391,11 @@ class Store:
         shelf, tags = clean_shelf(shelf), clean_tags(tags)
         now = float(at) if at else self.clock()     # at: when it happened, for readings filed afterwards
         m0 = dict(meta or {})
+        if shelf == "inbox" and self.filer is not None and kind != "procedure":
+            from .filing import SKIP as _fskip
+            if source not in _fskip:
+                shelf, extra = self.filer.place(f"{title} {text}")         # #58: where notes like this go
+                m0.update(extra)
         if "category" not in m0 and source not in ("home", "automations", "calendar", "habits", "tidy", "evening"):
             from .categories import categorize
             m0["category"], imp = categorize(title + " " + text, kind, source)       # #38, #75
@@ -401,9 +410,29 @@ class Store:
                 and not names_in(text) and kind != "procedure":
             # "Changed its code to 8812" names nothing: it is about whatever was just mentioned. Link it to the note
             # right before it (if recent), so it can be found under that thing's name.
-            prev = self.db.execute("SELECT id, title, created FROM items WHERE kind != 'procedure' "
-                                   "ORDER BY id DESC LIMIT 1").fetchone()
-            if prev and now - prev["created"] <= self.LINK_SECONDS:
+            recent = [r for r in self.db.execute("SELECT id, title, body, created FROM items WHERE kind != 'procedure' "
+                                                 "AND source NOT IN ('home','automations','calendar') "
+                                                 "ORDER BY id DESC LIMIT 5").fetchall()
+                      if now - r["created"] <= self.LINK_SECONDS]
+            # #13: "its code changed" is about the recent thing that has a code, not just the last thing said
+            attr = re.search(r"\b(?:its|their)\s+([a-z]+)", both, re.I)
+            want = singular(attr.group(1).lower()) if attr and self.LINK_BY_ATTR else None
+            same_as = next((g for g in ATTR_SAME if want in g), {want})
+            has = lambda r: bool(same_as & {singular(w) for w in words(r["title"] + " " + r["body"])})
+            prev = recent[0] if recent else None
+            if prev and want and not has(prev):
+                with_attr = [r for r in recent[1:] if has(r)]
+                last_names = names_in(prev["title"] + " " + prev["body"])
+                # the last note is about something that has this attribute in an earlier note: it's that thing
+                same = [r for r in with_attr if last_names & names_in(r["title"] + " " + r["body"])]
+                # ... or in an older note: "Went to check on the Ranwyn locker", and the locker's code was noted
+                # last week: still the locker
+                older = any(self.db.execute("SELECT 1 FROM items WHERE (title || ' ' || body) LIKE ? AND "
+                                            "(title || ' ' || body) LIKE ? LIMIT 1", (f"%{n}%", f"%{a}%")).fetchone()
+                            for n in list(last_names)[:3] for a in list(same_as)[:6])
+                if with_attr and not same and not older:
+                    prev = with_attr[0]        # the last note was about something else: the recent thing with a code
+            if prev:
                 title = f"{title} [re: {prev['title'][:100]}]"
                 m0["refers_to"] = prev["id"]
         if kind not in ("procedure", "task") and self.STRUCTURE:

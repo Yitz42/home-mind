@@ -294,6 +294,11 @@ class Overnight:
         self.log.mark(done)
         self.log.prune()
         read = await self.read_structure(model) if self.structure_on else None
+        relinked = 0
+        try:
+            relinked = await self.check_links(model)
+        except Exception as e:  # noqa: BLE001
+            log.warning("pronoun links: %s", e)
         keyed = 0
         if self.keys_on:
             from .keys import model_keys
@@ -302,9 +307,50 @@ class Overnight:
             except Exception as e:  # noqa: BLE001
                 log.warning("search keys: %s", e)
         self.last = {"at": time.time(), "model": name, "turns": len(done), "filed": len(filed), "already_known": skipped,
-                     "unknown_voices": len(guests), "keys_added": keyed,
+                     "unknown_voices": len(guests), "keys_added": keyed, "links_moved": relinked,
                      "ids": filed, **({"structure_read": read} if read is not None else {})}
         return self.last
+
+    LINK_SYSTEM = ("A short note says 'it', 'its' or 'their' without naming the thing. Which of the numbered earlier notes "
+                   "is it about? Reply with the number only, or 0 if none.")
+
+    async def check_links(self, model, days=2, limit=30):
+        """#13: re-check pronoun links from the last days with the big model: the note it points to, against the
+        notes filed just before it. A different answer moves the link (and the [re: ...] in the title)."""
+        import json
+        rows = self.store.db.execute(
+            "SELECT id, title, body, created, meta FROM items WHERE status='active' AND created > ? AND meta LIKE "
+            "'%refers_to%' ORDER BY id DESC LIMIT ?", (time.time() - days * 86400, limit)).fetchall()
+        moved = 0
+        for r in rows:
+            m = json.loads(r["meta"] or "{}")
+            if m.get("refers_by") == "model" or not m.get("refers_to"):
+                continue
+            cands = self.store.db.execute(
+                "SELECT id, title, body FROM items WHERE id < ? AND created >= ? AND kind != 'procedure' AND source NOT IN "
+                "('home','automations','calendar') ORDER BY id DESC LIMIT 5", (r["id"], r["created"] - 3600)).fetchall()
+            if len(cands) < 2:
+                continue
+            body = re.sub(r"\s*\[re: .*?\]$", "", r["body"] or "")
+            msg = "Earlier notes:\n" + "\n".join(f"{k + 1}. {c['body'][:200]}" for k, c in enumerate(cands)) + \
+                  f"\n\nNew note: {body[:300]}"
+            try:
+                out = await model.chat(self.LINK_SYSTEM, [{"role": "user", "content": msg}], max_tokens=5, temperature=0)
+                k = int(re.search(r"\d+", out.get("text") or "0").group(0))
+            except Exception:  # noqa: BLE001
+                continue
+            m["refers_by"] = "model"
+            if 1 <= k <= len(cands) and cands[k - 1]["id"] != m["refers_to"]:
+                new = cands[k - 1]
+                m["refers_to"], m["refers_was"] = new["id"], m["refers_to"]
+                title = re.sub(r"\s*\[re: .*?\]$", "", r["title"]) + f" [re: {new['title'][:100]}]"
+                moved += 1
+            else:
+                title = r["title"]
+            with self.store.lock:
+                self.store.db.execute("UPDATE items SET meta=?, title=? WHERE id=?", (json.dumps(m), title, r["id"]))
+                self.store.db.commit()
+        return moved
 
     async def read_structure(self, model, days=2, limit=30):
         """Notes from the last `days` where the patterns found nothing but a word hints at structure: the model reads

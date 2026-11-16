@@ -96,6 +96,22 @@ configuration:
     description: Only when the memory has changed.
   backup_keep:
     name: Backups to keep
+  learn_filing:
+    name: Learn where notes go
+    description: Notes that would land in the inbox are filed on the shelf notes like them are on, when that's clear; otherwise the shelf is suggested in the inbox review. Moving a note teaches it.
+  docs_folder:
+    name: Documents folder
+    description: PDF, text, Markdown and HTML files here (manuals, warranties, recipes) are read every hour and searched for questions, each answer naming the document and page.
+  homebox_url:
+    name: Homebox URL
+    description: Your Homebox (inventory) server, asked at question time about things and where they are.
+  homebox_token:
+    name: Homebox token
+  paperless_url:
+    name: Paperless-ngx URL
+    description: Your Paperless-ngx server, asked at question time about receipts, warranties and other papers.
+  paperless_token:
+    name: Paperless-ngx API token
   automation_pin:
     name: PIN for automations that open the house
     description: Drafted automations that unlock, open a garage door or disarm an alarm are installed only with this PIN. Empty = never.

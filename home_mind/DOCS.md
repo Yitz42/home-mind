@@ -313,6 +313,17 @@ Option `comfort_rooms` lists each room: `name`, `person`, the entities `climate`
 own votes; leave the option empty for the original bedroom. `/api/comfort/check?room=NAME` shows which entities Home
 Assistant doesn't have.
 
+## Documents, filing and your other apps
+
+- **Documents.** Put manuals, warranties, recipes and other PDF, text, Markdown or HTML files in the documents folder
+  (option `docs_folder`, default `/share/home-mind/docs`) or add them on the Memory tab. A question about them gets the
+  best two pages, and the answer names the document and page. Documents are kept apart from your notes, so a long
+  manual never pushes a note out of the way. A scanned PDF with no text needs OCR first.
+- **Filing.** Notes without a shelf are filed where notes like them are, when that is clear; otherwise they wait in
+  the inbox (Memory tab) with a suggested shelf. Moving a note teaches the filing. Turn it off with `learn_filing`.
+- **Homebox and Paperless-ngx.** Give their URL and token and Home Mind asks them at question time ("where is the
+  extension cord?", "do we still have the dishwasher receipt?") and says the answer came from them.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press

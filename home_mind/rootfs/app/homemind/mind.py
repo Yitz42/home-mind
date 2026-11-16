@@ -687,6 +687,19 @@ class Mind:
             days = cal.lines_for(question)
             if days:
                 ctx = days + "\n\n" + (ctx or "")
+        dc = getattr(self, "docs", None)
+        if dc and store is self.store:
+            dl = dc.lines(question)          # #50: manuals and other documents, after the notes
+            if dl:
+                ctx = (ctx + "\n\n" if ctx else "") + dl
+        apps = getattr(self, "apps", None)
+        if apps and store is self.store and apps.configured:
+            try:
+                al = await apps.lines(question)    # #62: Homebox and Paperless, asked at question time
+            except Exception:  # noqa: BLE001
+                al = ""
+            if al:
+                ctx = (ctx + "\n\n" if ctx else "") + al
         kn = getattr(self, "knowledge", None)
         if kn and store is self.store:
             try:
@@ -907,7 +920,8 @@ class Mind:
                    order="default", notes_first=False):
         if suite not in suites.SUITES and suite != "corrections":
             raise ValueError(f"unknown suite {suite}; have {', '.join(suites.SUITES)}, corrections")
-        if suite in ("tidy", "injections", "conflicts", "reminders", "habits", "baselines", "salience") and arm != "brain":
+        if suite in ("tidy", "injections", "conflicts", "reminders", "habits", "baselines", "salience", "filing") and \
+                arm != "brain":
             raise ValueError(f"the {suite} suite runs on the brain arm only (it checks what the brain flags or reminds of)")
         if suite == "corrections" and arm != "brain":
             raise ValueError("the corrections suite runs on the brain arm only (it reads your real memory)")
@@ -1288,6 +1302,18 @@ class Mind:
                         got = "notify" if sc >= _house.NOTIFY else "notable" if sc >= _house.NOTABLE else \
                             "routine" if sc <= 0 and "habit" in why else "ordinary"
                         d.update(answer=f"{got} ({sc}: {', '.join(why)})", correct=got == q["want"])
+                    return d
+                if "file" in q:              # filing: the right shelf (filed or suggested), or the inbox for vague ones
+                    from .filing import Filer
+                    cache = run.setdefault("_tidy", {})
+                    if "filer" not in cache:
+                        cache["filer"] = Filer(sb, rebuild_seconds=1e9)
+                    shelf, extra = cache["filer"].place(q["q"])
+                    got = shelf if shelf != "inbox" else extra.get("suggested_shelf") or "inbox"
+                    # a vague note must stay in the inbox (a suggestion there is harmless); a topic note must be
+                    # filed or suggested on the right shelf
+                    ok = shelf == "inbox" if q["file"] == "inbox" else got == q["file"]
+                    d.update(answer=f"{shelf} {extra}", correct=ok)
                     return d
                 if "draft" in q:             # the automation checker: good drafts pass, unsafe or wrong ones don't
                     from . import autodraft
