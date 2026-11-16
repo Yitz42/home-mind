@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.1
+- Panel: more compact on a computer (smaller cards, headings, ring and buttons; bedroom tiles no longer stretch across the page).
+- Light mode: buttons on teal and violet use white text so they're readable; bedroom tiles stand out from the card.
+- Bedroom: cold / just right / hot are outlined choices with icons; the one you tap stays marked and says what was logged.
+
 ## 0.23.0
 - New layout for the web panel: 5 sections (Today, Food, Health, Memory, House) plus More for tests, models and updates. A side menu on a computer, tabs along the bottom on a phone. Dark by default, light when the phone or computer is set to light.
 - Today (replaces Overview): readiness ring with last night's sleep, the brain-fog check-in (tap 0-5), a week chart of sleep, fog and readiness, food to eat first with protein so far against the goal, the bedroom's temperature, humidity, air quality and filter, and what was remembered today. New endpoint /api/today gathers it in one call.
