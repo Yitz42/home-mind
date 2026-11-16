@@ -58,6 +58,8 @@ jobs:
         run: python tests/test_connect.py
       - name: Bug-hunting set (odd inputs, threads, old databases, failures)
         run: python tests/test_bugs.py
+      - name: Local control model (training data, parsing, wiring)
+        run: python tests/test_localctl.py
       - name: Expert review checks
         run: for f in tests/test_review_*.py; do echo "== $f"; python "$f" || exit 1; done
       - name: Extraction bench scoring

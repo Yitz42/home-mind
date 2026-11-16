@@ -57,7 +57,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
-            "paperless_url": "", "paperless_token": "", "rerank_model": "",
+            "paperless_url": "", "paperless_token": "", "rerank_model": "", "control_model": "",
             "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
             "compare_suites": ["recall", "tricky", "hard"], "use_preferences": True, "label_url": "",
             "telegram_token": "", "telegram_chats": [], "web_search": "off", "web_search_url": "", "web_search_key": "",
@@ -351,16 +351,53 @@ class App:
         if not self.home.catalog:
             await self.home.refresh()
         names = [n for n in self.models.models if n != "mock"]
+        local = (getattr(self, "opts", None) or {}).get("control_model") or ""
+        things = self.home.controllable()
+        if local and local in self.models.models and not model:
+            # the small local model first (localctl): one tool call, resolved against the control list
+            r = await self.local_plan(local, text, deadline)
+            if r.get("entity_id") or r.get("which") or r.get("answer"):
+                plan = r
+                if r.get("which"):
+                    return {"plan": r, "answer": "Which one: " + ", ".join(r["which"]) + "?", "which": r["which"]}
+                if r.get("answer"):
+                    return r
+                return await self._run_plan(plan, text, source, conversation_id)
+            names = [n for n in names if n != local]          # not a command for it: the general model decides
         model = model or ("haiku" if "haiku" in names else names[0] if names else None)
         if not model:
             return {"error": "no model connected"}
-        things = self.home.controllable()
         try:
             coro = plan_action(self.models.get(model), text, things)
             plan = await (asyncio.wait_for(coro, deadline) if deadline else coro)
         except asyncio.TimeoutError:
             return {"error": "the model took too long; nothing was done",
                     "answer": "Sorry, that took too long, so I didn't do anything."}
+        return await self._run_plan(plan, text, source, conversation_id)
+
+    async def local_plan(self, name, text, deadline=None):
+        """The small local control model (option control_model; localctl): one tool call -> a plan, a "which one?",
+        or {} when it isn't a single device action (then the general model decides). Never acts by itself."""
+        from . import localctl
+        catalog = {e: c for e, c in self.home.catalog.items()}
+        try:
+            coro = self.models.get(name).call_tool([{"role": "user", "content": text}], localctl.TOOLS,
+                                                    system=localctl.SYSTEM)
+            r = await (asyncio.wait_for(coro, deadline) if deadline else coro)
+        except Exception as e:  # noqa: BLE001 - the general model is the fallback
+            log.warning("control model %s: %s", name, e)
+            return {}
+        tool, args = localctl.parse_call(r)
+        plan = localctl.to_plan(tool, args, catalog, self.home.allowed)
+        plan["by"] = name
+        if plan.get("not_a_command") or tool is None:
+            return {}
+        if not plan.get("entity_id") and not plan.get("which"):
+            return {}          # a name it couldn't place: let the general model try with the whole list
+        return plan
+
+    async def _run_plan(self, plan, text, source, conversation_id):
+        """The checks every planned action goes through, whichever model planned it."""
         if not plan.get("entity_id"):
             return {"error": "nothing on the control list fits", "plan": plan}
         eid = plan["entity_id"]
@@ -1454,6 +1491,26 @@ def build(app_state):
             return J(await asyncio.to_thread(A.mailbox.run))
         except Exception as e:  # noqa: BLE001
             return J({"error": str(e)[:200]}, status=502)
+
+    @r.get("/api/control_model/dataset")
+    async def control_dataset(q):
+        """Training data for the small local control model (localctl), written from this house's control list:
+        ?part=train|test (JSONL, the format the Colab notebook tools/finetune_functiongemma.ipynb loads),
+        ?paraphrase=1 adds wording from the general model (device names and request wording only leave the house)."""
+        from . import localctl
+        if not A.home.catalog:
+            await A.home.refresh()
+        d = localctl.build_dataset(A.home.controllable())
+        part = q.query.get("part") or "train"
+        if part not in ("train", "test"):
+            return J({"error": "part must be train or test"}, status=400)
+        rows = d[part]
+        if part == "train" and q.query.get("paraphrase") == "1":
+            names = [n for n in A.models.models if n not in ("mock", A.opts.get("control_model"))]
+            if names:
+                rows = rows + await localctl.paraphrase(A.models.get("haiku" if "haiku" in names else names[0]), rows)
+        return web.Response(text=localctl.jsonl(rows), content_type="application/jsonl",
+                            headers={"Content-Disposition": f'attachment; filename="home_mind_control_{part}.jsonl"'})
 
     @r.get("/api/preferences")
     async def preferences(_):

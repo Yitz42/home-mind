@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.33.0
+- **A small local model for house control.** For Home Assistant on modest hardware (an old laptop), a 270M-parameter FunctionGemma fine-tuned on your own devices can turn "dim the den lamp to 30" into an action on the CPU, without a cloud model.
+  - `GET /api/control_model/dataset?part=train|test` writes training data from your control list. Add `&paraphrase=1` to have your normal model add more varied wording, kept only when the device name and numbers survive.
+  - `tools/finetune_functiongemma.ipynb` trains it in Google Colab on a free T4. It scores before and after on wording and devices held out of training, and exports a GGUF for `llama-server`.
+  - Option `control_model` sends house requests to it first. It only proposes one tool call from a fixed set. Home Mind matches the device name against the control list, asks "which one?" when several match, and applies the usual checks: locks and garage doors still need a yes.
+  - Questions and multi-action requests (`not_a_command`), names it can't place, and a sleeping laptop all fall back to your normal model.
+- `/api/do` planning is split into the model step and one shared set of checks (`_run_plan`), so every planner goes through the same safety rules.
+
 ## 0.32.0
 Six rounds of expert code review (24 reviewers: security, privacy, concurrency, search, data integrity, LLM safety, Home Assistant, web panel, performance, overnight learning, network integrations, API contract, cryptography, time, asking, test quality, MCP, documents, maintainability, storage growth, red team, voice, packaging, first run). Each fix has a regression check in `tests/test_review_*.py`, run in CI.
 

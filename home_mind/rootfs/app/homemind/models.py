@@ -150,6 +150,33 @@ class Model:
         u = j.get("usage") or {}
         return j["choices"][0]["message"].get("content", ""), (u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0)
 
+    async def call_tool(self, messages, tools, system=None, max_tokens=96):
+        """One tool call from a small function-calling model (localctl: FunctionGemma fine-tuned on this house).
+        Ollama's /api/chat or an OpenAI-compatible server (llama.cpp's llama-server --jinja) with tools=. Returns
+        {"tool_calls": [...] or None, "text": raw reply, "ms"}: localctl.parse_call reads either form, because a server
+        that doesn't know FunctionGemma's call format hands back the raw "call:name{...}" text instead."""
+        t0 = time.monotonic()
+        msgs = ([{"role": "developer", "content": system}] if system else []) + messages
+        if self.type == "ollama":
+            url = (self.cfg.get("url") or "http://localhost:11434").rstrip("/")
+            j = await self._post(url + "/api/chat", {"model": self.cfg.get("model", ""), "messages": msgs, "tools": tools,
+                                                     "stream": False, "options": {"num_predict": max_tokens,
+                                                                                  "temperature": 0}})
+            m = j.get("message") or {}
+        elif self.type == "openai":
+            url = (self.cfg.get("url") or "http://localhost:8080/v1").rstrip("/")
+            if not url.endswith("/chat/completions"):
+                url = url + ("/chat/completions" if url.endswith("/v1") else "/v1/chat/completions")
+            headers = {"Authorization": f"Bearer {self.cfg['api_key']}"} if self.cfg.get("api_key") else {}
+            j = await self._post(url, {"model": self.cfg.get("model", ""), "messages": msgs, "tools": tools,
+                                       "max_tokens": max_tokens, "temperature": 0, "stream": False}, headers)
+            m = (j.get("choices") or [{}])[0].get("message") or {}
+        else:
+            raise ModelError(f"{self.name}: tool calls need an ollama or openai model (llama-server), not {self.type}")
+        ms = int((time.monotonic() - t0) * 1000)
+        _use(self.name, True, 0, 0, ms)
+        return {"tool_calls": m.get("tool_calls"), "text": m.get("content") or "", "ms": ms}
+
     async def embed(self, texts):
         """Vectors for texts (#10): Ollama's /api/embed, or an OpenAI-compatible /v1/embeddings. Option embed_model
         names the model; its "embed_model" field (or "model") is the embedding model to ask for."""

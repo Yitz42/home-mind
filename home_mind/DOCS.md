@@ -396,6 +396,17 @@ Assistant doesn't have.
 - Uploads (photos, documents, imports) can be up to 32 MB per request; one photo up to 12 MB.
 - Read-only SQL shows each person household notes and their own personal notes; values are capped at 1 MB and results at 500 rows.
 
+## A small local model for house control (0.33)
+
+If Home Assistant runs on modest hardware, a 270M-parameter model trained on your own devices can handle "turn the den lamp to 40%" on the CPU, without a cloud model.
+
+1. Download training data (admin token): `GET /api/control_model/dataset?part=train` and `?part=test`. Add `&paraphrase=1` to the train link to have your normal model add more varied wording. Only device names and request wording are used.
+2. Open `tools/finetune_functiongemma.ipynb` in Google Colab (free T4 GPU), upload both files, and run it. It prints the test score before and after training (on wording and devices it never saw) and gives you `home-mind-control.gguf` (about 300 MB).
+3. Run it with llama.cpp: `llama-server -m home-mind-control.gguf --jinja --port 8081 --host 0.0.0.0`.
+4. Add it as a model (`type: openai`, `url: http://HOST:8081/v1`) and set `control_model` to its name.
+
+House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
+
 ## Options
 
 Every option, as on the Configuration tab (each has a longer description there). The ones that need thought before
@@ -410,6 +421,7 @@ you turn them on are listed after the tables.
 | `voice_seconds` | 8 | Voice time limit (seconds) |
 | `embed_model` | empty | Embedding model (search by meaning) |
 | `rerank_model` | empty | Re-ranking model |
+| `control_model` | empty | Local control model |
 | `answer_edges` | off | Repeat the best note before the question |
 | `answer_notes_first` | off | Name the notes before answering |
 | `use_preferences` | on | Use learned settings |
@@ -639,6 +651,7 @@ note), 502 (a model failed) or 500.
 | POST | `/api/automations/install` | admin | install a checked draft, switched off (`config`, `pin` for ones that unlock) |
 | POST | `/api/automations/{op}` | admin | `takeover`, `release`, `run`, `retire`, `reload` (`ids`, `id`, `all`) |
 | GET | `/api/preferences` | read | learned light and fan levels |
+| GET | `/api/control_model/dataset` | admin | training data for the local control model, from your control list (`part=train` or `test`, `paraphrase=1`) |
 | GET | `/api/comfort` | read | comfort state for each room |
 | POST | `/api/comfort/vote` | write | a cold / hot / ok vote (`feeling`, `room?`) |
 | POST | `/api/comfort/cycle` | write | run a comfort cycle now |
