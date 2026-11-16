@@ -324,6 +324,15 @@ Assistant doesn't have.
 - **Homebox and Paperless-ngx.** Give their URL and token and Home Mind asks them at question time ("where is the
   extension cord?", "do we still have the dishwasher receipt?") and says the answer came from them.
 
+## Search details (0.27)
+
+- **Prefix matches** count for less than whole-word matches.
+- **Links** between notes about the same named thing are walked up to three steps when a question needs more than one note.
+- **Older notes learn new words.** When you add a note about a thing that's already known by name, the older notes about it pick up the new note's rare words as search keys. Their text doesn't change.
+- **Re-ranking** (option `rerank_model`): a small model re-orders the top ten notes for typed questions. Leave it empty to turn it off.
+- **"Tell me everything about X"** gathers the thing's place, notes, linked notes, chores and fields.
+- **Languages.** Guesses ("creo que", "vielleicht", "je pense"), corrections ("en realidad", "eigentlich", "en fait") and who said it ("Marta dice", "Jonas sagt") are read in six languages besides English. Notes in other languages are tagged by the overnight model.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press

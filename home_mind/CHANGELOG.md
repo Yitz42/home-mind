@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.27.0
+- Prefix-only matches weigh less (#25): a note that matches a question word only as the start of a longer word ("garages" for "garage") gets a quarter of the weight. The keys suite goes from 0.95 to 1.000.
+- Links followed as a walk (#12, #81): from the best few results, the links are walked up to three steps (personalized PageRank). A linked note is added only when it brings question words the results don't have yet. Three-step questions ("who has the key for the place where the mower is kept?") go from 0/40 with one hop to 33/40 (held-out).
+- Older notes learn words from newer linked ones (#82): when a new note names the same thing as older notes, the older notes take up to five of its rare words as extra search keys. Their text is never changed. Only notes that share a name take part, so two different "spare keys" don't swap words. "Whose scooter was stolen?" now finds the owner 40/40.
+- A model re-orders the top notes (#54): option `rerank_model`. Not used for voice. A bad reply keeps the search's own order.
+- Everything known about a thing (#20): "Tell me everything about the Halvor drill" gathers its place (following the chain of places), notes, linked notes, chores and fields into one list for the model.
+- Other languages (#21): guesses, corrections and "X says" are read in Spanish, German, French, Dutch, Portuguese and Italian as well as English. Notes in any other language are tagged overnight by the model (a guess, a correction, who said it, when it became true), so versions, guesses and disagreements work for them too.
+- Fix: "Went to check on the Quillon safe" then "Changed its code" stays linked to the safe.
+
 ## 0.26.0
 - Documents and manuals (#50): PDF, text, Markdown and HTML files dropped in the documents folder (option `docs_folder`, default /share/home-mind/docs, read every hour) or added on the Memory tab are split into pages or sections and kept apart from the notes with their own search index. The best two sections are added to the page after the notes, and the model is asked to name the document and page. `/api/docs` lists, searches, adds and removes. pypdf is added to the image; the add-on can now see /share.
 - Learned filing (#58): a note that would land in the inbox is filed on the shelf notes like it are on when that is clear (naive Bayes over the words of notes already on shelves, no model), and otherwise gets that shelf suggested. Moving a note teaches it. Option `learn_filing`. Filing suite: 0.994 (topic notes 397/400 on the right shelf, vague notes 80/80 left in the inbox).

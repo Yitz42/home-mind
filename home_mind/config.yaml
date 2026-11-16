@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.26.0"
+version: "0.27.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -90,6 +90,7 @@ options:
   homebox_token: ""
   paperless_url: ""
   paperless_token: ""
+  rerank_model: ""
   answer_edges: false
   answer_notes_first: false
   events_keep_days: 90
@@ -169,6 +170,7 @@ schema:
   homebox_token: password?
   paperless_url: url?
   paperless_token: password?
+  rerank_model: str?
   comfort_rooms:
     - name: str
       person: str?

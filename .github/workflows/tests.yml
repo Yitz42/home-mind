@@ -46,6 +46,8 @@ jobs:
         run: python tests/test_security.py
       - name: Files and filing (documents, filing, apps, pronoun links)
         run: python tests/test_files.py
+      - name: Set 5 (prefix weight, link walk, evolve, rerank, profiles, languages)
+        run: python tests/test_more.py
       - name: Extraction bench scoring
         run: python tests/test_extract.py
       - name: Pantry

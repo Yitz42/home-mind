@@ -52,7 +52,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
-            "paperless_url": "", "paperless_token": "",
+            "paperless_url": "", "paperless_token": "", "rerank_model": "",
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
@@ -118,6 +118,7 @@ class App:
     # ---- lifecycle --------------------------------------------------------------------------------------------
     async def on_start(self, _app):
         await self.models.start()
+        self.mind.rerank_model = self.opts.get("rerank_model") or None
         if self.opts.get("embed_model"):
             from .embeddings import Embeddings
             try:

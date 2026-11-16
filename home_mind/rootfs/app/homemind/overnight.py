@@ -294,6 +294,11 @@ class Overnight:
         self.log.mark(done)
         self.log.prune()
         read = await self.read_structure(model) if self.structure_on else None
+        tagged = 0
+        try:
+            tagged = await self.tag_languages(model)
+        except Exception as e:  # noqa: BLE001
+            log.warning("language tags: %s", e)
         relinked = 0
         try:
             relinked = await self.check_links(model)
@@ -307,9 +312,53 @@ class Overnight:
             except Exception as e:  # noqa: BLE001
                 log.warning("search keys: %s", e)
         self.last = {"at": time.time(), "model": name, "turns": len(done), "filed": len(filed), "already_known": skipped,
-                     "unknown_voices": len(guests), "keys_added": keyed, "links_moved": relinked,
+                     "unknown_voices": len(guests), "keys_added": keyed, "links_moved": relinked, "tagged_languages": tagged,
                      "ids": filed, **({"structure_read": read} if read is not None else {})}
         return self.last
+
+    TAG_SYSTEM = ("The note may be in any language. Reply with JSON only: {\"hedge\": true if the writer isn't sure "
+                  "(a guess), \"correction\": true if it corrects an earlier note, \"speaker\": the name of the person "
+                  "it says said it, or null, \"valid_from\": the date it became true as YYYY-MM-DD if it says one, or null}.")
+
+    async def tag_languages(self, model, days=2, limit=30):
+        """#21: notes not in English get the tags the English patterns would give (a guess, a correction, who said it,
+        when it became true) from the model, so versions, guesses and disagreements work for them too."""
+        import json
+        from . import langs
+        rows = self.store.db.execute(
+            "SELECT id, body, meta FROM items WHERE status='active' AND created > ? AND kind != 'procedure' AND source NOT IN "
+            "('home','automations','calendar','habits','tidy','evening') ORDER BY id DESC LIMIT 300",
+            (time.time() - days * 86400,)).fetchall()
+        n = 0
+        for r in rows:
+            m = json.loads(r["meta"] or "{}")
+            if m.get("tagged_by") or langs.english(r["body"]):
+                continue
+            if n >= limit:
+                break
+            try:
+                out = await model.chat(self.TAG_SYSTEM, [{"role": "user", "content": r["body"][:600]}], max_tokens=80,
+                                       temperature=0)
+                tags = json.loads(re.search(r"\{.*\}", out.get("text") or "", re.S).group(0))
+            except Exception:  # noqa: BLE001
+                continue
+            m["tagged_by"] = "model"
+            m["language"] = langs.guess(r["body"])
+            if tags.get("hedge") is True:
+                m["hedge"] = True
+            if tags.get("correction") is True:
+                m["correction"] = True
+            if isinstance(tags.get("speaker"), str) and tags["speaker"].strip():
+                m.setdefault("speaker", tags["speaker"].strip()[:40])
+            vf = tags.get("valid_from")
+            if isinstance(vf, str) and re.fullmatch(r"\d{4}-\d\d-\d\d", vf) and "valid_from" not in m:
+                from datetime import datetime
+                m["valid_from"] = datetime.strptime(vf, "%Y-%m-%d").timestamp()
+            with self.store.lock:
+                self.store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(m), r["id"]))
+                self.store.db.commit()
+            n += 1
+        return n
 
     LINK_SYSTEM = ("A short note says 'it', 'its' or 'their' without naming the thing. Which of the numbered earlier notes "
                    "is it about? Reply with the number only, or 0 if none.")

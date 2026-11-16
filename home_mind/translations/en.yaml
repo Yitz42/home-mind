@@ -112,6 +112,9 @@ configuration:
     description: Your Paperless-ngx server, asked at question time about receipts, warranties and other papers.
   paperless_token:
     name: Paperless-ngx API token
+  rerank_model:
+    name: Re-ranking model
+    description: One of your models re-orders the top notes for typed questions before the answer is written (not for voice). Empty = search's own order.
   automation_pin:
     name: PIN for automations that open the house
     description: Drafted automations that unlock, open a garage door or disarm an alarm are installed only with this PIN. Empty = never.

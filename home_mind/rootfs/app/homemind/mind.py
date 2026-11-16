@@ -358,6 +358,10 @@ def build_context(store, question, hits, lists=True, list_max=None):
         ctx = LOW_MATCH + "\n\n" + (ctx or "")
     if gtext:
         ctx = gtext + "\n\nNOTES FOUND:\n" + (ctx or "(none)")
+    from . import profiles
+    about = profiles.lines(store, fixed, now)          # #20: "everything about the garage"
+    if about:
+        ctx = about + "\n\n" + (ctx or "")
     worked = structure.derived_lines(store, fixed, hits, now)
     if worked:
         ctx = "WORKED OUT (from the notes; use these for when, where, what's due and lists of fields):\n" + \
@@ -653,6 +657,9 @@ class Mind:
         emb = getattr(self, "embeddings", None)
         if emb and store is self.store and not shelf:
             hits = await self._with_meaning(store, question, hits, k)
+        rr = getattr(self, "rerank_model", None)
+        if rr and len(hits) > 2 and not getattr(self, "_voice_now", False):
+            hits = await self._rerank(rr, question, hits)
         if not (expand and model):
             return hits, None
         r = await self.models.get(model).chat(EXPAND_SYSTEM, [{"role": "user", "content": question}], max_tokens=80,
@@ -730,6 +737,27 @@ class Mind:
                 by_meaning.append(d)
                 new = True
         return fuse(hits, by_meaning, k) if new else hits
+
+    RERANK_SYSTEM = ("Rank the numbered memory notes by how well each answers the question, best first. A note that "
+                     "only shares a word but is about something else ranks low. Reply with JSON only: {\"order\": [3, 1, 2]}.")
+
+    async def _rerank(self, name, question, hits, n=10):
+        """#54: a model re-orders the top notes (a cross-encoder's job, done by a small LLM: option rerank_model).
+        Not used by voice, which has no time for it; a bad reply keeps the search's own order."""
+        top, rest = hits[:n], hits[n:]
+        msg = "\n".join(f"{i + 1}. {h['title']}: {(h.get('body') or '')[:240]}" for i, h in enumerate(top))
+        try:
+            r = await asyncio.wait_for(self.models.get(name).chat(
+                self.RERANK_SYSTEM, [{"role": "user", "content": f"Question: {question}\n\nNotes:\n{msg}"}],
+                max_tokens=80, temperature=0), 6)
+            order = [int(x) - 1 for x in (parse_json(r["text"]) or {}).get("order", [])]
+        except Exception as e:  # noqa: BLE001
+            log.warning("rerank: %s", e)
+            return hits
+        seen = [i for i in dict.fromkeys(order) if 0 <= i < len(top)]
+        if not seen:
+            return hits
+        return [top[i] for i in seen] + [h for i, h in enumerate(top) if i not in seen] + rest
 
     FALLBACK = ["haiku"]        # set from the app's "fallback" option
     VOICE_SECONDS = 8.0
@@ -820,6 +848,7 @@ class Mind:
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS
+        self._voice_now = voice
         hits, procs, ctx = (await self.context_for(store, question, k, shelf, model, expand, voice)) if use_brain \
             else ([], [], "")
         from . import privacy

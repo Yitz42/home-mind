@@ -133,7 +133,9 @@ def names_in(text):
 
 # a pronoun that points outside the note: an owner word ("its code"), or a sentence that starts with it ("It's in the
 # shed now."). "Finish it with lemon" points inside its own sentence and doesn't count.
-SPEAKER = re.compile(r"\b([A-Z][a-z]+)\s+(?:says|said|thinks|thought|told me|mentioned|claims|reckons)\b")
+SPEAKER = re.compile(r"\b([A-Z][a-z]+)\s+(?:says|said|thinks|thought|told me|mentioned|claims|reckons|"
+                     # #21: es, de, fr, nl, pt, it
+                     r"dice|dijo|cree|sagt|sagte|meint|glaubt|dit|pense|zegt|zei|denkt|diz|disse|acha|ha detto|pensa)\b")
 FOLLOW = re.compile(r"\b(whoever|whose|of the (?:person|one|guy|woman|man)|(?:person|one|guy|woman|man) who)\b", re.I)
 
 
@@ -166,6 +168,12 @@ def thing_word(text, anchor):
     return None if w in STOP else w
 
 
+def _said_by(r):
+    """Who said a note, when a model tagged it (#21) or a known speaker filed it (#3)."""
+    m = re.search(r'"(?:said_by|speaker)": "([^"]+)"', r["meta"] or "")
+    return m.group(1).lower() if m else None
+
+
 def speaker(text):
     m = SPEAKER.search(text or "")
     return m.group(1).lower() if m else None
@@ -185,8 +193,14 @@ ABOUT = re.compile(r"\b(?:everything|all) (?:i know |you know )?about\b", re.I)
 UNIVERSAL_NOUN = re.compile(r"\b(?:all|every|each)\s+(?:of\s+)?(?:the\s+|my\s+)?([a-z]+)", re.I)
 UNIVERSAL_PLACE = re.compile(r"\bthe\s+([a-z]+(?:\s[a-z]+)?)\s+(?:was|got|has been)\s+(?:cleared out|emptied|cleaned out)"
                              r"|\beverything in the\s+([a-z]+(?:\s[a-z]+)?)\s+(?:is|was) gone", re.I)
-HEDGE = re.compile(r"\b(guess|guessed|guesses|probably|maybe|might be|i think|not sure|possibly|perhaps)\b", re.I)
-CORRECTION = re.compile(r"\b(actually|that was a typo|typo|i meant|correction|scratch that)\b", re.I)
+HEDGE = re.compile(r"\b(guess|guessed|guesses|probably|maybe|might be|i think|not sure|possibly|perhaps|"
+                   # #21: Spanish, German, French, Dutch, Portuguese, Italian
+                   r"creo que|quiz[aá]s?|tal vez|probablemente|ich glaube|vielleicht|wahrscheinlich|"
+                   r"je (?:crois|pense)|peut-[eê]tre|probablement|ik denk|misschien|waarschijnlijk|acho que|talvez|"
+                   r"provavelmente|penso che|forse|probabilmente)\b", re.I)
+CORRECTION = re.compile(r"\b(actually|that was a typo|typo|i meant|correction|scratch that|en realidad|"
+                        r"me equivoqu[eé]|eigentlich|korrektur|en fait|je voulais dire|eigenlijk|correctie|na verdade|"
+                        r"in realt[aà]|correzione)\b", re.I)
 # A note that talks to the model instead of about the house (#16, MINJA): addressed to an assistant, a meta-instruction
 # (ignore your instructions, your new instructions are), prompt markup, or telling the answerer what to say when asked.
 # Household rules for people ("you must take your shoes off", "do not tell Mia about the party") are not instructions.
@@ -686,6 +700,9 @@ class Store:
         return out[:limit]
 
     LINKS = True
+    EVOLVE = True          # older linked notes take new notes' distinctive words as keys (#82)
+    LINK_HOPS = 3          # how far the link walk goes (#81)
+    LINK_ADD = 3           # at most this many notes added from it
     LINK_MAX = 5           # a thing named in more notes than this is too common to link on
 
     def _link_new(self, new_id, text):
@@ -712,29 +729,84 @@ class Store:
                 self.db.execute("INSERT OR IGNORE INTO links(a, b, kind) VALUES(?,?,'same_thing')", (new_id, o))
                 self.db.execute("INSERT OR IGNORE INTO links(a, b, kind) VALUES(?,?,'same_thing')", (o, new_id))
             self.db.commit()
+        if found and self.EVOLVE:
+            self._evolve(found, text)
         return found
 
+    def _evolve(self, older, text):
+        """#82 (A-MEM's memory evolution): the older notes about the same thing take up to five of the new note's
+        distinctive words as extra search keys ("the red Trek was stolen" gives "Kofi's bike is the red Trek" the key
+        "stolen"), so a question in the new note's words finds them too. Their text is never changed."""
+        n = max(1, self.db.execute("SELECT COUNT(*) FROM items").fetchone()[0])
+        named = names_in(text)
+        cand = [w for w in dict.fromkeys(singular(x) for x in words(text)) if w not in STOP and len(w) > 3 and
+                not w.isdigit()]
+        rare = []
+        for w in cand:
+            try:
+                df = self.db.execute("SELECT COUNT(*) FROM items_fts WHERE items_fts MATCH ?", (f'"{w}"',)).fetchone()[0]
+            except sqlite3.OperationalError:
+                continue
+            if df <= max(3, 0.05 * n):
+                rare.append(w)
+        if not rare:
+            return
+        for o in older:
+            r = self.db.execute("SELECT title, body FROM items WHERE id=?", (o,)).fetchone()
+            if not r:
+                continue
+            if not (names_in(r["title"] + " " + r["body"]) & named):
+                continue        # linked only by a common thing ("spare key"): another thing's words would mislead
+            mine = {singular(x) for x in words(r["title"] + " " + r["body"])}
+            extra = [w for w in rare if w not in mine][:5]
+            if extra:
+                self.add_keys(o, extra, by="lexicon")
+
     def _follow_links(self, query, res, limit, include_old):
-        """#12: from the best few results, add a linked note that has a word of the question the result lacks (the
-        second step of a two-step question: "where is Dana's bike locked?" -> "Dana's bike is the red Trek" ->
-        "the red Trek is locked at the station")."""
+        """#12, #81: from the best few results, walk the links (personalized PageRank, up to three steps, HippoRAG) and
+        add the linked notes that bring words of the question the results don't have yet: the later steps of a
+        question like "where is the key for Kofi's bike lock?" -> Kofi's bike is the red Trek -> the red Trek's lock
+        is the Kryptonite one -> the Kryptonite lock's key is in the hall drawer."""
         qw = {singular(w) for w in words(query)} - STOP
+        seeds = [d["id"] for d in res[:3]]
+        nodes, frontier = set(seeds), set(seeds)
+        for _ in range(self.LINK_HOPS):
+            nxt = set()
+            for n in frontier:
+                nxt |= set(self.linked(n))
+            frontier = nxt - nodes
+            nodes |= frontier
+            if not frontier or len(nodes) > 200:
+                break
+        if len(nodes) == len(seeds):
+            return res
+        nbr = {n: [m for m in self.linked(n) if m in nodes] for n in nodes}
+        base = {n: (1.0 / len(seeds) if n in seeds else 0.0) for n in nodes}
+        pr = dict(base)
+        for _ in range(15):
+            nxt = {n: 0.5 * base[n] for n in nodes}
+            for n in nodes:
+                if nbr[n]:
+                    share = 0.5 * pr[n] / len(nbr[n])
+                    for m in nbr[n]:
+                        nxt[m] += share
+            pr = nxt
+        # what the best result already says (other results may share a word by chance: "the scooter is charging")
+        covered = {singular(w) for w in words(res[0]["title"] + " " + res[0]["body"])}
         have = {d["id"] for d in res}
-        add = []
-        for d in res[:3]:
-            dw = {singular(w) for w in words(d["title"] + " " + d["body"])}
-            for o in self.linked(d["id"]):
-                if o in have or o in {x["id"] for x in add}:
-                    continue
-                r = self.db.execute("SELECT * FROM items WHERE id=?", (o,)).fetchone()
-                if not r or r["status"] not in (("active", "faded", "superseded") if include_old else ("active", "faded")):
-                    continue
-                ow = {singular(w) for w in words(r["title"] + " " + r["body"])}
-                if (qw & ow) - dw:
-                    x = self._row(r)
-                    x["score"], x["via"] = round(d["score"] * 0.9, 3), d["id"]
-                    add.append(x)
-            if len(add) >= 2:
+        add, top = [], res[0]["score"] if res else 1.0
+        for n in sorted((x for x in nodes if x not in have), key=lambda x: -pr[x]):
+            r = self.db.execute("SELECT * FROM items WHERE id=?", (n,)).fetchone()
+            if not r or r["status"] not in (("active", "faded", "superseded") if include_old else ("active", "faded")):
+                continue
+            ow = {singular(w) for w in words(r["title"] + " " + r["body"])}
+            new = (qw & ow) - covered
+            if new:
+                x = self._row(r)
+                x["score"], x["via"] = round(top * 0.9, 3), next((s for s in seeds if n in nbr.get(s, ())), seeds[0])
+                add.append(x)
+                covered |= ow           # the next step must bring something new again
+            if len(add) >= self.LINK_ADD:
                 break
         if not add:
             return res
@@ -1030,6 +1102,8 @@ class Store:
         for base, r in scored:
             age_days = max(0.0, (now - r["created"]) / 86400.0)
             boost = 1 + 0.05 * math.log1p(r["use_count"]) + 0.05 * math.log1p(max(0.0, r["strength"] - 1))
+            if self.PREFIX_ONLY_W != 1 and idf and not matched.get(r["id"]):
+                boost *= self.PREFIX_ONLY_W      # #54: matched the question only by word starts ("called" in "Calla")
             if self.IMPORTANCE_W and '"importance": ' in (r["meta"] or ""):
                 m_imp = re.search(r'"importance": (\d)', r["meta"])
                 if m_imp:
@@ -1118,6 +1192,7 @@ class Store:
         return res
 
     # recall settings (class-level so tests can compare with and without)
+    PREFIX_ONLY_W = 0.25 # a note sharing no whole word with the question, only word starts (#54)
     IMPORTANCE_W = 0.03  # per importance step above 1: a slight lean toward what matters (#75)
     OTHER_THING_W = 0.5  # a note about the same kind of thing with a different modifier (#11)
     KEYS = True          # extra search keys from the built-in word list when filing (#71)
@@ -1196,17 +1271,17 @@ class Store:
                 continue            # the same name on a different thing (the Ranven toolbox, not the locker)
             if INSTRUCTION.search(r["body"]):
                 continue            # an instruction hidden in a note is never a version of a fact
-            if HEDGE.search(r["body"]):
+            if HEDGE.search(r["body"]) or '"hedge": true' in (r["meta"] or ""):   # #21: or tagged by the model
                 # a guess never replaces, and is never replaced by, what was stated: it stands aside, marked
                 self._guess.add(r["id"])
                 continue
             if ref is None:
-                ref, ref_speaker, ref_thing = m, speaker(r["title"] + " " + r["body"]), thing
+                ref, ref_speaker, ref_thing = m, speaker(r["title"] + " " + r["body"]) or _said_by(r), thing
                 group.append(row)
                 continue
             if (thing and ref_thing and thing == ref_thing) or \
                     len(m & ref) / max(len(m), len(ref)) >= self.CLUSTER_OVERLAP:
-                sp = speaker(r["title"] + " " + r["body"])
+                sp = speaker(r["title"] + " " + r["body"]) or _said_by(r)
                 if sp and ref_speaker and sp != ref_speaker:
                     # what two different people said: both stand, neither replaces the other
                     self._disagree[r["id"]] = group[0][2]["id"]

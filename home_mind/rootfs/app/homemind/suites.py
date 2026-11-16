@@ -1946,6 +1946,29 @@ def links(seed):
                       {"q": f"Which {q.split()[2].rstrip('?')} is {p}'s?".replace("'s's", "'s") if False else
                        f"What is {p}'s {q.split()[-2] if 'umbrella' in q else q.split()[3].rstrip('?')}?".replace("'s's", "'s"),
                        "gold": n, "attack": "gather", "all": [n], "type": "one_step"}]
+    for _ in range(2):            # a new note about a thing; the question asks whose it is (#82)
+        used4 = {x for e in events for x in re.findall(r"[A-Z][a-z]+", e["text"])}
+        p, n = _fresh(rng, used4), _fresh(rng, used4)
+        c = rng.choice(["amber", "ivory", "jade"])
+        events.append({"op": "remember", "text": f"{p}'s scooter is the {c} {n}."})
+        for k in range(8):
+            events.append({"op": "remember", "text": f"The {rng.choice(COLORS)} {rng.choice(['van', 'cart', 'pram'])} "
+                                                     f"belongs to {rng.choice(PEOPLE)}."})
+        events.append({"op": "remember", "text": f"The {c} {n} was stolen from outside the gym."})
+        questions.append({"q": "Whose scooter was stolen?", "gold": p, "attack": "gather", "all": [p], "type": "whose"})
+    for _ in range(2):            # three steps: whose bike -> which lock -> where its key is
+        used3 = {x for e in events for x in re.findall(r"[A-Z][a-z]+", e["text"])}
+        p, n, lock = (_fresh(rng, used3) for _ in range(3))
+        c = rng.choice(["silver", "mint", "plum"])
+        place = rng.choice(["hall drawer", "brass hook", "coat rack"])
+        events += [{"op": "remember", "text": f"{p}'s bike is the {c} {n}."},
+                   {"op": "remember", "text": f"The {c} {n}'s lock is the {lock} one."}]
+        for k in range(10):
+            events.append({"op": "remember", "text": f"The spare key for the {rng.choice(COLORS)} "
+                                                     f"{rng.choice(['shed', 'van', 'gate', 'box'])} is on the {rng.choice(['hook', 'shelf', 'mat'])}."})
+        events.append({"op": "remember", "text": f"The {lock} key hangs on the {place}."})
+        questions.append({"q": f"Where is the key for {p}'s bike lock?", "gold": place, "attack": "gather", "all": [place],
+                          "type": "three_step"})
     return {"events": events, "questions": questions}
 
 
