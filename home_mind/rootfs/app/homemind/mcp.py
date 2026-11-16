@@ -119,9 +119,13 @@ class MCP:
         if isinstance(msg, list):
             out = [r for r in [await self.handle(m, scope) for m in msg] if r is not None]
             return out or None
+        if not isinstance(msg, dict):
+            return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request: not an object"}}
         mid, method, params = msg.get("id"), msg.get("method", ""), msg.get("params") or {}
         if mid is None:  # a notification
             return None
+        if not isinstance(params, dict):
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "params should be an object"}}
         try:
             if method == "initialize":
                 want = params.get("protocolVersion")
@@ -137,6 +141,9 @@ class MCP:
                                  if allows(scope, tool_needs(n))]}
             elif method == "tools/call":
                 name, args = params.get("name"), params.get("arguments") or {}
+                if not isinstance(args, dict):
+                    return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
+                            "arguments should be an object"}], "isError": True}}
                 from .tokens import tool_needs, allows
                 if not allows(scope, tool_needs(name, args)):
                     return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
@@ -162,6 +169,8 @@ class MCP:
         bound = VIEWER.get()            # a person-bound token (#48): only their own and household notes
         if name in ("mind_update", "mind_forget", "mind_restore", "mind_confirm", "mind_feedback", "mind_purge"):
             st.check_seen(int(a["id"]))
+            if not st.get(int(a["id"])):        # not a silent "archived" for an item that isn't there
+                raise KeyError(f"no item {a['id']}")
         if name == "mind_remember" and bound and a.get("scope") == "personal":
             a = dict(a, owner=bound)    # files personal notes as its own person, never someone else's
         if name == "mind_remember":
@@ -173,7 +182,7 @@ class MCP:
                                source="mcp")
         if name == "mind_recall":
             from .mind import lookup
-            return lookup(st, a["query"], int(a.get("limit") or 8), a.get("shelf"), a.get("kind"),
+            return lookup(st, a["query"], max(1, min(200, int(a.get("limit") or 8))), a.get("shelf"), a.get("kind"),
                           bool(a.get("include_old")))
         if name == "mind_get":
             return st.seen(int(a["id"]), history=True)
@@ -244,7 +253,7 @@ class MCP:
                     wrong = [d for d in r["details"] if not d.get("correct")]
                     r["details"] = {"wrong_examples": wrong[:8], "n_wrong": len(wrong)}
                 return r
-            return st.runs(limit=int(a.get("limit") or 20), suite=a.get("suite"))
+            return st.runs(limit=max(1, min(500, int(a.get("limit") or 20))), suite=a.get("suite"))
         if name == "mind_trend":
             return st.trend(a["suite"], a.get("name") or "accuracy", a.get("arm"))
         if name == "mind_comfort":
