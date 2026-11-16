@@ -532,7 +532,22 @@ def build(app_state):
         if op == "feedback":
             b = await q.json()
             return J(st.feedback(i, bool(b.get("helpful")), b.get("note", "")))
+        if op == "confirm":
+            return J(st.confirm(i))
+        if op == "purge":          # delete for good: needs {"confirm": true}
+            b = await q.json() if q.can_read_body else {}
+            if b.get("confirm") is not True:
+                return J({"error": "send {\"confirm\": true} to delete for good (this cannot be undone)"}, status=400)
+            return J(st.purge([i]))
         raise web.HTTPNotFound()
+
+    @r.post("/api/purge_about")
+    async def purge_about(q):
+        b = await q.json()
+        if b.get("confirm") is not True or not (b.get("name") or "").strip():
+            return J({"error": "send {\"name\": ..., \"confirm\": true} to delete for good (this cannot be undone)"},
+                     status=400)
+        return J(st.purge_about(b["name"]))
 
     @r.get("/api/tasks")
     async def tasks(q):
