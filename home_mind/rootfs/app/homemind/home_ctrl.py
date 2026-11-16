@@ -20,7 +20,7 @@ DEVICES = [
     {"id": "storage", "name": "Storage light", "kind": "light", "entity": "light.dreamview_p1", "x": 90, "y": 70},
     {"id": "heater", "name": "Heater", "kind": "climate", "entity": "climate.bedroom_temp", "x": 48.5, "y": 92},
     {"id": "purifier", "name": "Air purifier", "kind": "fan", "entity": "fan.dyson_c2a_us_mdb9996a", "x": 9, "y": 10},
-    {"id": "humid", "name": "Humidifier", "kind": "humidifier", "entity": "humidifier.humidifier_bedroom", "x": 42, "y": 10.5},
+    # humidifier.humidifier_bedroom: not installed yet. Add it back here (with its spot on the map) once it is set up.
     {"id": "blind", "name": "Blind", "kind": "cover", "entity": "cover.blind_tilt_47d0", "x": 50, "y": 3.5},
     {"id": "printer", "name": "3D printer (A1)", "kind": "printer", "entity": "sensor.a1_print_status", "x": 90, "y": 61},
 ]

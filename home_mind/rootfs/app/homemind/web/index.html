@@ -777,7 +777,8 @@ function homeComfort() {
   const ht = dev('heater') || {}, hu = dev('humid') || {}, fa = dev('purifier') || {};
   const T = [['heater', 'Heat', ht.level, ht.min || 60, ht.max || 80, '°', ht.on ? (ht.action || 'heat') : 'off', '#fbbf24', HI.therm, `room ${nf(ht.current)}°`, false],
     ['humid', 'Humidity', hu.level, hu.min || 30, hu.max || 70, '%', hu.on ? 'target' : 'off · target', '#2dd4bf', HI.humidifier, `room ${nf(hu.current)}%`, (hu.level || 0) > 55],
-    ['purifier', 'Fan', fa.level, 0, 100, '%', fa.on ? 'speed' : 'off', '#93b8ff', HI.fan, `air ${H.room.aqi == null ? '–' : H.room.aqi <= 50 ? 'good' : 'fair'}`, false]];
+    ['purifier', 'Fan', fa.level, 0, 100, '%', fa.on ? 'speed' : 'off', '#93b8ff', HI.fan, `air ${H.room.aqi == null ? '–' : H.room.aqi <= 50 ? 'good' : 'fair'}`, false]].filter(t => dev(t[0]));
+  $('#hc_talls').style.gridTemplateColumns = `repeat(${T.length},minmax(0,1fr))`;
   $('#hc_talls').innerHTML = T.map(([id, name, v, min, max, u, sub, col, ic, note, warn]) => `<div><div class="hc-tall"><div class="fill" id="tf_${id}" style="background:${col};height:${Math.max(18, ((v ?? min) - min) / (max - min) * 100)}%"></div>
     <div class="v" id="tl_${id}" style="${((v ?? min) - min) / (max - min) > 0.72 ? 'color:#0b0f17' : ''}"><b id="tv_${id}">${v == null ? '–' : Math.round(v) + u}</b><span style="color:inherit;opacity:.75">${sub}</span></div><span style="position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:center;color:var(--bg);pointer-events:none">${svg(ic, 22, 2)}</span>
     <input type="range" min="${min}" max="${max}" step="${id === 'purifier' ? 10 : 1}" value="${v ?? min}" aria-label="${name}" oninput="HBUSY=1;$('#tv_${id}').textContent=Math.round(this.value)+'${u}';$('#tf_${id}').style.height=Math.max(18,(this.value-${min})/(${max - min})*100)+'%';$('#tl_${id}').style.color=(this.value-${min})/(${max - min})>0.72?'#0b0f17':''" onchange="homeLevel(this.value,'${id}')"></div>
