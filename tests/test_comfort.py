@@ -73,12 +73,13 @@ def main():
     ap.add_argument("--seeds", type=int, default=10)
     ap.add_argument("--start", type=int, default=1)
     a = ap.parse_args()
-    fixed, brain = [], []
+    fixed, brain, errs = [], [], []
     right_sig = wrong_sig = missed = 0
     for s in range(a.start, a.start + a.seeds):
         f, b = run(s, learn=False), run(s)
         fixed.append(f["uncomfortable"])
         brain.append(b["uncomfortable"])
+        errs.append(b["pref_err"])
         has = "sleep_hours" in b["confirmed"]
         right_sig += has and b["effect"] > 0
         missed += (not has) and b["effect"] > 0
@@ -88,6 +89,20 @@ def main():
               f"-> confirmed {b['confirmed'] or '-'} (slope {b['sleep_slope']})")
     print(f"\nmean uncomfortable: fixed {sum(fixed)/len(fixed):.0%}, brain {sum(brain)/len(brain):.0%}")
     print(f"real sleep effect found {right_sig}, missed {missed}; false signals confirmed {wrong_sig}")
+    # the brain must clearly beat a fixed schedule and rarely confirm a signal that isn't there (CI fails otherwise)
+    fails = []
+    if not sum(brain) / len(brain) <= 0.25:
+        fails.append("brain uncomfortable share above 25%")
+    if not sum(fixed) / len(fixed) - sum(brain) / len(brain) >= 0.15:
+        fails.append("brain not 15+ points better than the fixed schedule")
+    if not sum(errs) / len(errs) < 1.0:
+        fails.append("learned preferences off by 1°F or more on average")
+    if wrong_sig > 2:       # 0-2 per 10 worlds on any seed window; more means the signal test got loose
+        fails.append("too many false signals confirmed")
+    if not right_sig:
+        fails.append("no real sleep effect found")
+    print("\n".join("FAIL " + f for f in fails) or "COMFORT OK")
+    sys.exit(1 if fails else 0)
 
 
 if __name__ == "__main__":

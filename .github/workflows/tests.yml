@@ -16,6 +16,8 @@ jobs:
         run: python tests/test_local.py
       - name: Comfort model
         run: python tests/test_comfort.py
+      - name: Comfort controller (fake Home Assistant)
+        run: python tests/test_comfort_live.py
       - name: Automation engine (fake Home Assistant)
         run: python tests/test_automations.py
       - name: Secrets kept from cloud models

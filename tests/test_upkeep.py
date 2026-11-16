@@ -123,7 +123,7 @@ async def main():
     st.clock = lambda: old
     shed = st.remember(text="The shed padlock code is 3381.", kind="fact")
     door = st.remember(text="The back door key is in the blue mug.", kind="fact")
-    st.remember(text="Living room light turned on.", kind="fact", source="home")
+    light = st.remember(text="Living room light turned on.", kind="fact", source="home")
     st.clock = time.time
     st.db.execute("UPDATE items SET use_count=5 WHERE id=?", (door["id"],))
     st.db.execute("UPDATE items SET use_count=9 WHERE id=?", (shed["id"],))
@@ -155,7 +155,12 @@ async def main():
     st.db.commit()
     m.build()
     check("switch off: no question", m._checkin is None)
-    check("house readings are never asked", all("light" not in (x or "") for x in [m._checkin and m._checkin["title"]]))
+    m.checkin_on = True     # asking again, with the house reading the most used old fact: it is still never asked
+    st.db.execute("UPDATE items SET use_count=99 WHERE id=?", (light["id"],))
+    st.db.commit()
+    m.build()
+    check("house readings are never asked", m._checkin and m._checkin["id"] != light["id"], m._checkin)
+    m.checkin_on = False
     st.remember(text="Your guest wifi password is sunflower88.", title="Guest wifi password sunflower88", kind="fact")
     text = m.build()
     check("secret values hidden in the summary's list", "sunflower88" not in text, text)

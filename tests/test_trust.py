@@ -135,17 +135,18 @@ def bulk():
 
 def voice_lists():
     st = fresh()
-    for i in range(14):
-        st.remember(text=f"The {['red', 'blue', 'green', 'tall', 'small', 'old', 'new'][i % 7]} plant number {i + 1} "
-                         f"is in the {'hall' if i % 2 else 'study'}.", source="test")
-    q = "Which plants are in the hall or the study?"
+    names = ["Kosk", "Bexbel", "Orvil", "Tamsk", "Quillon", "Pemmer", "Varno", "Druzel", "Halbek", "Skivet", "Morrow",
+             "Ulvane", "Fenbrik", "Gastle"]
+    for i, n in enumerate(names):       # 14 things: a gathered list longer than a voice answer may read out
+        st.remember(text=f"The {n} locker is on floor {i + 2}.", source="test")
+    q = "Which lockers do I have?"
     hits = st.recall(q, limit=20)
     full = M.build_context(st, q, hits)[0]
     short = M.build_context(st, q, hits, list_max=privacy.VOICE_LIST_MAX)[0]
-    if "more; the full list" in short or full == short:
-        check("by voice a long list is cut and says so", full == short or "more; the full list" in short)
-    else:
-        check("by voice a long list is cut and says so", False, short[:300])
+    check("on a screen the whole list is given", full.count("\n- ") == 14 and "more; the full list" not in full,
+          full[:300])
+    check("by voice a long list is cut and says so", short.count("\n- ") == privacy.VOICE_LIST_MAX and
+          f"{14 - privacy.VOICE_LIST_MAX} more; the full list" in short, short[:300])
 
 
 def suite():

@@ -213,16 +213,17 @@ async def handoff():
         r = await m.ask("Where is it?", conversation_id="phone")
     finally:
         VIEWER.reset(tok)
-    check("a follow-up on another device knows what came before",
-          "basement" in r["answer"].lower() or any("basement" in (h.get("body") or "") for h in r.get("hits", [])[:2]),
-          r.get("answer"))
+    convs = m._conversations()
+    # checked on the conversation itself: with two notes in memory any search for "it" finds the Velmar locker
+    check("a follow-up on another device knows what came before", "velmar" in convs.get("phone", {}).get("q", "").lower(),
+          convs.get("phone"))
     tok = VIEWER.set("Sam")
     try:
         r2 = await m.ask("Where is it?", conversation_id="tablet")
     finally:
         VIEWER.reset(tok)
-    check("another person doesn't pick it up", "basement" not in (r2.get("answer") or "").lower() or
-          "Velmar" not in m.resolve("Where is it?", "tablet2"))
+    tab = m._conversations().get("tablet", {})
+    check("another person doesn't pick it up", "velmar" not in tab.get("q", "").lower(), tab)
     m2 = Mind(d, None)
     check("conversations survive a restart", "kitchen" in m2._conversations() or "phone" in m2._conversations())
     old = m2.HANDOFF_SECONDS
