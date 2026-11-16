@@ -76,7 +76,7 @@ class Model:
             if isinstance(e, asyncio.TimeoutError):
                 raise ModelError(f"{self.name}: timed out after {self.timeout.total:g}s") from e
             if isinstance(e, aiohttp.ClientError):
-                raise ModelError(f"{self.name}: {type(e).__name__}: {e}") from e
+                raise ModelError(self._clean(f"{self.name}: {type(e).__name__}: {e}")) from e
             raise
         tin, tout = tokens if isinstance(tokens, tuple) else (None, None)
         total = (tin or 0) + (tout or 0) if isinstance(tokens, tuple) else tokens
@@ -103,16 +103,40 @@ class Model:
         except Exception as e:  # noqa: BLE001 - report any failure
             return {"name": self.name, "ok": False, "error": str(e)[:300]}
 
+    # busy or briefly down (Anthropic's 529 "overloaded", a 429 rate limit, a proxy's 502/503): asked once more after
+    # a short wait, so one blip doesn't fail a question or a night's pass. Never more than once, never a long wait.
+    RETRY_STATUS = (429, 500, 502, 503, 504, 529)
+    RETRY_WAIT_MAX = 20.0
+
+    def _clean(self, text):
+        """An error text without the API key (some servers echo the key they were given)."""
+        k = self.cfg.get("api_key")
+        return text.replace(k, "<api_key>") if k and isinstance(k, str) and len(k) >= 4 else text
+
+    def _retry_wait(self, r):
+        try:
+            w = float((r.headers or {}).get("retry-after") or 2)
+        except (TypeError, ValueError, AttributeError):
+            w = 2.0
+        return max(0.5, w) if w <= self.RETRY_WAIT_MAX else None
+
     async def _post(self, url, payload, headers=None):
-        async with self.session.post(url, json=payload, headers=headers or {}, timeout=self.timeout) as r:
-            body = await r.text()
-            if r.status >= 400:
-                raise ModelError(f"{self.name}: HTTP {r.status}: {body[:300]}")
-            try:
-                import json
-                return json.loads(body)
-            except ValueError as e:
-                raise ModelError(f"{self.name}: not JSON: {body[:200]}") from e
+        for attempt in (1, 2):
+            async with self.session.post(url, json=payload, headers=headers or {}, timeout=self.timeout) as r:
+                body = await r.text()
+                status = r.status
+                wait = self._retry_wait(r) if status in self.RETRY_STATUS and attempt == 1 else None
+            if wait is not None:
+                await asyncio.sleep(wait)
+                continue
+            break
+        if status >= 400:
+            raise ModelError(self._clean(f"{self.name}: HTTP {status}: {body[:300]}"))
+        try:
+            import json
+            return json.loads(body)
+        except ValueError as e:
+            raise ModelError(self._clean(f"{self.name}: not JSON: {body[:200]}")) from e
 
     # ---- OpenAI-compatible (Ollama /v1, LM Studio, llama.cpp server, vLLM, OpenAI) ------------------------------
     async def _chat_openai(self, system, messages, max_tokens, temperature):

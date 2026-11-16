@@ -16,7 +16,28 @@ log = logging.getLogger("homemind.telegram")
 API = "https://api.telegram.org"
 TELL = re.compile(r"^\s*(?:/?remember|/?note|/?save|remember that)\b[:,]?\s*(?:that\s+)?([^\s:,].*\w.*|\w)$",
                   re.I | re.S)
-MAX_LEN = 4000
+MAX_LEN = 4000      # Telegram allows 4096, counted in UTF-16 units (an emoji is two)
+
+
+def _chunks(text, size=MAX_LEN):
+    """text in pieces of at most size UTF-16 units, so a long answer full of emoji isn't refused as too long."""
+    out, cur, n = [], [], 0
+    for ch in text:
+        w = 2 if ord(ch) > 0xFFFF else 1
+        if n + w > size:
+            out.append("".join(cur))
+            cur, n = [], 0
+        cur.append(ch)
+        n += w
+    if cur:
+        out.append("".join(cur))
+    return out
+
+
+class TelegramError(RuntimeError):
+    def __init__(self, msg, retry_after=None):
+        super().__init__(msg)
+        self.retry_after = retry_after
 
 
 def parse_chats(spec):
@@ -41,13 +62,19 @@ class Telegram:
     def on(self):
         return bool(self.token)
 
+    def _clean(self, e):
+        """An error as text without the bot token (aiohttp errors can carry the request URL, which holds it)."""
+        t = f"{type(e).__name__}: {e}" if isinstance(e, BaseException) else str(e)
+        return t.replace(self.token, "<token>") if self.token else t
+
     async def _api(self, method, payload=None, timeout=35):
         import aiohttp
         async with self.app.models.session.post(f"{API}/bot{self.token}/{method}", json=payload or {},
                                                 timeout=aiohttp.ClientTimeout(total=timeout)) as r:
             j = await r.json(content_type=None)
         if not j.get("ok"):
-            raise RuntimeError(j.get("description") or f"telegram {method} failed")
+            raise TelegramError(j.get("description") or f"telegram {method} failed",
+                                (j.get("parameters") or {}).get("retry_after"))
         return j["result"]
 
     async def _file(self, file_id):
@@ -55,12 +82,20 @@ class Telegram:
         f = await self._api("getFile", {"file_id": file_id})
         async with self.app.models.session.get(f"{API}/file/bot{self.token}/{f['file_path']}",
                                                timeout=aiohttp.ClientTimeout(total=30)) as r:
+            if r.status != 200:
+                raise TelegramError(f"photo download: HTTP {r.status}")
             return await r.read()
 
     async def send(self, chat, text):
         text = text or "(no answer)"
-        for i in range(0, len(text), MAX_LEN):
-            await self._api("sendMessage", {"chat_id": chat, "text": text[i:i + MAX_LEN]})
+        for part in _chunks(text):
+            try:
+                await self._api("sendMessage", {"chat_id": chat, "text": part})
+            except TelegramError as e:      # 429 "Too Many Requests: retry after N": wait once, then try again
+                if not e.retry_after or float(e.retry_after) > 60:
+                    raise
+                await asyncio.sleep(float(e.retry_after))
+                await self._api("sendMessage", {"chat_id": chat, "text": part})
 
     async def handle(self, msg):
         """One incoming message -> the reply text (or None to stay silent)."""
@@ -82,9 +117,9 @@ class Telegram:
                 return "Add a caption so I know what the photo is of."
             m = TELL.match(text)
             note = (m.group(1) if m else text).strip()
+            data = await self._file(msg["photo"][-1]["file_id"])     # first: a failed download files nothing
             meta = self.app.scope_meta({}, note, who or None)
             r = st.remember(text=note, source="telegram", meta=meta or None)
-            data = await self._file(msg["photo"][-1]["file_id"])
             self.app.photos.add(r["id"], data, note)
             return f"Saved with the photo: {note}"
         if not text:
@@ -113,14 +148,15 @@ class Telegram:
                     try:
                         reply = await self.handle(msg)
                     except Exception as e:  # noqa: BLE001
-                        log.exception("telegram message")
+                        log.warning("telegram message: %s", self._clean(e),
+                                    exc_info=self.token not in f"{e!s}{e!r}")
                         reply = f"Sorry, that failed: {type(e).__name__}"
                     if reply:
                         await self.send(msg["chat"]["id"], reply)
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
-                self.last_error = str(e)[:200]
-                log.warning("telegram: %s", e)
+                self.last_error = self._clean(e)[:200]        # shown by /api/connections
+                log.warning("telegram: %s", self.last_error)
                 await asyncio.sleep(backoff)
                 backoff = min(300, backoff * 2)

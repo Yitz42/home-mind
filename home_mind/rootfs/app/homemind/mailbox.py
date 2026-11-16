@@ -21,6 +21,8 @@ from email.utils import parseaddr, parsedate_to_datetime
 log = logging.getLogger("homemind.mail")
 MAX_BODY = 6000
 KV = "mail_seen"
+TIMEOUT = 60        # seconds for any one IMAP step: imaplib waits forever by default, and a server that stops
+                    # answering would hold the mail lock (and an upkeep step) until the add-on restarts
 
 
 def text_of(msg):
@@ -70,7 +72,8 @@ class Mailbox:
         self.folder = opts.get("email_folder") or "INBOX"
         self.senders = {s.strip().lower() for s in (opts.get("email_senders") or []) if s and s.strip()}
         self.minutes = float(opts.get("email_minutes") or 10)
-        self.imap_factory = imap_factory or (lambda h: imaplib.IMAP4_SSL(h, ssl_context=ssl.create_default_context()))
+        self.imap_factory = imap_factory or (lambda h: imaplib.IMAP4_SSL(h, ssl_context=ssl.create_default_context(),
+                                                                          timeout=TIMEOUT))
         self.last = None
         self._running = threading.Lock()
 
@@ -134,12 +137,21 @@ class Mailbox:
             box.select(self.folder)
             typ, data = box.search(None, "UNSEEN")
             for num in (data[0].split() if data and data[0] else [])[:50]:
-                typ, parts = box.fetch(num, "(RFC822)")
-                raw = next((p[1] for p in parts if isinstance(p, tuple)), None)
+                # PEEK: fetching RFC822 marks the mail as seen on the server before it is filed, so a mail whose
+                # filing failed was never read again. It is marked seen only once filed (or skipped on purpose).
+                typ, parts = box.fetch(num, "(BODY.PEEK[])")
+                raw = next((p[1] for p in parts or () if isinstance(p, tuple)), None)
                 if not raw:
                     continue
                 res["read"] += 1
-                r = self.file(raw)
+                try:
+                    r = self.file(raw)
+                except (imaplib.IMAP4.abort, OSError):
+                    raise                       # the connection is gone: the rest waits for the next run
+                except Exception as e:  # noqa: BLE001 - one bad mail doesn't stop the others; it stays unseen
+                    log.warning("mail %s: %s", num, e)
+                    res["failed"] = res.get("failed", 0) + 1
+                    continue
                 res["filed" if "id" in r or r.get("docs") else "skipped"] += 1
                 box.store(num, "+FLAGS", "\\Seen")
         finally:

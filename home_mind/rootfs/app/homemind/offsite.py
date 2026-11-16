@@ -94,12 +94,14 @@ class Offsite:
         await self._put(name, blob)
         kept = (self.store.kv_get("offsite_files") or []) + [name]
         keep = int(self.opts.get("backup_keep") or 14)
+        left = []
         for old in kept[:-keep]:
             try:
                 await self._delete(old)
             except Exception as e:  # noqa: BLE001 - a stale file is better than a failed backup
                 log.warning("off-site prune %s: %s", old, e)
-        self.store.kv_set("offsite_files", kept[-keep:])
+                left.append(old)            # remembered, so the next run tries again instead of leaking it
+        self.store.kv_set("offsite_files", left[-50:] + kept[-keep:])
         self.last = {"at": now or time.time(), "stamp": self._stamp(), "file": name, "bytes": len(blob),
                      "target": t, "encrypted": bool(pw)}
         self.store.kv_set("offsite_last", self.last)
@@ -144,9 +146,12 @@ class Offsite:
         if t == "webdav":
             import aiohttp
             auth = aiohttp.BasicAuth(self.opts.get("backup_user") or "", self.opts.get("backup_password") or "")
-            async with self.session.delete(url, auth=auth):
-                return
+            async with self.session.delete(url, auth=auth) as r:
+                if r.status not in (200, 202, 204, 404):        # 404: already gone
+                    raise RuntimeError(f"WebDAV DELETE {r.status}")
+            return
         h = _sigv4("DELETE", url, self.opts.get("backup_region") or "us-east-1", self.opts.get("backup_user") or "",
                    self.opts.get("backup_password") or "", b"")
-        async with self.session.delete(url, headers=h):
-            return
+        async with self.session.delete(url, headers=h) as r:
+            if r.status not in (200, 202, 204, 404):
+                raise RuntimeError(f"S3 DELETE {r.status}")
