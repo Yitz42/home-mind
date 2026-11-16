@@ -8,8 +8,8 @@ import sys
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-cfg = yaml.safe_load(open(os.path.join(HERE, "..", "home_mind", "config.yaml")))
-opts, schema = cfg["options"], cfg["schema"]
+ROOT = os.path.join(HERE, "..")
+APPS = sorted(d for d in os.listdir(ROOT) if os.path.isfile(os.path.join(ROOT, d, "config.yaml")))
 FAILS = []
 
 
@@ -41,12 +41,18 @@ def valid(kind, v):
     return True
 
 
-missing = [k for k in opts if k not in schema]
-check("every option has a schema entry", not missing, missing)
-bad = [(k, opts[k], schema[k]) for k in opts if k in schema and not valid(schema[k], opts[k])]
-check("every default is valid for its type (the Supervisor checks this before an update)", not bad, bad)
-url_empty = [k for k, t in schema.items() if str(t).rstrip("?") == "url" and opts.get(k, None) == ""]
-check("no url option defaults to an empty string", not url_empty, url_empty)
+check("found the apps in the repository", "home_mind" in APPS, APPS)
+for app in APPS:
+    cfg = yaml.safe_load(open(os.path.join(ROOT, app, "config.yaml")))
+    opts, schema = cfg.get("options") or {}, cfg.get("schema") or {}
+    missing = [k for k in opts if k not in schema]
+    check(f"{app}: every option has a schema entry", not missing, missing)
+    bad = [(k, opts[k], schema[k]) for k in opts if k in schema and not valid(schema[k], opts[k])]
+    check(f"{app}: every default is valid for its type (the Supervisor checks this before an update)", not bad, bad)
+    url_empty = [k for k, t in schema.items() if str(t).rstrip("?") == "url" and opts.get(k, None) == ""]
+    check(f"{app}: no url option defaults to an empty string", not url_empty, url_empty)
+    for k in ("name", "version", "slug", "description", "arch"):
+        check(f"{app}: has {k}", k in cfg)
 
 if FAILS:
     print(f"\n{len(FAILS)} failed")

@@ -16,8 +16,8 @@ SCOPES = ("read", "write", "admin")
 ADMIN_PATHS = [r"^/api/tokens", r"^/api/item/\d+/purge$", r"^/api/purge_about$", r"^/api/automations/(?!draft$)",
                r"^/api/house/suggestion/[^/]+/create$", r"^/api/updates/apply$", r"^/api/backup", r"^/api/restore",
                r"^/api/import", r"^/api/control/", r"^/api/export", r"^/api/vault/key$", r"^/api/compare/run$",
-               r"^/api/email/check$", r"^/api/home/act$", r"^/api/do$",
-               r"^/api/controls/"]   # the Home tab's controls are house control too   # house control: admin, as mind_control/mind_do
+               r"^/api/control_model/", r"^/api/email/check$", r"^/api/home/act$", r"^/api/do$",
+               r"^/api/controls/"]   # house control (and the Home tab's controls): admin, as mind_control/mind_do
 READ_POSTS = [r"^/api/ask$", r"^/api/recall$", r"^/api/search$", r"^/api/lookup$", r"^/api/models/check$", r"^/api/sql$"]
 MCP_READ = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_tasks", "mind_ask",
             "mind_models", "mind_test_results", "mind_trend", "mind_home", "mind_automations", "mind_status",

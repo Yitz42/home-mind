@@ -184,6 +184,7 @@ ROUTES = [
     ("GET", "/api/connections", []),
     ("POST", "/api/email/check", []),
     ("GET", "/api/preferences", []),
+    ("GET", "/api/control_model/dataset", ["part", "paraphrase"]),
     ("GET", "/api/thing", ["name"]),
     ("GET", "/api/label", ["text", "name", "base", "scale"]),
     ("GET", "/api/views", []),
