@@ -29,6 +29,7 @@
   <span class="mute" id="ver" style="margin-left:auto"></span></header>
 <main>
 <section id="overview">
+  <div class="card hide" id="start"></div>
   <div class="grid" id="stats"></div>
   <div class="card"><h2>Latest test results</h2><table id="latest"></table></div>
   <div class="card"><h2>Recent activity</h2><table id="events"></table></div>
@@ -156,14 +157,21 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => { documen
 
 async function load(t) {
   if (t === 'overview') {
-    const s = await api('api/status'); $('#ver').textContent = 'v' + s.version;
+    const s = await api('api/status');
+    if (s.error) { $('#start').classList.remove('hide'); $('#start').innerHTML = `<h2 class="bad">Home Mind isn't answering</h2><p>${esc(s.error)}</p><p class="mute">Check the app's Log tab (Settings › Apps › Home Mind › Log) and restart the app.</p>`; return; }
+    $('#ver').textContent = 'v' + s.version;
+    const todo = startSteps(s);
+    $('#start').classList.toggle('hide', !todo.length);
+    $('#start').innerHTML = todo.length ? '<h2>Getting started</h2><ul>' + todo.map(x => `<li>${x}</li>`).join('') + '</ul>' : '';
     $('#stats').innerHTML = [['items', s.items], ['shelves', s.shelves], ['old versions', s.versions - s.items], ['faded', s.faded], ['events', s.events], ['test runs', s.runs], ['bridge', s.bridge || '—']]
       .map(([k, v]) => `<div class="card stat"><b class="num">${esc(v)}</b><span>${k}</span></div>`).join('');
-    const runs = await api('api/runs?limit=200'), seen = {}, rows = [];
+    const got = await api('api/runs?limit=200'), runs = Array.isArray(got) ? got : [], seen = {}, rows = [];
     for (const r of runs) { const k = r.suite + '|' + r.arm + '|' + (r.model || ''); if (!seen[k] && r.status === 'done') { seen[k] = 1; rows.push(r); } }
-    $('#latest').innerHTML = '<tr><th>suite</th><th>arm</th><th>model</th><th>accuracy</th><th>found first</th><th>stale on top</th><th>when</th></tr>' + rows.map(r => `<tr><td>${esc(r.suite)}</td><td>${esc(r.arm)}</td><td>${esc(r.model || '')}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.stale_above)}</td><td class="mute">${ago(r.ts)}</td></tr>`).join('');
+    $('#latest').innerHTML = '<tr><th>suite</th><th>arm</th><th>model</th><th>accuracy</th><th>found first</th><th>stale on top</th><th>when</th></tr>' + rows.map(r => `<tr><td>${esc(r.suite)}</td><td>${esc(r.arm)}</td><td>${esc(r.model || '')}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.stale_above)}</td><td class="mute">${ago(r.ts)}</td></tr>`).join('') +
+      (rows.length ? '' : `<tr><td class="mute" colspan="7">${got.error ? esc(got.error) : 'no test runs yet: the Tests tab runs one (the brain arm needs no model)'}</td></tr>`);
     const ev = await api('api/events?limit=15');
-    $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${esc(e.type)}</td><td class="mute">${esc(String(e.data ?? '').slice(0, 140))}</td></tr>`).join('');
+    $('#events').innerHTML = Array.isArray(ev) ? (ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${esc(e.type)}</td><td class="mute">${esc(String(e.data ?? '').slice(0, 140))}</td></tr>`).join('') ||
+      '<tr><td class="mute">nothing yet: searches, answers and changes show here</td></tr>') : `<tr><td class="bad">${esc(ev.error)}</td></tr>`;
   }
   if (t === 'memory') { browse(''); recent(); review(); inbox(); docsList(); viewsList(); }
   if (t === 'worked') { worked(); }
@@ -176,7 +184,7 @@ async function load(t) {
   }
   if (t === 'models') { tokens();
     const ms = await api('api/models');
-    $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('');
+    $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('') + (ms.some(m => m.type !== 'mock') ? '' : '<tr><td class="mute" colspan="4">no models yet (mock only copies the best note): add one under Settings › Apps › Home Mind › Configuration › Models (type ha_ai_task, ollama, openai or anthropic; see the Documentation tab)</td></tr>');
     $('#a_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join('');
     const u = await api('api/usage?days=30');
     const n = x => x ? Number(x).toLocaleString() : '—';
@@ -184,6 +192,17 @@ async function load(t) {
       (u.models.map(m => `<tr><td>${esc(m.model)}</td><td class="num">${n(m.calls)}</td><td class="num">${m.failures ? `<span class="bad">${m.failures}</span>` : '0'}</td><td class="num">${n(m.tokens_in)}</td><td class="num">${n(m.tokens_out)}</td><td class="num">${m.calls ? Math.round(m.ms / m.calls) : '—'}</td><td class="num">${m.cost == null ? '—' : '$' + m.cost.toFixed(2)}</td></tr>`).join('') || '<tr><td class="mute" colspan="7">no model calls yet</td></tr>') +
       `<tr><td class="mute" colspan="7">Today: ${n(u.today.calls)} calls, ${n(u.today.tokens)} tokens${u.today.cost == null ? '' : ', $' + u.today.cost.toFixed(2)}</td></tr>`;
   }
+}
+// first-run hints for the Overview: what still needs doing, each with where to do it (values escaped)
+function startSteps(s) {
+  const out = [], models = (s.models || []).filter(m => m !== 'mock');   // mock is always there: it only copies notes
+  if (!models.length) out.push('No models are set up, so answers are the best matching note. Add one under Settings › Apps › Home Mind › Configuration › Models (see the Documentation tab), then check it on the <a onclick="document.querySelector(\'nav button[data-t=models]\').click()">Models</a> tab.');
+  if (s.in_home_assistant === false) out.push('Not running inside Home Assistant: house watching, phone notifications and Home Assistant models (ha_ai_task, ha_conversation) are off.');
+  else if (typeof s.bridge === 'string' && s.bridge.startsWith('error')) out.push('The Home Mind Bridge integration could not be installed (' + esc(s.bridge) + '). Check that the app can write to /config.');
+  else if (s.bridge === 'installed' || s.bridge === 'updated') out.push('The Home Mind Bridge integration was ' + esc(s.bridge) + ': restart Home Assistant, then add it under Settings › Devices & services › Add integration › Home Mind Bridge.');
+  if (!s.items) out.push('Memory is empty. Tell it something under <a onclick="document.querySelector(\'nav button[data-t=memory]\').click()">Memory</a> › Remember something, or say "remember the wifi password is on the fridge" to your assistant.');
+  if (out.length && models.length) out.push('Not sure a model works? Models tab › Check all shows each one\'s error.');
+  return out;
 }
 async function inbox() {
   const r = await api('api/inbox');
@@ -422,7 +441,8 @@ async function runs() {
 }
 async function showRun(id) { const r = await api('api/runs/' + id); $('#runcard').classList.remove('hide'); $('#runid').textContent = id; $('#run').textContent = JSON.stringify({summary: r.summary, config: r.config, seed: r.seed, wrong: r.details.filter(d => !d.correct)}, null, 1); }
 async function checkModels() { const rs = await api('api/models/check', {}); rs.forEach(r => { const el = document.getElementById('chk_' + r.name); if (el) el.innerHTML = r.ok ? `<span class="ok">ok</span> <span class="mute">${esc(r.ms)} ms</span>` : `<span class="bad">${esc(r.error)}</span>`; }); }
-async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); $('#a_out').textContent = r.error || (r.answer + '\n\n— ' + (r.ms || '') + ' ms; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ')); }
+async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); $('#a_out').textContent = r.error || (r.answer + '\n\n— ' + (r.ms || '') + ' ms; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ') +
+  ((r.errors || []).length ? '\n\nModel errors:\n' + r.errors.join('\n') + (r.model == null ? '\nCheck the model under Settings › Apps › Home Mind › Configuration (Models › Check all shows why).' : '') : '')); }
 async function checkUpd() { $('#upd').textContent = '…'; const r = await api('api/updates'); delete r.manifest; $('#upd').textContent = JSON.stringify(r, null, 1); }
 async function applyUpd() { $('#upd').textContent = '…'; $('#upd').textContent = JSON.stringify(await api('api/updates/apply', {}), null, 1); }
 (function () { let q = ''; try { q = window.top.location.search; } catch (e) { q = location.search; }

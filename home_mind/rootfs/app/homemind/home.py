@@ -438,14 +438,15 @@ class Home:
                 raise ValueError(f"don't know {entity_id!r}")
             entity_id = m[0]
         if not self.allowed(entity_id):
-            raise PermissionError(f"{entity_id} is not on the control list")
+            raise PermissionError(f"{entity_id} is not on the control list (option home_controls)")
         if self.sensitive(entity_id) and confirm is not True:
             raise PermissionError(f"{entity_id} is a lock or door: it needs the person's confirmation (confirm: true)")
         if (self.catalog[entity_id].get("state") or "") in ("unavailable", "unknown"):
             raise ValueError(f"{entity_id} is {self.catalog[entity_id]['state']} in Home Assistant")
         gate = await self.ha.state(GATE)
         if not gate or gate.get("state") != "on":
-            raise PermissionError(f"controls are off ({GATE} is not on)")
+            raise PermissionError(f"controls are off: turn on {GATE} in Home Assistant (if it doesn't exist, add a "
+                                  f"Toggle helper named mind_control_enabled under Settings › Devices & services › Helpers)")
         now = time.time()
         self.actions = [t for t in self.actions if now - t < 60]
         if len(self.actions) >= 20:

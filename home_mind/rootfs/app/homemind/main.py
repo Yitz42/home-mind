@@ -803,7 +803,9 @@ def build(app_state):
             return await handler(request)
         if os.environ.get("HOME_MIND_OPEN") == "1" and peer in ("127.0.0.1", "::1"):
             return await handler(request)
-        return web.json_response({"error": "not allowed"}, status=401)
+        return web.json_response({"error": "not allowed: send the token from /data/token, or one made on the Models tab "
+                                           "(Access tokens), as header X-Home-Mind-Token" if not tok else
+                                           "not allowed: that token is unknown or was revoked"}, status=401)
 
     @web.middleware
     async def errors(request, handler):
