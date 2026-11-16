@@ -442,7 +442,7 @@ class Home:
         return [{"entity_id": e, "name": c["name"], "state": c["state"]} for e, c in sorted(self.catalog.items())
                 if self.allowed(e)]
 
-    async def act(self, entity_id, action, value=None, source="api", confirm=False):
+    async def act(self, entity_id, action, value=None, source="api", confirm=False, batch=None):
         """action: on, off, toggle, brightness (1-100), color (name), speed (fan %), humidity (%), run; covers also
         open, close; locks lock, unlock. Locks, alarms and garage doors need confirm=True."""
         if entity_id not in self.catalog:
@@ -462,7 +462,10 @@ class Home:
                                   f"Toggle helper named mind_control_enabled under Settings › Devices & services › Helpers)")
         now = time.time()
         self.actions = [t for t in self.actions if now - t < 60]
-        if len(self.actions) >= 20:
+        same = batch is not None and batch == getattr(self, "_batch", None)
+        if not same and len(self.actions) >= 20:
+            # 20 requests a minute at most (a runaway loop can't flip the house); one request that names many
+            # devices ("lights off") counts once
             raise PermissionError("too many actions in the last minute")
         dom = entity_id.split(".")[0]
         data = {"entity_id": entity_id}
@@ -509,7 +512,9 @@ class Home:
         else:
             raise ValueError(f"can't {action} {entity_id}")
         status = await self.ha.call(svc[0], svc[1], data)
-        self.actions.append(now)
+        if not same:
+            self.actions.append(now)
+            self._batch = batch
         if isinstance(status, int) and status >= 400:
             raise ValueError(f"Home Assistant refused {'.'.join(svc)} for {entity_id} (HTTP {status})")
         name = self.catalog[entity_id]["name"]
@@ -522,25 +527,37 @@ class Home:
         return {"entity_id": entity_id, "name": name, "service": ".".join(svc), "data": data, "status": status}
 
 
-DO_SYSTEM = ("You turn a request into one smart-home action. Reply with JSON only: "
+DO_SYSTEM = ("You turn a request into smart-home actions. Reply with JSON only: "
              '{"entity_id": one id from the list, "action": "on"|"off"|"toggle"|"brightness"|"color"|"speed"|'
              '"humidity"|"run"|"open"|"close"|"lock"|"unlock", "value": number or color name or null}. Covers (doors, '
-             'garage doors, blinds) open or close; locks lock or unlock. If nothing on the list fits, reply '
+             'garage doors, blinds) open or close; locks lock or unlock. If the request asks for several things, '
+             'reply {"actions": [one such object per thing]} (at most 10). If nothing on the list fits, reply '
              '{"entity_id": null}.')
 
 
 async def plan_action(model, request, things):
     lst = "\n".join(f"- {t['entity_id']}: {t['name']} (now {t['state']})" for t in things)
     r = await model.chat(DO_SYSTEM, [{"role": "user", "content": f"Things you can control:\n{lst}\n\nRequest: {request}"}],
-                         max_tokens=120, temperature=0)
+                         max_tokens=400, temperature=0)
     m = re.search(r"\{.*\}", r["text"], re.S)
     try:
         plan = json.loads(m.group(0)) if m else {}
     except ValueError:
         return {}
-    # only the shapes act() takes: an entity id and an action as text, a value as a number or text
-    if not isinstance(plan.get("entity_id"), str) or not isinstance(plan.get("action"), (str, type(None))):
+    if not isinstance(plan, dict):
         return {"entity_id": None}
+    if isinstance(plan.get("actions"), list):
+        acts = [a for a in (_shape(x) for x in plan["actions"][:10]) if a.get("entity_id")]
+        return {"actions": acts} if len(acts) > 1 else (acts[0] if acts else {"entity_id": None})
+    return _shape(plan)
+
+
+def _shape(plan):
+    """Only the shapes act() takes: an entity id and an action as text, a value as a number or text."""
+    if not isinstance(plan, dict) or not isinstance(plan.get("entity_id"), str) or \
+            not isinstance(plan.get("action"), (str, type(None))):
+        return {"entity_id": None}
+    plan = {k: plan.get(k) for k in ("entity_id", "action", "value")}
     if not isinstance(plan.get("value"), (str, int, float, type(None))) or isinstance(plan.get("value"), bool):
         plan["value"] = None
     return plan

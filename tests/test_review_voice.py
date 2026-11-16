@@ -185,7 +185,7 @@ def app(delay=0):
                                   models={"haiku": planner}, get=lambda n: planner))
     for n in ("YES", "NO", "PENDING_SECONDS"):
         setattr(A, n, getattr(M.App, n))
-    for n in ("do", "pending_reply", "has_pending", "speaker_for", "local_plan", "_run_plan"):
+    for n in ("do", "pending_reply", "has_pending", "speaker_for", "local_plan", "_run_plan", "_run_steps", "_said"):
         setattr(A, n, getattr(M.App, n).__get__(A))
     A.people = lambda: []
     return A, ha, M.build(A)
@@ -252,6 +252,7 @@ def confirm_by_voice():
 
 def slow_model():
     A, ha, web_app = app(delay=0.5)
+    A.opts = {"rule_planner": False}      # a plain command doesn't wait for a model at all: this is the model path
     s, r = call(web_app, "POST", "/api/do", {"text": "turn on the desk lamp", "deadline": 0.1}, "main-token")
     time.sleep(0.6)
     check("voice: a plan that misses the deadline does nothing (no light switching on after the reply)",

@@ -219,11 +219,11 @@ def app(small, big=None, opts=None):
     models = {"control": small}
     if big:
         models["haiku"] = big
-    A = types.SimpleNamespace(home=h, opts=dict({"control_model": "control"}, **(opts or {})),
+    A = types.SimpleNamespace(home=h, opts=dict({"control_model": "control", "rule_planner": False}, **(opts or {})),
                               models=types.SimpleNamespace(models=models, get=lambda n: models[n]))
     for n in ("YES", "NO", "PENDING_SECONDS"):
         setattr(A, n, getattr(M.App, n))
-    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan"):
+    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan", "_run_steps", "_said"):
         setattr(A, n, getattr(M.App, n).__get__(A))
     return A, ha
 

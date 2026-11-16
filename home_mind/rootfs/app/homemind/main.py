@@ -84,7 +84,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
-            "paperless_url": "", "paperless_token": "", "rerank_model": "", "control_model": "",
+            "paperless_url": "", "paperless_token": "", "rerank_model": "", "control_model": "", "rule_planner": True,
             "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
             "compare_suites": ["recall", "tricky", "hard"], "use_preferences": True, "label_url": "",
             "telegram_token": "", "telegram_chats": [], "web_search": "off", "web_search_url": "", "web_search_key": "",
@@ -362,13 +362,23 @@ class App:
                         "expired": True}
             return None
         if self.YES.match(said):
-            plan = p["plan"]
-            try:
-                done = await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"), p["source"],
-                                           confirm=True)
-            except (ValueError, PermissionError) as e:
-                return {"plan": plan, "error": str(e), "answer": f"I couldn't {p['verb']} the {p['name']}: {e}"}
-            return {"plan": plan, "done": done, "confirmed": True, "answer": f"OK, I'll {p['verb']} the {p['name']}."}
+            plans = p.get("plans") or [p["plan"]]
+            done, errs = [], []
+            batch = f"yes:{time.time()}"
+            for plan in plans:
+                try:
+                    done.append(await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"),
+                                                    p["source"], confirm=True, batch=batch))
+                except (ValueError, PermissionError) as e:
+                    errs.append(str(e))
+            if errs and not done:
+                return {"plan": plans[0], "error": "; ".join(errs),
+                        "answer": f"I couldn't {p['verb']} the {p['name']}: {errs[0]}"}
+            r = {"plan": plans[0], "done": done[0] if len(plans) == 1 else done, "confirmed": True,
+                 "answer": f"OK, I'll {p['verb']} the {p['name']}."}
+            if errs:
+                r["error"] = "; ".join(errs)
+            return r
         if self.NO.match(said):
             return {"answer": f"OK, I won't {p['verb']} the {p['name']}.", "cancelled": True}
         return None
@@ -383,8 +393,15 @@ class App:
             return r
         if not self.home.catalog:
             await self.home.refresh()
+        opts = getattr(self, "opts", None) or {}
+        if not model and opts.get("rule_planner", True) is not False:
+            # plain commands need no model at all: "kitchen light off", "den lamp to 40%", "lights off and lock up"
+            from . import planner
+            steps = planner.plan(text, self.home.catalog, self.home.allowed)
+            if steps:
+                return await self._run_steps(steps, text, source, conversation_id, "rules")
         names = [n for n in self.models.models if n != "mock"]
-        local = (getattr(self, "opts", None) or {}).get("control_model") or ""
+        local = opts.get("control_model") or ""
         things = self.home.controllable()
         if local and local in self.models.models and not model:
             # the small local model first (localctl): one tool call, resolved against the control list
@@ -406,7 +423,62 @@ class App:
         except asyncio.TimeoutError:
             return {"error": "the model took too long; nothing was done",
                     "answer": "Sorry, that took too long, so I didn't do anything."}
+        if plan.get("actions"):
+            return await self._run_steps(plan["actions"], text, source, conversation_id, model)
         return await self._run_plan(plan, text, source, conversation_id)
+
+    def _said(self, plan):
+        name = (self.home.catalog.get(plan.get("entity_id")) or {}).get("name") or plan.get("entity_id")
+        a, v = plan.get("action"), plan.get("value")
+        what = {"on": "on", "off": "off", "toggle": "switched", "run": "started", "open": "opened", "close": "closed",
+                "lock": "locked", "unlock": "unlocked"}.get(a)
+        if what is None:
+            what = f"{v}%" if a in ("brightness", "speed", "humidity") and v is not None else f"{a} {v}".strip()
+        return f"{name} {what}"
+
+    async def _run_steps(self, steps, text, source, conversation_id, by):
+        """Several actions from one request ("lights off and lock up"). A "which one?" anywhere asks first and does
+        nothing. The ordinary ones run; locks, alarms and garage doors among them wait for one yes together."""
+        ask = next((s for s in steps if s.get("which")), None)
+        if ask:
+            return {"steps": steps, "by": by, "which": ask["which"],
+                    "answer": f"Which {ask.get('device') or 'one'}: " + ", ".join(ask["which"]) + "?"}
+        steps = [dict(s, by=by) for s in steps if s.get("entity_id")]
+        if len(steps) == 1:
+            return await self._run_plan(steps[0], text, source, conversation_id)
+        sens = [s for s in steps if s["entity_id"] in self.home.catalog and self.home.allowed(s["entity_id"])
+                and self.home.sensitive(s["entity_id"])]
+        results, said = [], []
+        batch = f"{time.time()}:{id(steps)}"         # one request: counts once against the actions-per-minute limit
+        for s in steps:
+            if s in sens:
+                continue
+            r = await self._run_plan(s, text, source, conversation_id, batch)
+            results.append(r)
+            if r.get("done"):
+                said.append(self._said(s))
+        errors = [r["error"] for r in results if r.get("error")]
+        out = {"steps": steps, "by": by, "results": results, "done": [r["done"] for r in results if r.get("done")]}
+        answer = ("Done: " + ", ".join(said) + ".") if said else ""
+        if errors:
+            out["error"] = "; ".join(errors)
+            answer += (" " if answer else "") + f"{len(errors)} didn't work."
+        if sens:
+            names = [(self.home.catalog.get(s["entity_id"]) or {}).get("name") or s["entity_id"] for s in sens]
+            verbs = sorted({s.get("action") or "change" for s in sens})
+            what = f"{' and '.join(verbs)} the {', '.join(names)}"
+            if conversation_id:
+                pend = self.__dict__.setdefault("_pending", {})
+                pend[conversation_id] = {"plans": sens, "plan": sens[0], "t": time.time(), "source": source,
+                                         "name": ", ".join(names), "verb": " and ".join(verbs)}
+                out["confirm_needed"] = True
+                answer += (" " if answer else "") + f"Do you want me to {what}? Say yes to go ahead."
+            else:
+                out["error"] = (out.get("error", "") + "; " if out.get("error") else "") + \
+                    f"{', '.join(names)} need the person's yes, and this request has no conversation_id"
+                answer += (" " if answer else "") + f"I need a yes before I {what}, and I can't take one here."
+        out["answer"] = answer.strip()
+        return out
 
     async def local_plan(self, name, text, deadline=None):
         """The small local control model (option control_model; localctl): one tool call -> a plan, a "which one?",
@@ -429,7 +501,7 @@ class App:
             return {}          # a name it couldn't place: let the general model try with the whole list
         return plan
 
-    async def _run_plan(self, plan, text, source, conversation_id):
+    async def _run_plan(self, plan, text, source, conversation_id, batch=None):
         """The checks every planned action goes through, whichever model planned it."""
         if not plan.get("entity_id"):
             return {"error": "nothing on the control list fits", "plan": plan}
@@ -452,7 +524,7 @@ class App:
                               "Please use the Home Assistant app for that."}
         try:
             return {"plan": plan, "done": await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"),
-                                                              source)}
+                                                              source, batch=batch)}
         except (ValueError, PermissionError) as e:
             return {"plan": plan, "error": str(e)}
 
