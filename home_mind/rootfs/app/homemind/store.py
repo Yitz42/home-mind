@@ -80,6 +80,9 @@ END;
 
 MODEL_SOURCES = ("overnight",)   # sources where a model, not a person, decided what the note says
 TRUST_SOURCES = True             # off: only overnight facts are on probation and nothing is held (how 0.20 worked)
+# sources whose text was written by someone outside the house (a forwarded email: the vendor wrote it, and a From
+# header can be forged): a note from one that reads like an instruction to the assistant is held for review too
+OUTSIDE_SOURCES = ("email",)
 
 
 def _inferred(m, source=""):
@@ -567,8 +570,8 @@ class Store:
             if "alias" in m0 and shelf == "inbox":
                 shelf = "profile"          # "Dana is my partner": who is who, always shown to models
         meta = m0
-        hold = TRUST_SOURCES and _inferred(m0, source) and not m0.get("confirmed") and \
-            bool(INSTRUCTION.search(title + " " + text))
+        hold = TRUST_SOURCES and (_inferred(m0, source) or source in OUTSIDE_SOURCES) and not m0.get("confirmed") \
+            and bool(INSTRUCTION.search(title + " " + text))
         if hold:
             # pulled from a conversation and reads like an instruction to the assistant: not searchable until a
             # person approves it in the review queue (#16)

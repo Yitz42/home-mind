@@ -83,7 +83,14 @@ class Model:
         ms = int((time.monotonic() - t0) * 1000)
         if self.type != "mock":
             _use(self.name, True, tin, tout, ms)
-        out = {"text": (text or "").strip(), "ms": ms, "tokens": total if total else None,
+        if isinstance(text, list):          # content as parts ([{"type": "text", "text": ...}]), as some servers send
+            text = "".join(str(p.get("text") or "") for p in text if isinstance(p, dict))
+        text = text if isinstance(text, str) else ""
+        # a thinking model (qwen3, deepseek-r1) through any server: its reasoning is not the answer, and a reply cut
+        # off while still thinking has no answer at all
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+        text = re.sub(r"^\s*<think>.*\Z", "", text, flags=re.S)
+        out = {"text": text.strip(), "ms": ms, "tokens": total if total else None,
                "tokens_in": tin, "tokens_out": tout, "model": self.name}
         if getattr(self, "_cached", None):
             out["tokens_cached"] = self._cached

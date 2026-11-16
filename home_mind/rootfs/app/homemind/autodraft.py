@@ -26,22 +26,31 @@ DRAFT_SYSTEM = (
 
 TRIGGER_KINDS = {"state", "numeric_state", "time", "time_pattern", "sun", "event", "template", "zone", "homeassistant"}
 CONDITION_KINDS = {"state", "numeric_state", "time", "template", "trigger", "and", "or", "not", "sun", "zone"}
-ACTION_KEYS = {"action", "service", "delay", "choose", "if", "repeat", "variables", "wait_for_trigger", "stop", "event"}
+ACTION_KEYS = {"action", "service", "delay", "choose", "if", "repeat", "variables", "wait_for_trigger", "stop", "event",
+               "parallel", "sequence"}
 # actions that open the house: allowed only with the PIN
 OPENING = [(re.compile(r"^lock\.(unlock|open)$"), None), (re.compile(r"^alarm_control_panel\.alarm_disarm$"), None),
            (re.compile(r"^cover\.(open_cover|toggle|set_cover_position)$"), re.compile(r"garage|gate|door", re.I)),
            (re.compile(r"^button\.press$"), re.compile(r"garage|gate|door|unlock", re.I))]
+# services that act on whatever entities they are given: they open the house when given a lock, an alarm or a garage
+# door (homeassistant.turn_on opens a cover; scene.apply sets a lock to unlocked)
+ANY_DOMAIN = re.compile(r"^(?:homeassistant\.(?:turn_on|toggle)|scene\.apply)$")
+DOOR = re.compile(r"garage|gate|door", re.I)
+HIDDEN_TARGETS = ("area_id", "device_id", "floor_id", "label_id")
 ENTITY_RX = re.compile(r"\b([a-z_]+\.[a-z0-9_]+)\b")
 
 
 def _entities_in(x, out):
-    """Entity IDs anywhere in a config (entity_id fields and target lists), not inside templates."""
+    """Entity IDs anywhere in a config (entity_id fields, target lists and scene.apply's entities), not inside
+    templates."""
     if isinstance(x, dict):
         for k, v in x.items():
             if k in ("entity_id", "zone"):
                 for e in _list(v):
                     if isinstance(e, str) and "{{" not in e:
                         out.add(e)
+            elif k == "entities" and isinstance(v, dict):
+                out.update(e for e in v if isinstance(e, str) and "{{" not in e)
             elif k not in ("value_template", "data_template"):
                 _entities_in(v, out)
     elif isinstance(x, list):
@@ -50,20 +59,41 @@ def _entities_in(x, out):
     return out
 
 
+def _hidden_targets(x):
+    """Does an action reach entities the check can't see (an area, a device, a label, a template, "all")?"""
+    if isinstance(x, dict):
+        for k, v in x.items():
+            if k in HIDDEN_TARGETS and v:
+                return True
+            if k == "entity_id" and any(not isinstance(e, str) or "{{" in e or e == "all" for e in _list(v)):
+                return True
+            if k == "entities" and v is not None and (not isinstance(v, dict) or any("{{" in str(e) for e in v)):
+                return True
+            if _hidden_targets(v):
+                return True
+    elif isinstance(x, list):
+        return any(_hidden_targets(v) for v in x)
+    return False
+
+
+# keys of an action that hold data, conditions or triggers, never more actions
+NOT_ACTIONS = {"action", "service", "data", "data_template", "target", "variables", "triggers", "trigger",
+               "wait_for_trigger", "conditions", "condition", "if", "while", "until", "for_each", "event_data",
+               "response_variable"}
+
+
 def _actions(acts, out):
+    """Every action in a list, however deep it is nested (if/then/else, choose, repeat, parallel, sequence, ...): an
+    action Home Assistant runs from a block this doesn't know must still be checked."""
     for a in _list(acts):
         if not isinstance(a, dict):
             out.append(("?", a))
             continue
         if "action" in a or "service" in a:
             out.append((a.get("action") or a.get("service"), a))
-        for k in ("then", "else", "default", "sequence"):
-            if k in a:
-                _actions(a[k], out)
-        for c in _list(a.get("choose")):
-            _actions(c.get("sequence"), out)
-        if isinstance(a.get("repeat"), dict):
-            _actions(a["repeat"].get("sequence"), out)
+        for k, v in a.items():
+            if k not in NOT_ACTIONS and isinstance(v, (list, dict)):
+                _actions(v, out)
     return out
 
 
@@ -107,12 +137,19 @@ def check(cfg, entities, services, pin="", given_pin="", names=None):
             p.append(f"no such service: {svc}")
             continue
         targets = _entities_in(a, set())
-        for rx, needs in OPENING:
-            if rx.match(svc) and (needs is None or any(needs.search(t + " " + names.get(t, "")) for t in targets)):
-                if not pin:
-                    p.append(f"{svc} opens the house: set option automation_pin to allow it")
-                elif given_pin != pin:
-                    p.append(f"{svc} opens the house: give the PIN")
+        # an area, a device or a template may hold the garage door: the PIN rule can't be dodged by not naming it
+        hidden = _hidden_targets(a) or not targets
+        opens = any(rx.match(svc) and (needs is None or hidden or any(needs.search(t + " " + names.get(t, ""))
+                                                                      for t in targets))
+                    for rx, needs in OPENING)
+        if not opens and ANY_DOMAIN.match(svc):
+            opens = hidden or any(t.split(".")[0] in ("lock", "alarm_control_panel") or
+                                  (t.startswith("cover.") and DOOR.search(t + " " + names.get(t, ""))) for t in targets)
+        if opens:
+            if not pin:
+                p.append(f"{svc} opens the house: set option automation_pin to allow it")
+            elif given_pin != pin:
+                p.append(f"{svc} opens the house: give the PIN")
     return p
 
 
