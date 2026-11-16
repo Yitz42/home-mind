@@ -11,7 +11,7 @@ import time
 
 import aiohttp
 
-SUPERVISOR = "http://supervisor"
+from .ha import SUPERVISOR  # noqa: E402  (overridable for local testing)
 USAGE = None        # set by the app: f(model, ok, tokens_in, tokens_out, ms) records each call (see usage.py)
 
 
@@ -40,11 +40,35 @@ class Model:
         d["has_key"] = bool(self.cfg.get("api_key"))
         return d
 
-    async def chat(self, system, messages, max_tokens=800, temperature=0.2):
+    # #45: Anthropic prompt caching. Claude caches a prefix only when it is long enough (1,024 to 4,096 tokens by
+    # model), so only long, repeated prefixes are marked: a big system prompt, and the part of a message before
+    # cache_until (the whole log in model+context tests, asked again for every question).
+    CACHE_MIN_TOKENS = 4096
+
+    def _cacheable(self, text):
+        return len(text or "") / 4 >= int(self.cfg.get("cache_min_tokens") or self.CACHE_MIN_TOKENS)
+
+    def _with_cache(self, messages, cache_until):
+        if self.type != "anthropic" or not cache_until or not messages or self.cfg.get("cache") is False:
+            return messages
+        m0 = messages[0]
+        c = m0.get("content")
+        if not isinstance(c, str) or cache_until not in c:
+            return messages
+        head, tail = c.split(cache_until, 1)
+        if not self._cacheable(head):
+            return messages
+        blocks = [{"type": "text", "text": head, "cache_control": {"type": "ephemeral"}},
+                  {"type": "text", "text": cache_until + tail}]
+        return [dict(m0, content=blocks)] + list(messages[1:])
+
+    async def chat(self, system, messages, max_tokens=800, temperature=0.2, cache_until=None):
         t0 = time.monotonic()
         fn = getattr(self, f"_chat_{self.type}", None)
         if fn is None:
             raise ModelError(f"unknown model type {self.type}")
+        messages = self._with_cache(messages, cache_until)
+        self._cached = None
         try:
             text, tokens = await fn(system, messages, max_tokens, temperature)
         except Exception as e:
@@ -52,15 +76,25 @@ class Model:
             if isinstance(e, asyncio.TimeoutError):
                 raise ModelError(f"{self.name}: timed out after {self.timeout.total:g}s") from e
             if isinstance(e, aiohttp.ClientError):
-                raise ModelError(f"{self.name}: {type(e).__name__}: {e}") from e
+                raise ModelError(self._clean(f"{self.name}: {type(e).__name__}: {e}")) from e
             raise
         tin, tout = tokens if isinstance(tokens, tuple) else (None, None)
         total = (tin or 0) + (tout or 0) if isinstance(tokens, tuple) else tokens
         ms = int((time.monotonic() - t0) * 1000)
         if self.type != "mock":
             _use(self.name, True, tin, tout, ms)
-        return {"text": (text or "").strip(), "ms": ms, "tokens": total if total else None,
-                "tokens_in": tin, "tokens_out": tout, "model": self.name}
+        if isinstance(text, list):          # content as parts ([{"type": "text", "text": ...}]), as some servers send
+            text = "".join(str(p.get("text") or "") for p in text if isinstance(p, dict))
+        text = text if isinstance(text, str) else ""
+        # a thinking model (qwen3, deepseek-r1) through any server: its reasoning is not the answer, and a reply cut
+        # off while still thinking has no answer at all
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+        text = re.sub(r"^\s*<think>.*\Z", "", text, flags=re.S)
+        out = {"text": text.strip(), "ms": ms, "tokens": total if total else None,
+               "tokens_in": tin, "tokens_out": tout, "model": self.name}
+        if getattr(self, "_cached", None):
+            out["tokens_cached"] = self._cached
+        return out
 
     async def check(self):
         try:
@@ -69,16 +103,40 @@ class Model:
         except Exception as e:  # noqa: BLE001 - report any failure
             return {"name": self.name, "ok": False, "error": str(e)[:300]}
 
+    # busy or briefly down (Anthropic's 529 "overloaded", a 429 rate limit, a proxy's 502/503): asked once more after
+    # a short wait, so one blip doesn't fail a question or a night's pass. Never more than once, never a long wait.
+    RETRY_STATUS = (429, 500, 502, 503, 504, 529)
+    RETRY_WAIT_MAX = 20.0
+
+    def _clean(self, text):
+        """An error text without the API key (some servers echo the key they were given)."""
+        k = self.cfg.get("api_key")
+        return text.replace(k, "<api_key>") if k and isinstance(k, str) and len(k) >= 4 else text
+
+    def _retry_wait(self, r):
+        try:
+            w = float((r.headers or {}).get("retry-after") or 2)
+        except (TypeError, ValueError, AttributeError):
+            w = 2.0
+        return max(0.5, w) if w <= self.RETRY_WAIT_MAX else None
+
     async def _post(self, url, payload, headers=None):
-        async with self.session.post(url, json=payload, headers=headers or {}, timeout=self.timeout) as r:
-            body = await r.text()
-            if r.status >= 400:
-                raise ModelError(f"{self.name}: HTTP {r.status}: {body[:300]}")
-            try:
-                import json
-                return json.loads(body)
-            except ValueError as e:
-                raise ModelError(f"{self.name}: not JSON: {body[:200]}") from e
+        for attempt in (1, 2):
+            async with self.session.post(url, json=payload, headers=headers or {}, timeout=self.timeout) as r:
+                body = await r.text()
+                status = r.status
+                wait = self._retry_wait(r) if status in self.RETRY_STATUS and attempt == 1 else None
+            if wait is not None:
+                await asyncio.sleep(wait)
+                continue
+            break
+        if status >= 400:
+            raise ModelError(self._clean(f"{self.name}: HTTP {status}: {body[:300]}"))
+        try:
+            import json
+            return json.loads(body)
+        except ValueError as e:
+            raise ModelError(self._clean(f"{self.name}: not JSON: {body[:200]}")) from e
 
     # ---- OpenAI-compatible (Ollama /v1, LM Studio, llama.cpp server, vLLM, OpenAI) ------------------------------
     async def _chat_openai(self, system, messages, max_tokens, temperature):
@@ -91,6 +149,24 @@ class Model:
                                    "temperature": temperature, "stream": False}, headers)
         u = j.get("usage") or {}
         return j["choices"][0]["message"].get("content", ""), (u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0)
+
+    async def embed(self, texts):
+        """Vectors for texts (#10): Ollama's /api/embed, or an OpenAI-compatible /v1/embeddings. Option embed_model
+        names the model; its "embed_model" field (or "model") is the embedding model to ask for."""
+        name = self.cfg.get("embed_model") or self.cfg.get("model", "")
+        if self.type == "mock":
+            return [[float(len(t) % 7 + 1), float(len(t.split()) % 5 + 1), 1.0] for t in texts]
+        if self.type == "ollama":
+            url = (self.cfg.get("url") or "http://localhost:11434").rstrip("/")
+            j = await self._post(url + "/api/embed", {"model": name, "input": texts})
+            return j["embeddings"]
+        if self.type == "openai":
+            url = (self.cfg.get("url") or "http://localhost:11434/v1").rstrip("/")
+            url = url + ("/embeddings" if url.endswith("/v1") else "/v1/embeddings")
+            headers = {"Authorization": f"Bearer {self.cfg['api_key']}"} if self.cfg.get("api_key") else {}
+            j = await self._post(url, {"model": name, "input": texts}, headers)
+            return [d["embedding"] for d in sorted(j["data"], key=lambda d: d.get("index", 0))]
+        raise ModelError(f"{self.name}: type {self.type} can't make embeddings (use ollama or openai)")
 
     # ---- Ollama native ---------------------------------------------------------------------------------------------
     async def _chat_ollama(self, system, messages, max_tokens, temperature):
@@ -108,12 +184,16 @@ class Model:
         if not self.cfg.get("api_key"):
             raise ModelError(f"{self.name}: needs api_key")
         url = (self.cfg.get("url") or "https://api.anthropic.com").rstrip("/") + "/v1/messages"
+        sysp = system or ""
+        if sysp and self.cfg.get("cache") is not False and self._cacheable(sysp):
+            sysp = [{"type": "text", "text": sysp, "cache_control": {"type": "ephemeral"}}]
         j = await self._post(url, {"model": self.cfg.get("model") or "claude-haiku-5-5", "max_tokens": max_tokens,
-                                   "temperature": temperature, "system": system or "", "messages": messages},
+                                   "temperature": temperature, "system": sysp, "messages": messages},
                              {"x-api-key": self.cfg["api_key"], "anthropic-version": "2023-06-01"})
         text = "".join(b.get("text", "") for b in j.get("content", []) if b.get("type") == "text")
         u = j.get("usage") or {}
         tin = (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+        self._cached = u.get("cache_read_input_tokens") or None
         return text, (tin, u.get("output_tokens") or 0)
 
     # ---- Home Assistant's own models -----------------------------------------------------------------------------

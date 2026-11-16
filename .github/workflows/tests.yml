@@ -11,11 +11,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install aiohttp metaphone==0.6 jinja2 "libzim>=3.4,<5"
+      - run: pip install "aiohttp>=3.10,<4" "metaphone==0.6" "libzim>=3.4,<5" "numpy>=1.26,<3" "cryptography>=42" "pypdf>=4" jinja2 pyyaml
       - name: End to end (no Home Assistant)
         run: python tests/test_local.py
       - name: Comfort model
         run: python tests/test_comfort.py
+      - name: Comfort controller (fake Home Assistant)
+        run: python tests/test_comfort_live.py
       - name: Automation engine (fake Home Assistant)
         run: python tests/test_automations.py
       - name: Secrets kept from cloud models
@@ -38,6 +40,26 @@ jobs:
         run: python tests/test_house.py
       - name: LongMemEval harness (self-test on a sample in its format)
         run: python tests/longmemeval.py selftest
+      - name: People and search keys (speaker, personal notes, unknown voices, keys)
+        run: python tests/test_people.py
+      - name: Meaning, links and categories (embeddings, modifiers, links, importance, fading)
+        run: python tests/test_meaning.py
+      - name: Security and setup (tokens, signatures, encryption, backups, comfort rooms)
+        run: python tests/test_security.py
+      - name: Files and filing (documents, filing, apps, pronoun links)
+        run: python tests/test_files.py
+      - name: Set 5 (prefix weight, link walk, evolve, rerank, profiles, languages)
+        run: python tests/test_more.py
+      - name: Set 6 (export, Markdown sync, SQL, views, comparison)
+        run: python tests/test_share.py
+      - name: Set 7 (preferences, reshelve, photos, labels, handoff)
+        run: python tests/test_learn.py
+      - name: Set 8 (Telegram, web lookups, email, caching)
+        run: python tests/test_connect.py
+      - name: Bug-hunting set (odd inputs, threads, old databases, failures)
+        run: python tests/test_bugs.py
+      - name: Expert review checks
+        run: for f in tests/test_review_*.py; do echo "== $f"; python "$f" || exit 1; done
       - name: Extraction bench scoring
         run: python tests/test_extract.py
       - name: Pantry

@@ -8,7 +8,7 @@ from .version import VERSION
 PROTOCOLS = ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
 
 INSTRUCTIONS = (
-    "Home Mind is a long-term memory that lives on Yitz's Home Assistant. Use mind_recall before answering anything "
+    "Home Mind is a long-term memory that lives on this home's Home Assistant. Use mind_recall before answering anything "
     "that may depend on what was stored before, and mind_remember for things worth keeping. Give facts that can change "
     "a key ('subject|attribute') so a new value replaces the old one. Use shelves (paths like 'projects/pebble') to "
     "organize, and mind_browse to see how things are organized. Tests: mind_run_test, then mind_test_results.")
@@ -26,7 +26,7 @@ TOOLS = [
      "rather than the user telling you: it then ranks below what they said, and doesn't replace it, until they "
      "confirm it.",
      S({"text": STR, "title": STR, "kind": STR, "shelf": STR, "tags": {"type": "array", "items": STR}, "key": STR,
-        "meta": {"type": "object"}, "inferred": BOOL}, ["text"])),
+        "meta": {"type": "object"}, "inferred": BOOL, "scope": STR, "owner": STR}, ["text"])),
     ("mind_recall", "Find stored items for a query, best first. Optional shelf and kind filters. include_old adds "
      "superseded versions.", S({"query": STR, "shelf": STR, "kind": STR, "limit": INT, "include_old": BOOL}, ["query"])),
     ("mind_get", "One item by id, with its version history.", S({"id": INT}, ["id"])),
@@ -55,6 +55,14 @@ TOOLS = [
     ("mind_purge_about", "Delete for good everything that mentions a name (cannot be undone). Only when the user clearly "
                          "asks; confirm must be true.", S({"name": STR, "confirm": BOOL}, ["name", "confirm"])),
     ("mind_browse", "The shelf tree under a shelf (counts), and the items on that shelf.", S({"shelf": STR})),
+    ("mind_sql", "Read-only SQL over the memory: SELECT on the views notes(id, kind, key, shelf, status, replaces, "
+     "source, title, body, tags, created, updated, created_ts, use_count, strength, category, owner, scope) and "
+     "links(a, b, kind). Secret text shows as [secret]. Up to 500 rows.", S({"q": STR}, ["q"])),
+    ("mind_view", "Saved views (named searches). action: list (default), run (name), save (name with query/shelf/kind/tags/"
+     "days/sort/limit or sql), remove (name).",
+     S({"action": {"type": "string", "enum": ["list", "run", "save", "remove"]}, "name": STR, "query": STR, "shelf": STR,
+        "kind": STR, "tags": {"type": "array", "items": STR},
+        "days": {"type": "number"}, "sort": STR, "limit": INT, "sql": STR})),
     ("mind_tasks", "Tasks (kind 'task', meta due/priority/project/done), soonest first. status: open, done, all.",
      S({"project": STR, "status": STR, "due_before": {"type": "number"}})),
     ("mind_feedback", "Say whether a recalled item was useful (it ranks higher or lower afterwards).",
@@ -76,25 +84,33 @@ TOOLS = [
      S({"id": STR, "details": BOOL, "limit": INT, "suite": STR})),
     ("mind_trend", "How a test number moved over time. name: accuracy, hit1, hit5, mrr, stale_above, shelf_ok.",
      S({"suite": STR, "name": STR, "arm": STR}, ["suite"])),
-    ("mind_comfort", "Bedroom comfort. action: status (learned preferences per situation, votes, which body/room "
+    ("mind_comfort", "Bedroom comfort. action: status (default; learned preferences per situation, votes, which body/room "
      "signals are confirmed, recent actions), vote (feeling: cold, hot or ok — stores a snapshot and reacts), or cycle "
-     "(run the controller now).", S({"action": STR, "feeling": STR}, ["action"])),
+     "(run the controller now).",
+     S({"action": {"type": "string", "enum": ["status", "vote", "cycle"]},
+        "feeling": {"type": "string", "enum": ["cold", "hot", "ok"]}})),
     ("mind_home", "The house as Home Assistant reports it. With q: the live state of the things a question names. "
                   "Without: every thing the brain watches, its state, and whether the brain may control it.",
      S({"q": STR})),
     ("mind_control", "Control one thing in the house (only things on the control list, only while "
                      "input_boolean.mind_control_enabled is on). action: on, off, toggle, brightness (1-100), color "
-                     "(name), speed (fan %), humidity (%), run (script/scene). Logged in memory.",
-     S({"entity_id": STR, "action": STR, "value": STR}, ["entity_id", "action"])),
+                     "(name), speed (fan %), humidity (%), run (script/scene); covers open/close; locks lock/unlock. Locks, alarms "
+                     "and garage doors need confirm=true, only after the user said yes. Logged in memory.",
+     S({"entity_id": STR, "action": STR, "value": STR, "confirm": BOOL}, ["entity_id", "action"])),
     ("mind_do", "A request in words ('dim the desk light to 30%'): a connected model picks one action from the "
-                "control list, then it is checked and done like mind_control.", S({"text": STR, "model": STR}, ["text"])),
-    ("mind_automations", "Home Assistant automations run by Home Mind. action: list (who runs each, last run), "
+                "control list, then it is checked and done like mind_control. A lock, alarm or garage door is only "
+                "asked about (confirm_needed): pass the user's reply (\"yes\") as text with the same conversation_id "
+                "within 30 seconds to do it.", S({"text": STR, "model": STR, "conversation_id": STR}, ["text"])),
+    ("mind_automations", "Home Assistant automations run by Home Mind. action: list (default; who runs each, last run), "
                          "takeover (ids, or all=true), retire (stop running and leave the HA copy off), release (hand back to Home Assistant; ids or all), run (id, "
                          "optional trigger id), reload (re-read configs after editing in Home Assistant).",
-     S({"action": STR, "ids": {"type": "array", "items": STR}, "all": BOOL, "id": STR, "trigger": STR}, ["action"])),
-    ("mind_pantry", "The pantry. action: list (what's in the house with days left), add (text like 'chicken, 2 lb ground "
+     S({"action": {"type": "string", "enum": ["list", "takeover", "retire", "release", "run", "reload"]},
+        "ids": {"type": "array", "items": STR}, "all": BOOL, "id": STR, "trigger": STR})),
+    ("mind_pantry", "The pantry. action: list (default; what's in the house with days left), add (text like 'chicken, 2 lb ground "
                     "beef and eggs', optional location fridge/freezer/pantry), used or tossed (text), goals (show), "
-                    "today (tired day? weight trend).", S({"action": STR, "text": STR, "location": STR}, ["action"])),
+                    "today (tired day? weight trend).",
+     S({"action": {"type": "string", "enum": ["list", "add", "used", "tossed", "goals", "today"]}, "text": STR,
+        "location": STR})),
     ("mind_meals", "Meal ideas from what's in the house: uses what expires first, fits today (tired days lower-carb) and "
                    "the goals (more protein, fewer calories). meal: breakfast/lunch/dinner/snack; request: anything extra.",
      S({"meal": STR, "request": STR, "model": STR}, [])),
@@ -103,17 +119,49 @@ TOOLS = [
 ]
 
 
+# Tool annotations (MCP 2025-03-26+): clients use these to decide what to ask the user before a call. readOnlyHint for
+# tools that never change anything; destructiveHint for those that delete, archive in bulk, act on the house or
+# install things; openWorldHint for those that reach Home Assistant, models or the internet.
+_READ_ONLY = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_sql", "mind_tasks",
+              "mind_models", "mind_test_results", "mind_trend", "mind_home", "mind_status", "mind_draft_automation",
+              "mind_meals"}
+_DESTRUCTIVE = {"mind_purge", "mind_purge_about", "mind_forget_about", "mind_install_automation", "mind_control",
+                "mind_do", "mind_automations", "mind_updates", "mind_comfort"}
+_OPEN_WORLD = {"mind_draft_automation", "mind_install_automation", "mind_ask", "mind_organize", "mind_models",
+               "mind_comfort", "mind_home", "mind_control", "mind_do", "mind_automations", "mind_meals",
+               "mind_updates", "mind_run_test"}
+MAX_TEXT = 100_000      # characters in one tool result: Claude Code and others refuse or cut much bigger outputs
+
+
+def annotations(name):
+    return {"title": name.replace("mind_", "").replace("_", " ").capitalize(),
+            "readOnlyHint": name in _READ_ONLY, "destructiveHint": name in _DESTRUCTIVE,
+            "idempotentHint": name in _READ_ONLY, "openWorldHint": name in _OPEN_WORLD}
+
+
+def _text(out):
+    t = json.dumps(out, default=str, indent=1)
+    if len(t) > MAX_TEXT:
+        t = t[:MAX_TEXT] + (f"\n... [cut: {len(t) - MAX_TEXT:,} more characters. Ask for less: a lower limit, a shelf "
+                            "or kind filter, or a narrower query]")
+    return t
+
+
 class MCP:
     def __init__(self, app):
         self.app = app  # the App in main.py
 
-    async def handle(self, msg):
+    async def handle(self, msg, scope="admin"):
         if isinstance(msg, list):
-            out = [r for r in [await self.handle(m) for m in msg] if r is not None]
+            out = [r for r in [await self.handle(m, scope) for m in msg] if r is not None]
             return out or None
+        if not isinstance(msg, dict):
+            return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request: not an object"}}
         mid, method, params = msg.get("id"), msg.get("method", ""), msg.get("params") or {}
-        if mid is None:  # a notification
-            return None
+        if mid is None or ("method" not in msg and ("result" in msg or "error" in msg)):
+            return None     # a notification, or the client's answer to a request: neither gets a reply
+        if not isinstance(params, dict):
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "params should be an object"}}
         try:
             if method == "initialize":
                 want = params.get("protocolVersion")
@@ -124,13 +172,31 @@ class MCP:
             elif method == "ping":
                 res = {}
             elif method == "tools/list":
-                res = {"tools": [{"name": n, "description": d, "inputSchema": s} for n, d, s in TOOLS]}
+                from .tokens import tool_needs, allows
+                res = {"tools": [{"name": n, "title": annotations(n)["title"], "description": d, "inputSchema": s,
+                                  "annotations": annotations(n)} for n, d, s in TOOLS if allows(scope, tool_needs(n))]}
             elif method == "tools/call":
                 name, args = params.get("name"), params.get("arguments") or {}
+                if not isinstance(args, dict):
+                    return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
+                            "arguments should be an object"}], "isError": True}}
+                from .tokens import tool_needs, allows
+                schema = next((s for n, _, s in TOOLS if n == name), None)
+                if schema is None:
+                    return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
+                            f"no tool {name}; tools/list has the ones this token can use"}], "isError": True}}
+                if not allows(scope, tool_needs(name, args)):
+                    return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
+                            f"not allowed: this token can {scope}; {name} needs {tool_needs(name, args)}"}],
+                            "isError": True}}
+                missing = [k for k in schema["required"] if args.get(k) in (None, "")]
+                if missing:
+                    return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
+                            f"{name} needs {', '.join(missing)}"}], "isError": True}}
                 try:
                     out = await self.call(name, args)
-                    res = {"content": [{"type": "text", "text": json.dumps(out, default=str, indent=1)}],
-                           "isError": False}
+                    res = {"content": [{"type": "text", "text": _text(out)}],
+                           "isError": bool(isinstance(out, dict) and out.get("error"))}
                 except Exception as e:  # noqa: BLE001 - tool errors go back to the model
                     res = {"content": [{"type": "text", "text": f"{type(e).__name__}: {e}"}], "isError": True}
             elif method in ("resources/list", "prompts/list"):
@@ -143,17 +209,30 @@ class MCP:
 
     async def call(self, name, a):
         app, st = self.app, self.app.mind.store
+        from .speakers import VIEWER
+        bound = VIEWER.get()            # a person-bound token (#48): only their own and household notes
+        if name in ("mind_update", "mind_forget", "mind_restore", "mind_confirm", "mind_feedback", "mind_purge"):
+            st.check_seen(int(a["id"]))
+            if not st.get(int(a["id"])):        # not a silent "archived" for an item that isn't there
+                raise KeyError(f"no item {a['id']}")
+        if name in ("mind_remember", "mind_update") and bound and isinstance(a.get("meta"), dict):
+            from .speakers import own_meta
+            a = dict(a, meta=own_meta(a["meta"]))
+        if name == "mind_remember" and bound and a.get("scope") == "personal":
+            a = dict(a, owner=bound)    # files personal notes as its own person, never someone else's
         if name == "mind_remember":
             return st.remember(text=a["text"], title=a.get("title", ""), kind=a.get("kind", "note"),
                                shelf=a.get("shelf", "inbox"), tags=a.get("tags"), key=a.get("key"),
-                               meta=dict(a.get("meta") or {}, **({"inferred": True} if a.get("inferred") else {})),
+                               meta=dict(a.get("meta") or {}, **({"inferred": True} if a.get("inferred") else {}),
+                                         **({"scope": a["scope"], "owner": a.get("owner") or ""}
+                                            if a.get("scope") == "personal" and a.get("owner") else {})),
                                source="mcp")
         if name == "mind_recall":
             from .mind import lookup
-            return lookup(st, a["query"], int(a.get("limit") or 8), a.get("shelf"), a.get("kind"),
+            return lookup(st, a["query"], max(1, min(200, int(a.get("limit") or 8))), a.get("shelf"), a.get("kind"),
                           bool(a.get("include_old")))
         if name == "mind_get":
-            return st.get(int(a["id"]), history=True)
+            return st.seen(int(a["id"]), history=True)
         if name == "mind_update":
             return st.revise(int(a["id"]), title=a.get("title"), body=a.get("text"), shelf=a.get("shelf"),
                              tags=a.get("tags"), key=a.get("key"), meta=a.get("meta"))
@@ -179,6 +258,21 @@ class MCP:
             return st.set_status(int(a["id"]), "active")
         if name == "mind_browse":
             return st.browse(a.get("shelf"))
+        if name == "mind_sql":
+            from . import sqlview
+            return sqlview.query(st.path, a["q"])
+        if name == "mind_view":
+            v, act = app.views, a.get("action") or "list"
+            if act == "list":
+                return v.all()
+            if act == "run":
+                return v.run(a["name"])
+            if act == "save":
+                return v.save(a["name"], a.get("query"), a.get("shelf"), a.get("kind"), a.get("tags"), a.get("days"),
+                              a.get("sort"), a.get("limit") or 20, a.get("sql"))
+            if act == "remove":
+                return {"removed": v.remove(a["name"])}
+            raise ValueError(f"unknown action {act}")
         if name == "mind_tasks":
             return st.tasks(project=a.get("project"), status=a.get("status") or "open", due_before=a.get("due_before"))
         if name == "mind_feedback":
@@ -206,7 +300,7 @@ class MCP:
                     wrong = [d for d in r["details"] if not d.get("correct")]
                     r["details"] = {"wrong_examples": wrong[:8], "n_wrong": len(wrong)}
                 return r
-            return st.runs(limit=int(a.get("limit") or 20), suite=a.get("suite"))
+            return st.runs(limit=max(1, min(500, int(a.get("limit") or 20))), suite=a.get("suite"))
         if name == "mind_trend":
             return st.trend(a["suite"], a.get("name") or "accuracy", a.get("arm"))
         if name == "mind_comfort":
@@ -226,9 +320,11 @@ class MCP:
         if name == "mind_control":
             if not app.home.catalog:
                 await app.home.refresh()
-            return await app.home.act(a["entity_id"], a["action"], a.get("value"), source="claude")
+            return await app.home.act(a["entity_id"], a["action"], a.get("value"), source="claude",
+                                      confirm=a.get("confirm") is True)
         if name == "mind_do":
-            return await app.do(a["text"], a.get("model"), source="claude")
+            return await app.do(a["text"], a.get("model"), source="claude",
+                                conversation_id=str(a["conversation_id"]) if a.get("conversation_id") else None)
         if name == "mind_automations":
             eng, act = app.engine, a.get("action", "list")
             if act == "list":

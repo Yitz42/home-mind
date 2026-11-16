@@ -8,9 +8,10 @@ configuration:
       million tokens) let Home Mind show what each model costs; none are built in because prices change.
   update_url:
     name: Update manifest
-    description: Where to look for new knowledge packs.
+    description: Where to look for new knowledge packs (procedures written by a large model). Change it only if you host your own packs.
   auto_update_packs:
     name: Install new packs automatically
+    description: Every 12 hours, install packs from the update manifest without asking. Packs are sha256-checked but only signature-checked once a key is in pack_keys.txt; off = check only, install from the Updates tab.
   auto_test_hours:
     name: Run brain tests every N hours
     description: 0 = off. Runs the no-model tests on a schedule to track the trend.
@@ -19,6 +20,7 @@ configuration:
     description: Unused notes and episodes are ranked lower (never deleted). 0 = off.
   log_level:
     name: Log level
+    description: How much the app's Log tab shows. debug is for tracking down a problem.
   comfort:
     name: Bedroom comfort brain
     description: >-
@@ -29,9 +31,14 @@ configuration:
     description: File changes from Home Assistant (lights, fan, humidifier, heater, room, air, watch and phone readings) into memory, and give models the live state of what a question names.
   home_controls:
     name: Things the brain may control
-    description: Entity ids (or domain.* like script.*). Empty = main lights, Dyson fan, humidifier, desk outlets, scripts, scenes. Controls only work while input_boolean.mind_control_enabled is on.
+    description: >-
+      Entity ids (or domain.* like script.*) models may switch when asked. Set this yourself: empty = the
+      author's own devices plus every script.* and scene.*, so on your house it means all scripts and scenes.
+      Nothing is controlled until you create a Toggle helper input_boolean.mind_control_enabled and turn it on;
+      locks, alarms, valves and garage doors also need the person's confirmation each time.
   home_fan_max:
     name: Highest fan speed the brain may set (%)
+    description: A fan asked to go higher is set to this. 0 = the brain may not run fans.
   fallback:
     name: Fallback models
     description: Names of models to try, in order, when the chosen one fails or is too slow. If none answers, Home Mind gives the best matching note.
@@ -59,6 +66,123 @@ configuration:
   house_notices:
     name: Notices about unusual house events
     description: A phone notice for very few things (a lock opened at an unusual hour, a reading far outside its usual range), at most one a day for each.
+  people:
+    name: People
+    description: "Who lives here, so Home Mind knows who is speaking: name, and any of ha_users (Home Assistant user names or IDs), devices (phone or satellite device IDs), areas (rooms where only they have a satellite), persons (their person entities), each comma-separated. Signed-in users are recognised from person entities with no setup. Once anyone is listed, overnight learning skips voices it can't recognise."
+  personal_rule:
+    name: Personal notes
+    description: first_person = what a known person files about themselves ("my", "I") is theirs alone; household = everything is shared.
+  unknown_caller:
+    name: Calls with no speaker
+    description: admin = calls that say nothing about who is asking (the panel, Claude, the API) see everything, personal notes and secrets included; guest = they see household notes only. Choose guest if anyone besides you can reach the panel or a token.
+  embed_model:
+    name: Embedding model (search by meaning)
+    description: One of your models, type ollama or openai, used to make embeddings, so "planter" finds "flower box". Give that model an embed_model field (e.g. nomic-embed-text, all-minilm) or its model is used. Empty = keyword search only.
+  comfort_rooms:
+    name: Comfort rooms
+    description: "Rooms the comfort brain runs, each learning from its own votes: name, person, and the entities climate, temp_sensor, humidifier, fan, phone_battery, alarm; signals (body signals, e.g. hrv=input_number.steady_hrv, steps=sensor.my_steps) and helpers it writes (enabled, target, fan, humidity, min, max, hum_min, hum_max, sleep, wake = input_number/input_boolean entities), comma-separated key=entity. Empty = the original bedroom setup. GET /api/comfort/check?room=NAME lists entities Home Assistant doesn't have."
+  encrypt_secrets:
+    name: Encrypt secrets
+    description: Codes, passwords and other notes marked secret are stored encrypted, with the key in /data/vault.key, which Home Assistant backups leave out. Keep a copy of the key (Home Mind › /api/vault/key); without it sealed secrets can't be read. Turning this off opens them again.
+  backup_target:
+    name: Off-site backup
+    description: folder (a path such as /media/home-mind or a NAS share), webdav (a URL) or s3 (a bucket URL). Empty = Home Assistant backups only.
+  backup_url:
+    name: Backup folder or URL
+    description: The folder path (folder), the WebDAV address (webdav) or the bucket URL such as https://s3.amazonaws.com/my-bucket (s3).
+  backup_user:
+    name: Backup user (or S3 access key)
+    description: For webdav and s3. Empty for a folder.
+  backup_password:
+    name: Backup password (or S3 secret key)
+    description: For webdav and s3. Empty for a folder.
+  backup_passphrase:
+    name: Backup passphrase
+    description: Off-site backups are encrypted with this; you need it to restore (tools/restore_backup.py). Required for webdav and s3.
+  backup_region:
+    name: S3 region
+    description: For s3 only, for example us-east-1.
+  backup_every_hours:
+    name: Back up every (hours)
+    description: Only when the memory has changed.
+  backup_keep:
+    name: Backups to keep
+    description: Older off-site backups are deleted.
+  learn_filing:
+    name: Learn where notes go
+    description: Notes that would land in the inbox are filed on the shelf notes like them are on, when that's clear; otherwise the shelf is suggested in the inbox review. Moving a note teaches it.
+  docs_folder:
+    name: Documents folder
+    description: PDF, text, Markdown and HTML files here (manuals, warranties, recipes) are read every hour and searched for questions, each answer naming the document and page.
+  homebox_url:
+    name: Homebox URL
+    description: Your Homebox (inventory) server, asked at question time about things and where they are.
+  homebox_token:
+    name: Homebox token
+    description: An API token from your Homebox user settings.
+  paperless_url:
+    name: Paperless-ngx URL
+    description: Your Paperless-ngx server, asked at question time about receipts, warranties and other papers.
+  paperless_token:
+    name: Paperless-ngx API token
+    description: From your Paperless-ngx profile (My Profile › API Auth Token).
+  rerank_model:
+    name: Re-ranking model
+    description: One of your models re-orders the top notes for typed questions before the answer is written (not for voice). Empty = search's own order.
+  markdown_folder:
+    name: Markdown folder (two-way sync)
+    description: Every note as a Markdown file, one folder per shelf (for example /share/home-mind/notes). Edit a file to change the note, add a file to add a note, delete one to archive it. Empty = off.
+  markdown_minutes:
+    name: Markdown sync every (minutes)
+    description: How often the Markdown folder and the memory are synced both ways.
+  compare_models:
+    name: Models to compare
+    description: Models that answer the same test questions on a schedule. Empty = every connected model.
+  compare_days:
+    name: Compare models every (days)
+    description: 0 = off. Results on the Tests tab, at /api/compare and as a sensor per model.
+  compare_suites:
+    name: Suites for the model comparison
+    description: Test suites the compared models answer (names from the Tests tab, such as recall, tricky, hard).
+  use_preferences:
+    name: Use learned settings
+    description: When you ask to turn on a light or fan without saying how much, use the brightness or speed you usually choose at this time of day.
+  telegram_token:
+    name: Telegram bot token
+    description: From @BotFather. Ask and tell Home Mind from Telegram. Empty = off. Questions and answers go through Telegram's servers; only chats listed below are answered.
+  telegram_chats:
+    name: Telegram chats allowed
+    description: 'One per line as "chat id: name" (the name from People). Send /start to the bot to see your chat id. Anyone in a listed chat can ask and file notes as that person.'
+  web_search:
+    name: Web lookups
+    description: For questions about current facts the memory can't answer. off, searxng (your own SearXNG) or brave (Brave Search API). Only the question is sent, never one with a secret or a household name. Results are web pages, shown to the model as data, never as instructions.
+  web_search_url:
+    name: SearXNG address
+    description: For web_search searxng, for example http://192.168.1.20:8888 (JSON output must be on in its settings).
+  web_search_key:
+    name: Brave Search API key
+    description: For web_search brave. The question leaves your network to Brave.
+  email_host:
+    name: Email (IMAP) server
+    description: A mailbox Home Mind reads (TLS). Forward receipts, warranties and notes to it. Use a mailbox made for Home Mind, not your own; mail that reads like instructions is held for review.
+  email_user:
+    name: Email user
+    description: The mailbox's login, usually its address.
+  email_password:
+    name: Email password
+    description: The mailbox's password (an app password if the provider asks for one).
+  email_folder:
+    name: Email folder
+    description: The folder read, usually INBOX. Read mail is marked seen.
+  email_senders:
+    name: Email senders allowed
+    description: Only mail from these addresses is read. Empty = no mail is read. A From address can be forged, so list only your own.
+  email_minutes:
+    name: Check email every (minutes)
+    description: How often the mailbox is checked.
+  label_url:
+    name: Address for QR labels
+    description: Where a scanned label opens, for example https://ha.example.com/hassio/ingress/local_home_mind. Empty = the address you are using the panel from.
   automation_pin:
     name: PIN for automations that open the house
     description: Drafted automations that unlock, open a garage door or disarm an alarm are installed only with this PIN. Empty = never.
@@ -82,10 +206,10 @@ configuration:
     description: Calendars kept in memory but left out of answers and the morning summary unless a question is about them.
   overnight_time:
     name: Overnight learning time
-    description: When a local model reads the day's conversations with Jeeves and files what you stated (HH:MM).
+    description: When a local model reads the day's conversations with your assistant and files what you stated (HH:MM).
   overnight_model:
     name: Overnight learning model
-    description: Name of the model that reads conversations at night. Empty = the biggest local qwen configured. Skipped (and retried the next night) if its computer is off.
+    description: Name of the model that reads conversations at night. Empty = a model named qwen35b or qwen9b, else your first ollama model; with none, overnight learning is skipped. Skipped (and retried the next night) if its computer is off. A cloud model sees the conversations with secret values hidden.
   overnight_enabled:
     name: Overnight learning
     description: Off skips the nightly run (the button still runs it). Also a switch in Home Assistant (Home Mind device).
@@ -106,14 +230,16 @@ configuration:
     description: The model first lists the notes its answer comes from, then answers. Slower; never used for voice. Off until the comparison script shows it helps your models.
   events_keep_days:
     name: Keep the detailed activity log for (days)
-    description: Older search, answer and change events are rolled up into daily counts and removed, so the database stops growing. Notes are never touched. 0 = keep everything.
+    description: Older search, answer and change events are rolled up into daily counts and removed, and older house readings and device changes into one daily note per thing, so the database stops growing. Other notes are never touched. 0 = keep everything.
   quiet_hours:
     name: Quiet hours for phone notifications
     description: No phone pushes between the start and end times; they wait and are sent when quiet hours end. The Home Assistant notification list still gets them at once.
   quiet_start:
     name: Quiet hours start (HH:MM)
+    description: Phone pushes wait from this time.
   quiet_end:
     name: Quiet hours end (HH:MM)
+    description: Waiting phone pushes are sent at this time.
   notify_daily_cap:
     name: Most phone notifications a day
     description: After this many, the rest of the day's go only to the Home Assistant notification list. 0 = no limit.

@@ -35,7 +35,7 @@ from datetime import datetime, timedelta
 import aiohttp
 
 log = logging.getLogger("homemind.automations")
-SUPERVISOR = "http://supervisor"
+from .ha import SUPERVISOR  # noqa: E402  (overridable for local testing)
 LABEL = "run_by_home_mind"
 TRIGGERS = {"state", "numeric_state", "time", "zone", "homeassistant", "time_pattern", "sun", "event", "template"}
 CONDITIONS = {"state", "numeric_state", "time", "template", "trigger", "and", "or", "not"}
@@ -46,6 +46,11 @@ KEEP_IN_HA = {"automation.home_mind_comfort_driver", "automation.home_mind_comfo
 
 def _list(x):
     return [] if x is None else x if isinstance(x, list) else [x]
+
+
+def _on(items):
+    """Without the ones switched off in the editor (enabled: false): Home Assistant skips those."""
+    return [c for c in _list(items) if not (isinstance(c, dict) and c.get("enabled") is False)]
 
 
 def _secs(d):
@@ -118,6 +123,10 @@ def unsupported(cfg):
             k = c.get("condition")
             if k not in CONDITIONS:
                 return f"condition {k}"
+            if k in ("state", "numeric_state") and c.get("for"):
+                return f"{k} condition with for"
+            if k == "numeric_state" and c.get("value_template"):
+                return "numeric_state with value_template"
             if k in ("and", "or", "not"):
                 w = walk_conds(c.get("conditions"))
                 if w:
@@ -132,6 +141,8 @@ def unsupported(cfg):
             return f"sun trigger {t.get('event')}"
         if k == "template" and t.get("for"):
             return "template trigger with for"
+        if k == "numeric_state" and t.get("value_template"):
+            return "numeric_state with value_template"
     return walk_conds(cfg.get("conditions") or cfg.get("condition")) or \
         walk_actions(cfg.get("actions") or cfg.get("action"))
 
@@ -384,7 +395,22 @@ class Engine:
     # ---- triggers -------------------------------------------------------------------------------------------------
     def _triggers(self, eid):
         cfg = self.autos.get(eid, {}).get("config") or {}
-        return _list(cfg.get("triggers") or cfg.get("trigger"))
+        # a trigger switched off in the editor never fires (kept as a placeholder so the others keep their index)
+        return [{"trigger": "disabled"} if isinstance(t, dict) and t.get("enabled") is False else t
+                for t in _list(cfg.get("triggers") or cfg.get("trigger"))]
+
+    def _limit(self, x):
+        """A numeric_state above/below: a number, or an entity (input_number.x) whose state is one. None = unknown."""
+        if x is None:
+            return None
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            pass
+        try:
+            return float((self.states.get(str(x)) or {}).get("state"))
+        except (TypeError, ValueError):
+            return None
 
     def _event_types(self):
         return {et for auto in self.owned for t in self._triggers(auto) if t.get("trigger", t.get("platform")) == "event"
@@ -465,7 +491,12 @@ class Engine:
                 self.pending_for.pop(key, None)
         for auto in list(self.owned):
             for i, t in enumerate(self._triggers(auto)):
-                if self._state_matches(t, eid, old, new):
+                try:
+                    hit = self._state_matches(t, eid, old, new)
+                except Exception:  # noqa: BLE001 - one odd trigger must not drop the connection for every automation
+                    log.exception("%s trigger %d", auto, i)
+                    continue
+                if hit:
                     trig = {"platform": t.get("trigger", t.get("platform")), "id": t.get("id", str(i)), "idx": i,
                             "entity_id": eid, "from_state": old, "to_state": new}
                     if t.get("for"):
@@ -497,9 +528,12 @@ class Engine:
                     return float(v)
                 except (TypeError, ValueError):
                     return None
+            above, below = self._limit(t.get("above")), self._limit(t.get("below"))
+            if (t.get("above") is not None and above is None) or (t.get("below") is not None and below is None):
+                return False        # a limit helper that is unavailable: nothing crosses it
+
             def ok(v):
-                return v is not None and (t.get("above") is None or v > float(t["above"])) and \
-                    (t.get("below") is None or v < float(t["below"]))
+                return v is not None and (above is None or v > above) and (below is None or v < below)
             return ok(val(new)) and not ok(val(old))
         attr = t.get("attribute")
         if attr:
@@ -715,7 +749,7 @@ class Engine:
                                                         "trigger": trig.get("id"), "result": result})
 
     async def conds(self, conds, v):
-        for c in _list(conds):
+        for c in _on(conds):
             if not await self.cond(c, v):
                 return False
         return True
@@ -728,12 +762,12 @@ class Engine:
         if k == "and":
             return await self.conds(c.get("conditions"), v)
         if k == "or":
-            for x in _list(c.get("conditions")):
+            for x in _on(c.get("conditions")):
                 if await self.cond(x, v):
                     return True
             return False
         if k == "not":
-            for x in _list(c.get("conditions")):
+            for x in _on(c.get("conditions")):
                 if await self.cond(x, v):
                     return False
             return True
@@ -757,9 +791,10 @@ class Engine:
                     x = float((s.get("attributes") or {}).get(c["attribute"]) if c.get("attribute") else s.get("state"))
                 except (TypeError, ValueError):
                     return False
-                if c.get("above") is not None and not x > float(c["above"]):
+                above, below = self._limit(c.get("above")), self._limit(c.get("below"))
+                if c.get("above") is not None and (above is None or not x > above):
                     return False
-                if c.get("below") is not None and not x < float(c["below"]):
+                if c.get("below") is not None and (below is None or not x < below):
                     return False
             return True
         if k == "time":

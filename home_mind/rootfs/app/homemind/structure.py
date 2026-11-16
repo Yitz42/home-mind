@@ -45,8 +45,10 @@ def parse_date(text, now_ts=None, future=False):
         return _safe(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     m = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b", t)
     if m:
-        y = int(m.group(3))
-        return _safe(y + 2000 if y < 100 else y, int(m.group(1)), int(m.group(2)))
+        y, a, b = int(m.group(3)), int(m.group(1)), int(m.group(2))
+        if a > 12 >= b:
+            a, b = b, a          # "13/3/2027" can only be day-first; ambiguous ones ("3/4") stay month-first
+        return _safe(y + 2000 if y < 100 else y, a, b)
     m = re.search(rf"\b{MON}\.? (\d{{1,2}})(?:st|nd|rd|th)?,? (\d{{4}})\b", t)
     if m:
         return _safe(int(m.group(3)), _mon(m.group(1)), int(m.group(2)))
@@ -55,10 +57,11 @@ def parse_date(text, now_ts=None, future=False):
         return _safe(int(m.group(2)), _mon(m.group(1)), 1)
     m = re.search(rf"\b{MON}\.? (\d{{1,2}})(?:st|nd|rd|th)?\b", t)
     if m:
-        d = _safe(today.year, _mon(m.group(1)), int(m.group(2)))
+        mo, dd = _mon(m.group(1)), int(m.group(2))
+        d = _safe(today.year, mo, dd) or (_safe(today.year, 2, 28) if (mo, dd) == (2, 29) else None)
         if d and future and d < today:
-            d = _safe(today.year + 1, d.month, d.day)
-        return d
+            d = _safe(today.year + 1, mo, dd) or (_safe(today.year + 1, 2, 28) if (mo, dd) == (2, 29) else None)
+        return d             # Feb 29 with no year: Feb 28 in a year that has none (a leap-day birthday still comes)
     return None
 
 
@@ -164,7 +167,9 @@ def recurrence(text, now_ts):
         else:
             unit, k = m.group(2).lower(), _n(m.group(1) or "1")
         days = UNIT_DAYS[unit] * k
-        return {"kind": "interval", "days": days, "anchor": (start or _day(now_ts)).timestamp()}
+        # months and years are counted on the calendar (rent "every month" stays on the 1st; 30-day steps drift)
+        months = k if unit == "month" else 12 * k if unit == "year" else 0
+        return {"kind": "interval", "days": days, "months": months, "anchor": (start or _day(now_ts)).timestamp()}
     return None
 
 
@@ -191,6 +196,17 @@ def next_time(rec, now_ts):
             y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
     if rec["kind"] == "interval":
         anchor = _day(rec["anchor"])
+        months = rec.get("months")
+        if months is None and rec["days"] in (30, 365):      # filed before months were kept: "every month/year"
+            months = 1 if rec["days"] == 30 else 12
+        if months:
+            n = 0
+            while True:
+                y, mo = divmod(anchor.month - 1 + months * n, 12)
+                d = date(anchor.year + y, mo + 1, min(anchor.day, calendar.monthrange(anchor.year + y, mo + 1)[1]))
+                if d >= today.date():
+                    return d
+                n += 1
         n = 0 if today <= anchor else -(-((today - anchor).days) // rec["days"])
         return (anchor + timedelta(days=rec["days"] * n)).date()
     return None
@@ -257,9 +273,13 @@ def done_of(text):
 # ---- #56 where things are ------------------------------------------------------------------------------------------
 NP = r"((?:[\w'-]+\s+){0,4}?[\w'-]+)"
 PREP = r"(?:in|inside|into|on|under|behind|in the back of|on top of|next to)"
-PLACE = [re.compile(rf"^\s*(?:{ART})?{NP}\s+(?:is|are)\s+(?:kept\s+|stored\s+|now\s+)*{PREP}\s+(?:{ART})?{NP}\s*[.!]?$", re.I),
+PLACE = [re.compile(rf"^\s*(?:{ART})?{NP}\s+(?:is|are)\s+(?:kept\s+|stored\s+|now\s+)*(?P<rel>{PREP})\s+(?:{ART})?{NP}\s*[.!]?$", re.I),
          re.compile(rf"^\s*(?:i\s+|we\s+)?(?:put|moved|left|stored|keep|placed|stuck)\s+(?:{ART})?{NP}\s+"
-                    rf"(?:in|into|to|on|under|behind|inside)\s+(?:{ART})?{NP}\s*[.!]?$", re.I)]
+                    rf"(?P<rel>in|into|to|on|under|behind|inside|next to)\s+(?:{ART})?{NP}\s*[.!]?$", re.I)]
+# how a thing sits relative to its place: "in" (also inside/into/to/in the back of) and "on" hold it, so it is found
+# when asking what is in (or on) the place; "under", "behind" and "next to" don't: the thing is near the place, not in it
+REL = {"on": "on", "on top of": "on", "under": "under", "behind": "behind", "next to": "next to"}
+HOLDS = ("in", "on")
 NOT_PLACE = re.compile(r"\b(code|password|charge of|love|trouble|good|bad|on sale|on fire|in stock|in progress|on time|"
                        r"in town|on vacation|due|open|closed|broken|empty|full|ready)\b", re.I)
 
@@ -286,10 +306,11 @@ def place(text):
     for rx in PLACE:
         m = rx.search(t)
         if m:
-            thing, where = m.group(1).lower().strip(), m.group(2).lower().strip()
+            thing, where = m.group(1).lower().strip(), m.group(rx.groups).lower().strip()
             if thing in ("it", "they", "that", "this", "everything") or thing == where or WHEN.match(where):
                 return None
-            return {"thing": thing, "in": where}
+            rel = REL.get(re.sub(r"\s+", " ", m.group("rel").lower()), "in")
+            return {"thing": thing, "in": where, **({"rel": rel} if rel != "in" else {})}
     return None
 
 
@@ -427,12 +448,15 @@ def _words(s):
 
 
 def _rows(store, where, args=()):
+    from .speakers import sql as _vis
+    vs, va = _vis()
     return [store._row(r) for r in store.db.execute(
-        f"SELECT * FROM items WHERE status IN ('active','faded') AND {where}", args).fetchall()]
+        f"SELECT * FROM items WHERE status IN ('active','faded') AND {vs} AND ({where})", list(va) + list(args)).fetchall()]
 
 
 def eff(h):
-    return float((h.get("meta") or {}).get("valid_from") or h["created"])
+    vf = (h.get("meta") or {}).get("valid_from")
+    return min(float(vf), float(h["created"])) if vf else float(h["created"])     # never after it was filed
 
 
 WHEN_NEXT = re.compile(r"\b(when|what day|which day|next|how soon|is .* (?:today|tomorrow))\b", re.I)
@@ -681,7 +705,14 @@ def backfill(store):
 
 
 def _places(store):
-    """thing -> (container, when, id), from each thing's latest place note."""
+    """thing -> (container, when, id), from each thing's latest place note. Kept until a note changes (read for every
+    "where" question and every picture; don't change what it returns)."""
+    from .speakers import sql as _vis
+    vs, va = _vis()
+    return store.cached(("places", vs, tuple(va)), lambda: _places_now(store))
+
+
+def _places_now(store):
     cur = {}
     for h in _rows(store, "meta LIKE '%\"place\"%'"):
         p = (h.get("meta") or {}).get("place")
@@ -689,8 +720,13 @@ def _places(store):
             continue
         t = eff(h)
         if p["thing"] not in cur or t > cur[p["thing"]][1]:
-            cur[p["thing"]] = (p["in"], t, h["id"])
+            cur[p["thing"]] = (p["in"], t, h["id"], p.get("rel") or "in")
     return cur
+
+
+def _held(cur, x):
+    """Whether x's place holds it (in or on), not just stands near it (under, behind, next to)."""
+    return (cur[x][3] if len(cur[x]) > 3 else "in") in HOLDS
 
 
 def _match(name, qw):
@@ -715,7 +751,7 @@ def place_lines(store, question, hits, now):
             found = []
             for thing in cur:
                 chain, x, seen = [], thing, set()
-                while x in cur and x not in seen and len(chain) < 6:
+                while x in cur and x not in seen and len(chain) < 6 and _held(cur, x):
                     seen.add(x)
                     x = cur[x][0]
                     chain.append(x)
@@ -731,10 +767,10 @@ def place_lines(store, question, hits, now):
     chain, x, seen = [], thing, set()
     while x in cur and x not in seen and len(chain) < 6:
         seen.add(x)
-        c, t, i = cur[x]
-        chain.append(f"the {c} (#{i}, {_fmt(_day(t))})")
+        c, t, i, rel = cur[x]
+        chain.append(f"{rel} the {c} (#{i}, {_fmt(_day(t))})")
         x = c
-    return [f"WHERE (worked out from the latest place notes): the {thing} is in " + ", which is in ".join(chain)]
+    return [f"WHERE (worked out from the latest place notes): the {thing} is " + ", which is ".join(chain)]
 
 
 def field_lines(store, question, hits, now):
@@ -793,12 +829,22 @@ PROFILE_MAX = 15
 
 
 def profile(store):
-    """The always-loaded lines: notes on the profile shelf (newest per title first), at most PROFILE_MAX."""
+    """The always-loaded lines: notes on the profile shelf (newest per title first), at most PROFILE_MAX. Read for
+    every question: kept until a note changes (the query reads every note)."""
+    from .speakers import sql as _vis
+    vs, va = _vis()
+    return list(store.cached(("profile", vs, tuple(va)), lambda: _profile_now(store)))
+
+
+def _profile_now(store):
     rows = store.db.execute("SELECT * FROM items WHERE status='active' AND (shelf='profile' OR shelf LIKE 'profile/%') "
                             "ORDER BY created DESC LIMIT 60").fetchall()
+    from .speakers import visible
     seen, lines = set(), []
     for r in rows:
         d = store._row(r)
+        if not visible(d["meta"]):
+            continue                # someone's personal note is not "about you" for anyone else (#48)
         k = (d["meta"].get("alias") or {}).get("role") or d["title"].lower()
         if k in seen:
             continue
@@ -816,10 +862,12 @@ def expand_aliases(store, question):
         return q
     roles = {}
     same = {"partner", "wife", "husband", "spouse", "girlfriend", "boyfriend"}
+    from .speakers import visible
     for r in store.db.execute("SELECT meta FROM items WHERE status='active' AND meta LIKE '%\"alias\"%' "
                               "ORDER BY created").fetchall():
         import json
-        a = json.loads(r["meta"] or "{}").get("alias")
+        m = json.loads(r["meta"] or "{}")
+        a = m.get("alias") if visible(m) else None     # "my partner" is the speaker's, not someone else's
         if a:
             roles[a["role"]] = a["name"]
             if a["role"] in same:
@@ -847,7 +895,7 @@ def overview(store, now):
         chain, x, seen = [], thing, set()
         while x in cur and x not in seen and len(chain) < 6:
             seen.add(x)
-            chain.append(cur[x][0])
+            chain.append(cur[x][0] if _held(cur, x) else f"{cur[x][3]} {cur[x][0]}")
             x = cur[x][0]
         places.append({"thing": thing, "chain": chain, "id": cur[thing][2], "since": _fmt(_day(cur[thing][1]))})
     typed = [{"id": h["id"], "title": h["title"], "type": h["meta"].get("type"), "fields": h["meta"]["fields"]}

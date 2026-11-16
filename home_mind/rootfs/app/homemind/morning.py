@@ -42,9 +42,12 @@ class Morning:
             f"SELECT * FROM items WHERE kind='fact' AND status='active' AND created < ? AND source NOT IN "
             f"({','.join('?' * len(self.SKIP_SOURCES))}) AND source NOT LIKE 'pack:%' "
             "ORDER BY use_count DESC, created LIMIT 40", (cut, *self.SKIP_SOURCES)).fetchall()
+        from .speakers import visible
         for r in rows:
             d = self.store._row(r)
             m = d["meta"] or {}
+            if not visible(m, ""):
+                continue        # the summary goes to a shared phone and notifications: no one's personal notes
             if max(m.get("confirmed") or 0, m.get("checked") or 0) >= cut:
                 continue
             # an unkeyed fact may have a newer version that the search groups with it: skip those
@@ -87,7 +90,7 @@ class Morning:
         else:
             meta["doubted"] = time.time()
             self.store.feedback(i, False, "said it changed")
-            await self.ha.notify("Home Mind: what changed?", f"You said this changed: {d['title']}. Tell Jeeves or "
+            await self.ha.notify("Home Mind: what changed?", f"You said this changed: {_short(d)}. Tell Jeeves or "
                                  "Home Mind the new value and it will replace the old one.", "hm_changed")
         self.store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), i))
         self.store.db.commit()
@@ -114,9 +117,21 @@ class Morning:
         return new + rep
 
     def build(self, hours=24, commit=False):
+        """The summary is read on a shared phone, in Home Assistant's notifications and kept as a household note, so
+        it is built as an unknown viewer would see memory: household notes only (#48)."""
+        from .speakers import VIEWER
+        tok = VIEWER.set("")
+        try:
+            return self._build(hours, commit)
+        finally:
+            VIEWER.reset(tok)
+
+    def _build(self, hours=24, commit=False):
+        from .speakers import visible
         since = time.time() - hours * 3600
         told = self._rows("created >= ? AND source NOT IN ('home','calendar','automations','journal','scale','habits','tidy','evening') "
                           "AND source NOT LIKE 'pack:%' AND kind != 'procedure' AND status='active'", (since,))
+        told = [d for d in told if visible(d["meta"])]
         overnight = [d for d in told if d["source"] == "overnight"]
         told = [d for d in told if d["source"] != "overnight"]
         ideas = [d for d in told if d["shelf"].startswith("ideas")]

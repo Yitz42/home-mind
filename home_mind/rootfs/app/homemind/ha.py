@@ -121,6 +121,8 @@ class HA:
         if self.cap and sent.get(today, 0) >= self.cap:
             self.__dict__["capped"] = self.__dict__.get("capped", 0) + 1
             return "capped"
+        if "." not in target:
+            target = "notify." + target        # option written as "mobile_app_phone"
         dom, svc = target.split(".", 1)
         await self.call(dom, svc, data)
         self.sent = {today: sent.get(today, 0) + 1}

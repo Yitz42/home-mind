@@ -147,6 +147,51 @@ def main():
         code, _ = call("/mcp", method="GET")
         check("mcp GET -> 405", code == 405)
 
+        # set 6: export/import, SQL, saved views, comparison (0.28)
+        _, ex = call("/api/export")
+        check("export has the notes", ex.get("format") == "home-mind-export" and ex["counts"]["items"] > 3, ex.get("counts"))
+        _, im = call("/api/import?dry_run=1", ex)
+        check("importing an export of itself adds nothing", im.get("added") == 0 and im.get("skipped") > 3, im)
+        _, q = call("/api/sql", {"q": "SELECT shelf, count(*) n FROM notes GROUP BY shelf"})
+        check("SQL over notes", q.get("columns") == ["shelf", "n"] and q["rows"], q)
+        code, q = call("/api/sql", {"q": "DELETE FROM items"})
+        check("SQL refuses writes", code == 400 and "error" in q, q)
+        call("/api/views", {"name": "house things", "shelf": "house"})
+        _, v = call("/api/views/house%20things")
+        check("saved view runs", v.get("items") and all(i["shelf"].startswith("house") for i in v["items"]), v)
+        code, _ = call("/api/views/nothing")
+        check("missing view -> 404", code == 404)
+        _, r = call("/mcp", {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                             "params": {"name": "mind_sql", "arguments": {"q": "SELECT count(*) FROM notes"}}})
+        check("mcp mind_sql", not r["result"]["isError"], r)
+        # set 7 (0.29)
+        code, _ = call("/api/label?text=Garage%20shelf%203")
+        check("label without an address -> 400", code == 400)
+        req = urllib.request.Request(base + "/api/label?text=Garage%20shelf%203&base=http://ha.local/x",
+                                     headers={"X-Home-Mind-Token": token})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            check("label is an SVG", r.headers.get("Content-Type", "").startswith("image/svg") and b"<svg" in r.read())
+        _, t = call("/api/thing?name=Vellum%20shed%20padlock")
+        check("thing page gathers notes", t.get("notes") and any("Vellum" in n["body"] for n in t["notes"]), t)
+        _, rs = call("/api/reshelve?run=1")
+        check("reshelve dry run answers", "moved" in rs and "suggested" in rs, rs)
+        _, pr = call("/api/preferences")
+        check("preferences list", isinstance(pr, list), pr)
+        try:
+            urllib.request.urlopen(urllib.request.Request(base + "/api/photo/..%2Fm.db",
+                                                          headers={"X-Home-Mind-Token": token}), timeout=30)
+            code = 200
+        except urllib.error.HTTPError as e:
+            code = e.code
+        check("photo path traversal -> 404", code == 404)
+        # set 8 (0.30)
+        _, cn = call("/api/connections")
+        check("connections are all off by default", not cn["telegram"]["on"] and not cn["web"]["on"] and not cn["email"]["on"], cn)
+        code, _ = call("/api/email/check", {})
+        check("email check without a server -> 400", code == 400)
+        _, c = call("/api/compare")
+        check("comparison status", "runs" in c and c.get("every_days") == 0, c)
+
         # updates
         _, u = call("/api/updates")
         check("update check reads manifest", u.get("packs") and u["packs"][0]["latest"] == "0.1.0", u)

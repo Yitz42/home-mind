@@ -1,5 +1,112 @@
 # Changelog
 
+## 0.25.0
+The rest of the roadmap, built overnight as a stack of ten pull requests (#12–#21) and brought onto this version in one
+piece. Their own version numbers clashed with 0.23–0.24.1 here, so they're listed below under the set they came from.
+Also in this version: the Home tab, meal protein estimates and the routes added in 0.24 now follow the new token scopes
+and per-person rules.
+
+### Expert review (six rounds) (built as 0.32.0 on its own branch)
+Six rounds of expert code review (24 reviewers: security, privacy, concurrency, search, data integrity, LLM safety, Home Assistant, web panel, performance, overnight learning, network integrations, API contract, cryptography, time, asking, test quality, MCP, documents, maintainability, storage growth, red team, voice, packaging, first run). Each fix has a regression check in `tests/test_review_*.py`, run in CI.
+
+**Behavior you'll notice**
+- Locks, alarms, valves and garage doors (and scripts, scenes or switches that open them) need confirmation. By voice, Home Mind asks and a "yes" within 30 seconds does it. Drafted automations that open the house need the PIN in more cases.
+- A token tied to a person only sees and changes that person's personal notes and household notes, and can't file notes as someone else. House control over HTTP needs an admin token.
+- Short replies like "yes", "um" or "never mind" no longer read out a stored note. "That's wrong… never mind" no longer overwrites the fact; "No, it's 5512" updates it in one step.
+- Raw house readings older than `events_keep_days` (at least 30) roll up into one daily note per thing. Database growth drops from ~140 to ~20 KiB a day.
+- Shelves keep non-ASCII letters ("Küche"); a shelf already stored under its old name keeps it.
+- The panel shows a getting-started card on a fresh install. DOCS now lists every option, all API routes with their scopes, and the MCP tools.
+
+**Important fixes**
+- Purging one note could delete unrelated notes, and over MCP a blank name purged everything.
+- A missing vault key led to a new key that later replaced sealed secrets with "[hidden]". Home Mind now refuses and reports it.
+- Secrets reached cloud models through the re-ranker, procedures, overnight passes and journal summaries. They are now masked.
+- The panel had XSS holes through onclick values and model output.
+- One error stopped the upkeep loop for good, and a silent mail server hung it. Emails that failed to file were lost.
+- Monthly and yearly reminders drifted (30/365-day months), and journal entries were lost on the DST night.
+- Filing learned from its own guesses.
+- People with accented names couldn't find their own personal notes.
+- Small sets of documents were never found by search.
+- A forged future-dated email made a planted fact impossible to correct.
+
+**Speed (30,000 notes):** context per question 57 → 22 ms, search 23 → 14 ms, daily duplicate check 20 s → 0.4 s.
+
+**Tests:** two test files that could never fail now assert. Hand mutation testing went from 19 to 41 of 43 mutants killed. New CI checks: lint (AST), fuzzing of every route and MCP tool, docs coverage, and config/schema/translation consistency.
+
+### Bug-hunting set (built as 0.31.0 on its own branch)
+A bug-hunting test set (`tests/test_bugs.py`, in CI): odd inputs, many threads at once, an old database, failing and hanging models, unreadable model replies, broken files and corrupt saved state. Fixes for what it found:
+- **Threads could clash on the database.** Concurrent remember and search from worker threads (documents, Markdown sync, email, backups) raised `InterfaceError` or returned broken rows, 20+ times in a 200-note run. Every statement now runs under the store's lock and reads its rows before letting go: 0 errors, nothing lost.
+- **SQL could read other people's personal notes.** The read-only SQL view and saved SQL views ignored who was asking. They now show a person only household notes and their own, including links. `/api/sql` and `mind_sql` need only read access. Running a model comparison and checking email now need admin.
+- **SQL could build huge values.** `zeroblob(1e9)` returned a gigabyte. Values are now capped at 1 MB, and blobs show as their size.
+- **An empty model reply used up the night's conversations.** Unreadable replies are now tried again the next night (three nights at most). `{"facts": "nope"}` no longer files one note per letter.
+- **An empty question got a random note** ("No model answered, so here is the best matching note…"). It now asks you to ask something.
+- **Uploads over 8 MB were refused** although photos may be 12 MB. The request limit is now 32 MB, enough for photos and large imports.
+- **Imports:** one broken item no longer stops the rest, and a non-numeric version is a clear error.
+- **Markdown sync:** a file naming a note that was never here (copied from another memory) becomes a new note instead of being ignored forever. Files over 200 KB are left alone.
+- **Documents:** a broken PDF or an empty file is a clear error instead of a crash, and a name can't be a path.
+- **Notes:** over 200,000 characters, meta that isn't an object, and a time that isn't one are refused with a reason. NUL bytes are dropped.
+- **Telegram:** "note:" with nothing after it no longer files ":" as a note.
+- **Saved views:** tags given as text are split into words, not letters. Unreadable saved views, conversations and comparison history no longer break anything.
+- **"Everything about X":** a place that holds the thing ("the garage is next to the toolbox") is no longer listed as kept inside it.
+
+### Set 8 (built as 0.30.0 on its own branch)
+- Telegram (#52): options `telegram_token` and `telegram_chats` ("chat id: name"). Ask anything, or say "remember ..." to file a note. A photo with a caption is filed with the photo. Each chat is its own conversation and asks as its person, so personal notes stay personal. Chats not on the list are ignored (except /start, which only says the chat id).
+- Web lookups for current facts (#55): option `web_search` (`searxng` with `web_search_url`, or `brave` with `web_search_key`). Used only when a question is about the world now ("latest version", "open today", "price of") and the notes don't answer it. Results are dated and linked in the context. Only the question is sent, never one with a secret or a household member's name.
+- Email ingestion (#64): options `email_host`, `email_user`, `email_password`, `email_folder`, `email_senders`, `email_minutes`. Mail from allowed senders becomes a note: the subject is the title, the text the note (HTML turned to text, quoted replies cut), dated by the email. PDF and text attachments go to Documents; images become photos of the note. Each message is read once.
+- Prompt caching (#45), revisited: Anthropic models now mark long repeated prefixes for caching. That means a system prompt or a message prefix of at least `cache_min_tokens` (default 4,096, per model), such as the whole log in model + whole-log tests, which is sent again for every question. Cached tokens are reported. Everyday answers are still too short to be cached, as before. Turn it off with `cache: false` on a model.
+- `/api/connections` shows whether Telegram, web lookups and email are on and how the last try went.
+
+### Set 7 (built as 0.29.0 on its own branch)
+- Learned settings (#30): how bright you like each light, how fast each fan, how far each blind and how loud each speaker, by time of day and weekday or weekend. Only settings a person chose count (not automations, not Home Mind). Five that agree make a preference: it is filed as a note and used when you ask to turn a light or fan on without saying how much (option `use_preferences`). `/api/preferences`.
+- Reshelving over time (#32): each night, notes filed by the model (or left in the inbox) a week or more ago move when filing now clearly knows better, and say where they came from. A note you placed yourself only gets a suggestion; one you moved or kept stays put. `/api/reshelve`.
+- Photos with notes (#36): add photos to any note from the Memory tab (the phone camera works). Captions become search words. Files are checked (JPEG, PNG, GIF, WebP, HEIC, at most 12 MB) and removed when no note uses them.
+- QR labels (#63): print a label for a box, shelf or place. Scanning it opens the panel on everything known about that thing, with a box to add a note. Built-in QR encoder, no new package. Option `label_url`.
+- Conversations across devices (#53): a follow-up on your phone right after asking the kitchen speaker ("and where is it?") knows what came before, for the same person, within 10 minutes. Live conversations survive a restart.
+
+### Set 6 (built as 0.28.0 on its own branch)
+- Export and import (#35): `/api/export` gives every note with its history, links and fields as one JSON file (secrets masked unless asked for with the vault key loaded; house readings left out). `/api/import` merges one in: notes already here are skipped, ids renumbered, versions and links follow. A dry run says what would be added. Buttons on the Memory tab.
+- Two-way Markdown sync (#67): option `markdown_folder`. Every note becomes a Markdown file, one folder per shelf. Editing a file makes a new version; a new file becomes a note on its folder's shelf; deleting a file archives the note; archiving a note deletes its file. If both changed, the note wins and the file's text is kept as `.conflict.md`. Secrets and house readings are never written out.
+- Read-only SQL (#70): `/api/sql` and the `mind_sql` tool run SELECT queries on two views, `notes` (secret text shown as [secret]) and `links`. The connection is read-only, every statement is checked (no other tables, no writes, no ATTACH or PRAGMA), and queries stop after 3 seconds or 500 rows.
+- Saved views (#61): named searches or filters (words, shelf, kind, tags, days back, order) or a SQL query. `/api/views`, the `mind_view` tool, the Memory tab, and by voice: "show my warranties".
+- Model comparison on a schedule (#34): options `compare_days`, `compare_models`, `compare_suites`. The models answer the same suites from the same seed; results on the Tests tab, at `/api/compare` and as a sensor per model. A drop of 5 points or more since the last comparison is logged.
+
+### Set 5 (built as 0.27.0 on its own branch)
+- Prefix-only matches weigh less (#25): a note that matches a question word only as the start of a longer word ("garages" for "garage") gets a quarter of the weight. The keys suite goes from 0.95 to 1.000.
+- Links followed as a walk (#12, #81): from the best few results, the links are walked up to three steps (personalized PageRank). A linked note is added only when it brings question words the results don't have yet. Three-step questions ("who has the key for the place where the mower is kept?") go from 0/40 with one hop to 33/40 (held-out).
+- Older notes learn words from newer linked ones (#82): when a new note names the same thing as older notes, the older notes take up to five of its rare words as extra search keys. Their text is never changed. Only notes that share a name take part, so two different "spare keys" don't swap words. "Whose scooter was stolen?" now finds the owner 40/40.
+- A model re-orders the top notes (#54): option `rerank_model`. Not used for voice. A bad reply keeps the search's own order.
+- Everything known about a thing (#20): "Tell me everything about the Halvor drill" gathers its place (following the chain of places), notes, linked notes, chores and fields into one list for the model.
+- Other languages (#21): guesses, corrections and "X says" are read in Spanish, German, French, Dutch, Portuguese and Italian as well as English. Notes in any other language are tagged overnight by the model (a guess, a correction, who said it, when it became true), so versions, guesses and disagreements work for them too.
+- Fix: "Went to check on the Quillon safe" then "Changed its code" stays linked to the safe.
+
+### Set 4 (built as 0.26.0 on its own branch)
+- Documents and manuals (#50): PDF, text, Markdown and HTML files dropped in the documents folder (option `docs_folder`, default /share/home-mind/docs, read every hour) or added on the Memory tab are split into pages or sections and kept apart from the notes with their own search index. The best two sections are added to the page after the notes, and the model is asked to name the document and page. `/api/docs` lists, searches, adds and removes. pypdf is added to the image; the add-on can now see /share.
+- Learned filing (#58): a note that would land in the inbox is filed on the shelf notes like it are on when that is clear (naive Bayes over the words of notes already on shelves, no model), and otherwise gets that shelf suggested. Moving a note teaches it. Option `learn_filing`. Filing suite: 0.994 (topic notes 397/400 on the right shelf, vague notes 80/80 left in the inbox).
+- Inbox review (#59): the Memory tab shows the inbox with the suggested shelf (File in …) or any other shelf, one tap each (`POST /api/item/{id}/move`, `GET /api/inbox`).
+- Homebox and Paperless (#62): with `homebox_url`/`homebox_token` and `paperless_url`/`paperless_token`, questions about things and papers also ask those apps (2.5 s limit), and what they return is added to the page labelled with where it came from. Nothing is copied into memory.
+- Pronoun links (#13): "Changed its code to 9002" right after a note about something else now links to the recent note about the thing that has a code (code, combination, PIN and "opens with" count as the same), unless the last note's thing has one too. Overnight, the big model re-checks recent links and moves any it disagrees with. Pronouns suite: 1.000 (0.500 before).
+
+### Set 3 (built as 0.25.0 on its own branch)
+- Scoped tokens (#27): make a token per client on the Models tab (or `POST /api/tokens`), each read, write or admin, each revocable, optionally tied to a person (answered as them, with their personal notes). read can ask and search; write can also remember, change and forget; deleting for good, installing automations, updates, controls, tokens and the vault key need admin. MCP lists and allows only the tools a token's scope covers. Only a hash of each token is kept. The main token stays admin.
+- Signed pack manifests (#28): put a public key in `homemind/pack_keys.txt` and Home Mind installs packs only from a manifest signed with it (`manifest.json.sig`, Ed25519). `tools/sign_manifest.py keygen` makes a key pair, `sign` signs the manifest. With no key set, packs are checked by sha256 as before. Ed25519 is in plain Python, checked against the RFC 8032 test vectors.
+- Secrets encrypted at rest (#66): with option `encrypt_secrets`, notes marked secret are stored encrypted (AES-256-GCM) with a masked copy for search; the key is in `/data/vault.key`, which Home Assistant backups leave out, and answers logged in the activity log have secret values masked. Keep a copy of the key (`GET /api/vault/key`); turning the option off opens everything again. The whole file isn't encrypted (SQLCipher isn't in the add-on image); ordinary notes stay plain. `cryptography` is added to the image.
+- Off-site backups (#60): option `backup_target` folder (e.g. a NAS share in /media or /share), webdav or s3 (AWS, Backblaze B2, MinIO, R2; requests signed with SigV4). A snapshot every `backup_every_hours` when the memory has changed, encrypted with `backup_passphrase` (required off-site), the newest `backup_keep` kept. `tools/restore_backup.py` restores one with the passphrase. `GET /api/backup`, `POST /api/backup/now`.
+- Comfort rooms from options (#29): option `comfort_rooms` gives each room its entities, person, body signals and helpers (no more hard-coded entity IDs), and more than one room each learns from its own votes. Existing votes belong to the first room. `GET /api/comfort/check?room=NAME` lists configured entities Home Assistant doesn't have; the comfort endpoints take `room`.
+
+### Set 2 (built as 0.24.0 on its own branch)
+- Search by meaning (#10): with option `embed_model` (one of your models, type ollama or openai, with an embedding model such as nomic-embed-text), notes are embedded in the background and a question's nearest notes are fused with the keyword results by rank, so "planter" finds "flower box". Personal notes stay personal; deleting for good removes the vector; if the embedding model is down, keyword search carries on. numpy is added to the image (a pure-Python fallback remains). `tests/longmemeval.py retrieve --embed NAME` measures it.
+- Things without capitalized names (#11): a note about "the chest freezer" ranks below one about "the garage freezer" when that's what was asked. Versions and lists of lowercase things already worked (lowercase suite 0.997 with and without this rule); the rule fixes the case where the other thing's note matches the question's wording better.
+- Links between notes (#12): a new note is linked to the few notes that name the same specific thing (a rare name, "the red Trek", "the side gate"). Search follows a link when the linked note has a word of the question the found note lacks, which answers two-step questions ("where is Dana's bike locked?" → "Dana's bike is the red Trek" → "the red Trek is locked at the station"). Links suite: 1.000 (two-step 0.85 without links).
+- Importance (#75): safety notes (allergies, an EpiPen, the gas or water shutoff, medication, the breaker panel) count most, then identity, preferences and devices. Search leans toward more important notes slightly, and safety notes never fade.
+- Categories with their own fading (#38): each note is filed as safety, identity, correction, preference, device, episode or note. Safety, identity and corrections never fade; preferences fade 3 times and devices 4 times more slowly than plain notes.
+
+### Set 1 (built as 0.23.0 on its own branch)
+- Who is speaking (#3): from the Home Assistant user (`user` or `user_id` on `/api/ask`, e.g. `{{ context.user_id }}` from an LLM tool), the device (a phone or satellite listed for one person; voice runs carry the satellite's device ID), the room (an area only one person is listed for), or the only person home. Option `people` lists who lives here; person entities are recognised with no setup. `GET /api/people` shows who can be recognised.
+- Personal and household notes (#48): a note a known person files about themselves ("my", "I") is theirs alone; everything else is shared. Unknown speakers see household notes only. Calls with no speaker information (the panel, Claude, the API) see everything as before, or household only with option `unknown_caller: guest`. A note can be switched between personal and household on its card (`POST /api/item/{id}/scope`); option `personal_rule: household` shares everything. People suite: 1.000 (0.526 with nothing kept personal).
+- Unknown voices (#78): codes and passwords are never read out to a voice the house doesn't recognise, and a request for every secret or for the whole memory from one gets nothing.
+- Learning from known voices only (#79): once option `people` lists anyone, overnight learning skips turns from voices it can't recognise (a guest, the TV). Facts are marked with who said them, and first-person facts from a known speaker are personal.
+- Extra search keys (#71): each note also files under broader words for what it names (a beagle under dog, pet and breed; a Civic under car; a dentist under doctor and appointment), from a built-in word list, and overnight the model adds other words for recent notes. The keys are searched but never shown. Existing memories are upgraded on start (the search index is rebuilt once). Keys suite: 0.942 (0.592 without keys); on the LongMemEval sample, "what breed is my new dog?" now finds "I just adopted a beagle".
+
 ## 0.24.1
 - Protein today now counts what you log: each meal you log gets a rough protein and calorie estimate (from the pantry's nutrition data where it has it), and Today adds them up. Meals already logged today can be estimated with one call.
 - Log a meal with when you ate it ("breakfast at 8am"); before, every meal was stamped with the time you logged it.
