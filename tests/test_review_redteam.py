@@ -12,6 +12,10 @@ import tempfile
 import time
 import types
 
+
+async def _no_pending(*a, **k):      # App.do asks pending_reply first (the voice "yes" flow, round 6)
+    return None
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 # the aiohttp stand-in, the request helper and setup() from the security review (everything before its checks run)
 _src = open(os.path.join(HERE, "test_review_sec.py"), encoding="utf-8").read()
@@ -120,12 +124,12 @@ def hostile_model_do():
                  for e, c in cat.items()}
     h.prefs = None
     for eid in ("script.open_garage", "script.porch", "scene.leaving", "switch.garage_relay"):
-        A = types.SimpleNamespace(home=h, models=types.SimpleNamespace(
+        A = types.SimpleNamespace(home=h, pending_reply=_no_pending, pending={}, models=types.SimpleNamespace(
             models={"evil": 1}, get=lambda n, e=eid: HostileModel(json.dumps({"entity_id": e, "action": "on"}))))
         r = asyncio.run(M.App.do(A, "dim the hall light"))
         check(f"/api/do: a model's plan to run {eid} needs the person's yes", "error" in r and not ha.calls, (r, ha.calls))
     for eid in ("script.goodnight", "scene.movie", "switch.kettle"):
-        A = types.SimpleNamespace(home=h, models=types.SimpleNamespace(
+        A = types.SimpleNamespace(home=h, pending_reply=_no_pending, pending={}, models=types.SimpleNamespace(
             models={"evil": 1}, get=lambda n, e=eid: HostileModel(json.dumps({"entity_id": e, "action": "on"}))))
         r = asyncio.run(M.App.do(A, "go"))
         check(f"/api/do: {eid} still runs", "done" in r and "error" not in r, r)
