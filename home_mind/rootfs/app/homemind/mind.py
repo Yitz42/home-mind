@@ -234,11 +234,11 @@ def thing_phrase(store, question):
     """'the Kosk locker' from 'What is the code for the Kosk locker?'; else the last 'the X' phrase."""
     from .store import thing_word
     q = store.fix_typos(question)
-    m = re.search(r"\b(?:the |my )?([A-Z][a-z]+)(?:'s)?\s+([a-z]+(?: [a-z]+)?)", q)
+    m = re.search(r"\b(?:the |my )?([A-Z][a-z]+)(?:['\u2019]s)?\s+([a-z]+(?: [a-z]+)?)", q)
     for nm in names_in(q):
         tw = thing_word(q, nm)
         if tw:
-            mm = re.search(rf"\b({nm})(?:'s)?\s+({tw}(?:\s+(?:box|key|room))?)\b", q, re.I)
+            mm = re.search(rf"\b({nm})(?:['\u2019]s)?\s+({tw}(?:\s+(?:box|key|room))?)\b", q, re.I)
             if mm:
                 return f"the {mm.group(1).capitalize()} {mm.group(2)}"
         return f"the {nm.capitalize()}" if not m else f"the {m.group(1)} {m.group(2)}"

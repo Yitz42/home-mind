@@ -18,6 +18,7 @@ import re
 import sqlite3
 import threading
 import time
+import unicodedata
 
 STOP = set("""a an the of to in on at for and or is are was were be been it its this that these those with
 from by as what which who whom whose when where why how do does did can could should would will i me my we our you
@@ -110,8 +111,17 @@ def _eff(r):
     return float(m.get("valid_from") or r["created"])
 
 
+def fold(text):
+    """Accents dropped ("Müller" -> "Muller", "Zoë" -> "Zoe"), as the search index (unicode61) does: without it a
+    name with an accent split into pieces ("m", "ller") that match nothing."""
+    text = text or ""
+    if text.isascii():
+        return text
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
 def words(text):
-    return [w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if w not in STOP and len(w) > 1]
+    return [w for w in re.findall(r"[a-z0-9]+", fold(text).lower()) if w not in STOP and len(w) > 1]
 
 
 CALENDAR = set("monday tuesday wednesday thursday friday saturday sunday january february march april may june july "
@@ -123,7 +133,7 @@ def names_in(text):
     """Lower-cased words written with a capital letter anywhere but at the start of a sentence: likely names.
     Days and months are capitalized but aren't names."""
     out = set()
-    for sent in re.split(r"[.!?]\s+", text or ""):
+    for sent in re.split(r"[.!?]\s+", fold(text)):
         toks = re.findall(r"[A-Za-z0-9][A-Za-z0-9']*", sent)
         for t in toks[1:]:
             if t[0].isupper() and t.lower() not in STOP and t.lower().split("'")[0] not in CALENDAR:
@@ -161,7 +171,7 @@ def modified_things(text):
 def thing_word(text, anchor):
     """The word right after a name ("Bexbel locker", "Nimsk fern's", "Kate's bike"): what the name is attached to.
     Notes that share the name and this word are about the same thing, however they're worded."""
-    m = re.search(rf"\b{re.escape(anchor)}(?:'s)?\s+([A-Za-z]+)", text or "", re.I)
+    m = re.search(rf"\b{re.escape(anchor)}(?:['\u2019]s)?\s+([A-Za-z]+)", fold(text), re.I)   # Kofi’s: a phone's apostrophe
     if not m:
         return None
     w = m.group(1).lower()
@@ -617,15 +627,31 @@ class Store:
             if v is not None and k in ("kind", "key", "title", "body", "shelf", "tags", "meta", "source"):
                 f[k] = v if k != "meta" else {**old["meta"], **v}
         now = self.clock()
+        if f["title"] == old["title"] and f["body"] == old["body"] and not f["meta"].get("valid_from"):
+            # only moved, tagged or marked: what it says became true when the old version was noted, so a newer
+            # version of the same fact stays the newer one
+            f["meta"] = {**f["meta"], "valid_from": old["created"]}
         with self.lock:
             cur = self.db.execute(
                 "INSERT INTO items(kind,key,title,body,tags,shelf,status,supersedes,created,updated,source,meta,"
                 "use_count,strength) VALUES(?,?,?,?,?,?,'active',?,?,?,?,?,?,?)",
                 (f["kind"], f["key"], f["title"], f["body"], clean_tags(f["tags"]), clean_shelf(f["shelf"]), item_id,
                  now, now, f["source"], json.dumps(f["meta"]), old["use_count"], old["strength"]))
+            new_id = cur.lastrowid
+            # the new version is still found by the old one's search keys (and those of its new words), and stays
+            # linked to the notes about the same thing
+            keys = (old.get("keys") or "").split()
+            if self.KEYS and f["source"] not in ("home", "automations", "calendar"):
+                from .keys import lexicon_keys
+                keys += [w for w in lexicon_keys(f"{f['title']} {f['body']}") if w not in keys]
+            if keys:
+                self.db.execute("UPDATE items SET keys=? WHERE id=?", (" ".join(keys)[:600], new_id))
+            for b in self.linked(item_id):
+                if b != new_id:
+                    self.db.execute("INSERT OR IGNORE INTO links(a, b, kind) VALUES(?,?,'same_thing')", (new_id, b))
+                    self.db.execute("INSERT OR IGNORE INTO links(a, b, kind) VALUES(?,?,'same_thing')", (b, new_id))
             self.db.execute("UPDATE items SET status='superseded', updated=? WHERE id=?", (now, item_id))
             self.db.commit()
-            new_id = cur.lastrowid
         if self.vault_key and f["meta"].get("sensitive"):
             self.seal_item(new_id)
         self.log("revise", new_id, previous=item_id, changes=list(changes))
@@ -792,6 +818,13 @@ class Store:
         for n in names_in(text):
             if len(n) >= 3:
                 anchors.add(n)
+        if not text.isascii():
+            # a name with an accent is matched as written ("Müller"): LIKE doesn't drop accents
+            for t in re.findall(r"[^\W\d_][\w']*", text):
+                lt = t.lower().split("'")[0]
+                if not lt.isascii() and fold(lt) in anchors:
+                    anchors.discard(fold(lt))
+                    anchors.add(lt)
         for noun, mods in modified_things(text).items():
             for m in mods:
                 anchors.add(f"{m} {noun}")
@@ -970,7 +1003,7 @@ class Store:
         things, universal = {}, []
         for r in self.db.execute("SELECT id, kind, title, body, created FROM items WHERE status IN ('active','faded')"):
             text = r["title"] + " " + r["body"]
-            for nm, w in re.findall(r"\b([A-Z][a-z]+)(?:'s)?\s+([a-z]+)", text):
+            for nm, w in re.findall(r"\b([A-Z][a-z]+)(?:['\u2019]s)?\s+([a-z]+)", text):
                 n, w = nm.lower(), w.lower()
                 if n in STOP or n in CALENDAR or w in STOP:
                     continue
@@ -998,7 +1031,7 @@ class Store:
                 pat = re.compile(r"\b(" + "|".join(map(re.escape, nms)) + r")\b", re.I)
                 rows = [self._row(r) for r in self.db.execute(
                     "SELECT * FROM items WHERE status IN ('active','faded') ORDER BY created DESC")
-                    if pat.search(r["title"] + " " + r["body"])][:limit]
+                    if pat.search(fold(r["title"] + " " + r["body"]))][:limit]
                 return {"kind": "about", "name": " ".join(sorted(nms)), "items": rows} if rows else None
         for w in words(query):
             for cand in (w, singular(w)):
@@ -1087,12 +1120,14 @@ class Store:
 
         def fix(m):
             w = m.group(0)
-            lw = w.lower()
+            lw = fold(w).lower()
             short = 3 if lw in names else 4         # names can be short ("Lsk" for "Losk")
             if lw in STOP or len(lw) < short or lw in vocab or not lw.isalpha() or lw in getattr(self, "_gone", ()):
                 return w
             if lw not in names and any(v.startswith(lw[:4]) for v in vocab):
                 return w        # an ordinary word with a known start ("changes", "changed"): search matches endings
+            if self._is_key(lw):
+                return w        # a note's search key ("bike" for the ebike note): found as it is, not a typo
             cap = 1 if len(lw) < 7 else 2
 
             pool = self._caps if lw in names and self._caps else vocab   # a name is repaired to a stored name
@@ -1113,7 +1148,7 @@ class Store:
 
             # a name that has been used with the thing the question names ("Harvk locker": Harvok has a locker,
             # Harsk only a key) wins a tie
-            nxt = re.search(rf"\b{re.escape(w)}(?:'s)?\s+([a-z]+)", query)
+            nxt = re.search(rf"\b{re.escape(w)}(?:['\u2019]s)?\s+([a-z]+)", query)
             owners = self.index()["things"].get(nxt.group(1), {}) if (nxt and lw in names) else {}
 
             def by_spelling():
@@ -1130,7 +1165,17 @@ class Store:
             if v:
                 return v.capitalize() if w[0].isupper() else v
             return w
-        return re.sub(r"[A-Za-z]+", fix, query)
+        return re.sub(r"[^\W\d_]+", fix, query)
+
+    def _is_key(self, w):
+        """Is a word one of some note's search keys (#71, #82)? Keys aren't in the word list typos are repaired to."""
+        if not self.fts or not w.isascii():
+            return False
+        try:
+            return self.db.execute("SELECT 1 FROM items_fts WHERE items_fts MATCH ? LIMIT 1",
+                                   (f'keys : "{w}"',)).fetchone() is not None
+        except sqlite3.OperationalError:
+            return False
 
     def recall(self, query, shelf=None, kind=None, limit=5, include_old=False, touch=True, newest_first_ties=True,
                quiet=False):
@@ -1267,6 +1312,11 @@ class Store:
             res = self._follow_links(query, res, limit, include_old)
         from .speakers import visible as _visible
         res = [d for d in res if _visible(d.get("meta"))]      # and whatever was reached through links or hops
+        if shelf or kind:
+            # notes reached through links or a group note keep to the shelf and kind asked for, like the search
+            sh = clean_shelf(shelf) if shelf else None
+            res = [d for d in res if (not kind or d.get("kind") == kind) and
+                   (not sh or d.get("shelf") == sh or (d.get("shelf") or "").startswith(sh + "/"))]
         if not quiet:          # the nightly checks search a lot; they don't fill the activity log
             self.log("recall", None, query=query, shelf=shelf, kind=kind, ids=[d["id"] for d in res])
         return res
