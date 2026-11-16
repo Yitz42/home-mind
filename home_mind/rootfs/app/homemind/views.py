@@ -91,8 +91,11 @@ class Views:
                 args.append(since)
             sql += " ORDER BY created DESC LIMIT 2000"
             hits = [st._row(r) for r in st.db.execute(sql, args)]
+        from .speakers import visible
         out = []
         for h in hits:
+            if not visible(h.get("meta")):
+                continue            # someone else's personal note (#48), as in every other search
             if since and h["created"] < since:
                 continue
             if v.get("tags") and not set(v["tags"]) <= set(h.get("tags") or []):

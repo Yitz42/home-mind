@@ -171,6 +171,11 @@ class MdSync:
                     st.log("mdsync_edit", r_id, previous=cur)
                     d = st.get(r_id)
                     stats["updated_notes"] += 1
+                    if d["meta"].get("sensitive") or d.get("secret"):
+                        notes.pop(cur, None)
+                        os.remove(p)        # the edit added a secret: kept in memory, not left in the folder
+                        stats["removed_files"] += 1
+                        continue
                     notes.pop(cur, None)
                     notes[d["id"]] = d
                     cur = d["id"]

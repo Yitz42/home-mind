@@ -71,6 +71,13 @@ def parse_facts(text, strict=False):
     return out
 
 
+def safe_for(model, text):
+    """Notes read by a model in the cloud (option overnight_model) go with their secret values hidden: tagging,
+    linking, reading structure and adding search keys never need the value itself."""
+    from .privacy import is_cloud, mask_all
+    return mask_all(text) if is_cloud(model) else text
+
+
 async def extract(model, turns, max_tokens=900):
     """turns: [{"who": "user"|"assistant", "text": ..., "ts": ...}] -> facts with the time they were said."""
     keep = []
@@ -369,7 +376,8 @@ class Overnight:
             if n >= limit:
                 break
             try:
-                out = await model.chat(self.TAG_SYSTEM, [{"role": "user", "content": r["body"][:600]}], max_tokens=80,
+                out = await model.chat(self.TAG_SYSTEM, [{"role": "user", "content": safe_for(model, r["body"][:600])}],
+                                       max_tokens=80,
                                        temperature=0)
                 tags = json.loads(re.search(r"\{.*\}", out.get("text") or "", re.S).group(0))
             except Exception:  # noqa: BLE001
@@ -413,8 +421,8 @@ class Overnight:
             if len(cands) < 2:
                 continue
             body = re.sub(r"\s*\[re: .*?\]$", "", r["body"] or "")
-            msg = "Earlier notes:\n" + "\n".join(f"{k + 1}. {c['body'][:200]}" for k, c in enumerate(cands)) + \
-                  f"\n\nNew note: {body[:300]}"
+            msg = safe_for(model, "Earlier notes:\n" + "\n".join(f"{k + 1}. {c['body'][:200]}" for k, c in enumerate(cands)) +
+                           f"\n\nNew note: {body[:300]}")
             try:
                 out = await model.chat(self.LINK_SYSTEM, [{"role": "user", "content": msg}], max_tokens=5, temperature=0)
                 k = int(re.search(r"\d+", out.get("text") or "0").group(0))
@@ -450,7 +458,7 @@ class Overnight:
             if n >= limit:
                 break
             try:
-                add = await structure.ask_model(model, r["body"] or r["title"], r["created"])
+                add = await structure.ask_model(model, safe_for(model, r["body"] or r["title"]), r["created"])
             except Exception as e:  # noqa: BLE001
                 log.warning("structure %s: %s", r["id"], e)
                 continue

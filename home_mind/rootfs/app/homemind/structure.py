@@ -749,9 +749,12 @@ def profile(store):
     """The always-loaded lines: notes on the profile shelf (newest per title first), at most PROFILE_MAX."""
     rows = store.db.execute("SELECT * FROM items WHERE status='active' AND (shelf='profile' OR shelf LIKE 'profile/%') "
                             "ORDER BY created DESC LIMIT 60").fetchall()
+    from .speakers import visible
     seen, lines = set(), []
     for r in rows:
         d = store._row(r)
+        if not visible(d["meta"]):
+            continue                # someone's personal note is not "about you" for anyone else (#48)
         k = (d["meta"].get("alias") or {}).get("role") or d["title"].lower()
         if k in seen:
             continue
@@ -769,10 +772,12 @@ def expand_aliases(store, question):
         return q
     roles = {}
     same = {"partner", "wife", "husband", "spouse", "girlfriend", "boyfriend"}
+    from .speakers import visible
     for r in store.db.execute("SELECT meta FROM items WHERE status='active' AND meta LIKE '%\"alias\"%' "
                               "ORDER BY created").fetchall():
         import json
-        a = json.loads(r["meta"] or "{}").get("alias")
+        m = json.loads(r["meta"] or "{}")
+        a = m.get("alias") if visible(m) else None     # "my partner" is the speaker's, not someone else's
         if a:
             roles[a["role"]] = a["name"]
             if a["role"] in same:

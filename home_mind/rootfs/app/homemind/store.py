@@ -616,6 +616,10 @@ class Store:
         for k, v in changes.items():
             if v is not None and k in ("kind", "key", "title", "body", "shelf", "tags", "meta", "source"):
                 f[k] = v if k != "meta" else {**old["meta"], **v}
+        from .privacy import is_sensitive
+        if "sensitive" not in f["meta"] and f["kind"] != "procedure" and is_sensitive(f"{f['title']} {f['body']}"):
+            # an edit that adds a code is a secret note now, as if filed that way (sealed, kept out of files)
+            f["meta"] = dict(f["meta"], sensitive=True)
         now = self.clock()
         with self.lock:
             cur = self.db.execute(
@@ -991,6 +995,7 @@ class Store:
         doesn't ask for that."""
         if not GATHER.search(query or ""):
             return None
+        from .speakers import visible        # another person's personal notes are never gathered (#48)
         idx = self.index()
         if ABOUT.search(query):
             nms = names_in(self.fix_typos(query))
@@ -998,7 +1003,7 @@ class Store:
                 pat = re.compile(r"\b(" + "|".join(map(re.escape, nms)) + r")\b", re.I)
                 rows = [self._row(r) for r in self.db.execute(
                     "SELECT * FROM items WHERE status IN ('active','faded') ORDER BY created DESC")
-                    if pat.search(r["title"] + " " + r["body"])][:limit]
+                    if pat.search(r["title"] + " " + r["body"]) and visible(json.loads(r["meta"] or "{}"))][:limit]
                 return {"kind": "about", "name": " ".join(sorted(nms)), "items": rows} if rows else None
         for w in words(query):
             for cand in (w, singular(w)):
@@ -1006,7 +1011,8 @@ class Store:
                 if group and len(group) >= 2:
                     ids = sorted({i for s in group.values() for i in s})
                     rows = {r["id"]: self._row(r) for r in self.db.execute(
-                        f"SELECT * FROM items WHERE id IN ({','.join('?' * len(ids))})", ids)}
+                        f"SELECT * FROM items WHERE id IN ({','.join('?' * len(ids))})", ids)
+                        if visible(json.loads(r["meta"] or "{}"))}
                     out = {}
                     for nm, s in group.items():
                         notes = sorted((rows[i] for i in s if i in rows), key=lambda d: d["created"], reverse=True)
@@ -1065,7 +1071,8 @@ class Store:
         out = []
         for u in sorted(add, key=lambda x: x["created"], reverse=True)[:2]:
             d = self.get(u["id"])
-            if d and d["status"] in ("active", "faded"):
+            from .speakers import visible
+            if d and d["status"] in ("active", "faded") and visible(d.get("meta")):
                 d["universal"] = True
                 d["score"] = res[0]["score"] if res else 1.0
                 out.append(d)

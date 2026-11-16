@@ -96,6 +96,8 @@ async def model_keys(store, model, days=2, limit=40):
     for i in range(0, len(todo), 10):
         batch = todo[i:i + 10]
         msg = "\n".join(f"{k + 1}. {r['title']}: {(r['body'] or '')[:300]}" for k, r in enumerate(batch))
+        from .overnight import safe_for
+        msg = safe_for(model, msg)          # a cloud model gets no secret values
         try:
             r = await model.chat(EXTRA_SYSTEM, [{"role": "user", "content": msg}], max_tokens=600, temperature=0)
             got = json.loads(re.search(r"\{.*\}", r.get("text") or "", re.S).group(0))

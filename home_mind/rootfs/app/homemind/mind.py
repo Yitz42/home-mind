@@ -754,6 +754,7 @@ class Mind:
         Not used by voice, which has no time for it; a bad reply keeps the search's own order."""
         top, rest = hits[:n], hits[n:]
         msg = "\n".join(f"{i + 1}. {h['title']}: {(h.get('body') or '')[:240]}" for i, h in enumerate(top))
+        msg = cloud_safe(msg, question, self.models.get(name), self.store)    # the re-ranker may be in the cloud too
         try:
             r = await asyncio.wait_for(self.models.get(name).chat(
                 self.RERANK_SYSTEM, [{"role": "user", "content": f"Question: {question}\n\nNotes:\n{msg}"}],
@@ -905,7 +906,12 @@ class Mind:
             name = vw.find(question)
             if name:
                 # "show my warranties": a saved view (#61) answers itself, no model needed
-                return {"answer": vw.say(name), "hits": [], "model": None, "view": name}
+                from .privacy import mask_all
+                from .speakers import VIEWER
+                said = vw.say(name)
+                if VIEWER.get() == "":
+                    said = mask_all(said)       # a list read to someone the house doesn't know: no codes (#78)
+                return {"answer": said, "hits": [], "model": None, "view": name}
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS
@@ -931,17 +937,18 @@ class Mind:
         if use_brain and "REFERENCE (offline Wikipedia" in (ctx or ""):
             sysmsg += (" REFERENCE passages come from an offline encyclopedia: use them for general facts the memory "
                        "notes don't cover, never for facts about the user, and say an answer came from Wikipedia.")
-        if procs:
-            sysmsg += "\n\nProcedures you know:\n" + "\n".join(f"- {p['title']}: {p['body']}" for p in procs)
+        proc_text = "\n".join(f"- {p['title']}: {p['body']}" for p in procs)
         notes_first = bool(use_brain and self.NOTES_FIRST and not voice and system is None)
-        if notes_first:
-            sysmsg += NOTES_FIRST
         content = answer_content(store, question, ctx, self.ORDER) if use_brain else question
         errors, r, used = [], None, None
         self._down = getattr(self, "_down", {})
         plain = content
+        base_sys = sysmsg
         for i, m in enumerate(chain):
             content = cloud_safe(plain, question, self.models.get(m), store) if use_brain else plain
+            # procedures go in the system message: their codes are hidden from a cloud model like the notes' are
+            sysmsg = base_sys + ("\n\nProcedures you know:\n" + cloud_safe(proc_text, question, self.models.get(m), store)
+                                 if procs else "") + (NOTES_FIRST if notes_first else "")
             left = None if deadline is None else deadline - (time.time() - t0)
             if left is not None and left <= 0.5:
                 errors.append(f"{m}: out of time")
