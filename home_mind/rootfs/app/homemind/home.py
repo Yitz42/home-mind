@@ -510,7 +510,8 @@ class Home:
 
 DO_SYSTEM = ("You turn a request into one smart-home action. Reply with JSON only: "
              '{"entity_id": one id from the list, "action": "on"|"off"|"toggle"|"brightness"|"color"|"speed"|'
-             '"humidity"|"run", "value": number or color name or null}. If nothing on the list fits, reply '
+             '"humidity"|"run"|"open"|"close"|"lock"|"unlock", "value": number or color name or null}. Covers (doors, '
+             'garage doors, blinds) open or close; locks lock or unlock. If nothing on the list fits, reply '
              '{"entity_id": null}.')
 
 

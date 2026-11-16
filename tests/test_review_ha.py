@@ -107,7 +107,8 @@ async def controls():
     # the planner (/api/do) never confirms: a model can't open the garage
     src = open(os.path.join(ROOT, "home_mind", "rootfs", "app", "homemind", "main.py")).read()
     do = src[src.index("async def do(self"):src.index("async def push_counts")]
-    check("/api/do acts without confirm", "confirm" not in do)
+    # (r6: a spoken "yes" in the same conversation confirms it, in App.pending_reply; do() itself never does)
+    check("/api/do acts without confirm", not re.search(r"confirm\s*=", do), re.findall(r"confirm\s*=.*", do))
 
     # unavailable things and HA refusing a call
     h = home(["light.*"], {"light.porch": {"state": "unavailable"}})

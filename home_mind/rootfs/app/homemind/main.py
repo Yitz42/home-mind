@@ -306,8 +306,48 @@ class App:
         if n:
             log.info("marked %d older notes as secret", n)
 
-    async def do(self, text, model=None, source="api"):
-        """A request in words ("dim the desk light to 30%") -> one checked action, planned by a model."""
+    # a lock, alarm or garage door asked for in words waits for a spoken "yes" in the same conversation for this long
+    PENDING_SECONDS = 30
+    YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|confirm(?:ed)?|do it|go ahead|please do|affirmative)\b"
+                     r"(?![\s,.!]*(?:but|wait|no|don'?t|hold)\b)", re.I)
+    NO = re.compile(r"^\s*(?:no|nope|don'?t|do not|stop|cancel|never ?mind|nevermind|forget it|wait|hold on|abort)\b",
+                    re.I)
+
+    def has_pending(self, conversation_id):
+        return bool(conversation_id) and conversation_id in (self.__dict__.get("_pending") or {})
+
+    async def pending_reply(self, conversation_id, text):
+        """The answer to "Do you want me to open the garage door? Say yes": a yes within PENDING_SECONDS does it, a
+        no drops it, and anything else drops it and is handled as a new request (None)."""
+        p = (self.__dict__.get("_pending") or {}).pop(conversation_id, None) if conversation_id else None
+        if not p:
+            return None
+        said = (text or "").replace("’", "'")
+        if time.time() - p["t"] > self.PENDING_SECONDS:
+            if self.YES.match(said):
+                return {"answer": f"That was too long ago, so I didn't {p['verb']} the {p['name']}. Ask me again.",
+                        "expired": True}
+            return None
+        if self.YES.match(said):
+            plan = p["plan"]
+            try:
+                done = await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"), p["source"],
+                                           confirm=True)
+            except (ValueError, PermissionError) as e:
+                return {"plan": plan, "error": str(e), "answer": f"I couldn't {p['verb']} the {p['name']}: {e}"}
+            return {"plan": plan, "done": done, "confirmed": True, "answer": f"OK, I'll {p['verb']} the {p['name']}."}
+        if self.NO.match(said):
+            return {"answer": f"OK, I won't {p['verb']} the {p['name']}.", "cancelled": True}
+        return None
+
+    async def do(self, text, model=None, source="api", conversation_id=None, deadline=None):
+        """A request in words ("dim the desk light to 30%") -> one checked action, planned by a model. A lock, alarm
+        or garage door is never moved on words alone: with a conversation_id it asks, and a "yes" in the same
+        conversation within PENDING_SECONDS does it (pending_reply). deadline (seconds; voice): planning that takes
+        longer does nothing, so a voice request that already timed out never moves the house afterwards."""
+        r = await self.pending_reply(conversation_id, text)
+        if r is not None:
+            return r
         if not self.home.catalog:
             await self.home.refresh()
         names = [n for n in self.models.models if n != "mock"]
@@ -315,9 +355,31 @@ class App:
         if not model:
             return {"error": "no model connected"}
         things = self.home.controllable()
-        plan = await plan_action(self.models.get(model), text, things)
+        try:
+            coro = plan_action(self.models.get(model), text, things)
+            plan = await (asyncio.wait_for(coro, deadline) if deadline else coro)
+        except asyncio.TimeoutError:
+            return {"error": "the model took too long; nothing was done",
+                    "answer": "Sorry, that took too long, so I didn't do anything."}
         if not plan.get("entity_id"):
             return {"error": "nothing on the control list fits", "plan": plan}
+        eid = plan["entity_id"]
+        if eid in self.home.catalog and self.home.allowed(eid) and self.home.sensitive(eid):
+            name = self.home.catalog[eid].get("name") or eid
+            a = (plan.get("action") or "").lower()
+            verb = {"on": "open", "off": "close", "toggle": "open or close"}.get(a, a or "change")
+            if conversation_id:
+                pend = self.__dict__.setdefault("_pending", {})
+                for k in [k for k, v in pend.items() if time.time() - v["t"] > 10 * self.PENDING_SECONDS]:
+                    pend.pop(k)
+                pend[conversation_id] = {
+                    "plan": plan, "t": time.time(), "source": source, "name": name, "verb": verb}
+                return {"plan": plan, "confirm_needed": True,
+                        "answer": f"Do you want me to {verb} the {name}? Say yes to go ahead."}
+            return {"plan": plan, "error": f"{eid} is a lock or door: it needs the person's yes, and this request has "
+                                           "no conversation_id to take one (or use mind_control with confirm: true)",
+                    "answer": f"I need a yes before I {verb} the {name}, and I can't take one here. "
+                              "Please use the Home Assistant app for that."}
         try:
             return {"plan": plan, "done": await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"),
                                                               source)}
@@ -1052,6 +1114,11 @@ def build(app_state):
         if not (b.get("question") or "").strip():
             raise ValueError("give a question")
         who, how = A.speaker_for(b)
+        if A.has_pending(b.get("conversation_id")) and allows(q.get("scope", "admin"), "admin"):
+            # "yes" right after "Do you want me to open the garage door?" (asked by /api/do in this conversation)
+            done = await A.pending_reply(b["conversation_id"], b["question"])
+            if done is not None:
+                return J(dict(done, hits=[], model=None))
         res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
                                expand=bool(b.get("expand")), voice=bool(b.get("voice")),
                                deadline=b.get("deadline"), fallback=b.get("fallback", True),
@@ -1181,8 +1248,10 @@ def build(app_state):
 
     @r.post("/api/do")
     async def home_do(q):
-        b = model_ok(await read_body(q, text=str, source=str))
-        return J(await A.do(b.get("text", ""), b.get("model"), b.get("source", "api")))
+        b = model_ok(await read_body(q, text=str, source=str, conversation_id=str, deadline=float))
+        deadline = b.get("deadline") or (A.mind.VOICE_SECONDS if b.get("voice") else None)
+        return J(await A.do(b.get("text", ""), b.get("model"), b.get("source", "api"),
+                            conversation_id=b.get("conversation_id"), deadline=deadline))
 
     @r.get("/api/automations")
     async def autos_list(_):
