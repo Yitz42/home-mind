@@ -147,6 +147,26 @@ def main():
         code, _ = call("/mcp", method="GET")
         check("mcp GET -> 405", code == 405)
 
+        # set 6: export/import, SQL, saved views, comparison (0.28)
+        _, ex = call("/api/export")
+        check("export has the notes", ex.get("format") == "home-mind-export" and ex["counts"]["items"] > 3, ex.get("counts"))
+        _, im = call("/api/import?dry_run=1", ex)
+        check("importing an export of itself adds nothing", im.get("added") == 0 and im.get("skipped") > 3, im)
+        _, q = call("/api/sql", {"q": "SELECT shelf, count(*) n FROM notes GROUP BY shelf"})
+        check("SQL over notes", q.get("columns") == ["shelf", "n"] and q["rows"], q)
+        code, q = call("/api/sql", {"q": "DELETE FROM items"})
+        check("SQL refuses writes", code == 400 and "error" in q, q)
+        call("/api/views", {"name": "house things", "shelf": "house"})
+        _, v = call("/api/views/house%20things")
+        check("saved view runs", v.get("items") and all(i["shelf"].startswith("house") for i in v["items"]), v)
+        code, _ = call("/api/views/nothing")
+        check("missing view -> 404", code == 404)
+        _, r = call("/mcp", {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                             "params": {"name": "mind_sql", "arguments": {"q": "SELECT count(*) FROM notes"}}})
+        check("mcp mind_sql", not r["result"]["isError"], r)
+        _, c = call("/api/compare")
+        check("comparison status", "runs" in c and c.get("every_days") == 0, c)
+
         # updates
         _, u = call("/api/updates")
         check("update check reads manifest", u.get("packs") and u["packs"][0]["latest"] == "0.1.0", u)

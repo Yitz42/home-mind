@@ -39,6 +39,15 @@
   <div class="card"><h2>Documents <span class="mute">manuals, warranties, recipes: searched for questions, answers name the page</span></h2><table id="docs"></table>
     <div class="row"><input type="file" id="doc_file" multiple accept=".pdf,.txt,.md,.html"> <button class="go" onclick="addDocs()">Add</button> <span id="doc_out" class="mute"></span></div>
     <p class="mute">Files in the documents folder (option docs_folder, default /share/home-mind/docs) are added every hour.</p></div>
+  <div class="card"><h2>Views and SQL <span class="mute">saved searches, and read-only SQL on the notes and links views</span></h2>
+    <div class="row" id="views"></div>
+    <div class="row"><input id="v_name" placeholder="name" style="width:140px"> <input id="v_query" placeholder="search words" style="width:180px"> <input id="v_shelf" placeholder="shelf" style="width:110px"> <input id="v_tags" placeholder="tags" style="width:110px"> <button class="go" onclick="viewSave()">Save view</button></div>
+    <div class="row"><input id="sql_q" placeholder="SELECT shelf, count(*) FROM notes GROUP BY shelf" style="flex:1"> <button class="go" onclick="sqlRun()">Run SQL</button></div>
+    <div style="overflow:auto"><table id="sql_out"></table></div></div>
+  <div class="card"><h2>Export and import <span class="mute">every note with its history and links, as one JSON file</span></h2>
+    <div class="row"><a class="go" href="api/export" download onclick="this.href = 'api/export' + ($('#ex_secrets').checked ? '?secrets=1' : '')">Export</a> <label class="mute"><input type="checkbox" id="ex_secrets"> with secrets</label>
+      <input type="file" id="im_file" accept=".json"> <button class="go" onclick="importFile(true)">Check</button> <button class="go" onclick="importFile(false)">Import</button> <span id="im_out" class="mute"></span></div>
+    <p class="mute">Two-way Markdown sync: set the option markdown_folder. <button class="go" onclick="mdSync()">Sync now</button> <span id="md_out"></span></p></div>
   <div class="card hide" id="reviewcard"><h2>To review <span class="mute">learned or guessed, not checked yet</span></h2><table id="review"></table>
     <p class="mute">Held notes read like instructions to the assistant and are left out of answers until approved. Unconfirmed ones are shown to models marked UNCONFIRMED.</p></div>
   <div class="card"><div class="row"><h2 style="margin:0">Recently added</h2>
@@ -106,6 +115,8 @@
       <input id="t_seed" placeholder="seed" style="width:80px"> <input id="t_n" placeholder="size" style="width:70px">
       <button class="go" onclick="runTest()">Run</button></div>
     <div class="mute" id="t_info"></div></div>
+  <div class="card"><h2>Model comparison <span class="mute">the same questions for every model, every few days (option compare_days)</span></h2><table id="cmp"></table>
+    <div class="row"><button class="go" onclick="cmpRun()">Compare now</button> <span id="cmp_out" class="mute"></span></div></div>
   <div class="card"><h2>Runs</h2><table id="runs"></table></div>
   <div class="card hide" id="runcard"><h2>Run <span id="runid"></span></h2><pre id="run"></pre></div>
 </section>
@@ -143,14 +154,14 @@ async function load(t) {
     const ev = await api('api/events?limit=15');
     $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${e.type}</td><td class="mute">${esc(e.data).slice(0, 140)}</td></tr>`).join('');
   }
-  if (t === 'memory') { browse(''); recent(); review(); inbox(); docsList(); }
+  if (t === 'memory') { browse(''); recent(); review(); inbox(); docsList(); viewsList(); }
   if (t === 'worked') { worked(); }
   if (t === 'house') { houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
   if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${k}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
     const ms = await api('api/models'); $('#t_model').innerHTML = '<option value="">(model)</option>' + ms.map(m => `<option>${esc(m.name)}</option>`).join('');
-    runs();
+    runs(); cmp();
   }
   if (t === 'models') { tokens();
     const ms = await api('api/models');
@@ -184,6 +195,38 @@ async function addDocs() {
   docsList();
 }
 async function docRemove(id) { await fetch('api/docs/' + id, {method: 'DELETE'}); docsList(); }
+async function viewsList() {
+  const vs = await api('api/views');
+  $('#views').innerHTML = Object.keys(vs).map(n => `<button class="go" data-n="${esc(n)}" onclick="viewRun(this.dataset.n)">${esc(n)}</button> <a class="mute" href="#" data-n="${esc(n)}" onclick="viewDel(this.dataset.n);return false">×</a>`).join(' ') || '<span class="mute">no saved views yet</span>';
+}
+function table(cols, rows) { return '<tr>' + cols.map(c => `<th>${esc(c)}</th>`).join('') + '</tr>' + rows.map(r => '<tr>' + r.map(c => `<td>${esc(c == null ? '' : c)}</td>`).join('') + '</tr>').join(''); }
+async function viewRun(n) {
+  const r = await (await fetch('api/views/' + encodeURIComponent(n))).json();
+  if (r.error) { $('#sql_out').innerHTML = `<tr><td>${esc(r.error)}</td></tr>`; return; }
+  $('#sql_out').innerHTML = r.rows ? table(r.columns, r.rows) : table(['title', 'shelf', 'when'], r.items.map(i => [i.title || i.body, i.shelf, ago(i.created)]));
+}
+async function viewSave() {
+  const b = {name: $('#v_name').value, query: $('#v_query').value, shelf: $('#v_shelf').value || null, tags: $('#v_tags').value.split(/[ ,]+/).filter(x => x)};
+  if (!b.query && !b.shelf && !b.tags.length && $('#sql_q').value) b.sql = $('#sql_q').value;
+  const r = await api('api/views', b); if (r.error) alert(r.error); viewsList();
+}
+async function viewDel(n) { await fetch('api/views/' + encodeURIComponent(n), {method: 'DELETE'}); viewsList(); }
+async function sqlRun() {
+  const r = await api('api/sql', {q: $('#sql_q').value});
+  $('#sql_out').innerHTML = r.error ? `<tr><td>${esc(r.error)}</td></tr>` : table(r.columns, r.rows) + (r.truncated ? '<tr><td class="mute">first 500 rows</td></tr>' : '');
+}
+async function importFile(dry) {
+  const f = $('#im_file').files[0]; if (!f) return;
+  const r = await (await fetch('api/import' + (dry ? '?dry_run=1' : ''), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: await f.text()})).json();
+  $('#im_out').textContent = r.error || `${dry ? 'would add' : 'added'} ${r.added}, already here ${r.skipped}${r.bad ? ', unreadable ' + r.bad : ''}`;
+  if (!dry) recent();
+}
+async function mdSync() { const r = await api('api/markdown/sync', {}); $('#md_out').textContent = r.error || JSON.stringify(r); }
+async function cmp() {
+  const c = await api('api/compare');
+  $('#cmp').innerHTML = c.models && c.models.length ? '<tr><th>model</th><th>accuracy</th><th>change</th><th>avg ms</th><th>suites</th></tr>' + c.models.map(m => `<tr><td>${esc(m.model)}</td><td class="num">${pct(m.accuracy)}</td><td class="num">${m.change == null ? '' : (m.change > 0 ? '+' : '') + Math.round(m.change * 100)}</td><td class="num">${m.ms_avg || ''}</td><td class="mute">${esc(Object.entries(m.suites).map(([k, v]) => k + ' ' + pct(v)).join(', '))}</td></tr>`).join('') + `<tr><td class="mute" colspan="5">${ago(c.latest.ts)}, seed ${c.latest.seed}${c.running ? ' · running now' : ''}</td></tr>` : `<tr><td class="mute">no comparison yet${c.running ? ' (running now)' : ''}</td></tr>`;
+}
+async function cmpRun() { const r = await api('api/compare/run', {}); $('#cmp_out').textContent = 'started: ' + (r.models || []).join(', '); }
 async function review() {
   const rs = await api('api/review');
   $('#reviewcard').classList.toggle('hide', !rs.length);

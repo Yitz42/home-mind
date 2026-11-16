@@ -115,6 +115,19 @@ configuration:
   rerank_model:
     name: Re-ranking model
     description: One of your models re-orders the top notes for typed questions before the answer is written (not for voice). Empty = search's own order.
+  markdown_folder:
+    name: Markdown folder (two-way sync)
+    description: Every note as a Markdown file, one folder per shelf (for example /share/home-mind/notes). Edit a file to change the note, add a file to add a note, delete one to archive it. Empty = off.
+  markdown_minutes:
+    name: Markdown sync every (minutes)
+  compare_models:
+    name: Models to compare
+    description: Models that answer the same test questions on a schedule. Empty = every connected model.
+  compare_days:
+    name: Compare models every (days)
+    description: 0 = off. Results on the Tests tab, at /api/compare and as a sensor per model.
+  compare_suites:
+    name: Suites for the model comparison
   automation_pin:
     name: PIN for automations that open the house
     description: Drafted automations that unlock, open a garage door or disarm an alarm are installed only with this PIN. Empty = never.

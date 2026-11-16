@@ -333,6 +333,14 @@ Assistant doesn't have.
 - **"Tell me everything about X"** gathers the thing's place, notes, linked notes, chores and fields.
 - **Languages.** Guesses ("creo que", "vielleicht", "je pense"), corrections ("en realidad", "eigentlich", "en fait") and who said it ("Marta dice", "Jonas sagt") are read in six languages besides English. Notes in other languages are tagged by the overnight model.
 
+## Your memory outside the app (0.28)
+
+- **Export / import.** Memory tab > Export downloads everything as JSON. Tick "with secrets" to include secret values (needs the vault key). Import merges a file in; "Check" shows what it would add first.
+- **Markdown folder.** Set `markdown_folder` (for example `/share/home-mind/notes`) and every note appears as a `.md` file, one folder per shelf, synced every `markdown_minutes` (default 10). Point Obsidian or Syncthing at it. Edit a file to change a note, add a file to add one, delete a file to archive the note.
+- **SQL.** Memory tab > Views and SQL. Only SELECT on `notes` and `links`. Example: `SELECT shelf, count(*) FROM notes WHERE status='active' GROUP BY shelf`.
+- **Saved views.** Save a search or filter by name; open it from the panel or say "show my <name>".
+- **Model comparison.** Set `compare_days` (for example 7) to have the connected models answer the same test questions every week. The Tests tab shows accuracy, speed and the change since last time.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press

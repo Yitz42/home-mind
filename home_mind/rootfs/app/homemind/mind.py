@@ -845,6 +845,12 @@ class Mind:
                 cid = Cases(store).add(aw["q"], text, aw.get("wrong", ""), aw["src"]["id"], filed["id"])
             return {"answer": f"Thanks, filed: {text} The old note stays in its history.", "hits": [], "model": None,
                     "filed": filed, "case": cid}
+        vw = getattr(self, "views", None)
+        if vw is not None and store is self.store:
+            name = vw.find(question)
+            if name:
+                # "show my warranties": a saved view (#61) answers itself, no model needed
+                return {"answer": vw.say(name), "hits": [], "model": None, "view": name}
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS

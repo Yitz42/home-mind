@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.28.0
+- Export and import (#35): `/api/export` gives every note with its history, links and fields as one JSON file (secrets masked unless asked for with the vault key loaded; house readings left out). `/api/import` merges one in: notes already here are skipped, ids renumbered, versions and links follow. A dry run says what would be added. Buttons on the Memory tab.
+- Two-way Markdown sync (#67): option `markdown_folder`. Every note becomes a Markdown file, one folder per shelf. Editing a file makes a new version; a new file becomes a note on its folder's shelf; deleting a file archives the note; archiving a note deletes its file. If both changed, the note wins and the file's text is kept as `.conflict.md`. Secrets and house readings are never written out.
+- Read-only SQL (#70): `/api/sql` and the `mind_sql` tool run SELECT queries on two views, `notes` (secret text shown as [secret]) and `links`. The connection is read-only, every statement is checked (no other tables, no writes, no ATTACH or PRAGMA), and queries stop after 3 seconds or 500 rows.
+- Saved views (#61): named searches or filters (words, shelf, kind, tags, days back, order) or a SQL query. `/api/views`, the `mind_view` tool, the Memory tab, and by voice: "show my warranties".
+- Model comparison on a schedule (#34): options `compare_days`, `compare_models`, `compare_suites`. The models answer the same suites from the same seed; results on the Tests tab, at `/api/compare` and as a sensor per model. A drop of 5 points or more since the last comparison is logged.
+
 ## 0.27.0
 - Prefix-only matches weigh less (#25): a note that matches a question word only as the start of a longer word ("garages" for "garage") gets a quarter of the weight. The keys suite goes from 0.95 to 1.000.
 - Links followed as a walk (#12, #81): from the best few results, the links are walked up to three steps (personalized PageRank). A linked note is added only when it brings question words the results don't have yet. Three-step questions ("who has the key for the place where the mower is kept?") go from 0/40 with one hop to 33/40 (held-out).

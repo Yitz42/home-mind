@@ -53,6 +53,8 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
             "paperless_url": "", "paperless_token": "", "rerank_model": "",
+            "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
+            "compare_suites": ["recall", "tricky", "hard"],
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
@@ -140,6 +142,13 @@ class App:
             self.mind.store.filer = Filer(self.mind.store)
         from .offsite import Offsite
         self.offsite = Offsite(self.mind.store, self.opts, lambda: self.models.session)
+        from .mdsync import MdSync
+        from .views import Views
+        from .compare import Compare
+        self.mdsync = MdSync(self.mind.store, self.opts.get("markdown_folder") or None)
+        self.mind.views = self.views = Views(self.mind.store)
+        self.compare = Compare(self.mind, self.opts.get("compare_models") or [], self.opts.get("compare_days") or 0,
+                               self.opts.get("compare_suites") or None)
         self.comforts = self.comfort_rooms()
         self.comfort = self.comforts[0]
         self.body = Body(self.mind.store, self.ha)
@@ -370,6 +379,27 @@ class App:
                         log.info("documents: %s", r)
                 except Exception as e:  # noqa: BLE001
                     log.warning("documents folder: %s", e)
+            if self.mdsync.folder and now - last.get("md", 0) > 60 * float(self.opts.get("markdown_minutes") or 10):
+                last["md"] = now
+                try:
+                    r = await asyncio.to_thread(self.mdsync.run)
+                    if any(r.get(k) for k in ("updated_notes", "new_notes", "archived", "conflicts")):
+                        log.info("markdown sync: %s", r)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("markdown sync: %s", e)
+            if self.compare.due(now):
+                try:
+                    r = await self.compare.run()
+                    log.info("model comparison: best %s, dropped %s", r.get("best"), r.get("dropped"))
+                    for m, row in (r.get("models") or {}).items():
+                        if row.get("accuracy") is not None:
+                            await self.ha.sensor(f"sensor.home_mind_compare_{re.sub(r'[^a-z0-9]+', '_', m.lower())}",
+                                                 round(100 * row["accuracy"], 1),
+                                                 {"friendly_name": f"Home Mind model {m}", "unit_of_measurement": "%",
+                                                  "state_class": "measurement", "icon": "mdi:scale-balance",
+                                                  "ms_avg": row.get("ms_avg"), "suites": row.get("suites")})
+                except Exception as e:  # noqa: BLE001
+                    log.warning("model comparison: %s", e)
             if self.offsite.due(now):
                 try:
                     r = await self.offsite.run(now)
@@ -1067,6 +1097,81 @@ def build(app_state):
     @r.post("/api/backup/now")
     async def backup_now(_):
         return J(await A.offsite.run())
+
+    @r.get("/api/export")
+    async def export_get(q):
+        from . import portable
+        data = portable.export(A.mind.store, secrets=q.query.get("secrets") == "1",
+                               include_home=q.query.get("home") == "1", app_version=VERSION)
+        name = f"home-mind-{datetime.now().strftime('%Y-%m-%d')}.json"
+        return web.Response(text=json.dumps(data, ensure_ascii=False), content_type="application/json",
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @r.post("/api/import")
+    async def import_post(q):
+        from . import portable
+        if q.content_type.startswith("multipart/"):
+            rd = await q.multipart()
+            data = None
+            async for part in rd:
+                if part.filename:
+                    data = json.loads((await part.read(decode=False)).decode("utf-8"))
+        else:
+            data = await q.json()
+        try:
+            return J(await asyncio.to_thread(portable.import_, A.mind.store, data, q.query.get("dry_run") == "1"))
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+
+    @r.post("/api/markdown/sync")
+    async def markdown_sync(_):
+        if not A.mdsync.folder:
+            return J({"error": "set markdown_folder in the options first"}, status=400)
+        return J(await asyncio.to_thread(A.mdsync.run))
+
+    @r.post("/api/sql")
+    async def sql_post(q):
+        from . import sqlview
+        b = await q.json()
+        try:
+            return J(await asyncio.to_thread(sqlview.query, A.mind.store.path, b.get("q") or b.get("sql")))
+        except sqlview.SqlError as e:
+            return J({"error": str(e), "views": sqlview.HELP}, status=400)
+
+    @r.get("/api/views")
+    async def views_list(_):
+        return J(A.views.all())
+
+    @r.post("/api/views")
+    async def views_save(q):
+        b = await q.json()
+        try:
+            return J(A.views.save(b.get("name"), b.get("query"), b.get("shelf"), b.get("kind"), b.get("tags"),
+                                  b.get("days"), b.get("sort"), b.get("limit") or 20, b.get("sql")))
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+
+    @r.get("/api/views/{name}")
+    async def views_run(q):
+        try:
+            return J(A.views.run(q.match_info["name"]))
+        except KeyError as e:
+            return J({"error": str(e)}, status=404)
+
+    @r.delete("/api/views/{name}")
+    async def views_delete(q):
+        return J({"removed": A.views.remove(q.match_info["name"])})
+
+    @r.get("/api/compare")
+    async def compare_get(_):
+        return J({**A.compare.table(), "running": A.compare.running, "every_days": A.compare.days,
+                  "compares": A.compare.names()})
+
+    @r.post("/api/compare/run")
+    async def compare_run(q):
+        b = await q.json() if q.can_read_body else {}
+        asyncio.create_task(A.compare.run(b.get("seed")))
+        return J({"started": True, "models": A.compare.names(), "suites": A.compare.suites})
 
     @r.get("/api/docs")
     async def docs_list(q):

@@ -55,6 +55,13 @@ TOOLS = [
     ("mind_purge_about", "Delete for good everything that mentions a name (cannot be undone). Only when the user clearly "
                          "asks; confirm must be true.", S({"name": STR, "confirm": BOOL}, ["name", "confirm"])),
     ("mind_browse", "The shelf tree under a shelf (counts), and the items on that shelf.", S({"shelf": STR})),
+    ("mind_sql", "Read-only SQL over the memory: SELECT on the views notes(id, kind, key, shelf, status, replaces, "
+     "source, title, body, tags, created, updated, created_ts, use_count, strength, category, owner, scope) and "
+     "links(a, b, kind). Secret text shows as [secret]. Up to 500 rows.", S({"q": STR}, ["q"])),
+    ("mind_view", "Saved views (named searches). action: list, run (name), save (name with query/shelf/kind/tags/"
+     "days/sort/limit or sql), remove (name).",
+     S({"action": STR, "name": STR, "query": STR, "shelf": STR, "kind": STR, "tags": {"type": "array", "items": STR},
+        "days": {"type": "number"}, "sort": STR, "limit": INT, "sql": STR}, ["action"])),
     ("mind_tasks", "Tasks (kind 'task', meta due/priority/project/done), soonest first. status: open, done, all.",
      S({"project": STR, "status": STR, "due_before": {"type": "number"}})),
     ("mind_feedback", "Say whether a recalled item was useful (it ranks higher or lower afterwards).",
@@ -187,6 +194,21 @@ class MCP:
             return st.set_status(int(a["id"]), "active")
         if name == "mind_browse":
             return st.browse(a.get("shelf"))
+        if name == "mind_sql":
+            from . import sqlview
+            return sqlview.query(st.path, a["q"])
+        if name == "mind_view":
+            v, act = app.views, a.get("action") or "list"
+            if act == "list":
+                return v.all()
+            if act == "run":
+                return v.run(a["name"])
+            if act == "save":
+                return v.save(a["name"], a.get("query"), a.get("shelf"), a.get("kind"), a.get("tags"), a.get("days"),
+                              a.get("sort"), a.get("limit") or 20, a.get("sql"))
+            if act == "remove":
+                return {"removed": v.remove(a["name"])}
+            raise ValueError(f"unknown action {act}")
         if name == "mind_tasks":
             return st.tasks(project=a.get("project"), status=a.get("status") or "open", due_before=a.get("due_before"))
         if name == "mind_feedback":
