@@ -117,6 +117,38 @@ async def main():
     assert cut["cut_off"] and parse_plan("no json here") == {}
     assert parse_plan('{"focus": "x", "meals": []}') == {"focus": "x", "meals": []}
     assert "under 35 words" in MEAL_SYSTEM
+    # a logged meal gets a protein / calorie estimate saved on it, which Today adds up
+    from homemind import today
+    from homemind.main import meal_time
+    from datetime import datetime as _dt
+    models.chef.chat = None
+
+    class Est:
+        type, cfg = "mock", {}
+
+        async def chat(self, system, msgs, **k):
+            Est.prompt = msgs[0]["content"]
+            return {"text": '{"protein_g": 24.6, "calories": 410}', "ms": 1}
+    models.models["haiku"] = Est()
+    models.get = lambda n: models.models["haiku"]
+    p.add("Bumble Bee tuna", "2 cans", "pantry")
+    lg = p.ate("lunch: tuna and chickpea penne", when=meal_time("12:30pm"))
+    assert lg["id"] and lg["at"] == "12:30 PM", lg
+    e = await p.estimate(lg["id"])
+    assert e == {"id": lg["id"], "protein_g": 25, "calories": 410}, e
+    assert "Bumble Bee tuna" in Est.prompt, Est.prompt
+    class _M:
+        store = st
+
+    class _A:
+        mind, pantry, patterns, ha = _M, p, None, None
+    day = await today.build(_A)
+    mine = [m for m in day["meals"] if m["id"] == lg["id"]][0]
+    assert mine["protein_g"] == 25 and mine["estimated"] and day["protein_g"] >= 25, day
+    Est.chat = lambda self, *a, **k: asyncio.sleep(0, {"text": "no idea", "ms": 1})
+    assert await p.estimate(p.ate("snack: something")["id"]) is None     # a bad reply saves nothing
+    assert meal_time("8am", _dt(2026, 11, 16, 13)) == _dt(2026, 11, 16, 8).timestamp()
+    assert meal_time("11pm", _dt(2026, 11, 16, 13)) == _dt(2026, 11, 15, 23).timestamp() and meal_time("lunch") is None
     print("PANTRY OK")
 
 

@@ -300,10 +300,59 @@ class Pantry:
         now = when or time.time()
         caf = caffeinated(text)
         t = datetime.fromtimestamp(now)
-        self.store.remember(text=f"Ate {text} at {t:%I:%M %p}".replace(" 0", " ") + f" on {t:%a %b %d}."
-                            + (" (caffeine)" if caf else ""), title=f"Ate: {text}"[:80], kind="fact",
-                            shelf="body/meals", source=source, tags=["meal"], meta={"at": now, "caffeine": caf}, at=now)
-        return {"logged": text, "caffeine": caf, "at": t.strftime("%I:%M %p").lstrip("0")}
+        r = self.store.remember(text=f"Ate {text} at {t:%I:%M %p}".replace(" 0", " ") + f" on {t:%a %b %d}."
+                                + (" (caffeine)" if caf else ""), title=f"Ate: {text}"[:80], kind="fact",
+                                shelf="body/meals", source=source, tags=["meal"], meta={"at": now, "caffeine": caf},
+                                at=now)
+        return {"logged": text, "caffeine": caf, "at": t.strftime("%I:%M %p").lstrip("0"), "id": r.get("id")}
+
+    def meal_hints(self, text):
+        """Nutrition we already know for the foods named in a logged meal (pantry matches and the food database)."""
+        body = re.sub(r"^\s*(breakfast|lunch|dinner|snack)\s*:\s*", "", text or "", flags=re.I)
+        parts = [x.strip() for x in re.split(r",| and |\+", body) if x.strip()]
+        rows = self.items("in") + self.items("used")      # just used counts: you often log a meal after finishing it
+        out = []
+        for part in parts:
+            n = _norm(part)
+            words = set(n.split()) - {"the", "a", "some", "my", "of", "half", "leftover", "pint", "serving", "cup"}
+            names = [r["name"] for r in rows if words and len(words & set(_norm(r["name"]).split())) >= min(2, len(words))]
+            note = ""
+            for name in names[:1] + [part]:
+                note = self.nutrition_note(name)
+                if note:
+                    break
+            out.append(f"- {part}" + (f" (in the pantry as: {names[0]})" if names else "") + note)
+        return "\n".join(out)
+
+    async def estimate(self, iid, text=None, model=None):
+        """Rough protein and calories for a logged meal, saved on it so Today can add up the day."""
+        row = self.store.db.execute("SELECT title, meta FROM items WHERE id=?", (int(iid),)).fetchone()
+        if not row:
+            raise ValueError("no such meal")
+        text = text or re.sub(r"^Ate:\s*", "", row["title"] or "")
+        names = [x for x in self.models.models if x != "mock"]
+        model = model or ("haiku" if "haiku" in names else names[0] if names else None)
+        if not model:
+            return None
+        r = await self.models.get(model).chat(
+            "Estimate the protein (grams) and calories in what someone ate. Use the nutrition given in [brackets] "
+            "when it fits the food, scaled to the amount eaten; otherwise use typical values for a normal portion. "
+            "Reply with JSON only: {\"protein_g\": number, \"calories\": number}",
+            [{"role": "user", "content": f"Ate: {text}\nWhat we know:\n{self.meal_hints(text)}"}],
+            max_tokens=200, temperature=0)
+        m = re.search(r"\{.*?\}", r.get("text") or "", re.S)
+        try:
+            est = json.loads(m.group(0)) if m else {}
+            p, c = float(est["protein_g"]), float(est.get("calories") or 0)
+        except (ValueError, KeyError, TypeError):
+            return None
+        if not (0 <= p <= 200 and 0 <= c <= 4000):
+            return None
+        meta = json.loads(row["meta"] or "{}") if isinstance(row["meta"], str) else dict(row["meta"] or {})
+        meta.update(protein_g=round(p), calories=round(c), estimated=True)
+        self.store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), int(iid)))
+        self.store.db.commit()
+        return {"id": int(iid), "protein_g": round(p), "calories": round(c)}
 
     def remove(self, iid):
         """Delete a line entered by mistake (used or tossed keep a record; this doesn't)."""

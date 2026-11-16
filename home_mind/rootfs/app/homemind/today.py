@@ -71,9 +71,11 @@ async def build(A, now=None):
         out["week"] = [{k: r.get(k) for k in ("day", "fog", "sleep_h", "readiness", "bedtime", "hrv")} for r in rows[-7:]]
     for r in st.db.execute("SELECT id, title, body, meta, created FROM items WHERE shelf='body/meals' AND status='active' "
                            "AND created >= ? ORDER BY created", (midnight,)):
+        meta = json.loads(r["meta"] or "{}") if isinstance(r["meta"], str) else (r["meta"] or {})
         m = PROTEIN.search((r["title"] or "") + " " + (r["body"] or ""))
-        g = float(m.group(1)) if m else None
+        g = float(m.group(1)) if m else meta.get("protein_g")
         out["meals"].append({"id": r["id"], "title": re.sub(r"^Ate:\s*", "", r["title"] or ""), "protein_g": g,
+                             "calories": meta.get("calories"), "estimated": bool(meta.get("estimated")),
                              "at": r["created"]})
         out["protein_g"] += g or 0
     for r in st.db.execute("SELECT id, title, source, shelf, created FROM items WHERE created >= ? AND status='active' "

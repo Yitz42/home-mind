@@ -36,6 +36,34 @@ from . import models as models_mod
 from .version import VERSION
 
 DATA = os.environ.get("HOME_MIND_DATA", "/data")
+_BG = set()     # background jobs (meal estimates) kept alive until they finish
+
+
+def meal_time(when, now=None):
+    """'8am', '8:30', '7:45 pm' or an ISO time -> a timestamp today (yesterday if that's still in the future);
+    None for nothing or something unreadable."""
+    if not when:
+        return None
+    now = now or datetime.now()
+    w = str(when).strip().lower().replace(".", "")
+    try:
+        return datetime.fromisoformat(w).timestamp()
+    except ValueError:
+        pass
+    m = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", w)
+    if not m:
+        return None
+    h, mi, ap = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+    if ap == "pm" and h < 12:
+        h += 12
+    if ap == "am" and h == 12:
+        h = 0
+    if h > 23 or mi > 59:
+        return None
+    t = now.replace(hour=h, minute=mi, second=0, microsecond=0)
+    if t > now:
+        t -= timedelta(days=1)
+    return t.timestamp()
 PORT = int(os.environ.get("HOME_MIND_PORT", "8099"))
 INGRESS_IPS = {"172.30.32.2"}
 WEB = os.path.join(os.path.dirname(__file__), "web")
@@ -876,7 +904,17 @@ def build(app_state):
                 return J(A.pantry.add(b["name"], b.get("amount", ""), b.get("location"), b.get("use_by"),
                                       source=b.get("source", "api")))
             if op == "ate":
-                return J(A.pantry.ate(b.get("text") or b.get("name") or "", source=b.get("source", "api")))
+                text = b.get("text") or b.get("name") or ""
+                out = A.pantry.ate(text, when=meal_time(b.get("when")), source=b.get("source", "api"))
+                if out.get("id"):
+                    t = asyncio.create_task(A.pantry.estimate(out["id"], text))
+                    _BG.add(t)
+                    t.add_done_callback(_BG.discard)
+                return J(out)
+            if op == "estimate":     # meals logged today without a protein estimate (or the given ids)
+                from . import today
+                ids = b.get("ids") or [r["id"] for r in (await today.build(A))["meals"] if r.get("protein_g") is None]
+                return J({"estimated": [x for x in [await A.pantry.estimate(i) for i in ids] if x]})
             if op in ("used", "tossed"):
                 names = [n for n, _ in A.pantry.parse_list(b["text"])] if b.get("text") else [b["name"]]
                 return J({"done": [A.pantry.use(n, "used" if op == "used" else "tossed") for n in names]})

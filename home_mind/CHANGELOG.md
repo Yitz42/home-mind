@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.24.1
+- Protein today now counts what you log: each meal you log gets a rough protein and calorie estimate (from the pantry's nutrition data where it has it), and Today adds them up. Meals already logged today can be estimated with one call.
+- Log a meal with when you ate it ("breakfast at 8am"); before, every meal was stamped with the time you logged it.
+
 ## 0.24.0
 - Home tab (was House): a map of the bedroom with every device where it really is. Lights glow on the map when on; tap anything to control it in the panel beside the map: brightness and color for lights (plus the White, Warm, Dim, Night and Rope night presets for all lights), target temperature and presets for the heater, speed, auto and night mode for the purifier, tilt for the blind, and a full 3D-printer panel (status, progress, layers, time left, temperatures, chamber light, pause / resume / stop with a confirm).
 - Quick actions: Bedtime (lights off but a dim under-bed glow, light sleep mode, heat to your night setting), Wake up (lights on, blind open), Focus (desk power and desk light) and All off.
