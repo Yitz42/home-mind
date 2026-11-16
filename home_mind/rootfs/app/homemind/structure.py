@@ -45,8 +45,10 @@ def parse_date(text, now_ts=None, future=False):
         return _safe(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     m = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b", t)
     if m:
-        y = int(m.group(3))
-        return _safe(y + 2000 if y < 100 else y, int(m.group(1)), int(m.group(2)))
+        y, a, b = int(m.group(3)), int(m.group(1)), int(m.group(2))
+        if a > 12 >= b:
+            a, b = b, a          # "13/3/2027" can only be day-first; ambiguous ones ("3/4") stay month-first
+        return _safe(y + 2000 if y < 100 else y, a, b)
     m = re.search(rf"\b{MON}\.? (\d{{1,2}})(?:st|nd|rd|th)?,? (\d{{4}})\b", t)
     if m:
         return _safe(int(m.group(3)), _mon(m.group(1)), int(m.group(2)))
@@ -55,10 +57,11 @@ def parse_date(text, now_ts=None, future=False):
         return _safe(int(m.group(2)), _mon(m.group(1)), 1)
     m = re.search(rf"\b{MON}\.? (\d{{1,2}})(?:st|nd|rd|th)?\b", t)
     if m:
-        d = _safe(today.year, _mon(m.group(1)), int(m.group(2)))
+        mo, dd = _mon(m.group(1)), int(m.group(2))
+        d = _safe(today.year, mo, dd) or (_safe(today.year, 2, 28) if (mo, dd) == (2, 29) else None)
         if d and future and d < today:
-            d = _safe(today.year + 1, d.month, d.day)
-        return d
+            d = _safe(today.year + 1, mo, dd) or (_safe(today.year + 1, 2, 28) if (mo, dd) == (2, 29) else None)
+        return d             # Feb 29 with no year: Feb 28 in a year that has none (a leap-day birthday still comes)
     return None
 
 
@@ -164,7 +167,9 @@ def recurrence(text, now_ts):
         else:
             unit, k = m.group(2).lower(), _n(m.group(1) or "1")
         days = UNIT_DAYS[unit] * k
-        return {"kind": "interval", "days": days, "anchor": (start or _day(now_ts)).timestamp()}
+        # months and years are counted on the calendar (rent "every month" stays on the 1st; 30-day steps drift)
+        months = k if unit == "month" else 12 * k if unit == "year" else 0
+        return {"kind": "interval", "days": days, "months": months, "anchor": (start or _day(now_ts)).timestamp()}
     return None
 
 
@@ -191,6 +196,17 @@ def next_time(rec, now_ts):
             y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
     if rec["kind"] == "interval":
         anchor = _day(rec["anchor"])
+        months = rec.get("months")
+        if months is None and rec["days"] in (30, 365):      # filed before months were kept: "every month/year"
+            months = 1 if rec["days"] == 30 else 12
+        if months:
+            n = 0
+            while True:
+                y, mo = divmod(anchor.month - 1 + months * n, 12)
+                d = date(anchor.year + y, mo + 1, min(anchor.day, calendar.monthrange(anchor.year + y, mo + 1)[1]))
+                if d >= today.date():
+                    return d
+                n += 1
         n = 0 if today <= anchor else -(-((today - anchor).days) // rec["days"])
         return (anchor + timedelta(days=rec["days"] * n)).date()
     return None

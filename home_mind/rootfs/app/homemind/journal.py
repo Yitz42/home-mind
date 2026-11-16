@@ -21,7 +21,7 @@ class Journal:
 
     def entries(self, day):
         start = datetime.combine(day, datetime.min.time()).timestamp()
-        end = start + 86400
+        end = datetime.combine(day + timedelta(days=1), datetime.min.time()).timestamp()   # 23 or 25 hours on DST days
         rows = self.store.db.execute(
             "SELECT * FROM items WHERE shelf='journal' AND status IN ('active','faded') AND created >= ? AND created < ? "
             "ORDER BY created", (start, end)).fetchall()

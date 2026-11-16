@@ -15,7 +15,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .speakers import FIRST_PERSON
 
@@ -475,12 +475,15 @@ class Overnight:
 
     async def tick(self):
         now = datetime.now()
-        if (now.hour, now.minute) >= self.at and (now.hour, now.minute) < (self.at[0] + 3, self.at[1]) \
-                and self.done_for != now.date():
-            self.done_for = now.date()
-            if self.store.kv_get("overnight_done_for") == str(now.date()):
+        # the window is 3 hours from the set time and may run past midnight (23:00 -> 02:00); a run belongs to the
+        # day its window opened, so 23:10 and 00:30 are the same night
+        since = (now.hour * 60 + now.minute - self.at[0] * 60 - self.at[1]) % 1440
+        night = (now - timedelta(minutes=since)).date()
+        if since < 180 and self.done_for != night:
+            self.done_for = night
+            if self.store.kv_get("overnight_done_for") == str(night):
                 return          # a restart inside the window after tonight's run: don't run it again
-            self.store.kv_set("overnight_done_for", str(now.date()))
+            self.store.kv_set("overnight_done_for", str(night))
             if not self.enabled:
                 self.last = {"at": time.time(), "skipped": "overnight learning switched off"}
                 return
