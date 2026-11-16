@@ -262,7 +262,8 @@ def edit_distance(a, b, cap=3):
 
 
 def clean_shelf(shelf):
-    parts = [re.sub(r"[^a-z0-9_\-]+", "-", p.strip().lower()).strip("-") for p in (shelf or "inbox").split("/")]
+    # letters of any language ("Küche", "台所"), digits, _ and -; anything else (spaces, dots, slashes) becomes -
+    parts = [re.sub(r"[^\w\-]+", "-", p.strip().lower()).strip("-") for p in (shelf or "inbox").split("/")]
     return "/".join(p for p in parts if p) or "inbox"
 
 

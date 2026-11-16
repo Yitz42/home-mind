@@ -273,9 +273,13 @@ def done_of(text):
 # ---- #56 where things are ------------------------------------------------------------------------------------------
 NP = r"((?:[\w'-]+\s+){0,4}?[\w'-]+)"
 PREP = r"(?:in|inside|into|on|under|behind|in the back of|on top of|next to)"
-PLACE = [re.compile(rf"^\s*(?:{ART})?{NP}\s+(?:is|are)\s+(?:kept\s+|stored\s+|now\s+)*{PREP}\s+(?:{ART})?{NP}\s*[.!]?$", re.I),
+PLACE = [re.compile(rf"^\s*(?:{ART})?{NP}\s+(?:is|are)\s+(?:kept\s+|stored\s+|now\s+)*(?P<rel>{PREP})\s+(?:{ART})?{NP}\s*[.!]?$", re.I),
          re.compile(rf"^\s*(?:i\s+|we\s+)?(?:put|moved|left|stored|keep|placed|stuck)\s+(?:{ART})?{NP}\s+"
-                    rf"(?:in|into|to|on|under|behind|inside)\s+(?:{ART})?{NP}\s*[.!]?$", re.I)]
+                    rf"(?P<rel>in|into|to|on|under|behind|inside|next to)\s+(?:{ART})?{NP}\s*[.!]?$", re.I)]
+# how a thing sits relative to its place: "in" (also inside/into/to/in the back of) and "on" hold it, so it is found
+# when asking what is in (or on) the place; "under", "behind" and "next to" don't: the thing is near the place, not in it
+REL = {"on": "on", "on top of": "on", "under": "under", "behind": "behind", "next to": "next to"}
+HOLDS = ("in", "on")
 NOT_PLACE = re.compile(r"\b(code|password|charge of|love|trouble|good|bad|on sale|on fire|in stock|in progress|on time|"
                        r"in town|on vacation|due|open|closed|broken|empty|full|ready)\b", re.I)
 
@@ -288,10 +292,11 @@ def place(text):
     for rx in PLACE:
         m = rx.search(t)
         if m:
-            thing, where = m.group(1).lower().strip(), m.group(2).lower().strip()
+            thing, where = m.group(1).lower().strip(), m.group(rx.groups).lower().strip()
             if thing in ("it", "they", "that", "this", "everything") or thing == where:
                 return None
-            return {"thing": thing, "in": where}
+            rel = REL.get(re.sub(r"\s+", " ", m.group("rel").lower()), "in")
+            return {"thing": thing, "in": where, **({"rel": rel} if rel != "in" else {})}
     return None
 
 
@@ -665,8 +670,13 @@ def _places_now(store):
             continue
         t = eff(h)
         if p["thing"] not in cur or t > cur[p["thing"]][1]:
-            cur[p["thing"]] = (p["in"], t, h["id"])
+            cur[p["thing"]] = (p["in"], t, h["id"], p.get("rel") or "in")
     return cur
+
+
+def _held(cur, x):
+    """Whether x's place holds it (in or on), not just stands near it (under, behind, next to)."""
+    return (cur[x][3] if len(cur[x]) > 3 else "in") in HOLDS
 
 
 def _match(name, qw):
@@ -691,7 +701,7 @@ def place_lines(store, question, hits, now):
             found = []
             for thing in cur:
                 chain, x, seen = [], thing, set()
-                while x in cur and x not in seen and len(chain) < 6:
+                while x in cur and x not in seen and len(chain) < 6 and _held(cur, x):
                     seen.add(x)
                     x = cur[x][0]
                     chain.append(x)
@@ -707,10 +717,10 @@ def place_lines(store, question, hits, now):
     chain, x, seen = [], thing, set()
     while x in cur and x not in seen and len(chain) < 6:
         seen.add(x)
-        c, t, i = cur[x]
-        chain.append(f"the {c} (#{i}, {_fmt(_day(t))})")
+        c, t, i, rel = cur[x]
+        chain.append(f"{rel} the {c} (#{i}, {_fmt(_day(t))})")
         x = c
-    return [f"WHERE (worked out from the latest place notes): the {thing} is in " + ", which is in ".join(chain)]
+    return [f"WHERE (worked out from the latest place notes): the {thing} is " + ", which is ".join(chain)]
 
 
 def field_lines(store, question, hits, now):
@@ -835,7 +845,7 @@ def overview(store, now):
         chain, x, seen = [], thing, set()
         while x in cur and x not in seen and len(chain) < 6:
             seen.add(x)
-            chain.append(cur[x][0])
+            chain.append(cur[x][0] if _held(cur, x) else f"{cur[x][3]} {cur[x][0]}")
             x = cur[x][0]
         places.append({"thing": thing, "chain": chain, "id": cur[thing][2], "since": _fmt(_day(cur[thing][1]))})
     typed = [{"id": h["id"], "title": h["title"], "type": h["meta"].get("type"), "fields": h["meta"]["fields"]}
