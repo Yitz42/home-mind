@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import random
 import re
@@ -28,7 +29,7 @@ from .knowledge import Knowledge
 from .ha import HA
 from .mcp import MCP
 from .mind import Mind
-from .models import Models
+from .models import ModelError, Models
 from .suites import SUITE_INFO
 from .updater import Updater
 from .usage import Usage
@@ -725,6 +726,63 @@ class App:
 
 
 # ---- HTTP ------------------------------------------------------------------------------------------------------
+_KINDS = {str: "text", dict: "an object", list: "a list of text", float: "a number"}
+TAGS = (list, str)              # tags: a list, or "a, b" (store.clean_tags splits it)
+
+
+def check_types(b, types):
+    """ValueError (a 400) when a field that is there has the wrong JSON type: str, dict, list (of text) or float (any
+    finite number), or a tuple of these. A missing field or null is left to the handler's default."""
+    def fits(v, t):
+        return (isinstance(v, str) if t is str else isinstance(v, dict) if t is dict else
+                isinstance(v, list) and all(isinstance(x, str) for x in v) if t is list else
+                isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v))
+    for k, t in types.items():
+        v, ts = b.get(k), t if isinstance(t, tuple) else (t,)
+        if v is not None and not any(fits(v, x) for x in ts):
+            raise ValueError(f"{k} should be {' or '.join(_KINDS[x] for x in ts)}")
+    return b
+
+
+async def read_body(req, optional=False, **types):
+    """The request's JSON body, which must be an object (a list, a string or no JSON at all is a 400). optional: no
+    body (or null) is {}. types: field=str/dict/list/float, see check_types."""
+    if optional and not req.can_read_body:
+        b = {}
+    else:
+        try:
+            b = await req.json()
+        except ValueError:
+            raise ValueError("send a JSON object as the body") from None
+        if b is None and optional:
+            b = {}
+    if not isinstance(b, dict):
+        raise ValueError("send a JSON object as the body")
+    return check_types(b, types)
+
+
+def num(v, name, default, lo, hi, cast=int):
+    """A number from a query parameter or body field, clamped to [lo, hi]: missing or empty is the default; text that
+    isn't a number, nan and inf are a 400."""
+    if v is None or v == "":
+        return default
+    try:
+        x = float(v)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(f"{name} should be a number") from None
+    if not math.isfinite(x):
+        raise ValueError(f"{name} should be a number")
+    return cast(min(hi, max(lo, x)))
+
+
+def whole(v, name="id"):
+    """A whole number id from a path or body (an int, or digits): 1.5, true or 'abc' are a 400, never rounded to
+    another item's id."""
+    if isinstance(v, bool) or not isinstance(v, (int, str)) or not re.fullmatch(r"\s*-?\d{1,19}\s*", str(v)):
+        raise ValueError(f"{name} should be a whole number")
+    return int(v)
+
+
 def build(app_state):
     @web.middleware
     async def auth(request, handler):
@@ -762,8 +820,13 @@ def build(app_state):
             return await handler(request)
         except web.HTTPException:
             raise
-        except (ValueError, KeyError) as e:
+        except KeyError as e:                           # b["question"] with no question: say which field
+            msg = str(e.args[0]) if e.args else "missing field"
+            return web.json_response({"error": f"missing {msg}" if re.fullmatch(r"\w+", msg) else msg}, status=400)
+        except (ValueError, OverflowError) as e:        # bad input (OverflowError: a number too big for SQLite)
             return web.json_response({"error": str(e)}, status=400)
+        except ModelError as e:                         # the model behind it failed: not this server's bug
+            return web.json_response({"error": str(e)}, status=502)
         except Exception as e:  # noqa: BLE001
             log.exception("request failed")
             return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=500)
@@ -774,6 +837,13 @@ def build(app_state):
     seen_id = lambda i: bool(i) and st.seen(int(i)) is not None      # noqa: E731 - may the viewer see this item (#48)
     J = lambda x, status=200: web.json_response(x, status=status, dumps=lambda o: json.dumps(o, default=str))
     r = web.RouteTableDef()
+
+    def model_ok(b):
+        """An unknown model name is the caller's mistake (400), not a model failure."""
+        m = b.get("model")
+        if m not in (None, "") and (not isinstance(m, str) or m not in A.models.models):
+            raise ValueError(f"no model named {m!r}; have: {', '.join(A.models.models)}")
+        return b
 
     @r.get("/")
     async def index(_):
@@ -787,7 +857,7 @@ def build(app_state):
     async def recall(q):
         p = q.query
         from .mind import lookup
-        res = lookup(st, p.get("q", ""), int(p.get("limit", 10)), p.get("shelf"), p.get("kind"),
+        res = lookup(st, p.get("q", ""), num(p.get("limit"), "limit", 10, 1, 200), p.get("shelf"), p.get("kind"),
                      p.get("old") == "1", p.get("touch", "1") == "1", extras=p.get("raw") != "1")
         if p.get("raw") != "1":
             # what leaves through this lookup goes to Jeeves (Claude in the cloud): hide secrets not asked for
@@ -819,7 +889,8 @@ def build(app_state):
 
     @r.post("/api/remember")
     async def remember(q):
-        b = await q.json()
+        b = await read_body(q, text=str, title=str, kind=str, shelf=str, tags=TAGS, key=str, meta=dict, scope=str,
+                            owner=str, source=str)
         meta = dict(b.get("meta") or {}, **({"inferred": True} if b.get("inferred") else {}))
         if b.get("scope") in ("personal", "household"):
             meta["scope"] = b["scope"]
@@ -840,7 +911,7 @@ def build(app_state):
 
     @r.get("/api/item/{id}")
     async def item(q):
-        i = int(q.match_info["id"])
+        i = whole(q.match_info["id"])
         d = st.seen(i, history=True)
         if d:
             # other versions of the same fact, as the brain groups them when searching
@@ -855,8 +926,8 @@ def build(app_state):
 
     @r.get("/api/recent")
     async def recent(q):
-        hours = float(q.query.get("hours", 48))
-        lim = min(500, int(q.query.get("limit", 100)))
+        hours = num(q.query.get("hours"), "hours", 48.0, 0, 24 * 365 * 100, float)
+        lim = num(q.query.get("limit"), "limit", 100, 1, 500)
         f = q.query.get("filter", "told")
         where = {"told": "source NOT IN ('home','calendar','automations','habits','tidy','evening') AND source NOT LIKE 'pack:%'", "all": "1=1",
                  "calendar": "source='calendar'", "house": "source='home'", "automations": "source='automations'",
@@ -870,21 +941,25 @@ def build(app_state):
 
     @r.post("/api/item/{id}/{op}")
     async def item_op(q):
-        i, op = int(q.match_info["id"]), q.match_info["op"]
+        i, op = whole(q.match_info["id"]), q.match_info["op"]
         try:
             st.check_seen(i)
         except KeyError:
             raise web.HTTPNotFound()
+        if not st.get(i):                       # missing: not a silent "archived" for an item that isn't there
+            return J({"error": f"no item {i}"}, status=404)
         if op == "forget":
             return J(st.set_status(i, "archived"))
         if op == "restore":
             return J(st.set_status(i, "active"))
         if op == "revise":
-            b = await q.json()
+            b = await read_body(q, title=str, text=str, shelf=str, tags=TAGS, key=str, meta=dict)
+            if not any(b.get(k) is not None for k in ("title", "text", "shelf", "tags", "key", "meta")):
+                raise ValueError("nothing to change: give title, text, shelf, tags, key or meta")
             return J(st.revise(i, title=b.get("title"), body=b.get("text"), shelf=b.get("shelf"), tags=b.get("tags"),
                                key=b.get("key"), meta=b.get("meta")))
         if op == "sensitive":
-            b = await q.json()
+            b = await read_body(q)
             d = st.get(i)
             meta = dict(d["meta"] or {}, sensitive=bool(b.get("value")))
             st.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), i))
@@ -892,11 +967,13 @@ def build(app_state):
             st.seal_item(i) if meta["sensitive"] else st.unseal_item(i)
             return J({"id": i, "sensitive": meta["sensitive"]})
         if op == "feedback":
-            b = await q.json()
+            b = await read_body(q, note=str)
             return J(st.feedback(i, bool(b.get("helpful")), b.get("note", "")))
         if op == "confirm":
             return J(st.confirm(i))
         if op == "photo":                       # #36: multipart file (+ caption)
+            if not q.content_type.startswith("multipart/"):
+                return J({"error": "send the photo as multipart/form-data (a file, and a caption)"}, status=400)
             rd = await q.multipart()
             data, caption = None, ""
             async for part in rd:
@@ -917,7 +994,7 @@ def build(app_state):
                 st.db.commit()
             return J({"id": i, "kept": d["shelf"]})
         if op == "move":           # to another shelf; filing learns from where notes are (#58, #59)
-            b = await q.json()
+            b = await read_body(q, shelf=str)
             from .store import clean_shelf
             shelf = clean_shelf(b.get("shelf") or "")
             if not shelf or shelf == "inbox" and not b.get("allow_inbox"):
@@ -934,7 +1011,7 @@ def build(app_state):
             st.log("move", i, shelf=shelf, was=d["shelf"])
             return J({"id": i, "shelf": shelf})
         if op == "scope":          # personal (one person) or household (everyone), #48
-            b = await q.json()
+            b = await read_body(q, scope=str, owner=str)
             d = st.get(i)
             if not d or b.get("scope") not in ("personal", "household"):
                 raise ValueError("scope is personal or household")
@@ -948,7 +1025,7 @@ def build(app_state):
                 st.db.commit()
             return J({"id": i, "scope": b["scope"], "owner": m.get("owner")})
         if op == "purge":          # delete for good: needs {"confirm": true}
-            b = await q.json() if q.can_read_body else {}
+            b = await read_body(q, optional=True)
             if b.get("confirm") is not True:
                 return J({"error": "send {\"confirm\": true} to delete for good (this cannot be undone)"}, status=400)
             return J(st.purge([i]))
@@ -956,7 +1033,7 @@ def build(app_state):
 
     @r.post("/api/purge_about")
     async def purge_about(q):
-        b = await q.json()
+        b = await read_body(q, name=str)
         if b.get("confirm") is not True or not (b.get("name") or "").strip():
             return J({"error": "send {\"name\": ..., \"confirm\": true} to delete for good (this cannot be undone)"},
                      status=400)
@@ -976,7 +1053,9 @@ def build(app_state):
 
     @r.post("/api/ask")
     async def ask(q):
-        b = await q.json()
+        b = model_ok(await read_body(q, question=str, conversation_id=str, speaker=str, user=str, deadline=float))
+        if not (b.get("question") or "").strip():
+            raise ValueError("give a question")
         who, how = A.speaker_for(b)
         res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
                                expand=bool(b.get("expand")), voice=bool(b.get("voice")),
@@ -989,7 +1068,9 @@ def build(app_state):
 
     @r.post("/api/organize")
     async def organize(q):
-        b = await q.json()
+        b = model_ok(await read_body(q, text=str, model=str))
+        if not (b.get("text") or "").strip() or not b.get("model"):
+            raise ValueError("give text and model")
         return J(await A.mind.organize(b["text"], b["model"], source="api"))
 
     @r.get("/api/suites")
@@ -998,7 +1079,7 @@ def build(app_state):
 
     @r.post("/api/tests")
     async def tests(q):
-        b = await q.json()
+        b = model_ok(await read_body(q, suite=str, arm=str, seed=float, n=float, ingest=str, order=str))
         run = A.mind.start_test(b["suite"], b.get("arm", "brain"), b.get("model") or None, b.get("seed"),
                                 b.get("n"), b.get("ingest", "raw"), bool(b.get("keyed")),
                                 bool(b.get("expand")), b.get("order") or "default", bool(b.get("notes_first")))
@@ -1006,7 +1087,7 @@ def build(app_state):
 
     @r.get("/api/runs")
     async def runs(q):
-        return J(st.runs(limit=int(q.query.get("limit", 50)), suite=q.query.get("suite")))
+        return J(st.runs(limit=num(q.query.get("limit"), "limit", 50, 1, 500), suite=q.query.get("suite")))
 
     @r.get("/api/runs/{id}")
     async def run(q):
@@ -1051,24 +1132,25 @@ def build(app_state):
     @r.post("/api/cases")
     async def cases_add(q):
         from .cases import Cases
-        b = await q.json()
+        b = await read_body(q, question=str, right=str, wrong=str)
         return J({"id": Cases(st).add(b["question"], b["right"], b.get("wrong", ""))})
 
     @r.post("/api/cases/{id}/remove")
     async def cases_remove(q):
         from .cases import Cases
-        Cases(st).remove(int(q.match_info["id"]))
-        return J({"removed": int(q.match_info["id"])})
+        i = whole(q.match_info["id"])
+        Cases(st).remove(i)
+        return J({"removed": i})
 
     @r.get("/api/usage")
     async def usage(q):
-        days = int(q.query.get("days", 30))
+        days = num(q.query.get("days"), "days", 30, 1, 3650)
         return J(dict(A.usage.summary(days), rows=A.usage.rows(days)))
 
     @r.get("/api/events")
     async def events(q):
         rows = [dict(x) for x in st.db.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?",
-                                                (int(q.query.get("limit", 100)),))]
+                                                (num(q.query.get("limit"), "limit", 100, 1, 1000),))]
         if VIEWER.get() is not None:    # a person-bound token: not what others asked, nor events about their notes
             rows = [x for x in rows if x["type"] not in PRIVATE_EVENTS and (not x["item_id"] or seen_id(x["item_id"]))]
         return J(rows)
@@ -1093,7 +1175,7 @@ def build(app_state):
 
     @r.post("/api/home/act")
     async def home_act(q):
-        b = await q.json()
+        b = await read_body(q, entity_id=str, action=str, source=str)
         if not A.home.catalog:
             await A.home.refresh()
         try:
@@ -1104,7 +1186,7 @@ def build(app_state):
 
     @r.post("/api/do")
     async def home_do(q):
-        b = await q.json()
+        b = model_ok(await read_body(q, text=str, source=str))
         return J(await A.do(b.get("text", ""), b.get("model"), b.get("source", "api")))
 
     @r.get("/api/automations")
@@ -1113,9 +1195,11 @@ def build(app_state):
 
     @r.post("/api/automations/{op}")
     async def autos_op(q):
-        b = await q.json() if q.can_read_body else {}
+        b = await read_body(q, optional=True, id=str, trigger=str)
         op = q.match_info["op"]
         ids = b.get("ids") or []
+        if ids != "all":
+            check_types(b, {"ids": list})
         if ids == "all" or b.get("all"):
             ids = [e for e, a in A.engine.autos.items() if a["ha_state"] == "on" or e in A.engine.owned]
         try:
@@ -1143,14 +1227,26 @@ def build(app_state):
         op = q.match_info["op"]
         if op == "photo" and q.content_type == "application/json":
             import base64
-            b = await q.json()          # {"image_b64": ..., "filename": ...}: for Claude forwarding a photo from chat
+            b = await read_body(q, image_b64=str, filename=str)   # for Claude forwarding a photo from chat
+            if not b.get("image_b64"):
+                raise ValueError("give image_b64")
+            import binascii
+            try:
+                base64.b64decode(b["image_b64"], validate=True)
+            except binascii.Error:
+                raise ValueError("image_b64 isn't base64") from None
             return J(await A.pantry.from_photo(base64.b64decode(b["image_b64"]), b.get("filename") or "photo.jpg"))
         if op == "photo":
+            if not q.content_type.startswith("multipart/"):
+                return J({"error": "send the photo as multipart/form-data, or JSON with image_b64"}, status=400)
             reader = await q.multipart()
             part = await reader.next()
             data = await part.read(decode=False)
             return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
-        b = await q.json() if q.can_read_body else {}
+        b = model_ok(await read_body(q, optional=True, text=str, name=str, location=str, source=str, meal=str,
+                                     request=str, items=list))
+        if not isinstance(b.get("amount", ""), (str, int, float)) or not isinstance(b.get("use_by", ""), (str, int, float)):
+            raise ValueError("amount and use_by should be text (or a number)")
         try:
             if op == "add":
                 if b.get("text"):
@@ -1164,9 +1260,10 @@ def build(app_state):
                 names = [n for n, _ in A.pantry.parse_list(b["text"])] if b.get("text") else [b["name"]]
                 return J({"done": [A.pantry.use(n, "used" if op == "used" else "tossed") for n in names]})
             if op == "remove":
-                return J(A.pantry.remove(b["id"]))
+                return J(A.pantry.remove(whole(b.get("id"))))
             if op == "suggest":
-                return J(await A.pantry.suggest(b.get("meal"), b.get("model"), int(b.get("n", 3)), b.get("request", "")))
+                return J(await A.pantry.suggest(b.get("meal"), b.get("model"), num(b.get("n"), "n", 3, 1, 10),
+                                               b.get("request") or ""))
             if op == "shop":
                 return J({"added": await A.pantry.add_to_shopping(b.get("items") or [])})
             if op == "goals":
@@ -1240,7 +1337,7 @@ def build(app_state):
     @r.post("/api/sql")
     async def sql_post(q):
         from . import sqlview
-        b = await q.json()
+        b = await read_body(q, q=str, sql=str)
         try:
             return J(await asyncio.to_thread(sqlview.query, A.mind.store.path, b.get("q") or b.get("sql")))
         except sqlview.SqlError as e:
@@ -1252,13 +1349,14 @@ def build(app_state):
             path, ctype = A.photos.path(q.match_info["name"])
         except (ValueError, KeyError):
             raise web.HTTPNotFound()
-        if not seen_id(int(q.match_info["name"].split("-")[0])):     # a photo of someone else's personal note
+        if not seen_id(whole(q.match_info["name"].split("-")[0], "name")):     # a photo of someone else's personal note
             raise web.HTTPNotFound()
         return web.FileResponse(path, headers={"Content-Type": ctype, "Cache-Control": "private, max-age=86400"})
 
     @r.delete("/api/item/{id}/photo/{name}")
     async def photo_delete(q):
-        return J({"removed": A.photos.remove(st.check_seen(int(q.match_info["id"])), q.match_info["name"])})
+        return J({"removed": A.photos.remove(st.check_seen(whole(q.match_info["id"])),
+                                             q.match_info["name"])})
 
     @r.get("/api/reshelve")
     async def reshelve_list(q):
@@ -1317,7 +1415,7 @@ def build(app_state):
             return J({"error": "give text and base (or set label_url)"}, status=400)
         url = base + ("&" if "?" in base else "?") + "hm_thing=" + quote(text)
         try:
-            return web.Response(text=qr.svg(url, scale=int(q.query.get("scale") or 6), label=text),
+            return web.Response(text=qr.svg(url, scale=num(q.query.get("scale"), "scale", 6, 1, 40), label=text),
                                 content_type="image/svg+xml")
         except ValueError as e:
             return J({"error": str(e)}, status=400)
@@ -1328,7 +1426,8 @@ def build(app_state):
 
     @r.post("/api/views")
     async def views_save(q):
-        b = await q.json()
+        b = await read_body(q, name=str, query=str, shelf=str, kind=str, tags=TAGS, days=float, sort=str, limit=float,
+                            sql=str)
         try:
             return J(A.views.save(b.get("name"), b.get("query"), b.get("shelf"), b.get("kind"), b.get("tags"),
                                   b.get("days"), b.get("sort"), b.get("limit") or 20, b.get("sql")))
@@ -1353,7 +1452,7 @@ def build(app_state):
 
     @r.post("/api/compare/run")
     async def compare_run(q):
-        b = await q.json() if q.can_read_body else {}
+        b = await read_body(q, optional=True, seed=float)
         if A.compare.running or not A._spawn("compare", lambda: A.compare.run(b.get("seed"))):
             return J({"started": False, "error": "a comparison is already running"})
         return J({"started": True, "models": A.compare.names(), "suites": A.compare.suites})
@@ -1373,7 +1472,9 @@ def build(app_state):
                 if part.filename:
                     out.append(await asyncio.to_thread(A.docs.add, part.filename, await part.read(decode=False)))
             return J(out)
-        b = await q.json()
+        b = await read_body(q, name=str, text=str)
+        if not (b.get("name") or "").strip():
+            raise ValueError("give a name")
         return J(A.docs.add(b["name"], (b.get("text") or "").encode()))
 
     @r.delete("/api/docs/{did}")
@@ -1416,7 +1517,7 @@ def build(app_state):
 
     @r.post("/api/tokens")
     async def tokens_make(q):
-        b = await q.json()
+        b = await read_body(q, name=str, scope=str, person=str)
         return J(A.tokens.make(b.get("name", ""), b.get("scope", "read"), b.get("person")))
 
     @r.delete("/api/tokens/{tid}")
@@ -1440,7 +1541,7 @@ def build(app_state):
 
     @r.post("/api/house/suggestion/{sid}/{op}")
     async def house_suggestion(q):
-        b = await q.json() if q.can_read_body else {}
+        b = await read_body(q, optional=True)
         r = await A.suggestion(q.match_info["sid"], q.match_info["op"], enable=bool(b.get("enable")))
         if r is None:
             raise web.HTTPNotFound()
@@ -1448,18 +1549,18 @@ def build(app_state):
 
     @r.post("/api/automations/draft")
     async def automation_draft(q):
-        b = await q.json()
+        b = model_ok(await read_body(q, request=str))
         return J(await A.draft_automation(b.get("request") or "", b.get("model")))
 
     @r.post("/api/automations/install")
     async def automation_install(q):
-        b = await q.json()
+        b = await read_body(q, config=dict, pin=str)
         r = await A.install_automation(b.get("config"), bool(b.get("enable")), b.get("pin") or "")
         return J(r, status=400 if r.get("problems") else 200)
 
     @r.get("/api/morning")
     async def morning_preview(q):
-        return J({"text": A.morning.build(float(q.query.get("hours", 24)))})
+        return J({"text": A.morning.build(num(q.query.get("hours"), "hours", 24.0, 1, 24 * 14, float))})
 
     @r.post("/api/morning/send")
     async def morning_send(_):
@@ -1473,14 +1574,15 @@ def build(app_state):
     async def knowledge_food(q):
         if q.query.get("upc"):
             return J({"match": A.knowledge.by_upc(q.query["upc"])})
-        return J({"matches": await asyncio.to_thread(A.knowledge.food, q.query.get("q", ""), int(q.query.get("n", 3)))})
+        return J({"matches": await asyncio.to_thread(A.knowledge.food, q.query.get("q", ""),
+                                                            num(q.query.get("n"), "n", 3, 1, 20))})
 
     @r.get("/api/knowledge/search")
     async def knowledge_search(q):
         qq = q.query.get("q", "")
         if q.query.get("passages"):
-            return J({"passages": await asyncio.to_thread(A.knowledge.passages, qq, int(q.query.get("n", 2)))})
-        res = await asyncio.to_thread(A.knowledge.search, qq, int(q.query.get("n", 3)))
+            return J({"passages": await asyncio.to_thread(A.knowledge.passages, qq, num(q.query.get("n"), "n", 2, 1, 20))})
+        res = await asyncio.to_thread(A.knowledge.search, qq, num(q.query.get("n"), "n", 3, 1, 20))
         return J({"results": [{"title": x["title"], "intro": (x["text"] or [""])[0][:500]} for x in res]})
 
     @r.post("/api/knowledge/{op}")
@@ -1492,7 +1594,7 @@ def build(app_state):
 
     @r.get("/api/patterns")
     async def patterns_get(q):
-        days = int(q.query.get("days", 30))
+        days = num(q.query.get("days"), "days", 30, 1, 3650)
         rep = A.patterns.report()
         return J({"report": rep["text"], "findings": rep["findings"], "fog_days": rep["fog_days"],
                   "experiment": A.patterns.experiment(), "days": A.patterns.rows(days)})
@@ -1500,10 +1602,10 @@ def build(app_state):
     @r.post("/api/patterns/{op}")
     async def patterns_op(q):
         op = q.match_info["op"]
-        b = await q.json() if q.can_read_body else {}
+        b = await read_body(q, optional=True, factor=str, what=str, action=str)
         P = A.patterns
         if op == "refresh":
-            return J({"days": await P.refresh(int(b.get("days", 3)))})
+            return J({"days": await P.refresh(num(b.get("days"), "days", 3, 1, 365))})
         if op == "send":
             return J(await P.send_report())
         if op == "experiment":
@@ -1516,7 +1618,7 @@ def build(app_state):
                     return J({"error": "no experiment suggested yet: not enough days or no clear link",
                               "factors": [k for k, v in FACTOR.items() if v[4]]}, status=400)
                 f = sorted(cand, key=lambda x: (x["status"] != "holding", -x["diff"]))[0]["factor"]
-            return J(P.start_experiment(f, int(b.get("days", 14))))
+            return J(P.start_experiment(f, num(b.get("days"), "days", 14, 1, 365)))
         if op == "ask":
             await P.ask(b.get("what", "fog"))
             return J({"asked": b.get("what", "fog")})
@@ -1528,7 +1630,7 @@ def build(app_state):
 
     @r.post("/api/journal/summarize")
     async def journal_sum(q):
-        b = await q.json() if q.can_read_body else {}
+        b = model_ok(await read_body(q, optional=True, day=str))
         from datetime import date
         day = date.fromisoformat(b["day"]) if b.get("day") else None
         return J(await A.journal.summarize(day, b.get("model")))
@@ -1571,12 +1673,12 @@ def build(app_state):
 
     @r.post("/api/comfort/vote")
     async def comfort_vote(q):
-        b = await q.json()
+        b = await read_body(q, room=str, feeling=str, source=str)
         return J(await _room(q, b).vote(b["feeling"], b.get("source", "api")))
 
     @r.post("/api/comfort/cycle")
     async def comfort_cycle(q):
-        b = await q.json() if q.can_read_body else {}
+        b = await read_body(q, optional=True, room=str)
         return J(await _room(q, b).cycle(reason="asked"))
 
     @r.get("/api/comfort/check")
@@ -1596,12 +1698,12 @@ def build(app_state):
 
     @r.post("/api/control/set")
     async def control_set(q):
-        b = await q.json()
+        b = await read_body(q, key=str)
         return J(A.control.set(b["key"], b["value"]))
 
     @r.post("/api/control/reset")
     async def control_reset(q):
-        b = await q.json() if q.can_read_body else {}
+        b = await read_body(q, optional=True, key=str)
         return J(A.control.reset(b.get("key")))
 
     @r.post("/api/control/run/{action}")
@@ -1615,6 +1717,8 @@ def build(app_state):
             msg = await q.json()
         except ValueError:
             return J({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}, 400)
+        if not isinstance(msg, (dict, list)) or msg == []:
+            return J({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request"}}, 400)
         out = await A.mcp.handle(msg, scope=q.get("scope", "admin"))
         if out is None:
             return web.Response(status=202)
