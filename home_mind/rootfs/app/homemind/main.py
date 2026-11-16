@@ -523,6 +523,10 @@ class App:
                 if n:
                     log.info("event log: rolled up and removed %d rows older than %s days", n,
                              self.opts.get("events_keep_days"))
+                n = self.mind.store.roll_up_house_log(int(self.opts.get("events_keep_days") or 0))
+                if n:
+                    log.info("house log: rolled %d notes older than %s days into daily notes", n,
+                             self.opts.get("events_keep_days"))
             if self.ha.available:
                 n = await self.ha.flush_held()
                 if n:

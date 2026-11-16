@@ -116,6 +116,9 @@ class Prefs:
         names = names or {}
         n = 0
         keep = set()
+        with self.store.lock:       # settings older than DAYS are never read again: don't keep them for ever
+            self.store.db.execute("DELETE FROM pref_obs WHERE ts < ?", ((now or time.time()) - DAYS * 86400,))
+            self.store.db.commit()
         for p in self.learned(now):
             dom = p["entity_id"].split(".")[0]
             what = {"light": "brightness", "fan": "speed", "cover": "open", "media_player": "volume"}[dom]
