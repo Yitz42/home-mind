@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 
 STATE = "mdsync"
 MAX_FILE = 200_000
@@ -62,6 +63,7 @@ class MdSync:
     def __init__(self, store, folder):
         self.store, self.folder = store, folder
         self.last = None
+        self._running = threading.Lock()
 
     def _state(self):
         return self.store.kv_get(STATE) or {}
@@ -105,6 +107,10 @@ class MdSync:
     def run(self):
         if not self.folder:
             return {"enabled": False}
+        with self._running:         # the upkeep loop and "Sync now" run in threads: one at a time, or a new file
+            return self._run()      # is filed twice and one run's state overwrites the other's
+
+    def _run(self):
         os.makedirs(self.folder, exist_ok=True)
         st = self.store
         state = {int(k): v for k, v in self._state().items()}

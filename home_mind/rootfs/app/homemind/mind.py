@@ -5,6 +5,7 @@ hands that to the model, and logs the episode. organize(text, model): the model 
 for something new; the brain stores it (so later finding shows how well it organized).
 """
 import asyncio
+import contextvars
 import logging
 import json
 import os
@@ -640,6 +641,11 @@ def contains(answer, gold):
     return False
 
 
+# a voice question is being answered in this task (skips the slow reranker); a ContextVar, not an attribute, so a
+# typed question answered at the same time doesn't turn it off (or on) for the voice one
+VOICE = contextvars.ContextVar("homemind_voice", default=False)
+
+
 class Mind:
     def __init__(self, data_dir, models, packs=None):
         self.data_dir = data_dir
@@ -658,7 +664,7 @@ class Mind:
         if emb and store is self.store and not shelf:
             hits = await self._with_meaning(store, question, hits, k)
         rr = getattr(self, "rerank_model", None)
-        if rr and len(hits) > 2 and not getattr(self, "_voice_now", False):
+        if rr and len(hits) > 2 and not VOICE.get():
             hits = await self._rerank(rr, question, hits)
         if not (expand and model):
             return hits, None
@@ -850,10 +856,12 @@ class Mind:
         no secrets by voice, no bulk lists); a name = that person (their personal notes too). (#3, #48, #78)"""
         from .speakers import VIEWER
         tok = VIEWER.set(speaker if speaker is not None else VIEWER.get())   # keep a person-bound token's viewer
+        vtok = VOICE.set(bool(voice))        # per question: two questions at once never see each other's flag
         try:
             out = await self._ask(question, model, use_brain, k, shelf, store, system, expand, voice, deadline, fallback,
                                   conversation_id)
         finally:
+            VOICE.reset(vtok)
             VIEWER.reset(tok)
         if speaker is not None:
             out["speaker"] = speaker or "unknown"
@@ -909,7 +917,6 @@ class Mind:
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS
-        self._voice_now = voice
         hits, procs, ctx = (await self.context_for(store, question, k, shelf, model, expand, voice)) if use_brain \
             else ([], [], "")
         from . import privacy
@@ -1031,6 +1038,7 @@ class Mind:
         self.store.save_run(run)
         task = asyncio.get_running_loop().create_task(self._run_test(run))
         self.jobs[run["id"]] = {"task": task, "run": run}
+        task.add_done_callback(lambda _t, rid=run["id"]: self.jobs.pop(rid, None))    # finished runs live in the db
         return run
 
     async def run_test_now(self, *a, **kw):

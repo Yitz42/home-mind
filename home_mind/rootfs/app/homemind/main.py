@@ -113,6 +113,7 @@ class App:
         self.control = None
         self.started = time.time()
         self.tasks = []
+        self._bg = {}
 
     def status(self):
         return {"version": VERSION, "uptime_s": int(time.time() - self.started), **self.mind.store.stats(),
@@ -250,8 +251,11 @@ class App:
         log.info("Home Mind %s up on port %s (bridge: %s)", VERSION, PORT, self.bridge)
 
     async def on_stop(self, _app):
-        for t in self.tasks:
+        live = self.tasks + list(self._bg.values())
+        for t in live:
             t.cancel()
+        if live:
+            await asyncio.wait(live, timeout=10)        # let them finish before the session closes (never hang)
         await self.models.stop()
 
     def _fix_kg_backfill(self):
@@ -330,212 +334,241 @@ class App:
                               "model": run["model"], "run": run["id"], "seed": run["seed"], **s})
 
     async def upkeep(self):
-        last = {"fade": 0, "packs": 0, "test": time.time(), "counts": 0, "comfort": 0, "body": 0, "home": 0}
-        home_first = True
+        last = {"fade": 0, "packs": 0, "test": time.time(), "counts": 0, "comfort": 0, "body": 0, "home": 0,
+                "home_first": True}
         if self.ha.available:
             try:
                 log.info("weigh-ins filed from history: %s", await self.body.backfill())
             except Exception:  # noqa: BLE001
                 log.exception("body backfill")
         while True:
-            now = time.time()
-            if self.ha.available and self.mind.home and now - last["home"] > 300:
-                last["home"] = now
-                try:
-                    await self.home.refresh()
-                    n = self.home.log_changes(first=home_first)
-                    try:
-                        self.prefs.observe(self.home.catalog, getattr(self.home, "own", {}), now)    # #30
-                        if now - last.get("prefs", 0) > 6 * 3600:
-                            last["prefs"] = now
-                            self.prefs.file_notes({e: c["name"] for e, c in self.home.catalog.items()})
-                            self.photos.sweep()
-                    except Exception:  # noqa: BLE001
-                        log.exception("preferences")
-                    if home_first:
-                        log.info("home: %d things, %d filed", len(self.home.catalog), n)
-                    home_first = False
-                except Exception:  # noqa: BLE001
-                    log.exception("home")
-            if self.ha.available and now - last.get("beat", 0) > 60:
-                last["beat"] = now
-                await self.ha.sensor("sensor.home_mind_heartbeat", datetime.now().astimezone().isoformat(timespec="seconds"),
-                                     {"friendly_name": "Home Mind heartbeat", "icon": "mdi:heart-pulse",
-                                      "device_class": "timestamp",
-                                      "automations_run": sorted(e for e in self.engine.owned
-                                                                if self.engine.autos.get(e, {}).get("ha_state") != "on")})
-            await self.journal.tick()
-            await self.overnight.tick()
-            if self.ha.available and now - last.get("shop", 0) > 300:
-                last["shop"] = now
-                try:
-                    n = await self.pantry.sync_shopping()
-                    if n:
-                        log.info("pantry: %d items from the shopping list", n)
-                except Exception:  # noqa: BLE001
-                    log.exception("shopping list sync")
-            if self.ha.available and now - last.get("conv", 0) > 60 and getattr(self.engine, "_ws", None):
-                last["conv"] = now
-                try:
-                    n = await self.convlog.poll(self.engine.ws_call)
-                    if n:
-                        log.info("conversation log: %d new turns", n)
-                except Exception as e:  # noqa: BLE001
-                    log.debug("conversation log: %s", e)
-            if self.ha.available:
-                await self.morning.tick()
-                await self.evening.tick()
-            if self.ha.available and self.home.notices:
-                notes, self.home.notices = self.home.notices[:2], []      # very few (#40): at most two at a time
-                if self.house_notices:
-                    target = self.evening.notify or await self.morning._phone()
-                    for title, msg in notes:
-                        try:
-                            await self.ha.notify(title, msg, "home_mind_house")
-                            if target:
-                                await self.ha.push(target, {"title": title, "message": msg})
-                        except Exception as e:  # noqa: BLE001
-                            log.warning("house notice: %s", e)
-            if now - last.get("docs", 0) > 3600:
-                last["docs"] = now
-                try:
-                    r = await asyncio.to_thread(self.docs.scan)
-                    if r.get("added") or r.get("removed"):
-                        log.info("documents: %s", r)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("documents folder: %s", e)
-            if self.mdsync.folder and now - last.get("md", 0) > 60 * float(self.opts.get("markdown_minutes") or 10):
-                last["md"] = now
-                try:
-                    r = await asyncio.to_thread(self.mdsync.run)
-                    if any(r.get(k) for k in ("updated_notes", "new_notes", "archived", "conflicts")):
-                        log.info("markdown sync: %s", r)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("markdown sync: %s", e)
-            if self.mailbox.on and now - last.get("mail", 0) > 60 * self.mailbox.minutes:
-                last["mail"] = now
-                try:
-                    r = await asyncio.to_thread(self.mailbox.run)       # #64
-                    if r.get("read"):
-                        log.info("email: %s", r)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("email: %s", e)
-                    self.mailbox.last = {"error": str(e)[:200], "at": now}
-            if self.compare.due(now):
-                try:
-                    r = await self.compare.run()
-                    log.info("model comparison: best %s, dropped %s", r.get("best"), r.get("dropped"))
-                    for m, row in (r.get("models") or {}).items():
-                        if row.get("accuracy") is not None:
-                            await self.ha.sensor(f"sensor.home_mind_compare_{re.sub(r'[^a-z0-9]+', '_', m.lower())}",
-                                                 round(100 * row["accuracy"], 1),
-                                                 {"friendly_name": f"Home Mind model {m}", "unit_of_measurement": "%",
-                                                  "state_class": "measurement", "icon": "mdi:scale-balance",
-                                                  "ms_avg": row.get("ms_avg"), "suites": row.get("suites")})
-                except Exception as e:  # noqa: BLE001
-                    log.warning("model comparison: %s", e)
-            if self.offsite.due(now):
-                try:
-                    r = await self.offsite.run(now)
-                    log.info("off-site backup: %s", r.get("file") or r.get("error"))
-                except Exception as e:  # noqa: BLE001
-                    log.warning("off-site backup: %s", e)
-                    self.offsite.last["at"] = now      # try again next period, not every few seconds
-            emb = getattr(self.mind, "embeddings", None)
-            if emb and now - last.get("embed", 0) > 30:
-                last["embed"] = now
-                try:
-                    await emb.index(32)         # new and changed notes, a batch at a time (#10)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("embedding notes: %s", e)
-                    last["embed"] = now + 600   # the model is down: try again in ten minutes
-            if now - last.get("house", 0) > 86400 and self.home.catalog:
-                last["house"] = now
-                try:
-                    r = self.learn_house()
-                    log.info("house: %d habits, %d suggestions, %d baselines", *r)
-                except Exception:  # noqa: BLE001
-                    log.exception("house learning")
-            if now - last.get("knowledge", 0) > 60:
-                last["knowledge"] = now
-                try:
-                    await self.knowledge.tick()
-                except Exception:  # noqa: BLE001
-                    log.exception("knowledge")
-            if self.ha.available and now - last.get("patterns", 0) > 240:
-                last["patterns"] = now
-                try:
-                    if self.mind.store.kv_get("patterns_backfilled") != 3:      # 3: + naps, air, time away, button times
-                        self.mind.store.db.execute("DELETE FROM days")
-                        n = await self.patterns.refresh(10)
-                        for i in range(1, 11):
-                            self.patterns.file_weather(date.today() - timedelta(days=i))
-                        self.mind.store.kv_set("patterns_backfilled", 3)
-                        log.info("patterns: %d days from history", n)
-                    await self.patterns.tick()
-                except Exception:  # noqa: BLE001
-                    log.exception("patterns")
-            if self.ha.available and now - last.get("cal", 0) > 3600:
-                last["cal"] = now
-                try:
-                    log.info("calendars: %s", await self.calendars.sync())
-                except Exception:  # noqa: BLE001
-                    log.exception("calendars")
-            if self.ha.available and not last.get("backfilled") and self.home.catalog and \
-                    getattr(self.engine, "_ws", None):
-                last["backfilled"] = True
-                try:
-                    log.info("home history: %s", await self.home.backfill(self.engine.ws_call,
-                                                                         path=os.path.join(DATA, "home_backfill.json")))
-                except Exception:  # noqa: BLE001
-                    log.exception("home backfill")
-            if self.ha.available and now - last["body"] > 60:
-                last["body"] = now
-                try:
-                    await self.body.poll()
-                except Exception:  # noqa: BLE001
-                    log.exception("body")
-            if self.opts.get("comfort") and self.ha.available:
-                try:
-                    for c in self.comforts:
-                        await c.poll_buttons()
-                    if now - last["comfort"] > 300:
-                        last["comfort"] = now
-                        for c in self.comforts:
-                            await c.cycle()
-                except Exception:  # noqa: BLE001
-                    log.exception("comfort")
             try:
-                if now - last["counts"] > 600:
-                    last["counts"] = now
-                    await self.push_counts()
-                if now - last["fade"] > 86400:
-                    last["fade"] = now
-                    self.mind.store.fade(int(self.opts.get("fade_days") or 0))
-                    from . import tidy
-                    pairs = tidy.run(self.mind.store)
-                    if pairs:
-                        log.info("tidy: %d possible duplicate pairs flagged", len(pairs))
-                    n = self.mind.store.prune_events(int(self.opts.get("events_keep_days") or 0))
-                    if n:
-                        log.info("event log: rolled up and removed %d rows older than %s days", n,
-                                 self.opts.get("events_keep_days"))
-                if self.ha.available:
-                    n = await self.ha.flush_held()
-                    if n:
-                        log.info("quiet hours over: sent %d held phone notifications", n)
-                if now - last["packs"] > 12 * 3600:
-                    last["packs"] = now
-                    await (self.updater.apply() if self.opts.get("auto_update_packs") else self.updater.check())
-                h = int(self.opts.get("auto_test_hours") or 0)
-                if h and now - last["test"] > h * 3600:
-                    last["test"] = now
-                    for suite in ("recall", "update", "locate", "tasks"):
-                        await self.mind.run_test_now(suite, "brain", seed=random.randint(1, 99999))
-            except Exception:  # noqa: BLE001
+                await self._upkeep_step(last)
+            except Exception:  # noqa: BLE001 - one bad step must never stop the loop for good
                 log.exception("upkeep")
             await asyncio.sleep(20)
 
+    async def _upkeep_step(self, last):
+        now = time.time()
+        if self.ha.available and self.mind.home and now - last["home"] > 300:
+            last["home"] = now
+            try:
+                await self.home.refresh()
+                n = self.home.log_changes(first=last["home_first"])
+                try:
+                    self.prefs.observe(self.home.catalog, getattr(self.home, "own", {}), now)    # #30
+                    if now - last.get("prefs", 0) > 6 * 3600:
+                        last["prefs"] = now
+                        self.prefs.file_notes({e: c["name"] for e, c in self.home.catalog.items()})
+                        self.photos.sweep()
+                except Exception:  # noqa: BLE001
+                    log.exception("preferences")
+                if last["home_first"]:
+                    log.info("home: %d things, %d filed", len(self.home.catalog), n)
+                last["home_first"] = False
+            except Exception:  # noqa: BLE001
+                log.exception("home")
+        if self.ha.available and now - last.get("beat", 0) > 60:
+            last["beat"] = now
+            await self.ha.sensor("sensor.home_mind_heartbeat", datetime.now().astimezone().isoformat(timespec="seconds"),
+                                 {"friendly_name": "Home Mind heartbeat", "icon": "mdi:heart-pulse",
+                                  "device_class": "timestamp",
+                                  "automations_run": sorted(e for e in self.engine.owned
+                                                            if self.engine.autos.get(e, {}).get("ha_state") != "on")})
+        await self.journal.tick()
+        self._spawn("overnight", self.overnight.tick)      # can take a long while: the loop keeps ticking
+        if self.ha.available and now - last.get("shop", 0) > 300:
+            last["shop"] = now
+            try:
+                n = await self.pantry.sync_shopping()
+                if n:
+                    log.info("pantry: %d items from the shopping list", n)
+            except Exception:  # noqa: BLE001
+                log.exception("shopping list sync")
+        if self.ha.available and now - last.get("conv", 0) > 60 and getattr(self.engine, "_ws", None):
+            last["conv"] = now
+            try:
+                n = await self.convlog.poll(self.engine.ws_call)
+                if n:
+                    log.info("conversation log: %d new turns", n)
+            except Exception as e:  # noqa: BLE001
+                log.debug("conversation log: %s", e)
+        if self.ha.available:
+            await self.morning.tick()
+            await self.evening.tick()
+        if self.ha.available and self.home.notices:
+            notes, self.home.notices = self.home.notices[:2], []      # very few (#40): at most two at a time
+            if self.house_notices:
+                target = self.evening.notify or await self.morning._phone()
+                for title, msg in notes:
+                    try:
+                        await self.ha.notify(title, msg, "home_mind_house")
+                        if target:
+                            await self.ha.push(target, {"title": title, "message": msg})
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("house notice: %s", e)
+        if now - last.get("docs", 0) > 3600:
+            last["docs"] = now
+            try:
+                r = await asyncio.to_thread(self.docs.scan)
+                if r.get("added") or r.get("removed"):
+                    log.info("documents: %s", r)
+            except Exception as e:  # noqa: BLE001
+                log.warning("documents folder: %s", e)
+        if self.mdsync.folder and now - last.get("md", 0) > 60 * float(self.opts.get("markdown_minutes") or 10):
+            last["md"] = now
+            try:
+                r = await asyncio.to_thread(self.mdsync.run)
+                if any(r.get(k) for k in ("updated_notes", "new_notes", "archived", "conflicts")):
+                    log.info("markdown sync: %s", r)
+            except Exception as e:  # noqa: BLE001
+                log.warning("markdown sync: %s", e)
+        if self.mailbox.on and now - last.get("mail", 0) > 60 * self.mailbox.minutes:
+            last["mail"] = now
+            try:
+                r = await asyncio.to_thread(self.mailbox.run)       # #64
+                if r.get("read"):
+                    log.info("email: %s", r)
+            except Exception as e:  # noqa: BLE001
+                log.warning("email: %s", e)
+                self.mailbox.last = {"error": str(e)[:200], "at": now}
+        if self.compare.due(now):
+            self._spawn("compare", self._compare)          # many suites per model: in the background
+        if self.offsite.due(now):
+            try:
+                r = await self.offsite.run(now)
+                log.info("off-site backup: %s", r.get("file") or r.get("error"))
+            except Exception as e:  # noqa: BLE001
+                log.warning("off-site backup: %s", e)
+                self.offsite.last["at"] = now      # try again next period, not every few seconds
+        emb = getattr(self.mind, "embeddings", None)
+        if emb and now - last.get("embed", 0) > 30:
+            last["embed"] = now
+            try:
+                await emb.index(32)         # new and changed notes, a batch at a time (#10)
+            except Exception as e:  # noqa: BLE001
+                log.warning("embedding notes: %s", e)
+                last["embed"] = now + 600   # the model is down: try again in ten minutes
+        if now - last.get("house", 0) > 86400 and self.home.catalog:
+            last["house"] = now
+            try:
+                r = self.learn_house()
+                log.info("house: %d habits, %d suggestions, %d baselines", *r)
+            except Exception:  # noqa: BLE001
+                log.exception("house learning")
+        if now - last.get("knowledge", 0) > 60:
+            last["knowledge"] = now
+            try:
+                await self.knowledge.tick()
+            except Exception:  # noqa: BLE001
+                log.exception("knowledge")
+        if self.ha.available and now - last.get("patterns", 0) > 240:
+            last["patterns"] = now
+            try:
+                if self.mind.store.kv_get("patterns_backfilled") != 3:      # 3: + naps, air, time away, button times
+                    self.mind.store.db.execute("DELETE FROM days")
+                    n = await self.patterns.refresh(10)
+                    for i in range(1, 11):
+                        self.patterns.file_weather(date.today() - timedelta(days=i))
+                    self.mind.store.kv_set("patterns_backfilled", 3)
+                    log.info("patterns: %d days from history", n)
+                await self.patterns.tick()
+            except Exception:  # noqa: BLE001
+                log.exception("patterns")
+        if self.ha.available and now - last.get("cal", 0) > 3600:
+            last["cal"] = now
+            try:
+                log.info("calendars: %s", await self.calendars.sync())
+            except Exception:  # noqa: BLE001
+                log.exception("calendars")
+        if self.ha.available and not last.get("backfilled") and self.home.catalog and \
+                getattr(self.engine, "_ws", None):
+            last["backfilled"] = True
+            try:
+                log.info("home history: %s", await self.home.backfill(self.engine.ws_call,
+                                                                     path=os.path.join(DATA, "home_backfill.json")))
+            except Exception:  # noqa: BLE001
+                log.exception("home backfill")
+        if self.ha.available and now - last["body"] > 60:
+            last["body"] = now
+            try:
+                await self.body.poll()
+            except Exception:  # noqa: BLE001
+                log.exception("body")
+        if self.opts.get("comfort") and self.ha.available:
+            try:
+                for c in self.comforts:
+                    await c.poll_buttons()
+                if now - last["comfort"] > 300:
+                    last["comfort"] = now
+                    for c in self.comforts:
+                        await c.cycle()
+            except Exception:  # noqa: BLE001
+                log.exception("comfort")
+        try:
+            if now - last["counts"] > 600:
+                last["counts"] = now
+                await self.push_counts()
+            if now - last["fade"] > 86400:
+                last["fade"] = now
+                self.mind.store.fade(int(self.opts.get("fade_days") or 0))
+                from . import tidy
+                pairs = tidy.run(self.mind.store)
+                if pairs:
+                    log.info("tidy: %d possible duplicate pairs flagged", len(pairs))
+                n = self.mind.store.prune_events(int(self.opts.get("events_keep_days") or 0))
+                if n:
+                    log.info("event log: rolled up and removed %d rows older than %s days", n,
+                             self.opts.get("events_keep_days"))
+            if self.ha.available:
+                n = await self.ha.flush_held()
+                if n:
+                    log.info("quiet hours over: sent %d held phone notifications", n)
+            if now - last["packs"] > 12 * 3600:
+                last["packs"] = now
+                await (self.updater.apply() if self.opts.get("auto_update_packs") else self.updater.check())
+            h = int(self.opts.get("auto_test_hours") or 0)
+            if h and now - last["test"] > h * 3600:
+                last["test"] = now
+                self._spawn("auto_test", self._auto_tests)
+        except Exception:  # noqa: BLE001
+            log.exception("upkeep")
+
+
+    def _spawn(self, name, job):
+        """Run a long job (a comparison, the night's learning, test suites) beside the upkeep loop, one of each name at
+        a time, keeping a reference so it isn't collected mid-run and its failure is logged, not lost."""
+        t = self._bg.get(name)
+        if t is not None and not t.done():
+            return None
+        t = asyncio.create_task(job())
+        self._bg[name] = t
+
+        def done(t):
+            if not t.cancelled() and t.exception() is not None:
+                log.error("%s failed", name, exc_info=t.exception())
+        t.add_done_callback(done)
+        return t
+
+    async def _compare(self):
+        try:
+            r = await self.compare.run()
+            if r.get("error"):
+                return
+            log.info("model comparison: best %s, dropped %s", r.get("best"), r.get("dropped"))
+            for m, row in (r.get("models") or {}).items():
+                if row.get("accuracy") is not None:
+                    await self.ha.sensor(f"sensor.home_mind_compare_{re.sub(r'[^a-z0-9]+', '_', m.lower())}",
+                                         round(100 * row["accuracy"], 1),
+                                         {"friendly_name": f"Home Mind model {m}", "unit_of_measurement": "%",
+                                          "state_class": "measurement", "icon": "mdi:scale-balance",
+                                          "ms_avg": row.get("ms_avg"), "suites": row.get("suites")})
+        except Exception as e:  # noqa: BLE001
+            log.warning("model comparison: %s", e)
+
+    async def _auto_tests(self):
+        for suite in ("recall", "update", "locate", "tasks"):
+            await self.mind.run_test_now(suite, "brain", seed=random.randint(1, 99999))
 
     def setup_vault(self):
         """Option encrypt_secrets (#66): seal secret notes with a key kept out of backups; turned off, open them."""
@@ -1296,7 +1329,8 @@ def build(app_state):
     @r.post("/api/compare/run")
     async def compare_run(q):
         b = await q.json() if q.can_read_body else {}
-        asyncio.create_task(A.compare.run(b.get("seed")))
+        if A.compare.running or not A._spawn("compare", lambda: A.compare.run(b.get("seed"))):
+            return J({"started": False, "error": "a comparison is already running"})
         return J({"started": True, "models": A.compare.names(), "suites": A.compare.suites})
 
     @r.get("/api/docs")

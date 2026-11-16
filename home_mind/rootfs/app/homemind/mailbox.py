@@ -14,6 +14,7 @@ import imaplib
 import logging
 import re
 import ssl
+import threading
 import time
 from email.utils import parseaddr, parsedate_to_datetime
 
@@ -71,6 +72,7 @@ class Mailbox:
         self.minutes = float(opts.get("email_minutes") or 10)
         self.imap_factory = imap_factory or (lambda h: imaplib.IMAP4_SSL(h, ssl_context=ssl.create_default_context()))
         self.last = None
+        self._running = threading.Lock()
 
     @property
     def on(self):
@@ -121,6 +123,10 @@ class Mailbox:
         """Read new mail (blocking: call in a thread)."""
         if not self.on:
             return {"enabled": False}
+        with self._running:         # the upkeep loop and "Check now" run in threads: one at a time, or an email that
+            return self._run()      # both see as unseen is filed twice
+
+    def _run(self):
         res = {"read": 0, "filed": 0, "skipped": 0, "at": time.time()}
         box = self.imap_factory(self.host)
         try:
