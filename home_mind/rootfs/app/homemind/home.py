@@ -44,6 +44,10 @@ GATE = "input_boolean.mind_control_enabled"
 # doors and locks: never moved on a model's say-so alone; act() needs confirm=True (the person said yes)
 SENSITIVE_DOMAINS = ("lock", "alarm_control_panel", "valve")
 SENSITIVE_COVERS = re.compile(r"garage|gate|door", re.I)
+# a script or scene that opens the house ("script.open_garage", "Disarm alarm"), or a relay/button wired to a garage or
+# gate opener: running one opens the house as surely as the lock or cover itself
+OPENS_RUN = re.compile(r"garage|gate|door|unlock|disarm", re.I)
+OPENS_SWITCH = re.compile(r"garage|gate|unlock|disarm|opener|door ?(?:release|strike|buzzer|lock)", re.I)
 STEP = {"temperature": 1.0, "humidity": 3.0, "pm25": 5.0, "aqi": 5.0, "battery": 10.0}
 
 
@@ -423,6 +427,15 @@ class Home:
             dc = str((c.get("attrs") or {}).get("device_class") or "")
             return bool(SENSITIVE_COVERS.search(dc) or SENSITIVE_COVERS.search(eid)
                         or SENSITIVE_COVERS.search(c.get("name") or ""))
+        if dom in ("script", "scene", "switch", "button", "input_button"):
+            c = self.catalog.get(eid) or {}
+            rx = OPENS_RUN if dom in ("script", "scene") else OPENS_SWITCH
+            if rx.search(eid) or rx.search(str(c.get("name") or "")):
+                return True
+            # a scene that sets a lock, an alarm or a garage door (Home Assistant lists them in its entity_id)
+            members = (c.get("attrs") or {}).get("entity_id") if dom == "scene" else None
+            return any(isinstance(m, str) and m != eid and m.split(".")[0] != "scene" and self.sensitive(m)
+                       for m in (members if isinstance(members, list) else []))
         return False
 
     def controllable(self):

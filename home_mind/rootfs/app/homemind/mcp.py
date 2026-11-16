@@ -213,6 +213,9 @@ class MCP:
             st.check_seen(int(a["id"]))
             if not st.get(int(a["id"])):        # not a silent "archived" for an item that isn't there
                 raise KeyError(f"no item {a['id']}")
+        if name in ("mind_remember", "mind_update") and bound and isinstance(a.get("meta"), dict):
+            from .speakers import own_meta
+            a = dict(a, meta=own_meta(a["meta"]))
         if name == "mind_remember" and bound and a.get("scope") == "personal":
             a = dict(a, owner=bound)    # files personal notes as its own person, never someone else's
         if name == "mind_remember":

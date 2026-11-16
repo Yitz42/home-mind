@@ -36,6 +36,10 @@ OPENING = [(re.compile(r"^lock\.(unlock|open)$"), None), (re.compile(r"^alarm_co
 # door (homeassistant.turn_on opens a cover; scene.apply sets a lock to unlocked)
 ANY_DOMAIN = re.compile(r"^(?:homeassistant\.(?:turn_on|toggle)|scene\.apply)$")
 DOOR = re.compile(r"garage|gate|door", re.I)
+# scripts, automations, relays and buttons that open the house by what they're called ("script.open_garage" run
+# directly or through script.turn_on, automation.trigger on "Unlock front door", switch.garage_opener)
+RUNS = re.compile(r"^(?:script\.\w+|automation\.trigger|switch\.(?:turn_on|toggle)|(?:input_)?button\.press)$")
+OPENER = re.compile(r"garage|gate|door|unlock|disarm|opener", re.I)
 HIDDEN_TARGETS = ("area_id", "device_id", "floor_id", "label_id")
 ENTITY_RX = re.compile(r"\b([a-z_]+\.[a-z0-9_]+)\b")
 
@@ -145,6 +149,12 @@ def check(cfg, entities, services, pin="", given_pin="", names=None):
         if not opens and ANY_DOMAIN.match(svc):
             opens = hidden or any(t.split(".")[0] in ("lock", "alarm_control_panel") or
                                   (t.startswith("cover.") and DOOR.search(t + " " + names.get(t, ""))) for t in targets)
+        if not opens and RUNS.match(svc):
+            if dom == "script" and name not in ("turn_on", "toggle", "reload", "turn_off"):
+                targets = targets | {svc}           # script.open_garage: the service is the script
+                hidden = _hidden_targets(a)
+            opens = (hidden and dom in ("script", "automation")) or \
+                any(OPENER.search(t + " " + names.get(t, "")) for t in targets)
         if opens:
             if not pin:
                 p.append(f"{svc} opens the house: set option automation_pin to allow it")

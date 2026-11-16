@@ -882,7 +882,8 @@ def build(app_state):
     async def remember(q):
         b = await read_body(q, text=str, title=str, kind=str, shelf=str, tags=TAGS, key=str, meta=dict, scope=str,
                             owner=str, source=str)
-        meta = dict(b.get("meta") or {}, **({"inferred": True} if b.get("inferred") else {}))
+        from .speakers import own_meta
+        meta = own_meta(dict(b.get("meta") or {}, **({"inferred": True} if b.get("inferred") else {})))
         if b.get("scope") in ("personal", "household"):
             meta["scope"] = b["scope"]
             if b["scope"] == "personal":
@@ -947,8 +948,9 @@ def build(app_state):
             b = await read_body(q, title=str, text=str, shelf=str, tags=TAGS, key=str, meta=dict)
             if not any(b.get(k) is not None for k in ("title", "text", "shelf", "tags", "key", "meta")):
                 raise ValueError("nothing to change: give title, text, shelf, tags, key or meta")
+            from .speakers import own_meta
             return J(st.revise(i, title=b.get("title"), body=b.get("text"), shelf=b.get("shelf"), tags=b.get("tags"),
-                               key=b.get("key"), meta=b.get("meta")))
+                               key=b.get("key"), meta=own_meta(b.get("meta"))))
         if op == "sensitive":
             b = await read_body(q)
             d = st.get(i)

@@ -468,7 +468,7 @@ def context_lines(hits, question=None, now=None):
 def note_line(h):
     line = f"[{_ts(h['created'])} | {h['shelf']} | #{h['id']}] {h['title']}"
     vf = (h.get("meta") or {}).get("valid_from")
-    if vf and abs(float(vf) - h["created"]) > 6 * 3600:
+    if vf and h["created"] - float(vf) > 6 * 3600:      # a date after it was filed is not "true since"
         line = line.replace(f"| #{h['id']}]", f"| #{h['id']} | true since {_ts(float(vf))[:14]}]", 1)
     if h.get("body") and h["body"] != h["title"]:
         line += f" — {h['body']}"
