@@ -349,6 +349,8 @@ class Store:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         conn = sqlite3.connect(path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        from .speakers import seen_sql
+        conn.create_function("hm_seen", 2, seen_sql, deterministic=True)     # speakers.sql(): who may see a note
         self.lock = threading.RLock()
         self.db = LockedDB(conn, self.lock)
         with self.lock:
