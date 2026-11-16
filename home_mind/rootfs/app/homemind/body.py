@@ -11,7 +11,17 @@ log = logging.getLogger("homemind.body")
 FIELDS = [("weight", "weight", "lb"), ("body_fat", "body fat", "%"), ("bmi", "BMI", ""),
           ("muscle_mass", "muscle mass", "lb"), ("body_water", "body water", "%"),
           ("visceral_fat_level", "visceral fat level", ""), ("basal_metabolic_rate", "BMR", " kcal"),
-          ("metabolic_age", "metabolic age", "")]
+          ("metabolic_age", "metabolic age", ""),
+          # derived by the scale integration (0.4+): BodyScan numbers
+          ("wyze_scale_fat_mass", "fat mass", "lb"), ("wyze_scale_skeletal_muscle_percentage", "skeletal muscle", "%"),
+          ("wyze_scale_fat_free_mass_index", "fat-free mass index", ""),
+          ("wyze_scale_arm_balance_right_vs_left", "arm balance (right vs left)", "%"),
+          ("wyze_scale_leg_balance_right_vs_left", "leg balance (right vs left)", "%"),
+          ("wyze_scale_fluid_balance_100_20_khz_impedance_ratio", "fluid balance (impedance ratio)", "")]
+DECIMALS = {"weight": 1, "muscle_mass": 1, "body_fat": 1, "body_water": 1, "bmi": 1, "wyze_scale_fat_mass": 1,
+            "wyze_scale_skeletal_muscle_percentage": 1, "wyze_scale_fat_free_mass_index": 1,
+            "wyze_scale_arm_balance_right_vs_left": 1, "wyze_scale_leg_balance_right_vs_left": 1,
+            "wyze_scale_fluid_balance_100_20_khz_impedance_ratio": 3}
 KG_LB = 2.20462
 
 
@@ -30,7 +40,7 @@ def note_text(when, vals):
     for k, label, unit in FIELDS:
         if vals.get(k) is not None:
             x = vals[k]
-            s = f"{x:.1f}" if k in ("weight", "muscle_mass", "body_fat", "body_water", "bmi") else f"{x:.0f}"
+            s = f"{x:.{DECIMALS.get(k, 0)}f}"
             parts.append(f"{label} {s}{unit}" if unit in ("%", "") else f"{label} {s} {unit.strip()}")
     day = when.strftime("%a %b %d %Y %I:%M %p").replace(" 0", " ")
     return f"Weigh-in {day}: my " + ", ".join(parts) + "."
@@ -56,7 +66,7 @@ class Body:
         out = self.store.remember(text=text, title=text.split(": my ")[0] + f": {vals['weight']:.1f} lb",
                                   kind="fact", shelf="body/weight",
                                   tags=["weight", "scale", "body"], source="scale",
-                                  meta={"weigh_in": ts, "series": "weigh-in", **{k: round(v, 2) for k, v in vals.items() if v is not None}},
+                                  meta={"weigh_in": ts, "series": "weigh-in", **{k: round(v, 3) for k, v in vals.items() if v is not None}},
                                   at=when.timestamp())
         log.info("filed weigh-in %s as #%s", ts, out.get("id"))
         return out

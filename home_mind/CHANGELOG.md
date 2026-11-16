@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.24.0
+- Home tab (was House): a map of the bedroom with every device where it really is. Lights glow on the map when on; tap anything to control it in the panel beside the map: brightness and color for lights (plus the White, Warm, Dim, Night and Rope night presets for all lights), target temperature and presets for the heater, target humidity for the humidifier, speed, auto and night mode for the purifier, tilt for the blind, and a full 3D-printer panel (status, progress, layers, time left, temperatures, chamber light, pause / resume / stop with a confirm).
+- Quick actions: Bedtime (lights off but a dim under-bed glow, light sleep mode, heat to your night setting), Wake up (lights on, blind open), Focus (desk power and desk light) and All off.
+- Comfort as three tall sliders (heat, humidity, fan) with the hot / just right / cold taps and a switch to let Home Mind run comfort; tonight's forecast, the next 5 days, sunrise and sunset; your routines with on/off switches; plugs and media; phone and laptop battery.
+- Meal ideas no longer fail on a long answer: the prompt asks for compact meals, and if a reply is still cut off the finished meals are kept instead of showing nothing. (The Claude AI Task in Home Assistant was also raised from 3000 to 6000 response tokens.)
+- A nudge from the learned habits: past your usual lights-off time with lights on, it offers to run Bedtime.
+- Safety: the panel can only act on the devices on the map, with only the services each needs (new endpoint /api/controls; anything else is refused).
+- Scale (Wyze integration 0.4): weigh-in notes now include fat mass, skeletal muscle %, fat-free mass index, arm and leg balance and the fluid-balance reading; fluid balance is watched as a possible brain-fog link.
+- Phone: the tab bar no longer leaves an empty gap under it in the Home Assistant app.
+- Learned habits, suggested automations, "ask for an automation" and usual ranges moved under Home › Learned & automations.
+
 ## 0.23.1
 - Panel: more compact on a computer (smaller cards, headings, ring and buttons; bedroom tiles no longer stretch across the page).
 - Light mode: buttons on teal and violet use white text so they're readable; bedroom tiles stand out from the card.

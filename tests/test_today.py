@@ -99,6 +99,38 @@ async def main():
           t2["day"] is None and t2["week"] == [], t2)
 
 
+
+
+def body_and_controls():
+    import json as _j
+    from datetime import datetime as _dt
+    from homemind import body, home_ctrl
+    when = _dt(2026, 11, 15, 17, 40)
+    t = body.note_text(when, {"weight": 168.2, "wyze_scale_fat_mass": 40.1, "wyze_scale_fluid_balance_100_20_khz_impedance_ratio": 0.8834})
+    check("weigh-in note carries BodyScan readings", "fat mass 40.1 lb" in t and "fluid balance (impedance ratio) 0.883" in t, t)
+    A, st = setup()
+    st.remember(text="Weigh-in", title="Weigh-in", shelf="body/weight", source="scale",
+                meta={"weight": 168.2, "wyze_scale_fluid_balance_100_20_khz_impedance_ratio": 0.883})
+    d0 = _dt.combine(date.today(), _dt.min.time())
+    check("patterns read that day's fluid balance", A.patterns._fluid(d0) == 0.883, A.patterns._fluid(d0))
+    # controls: only listed entities and allowed services/keys
+    ok = home_ctrl.check("light.dreamview_p1", "turn_on", {"brightness_pct": 140})
+    check("controls clamp brightness", ok == ("light", {"brightness_pct": 100}), ok)
+    for args, why in ((("lock.front", "unlock", {}), "unknown entity"), (("light.dreamview_p1", "turn_on", {"flash": "long"}), "extra key"),
+                      (("climate.bedroom_temp", "turn_off", {}), "service not allowed"), (("script.all_lights_white", "reload", {}), "script reload")):
+        try:
+            home_ctrl.check(*args); check("controls refuse " + why, False)
+        except ValueError:
+            check("controls refuse " + why, True)
+    stt = {"light.rgbic_neon_rope_lights": {"state": "on"}, "light.rgbic_pro_strip_lights": {"state": "on"}}
+    model = {"habits": [{"entity_id": "light.desk", "state": "off", "minute": 22 * 60 + 16}]}
+    late = _dt(2026, 11, 16, 0, 20).timestamp()
+    s = home_ctrl.suggestion(stt, model, late)
+    check("bedtime nudge after the usual lights-off with lights on", s and s["scene"] == "bedtime" and "10:16 PM" in s["title"], s)
+    check("no nudge in the afternoon", home_ctrl.suggestion(stt, model, _dt(2026, 11, 16, 15, 0).timestamp()) is None)
+
+
 asyncio.run(main())
+body_and_controls()
 print(f"\n{len(FAILS)} failed" if FAILS else "\nALL TODAY CHECKS PASSED")
 sys.exit(1 if FAILS else 0)
