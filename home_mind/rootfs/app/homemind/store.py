@@ -267,6 +267,12 @@ def clean_shelf(shelf):
     return "/".join(p for p in parts if p) or "inbox"
 
 
+def _ascii_shelf(shelf):
+    """How shelves were cleaned before 0.32 (letters outside a-z became "-"): "Küche" was stored as "k-che"."""
+    parts = [re.sub(r"[^a-z0-9_\-]+", "-", p.strip().lower()).strip("-") for p in (shelf or "inbox").split("/")]
+    return "/".join(p for p in parts if p) or "inbox"
+
+
 def clean_tags(tags):
     if isinstance(tags, str):
         tags = re.split(r"[,\s]+", tags)
@@ -342,6 +348,16 @@ class LockedDB:
 
 
 class Store:
+    def _shelf(self, shelf):
+        """clean_shelf, but a shelf that already exists under its pre-0.32 name ("k-che" for "Küche") keeps that
+        name, so one shelf doesn't split in two after the upgrade."""
+        new = clean_shelf(shelf)
+        old = _ascii_shelf(shelf)
+        if new != old and self.db.execute("SELECT 1 FROM items WHERE shelf=? LIMIT 1", (old,)).fetchone() and \
+                not self.db.execute("SELECT 1 FROM items WHERE shelf=? LIMIT 1", (new,)).fetchone():
+            return old
+        return new
+
     def __init__(self, path, clock=None):
         self.path = path
         self.clock = clock or time.time
@@ -582,7 +598,7 @@ class Store:
         if not title:
             title = text.split("\n")[0][:90]
         key = (key or "").strip().lower() or None
-        shelf, tags = clean_shelf(shelf), clean_tags(tags)
+        shelf, tags = self._shelf(shelf), clean_tags(tags)
         now = float(at) if at else self.clock()     # at: when it happened, for readings filed afterwards
         m0 = dict(meta or {})
         if shelf == "inbox" and self.filer is not None and kind != "procedure":
@@ -736,7 +752,7 @@ class Store:
             cur = self.db.execute(
                 "INSERT INTO items(kind,key,title,body,tags,shelf,status,supersedes,created,updated,source,meta,"
                 "use_count,strength) VALUES(?,?,?,?,?,?,'active',?,?,?,?,?,?,?)",
-                (f["kind"], f["key"], f["title"], f["body"], clean_tags(f["tags"]), clean_shelf(f["shelf"]), item_id,
+                (f["kind"], f["key"], f["title"], f["body"], clean_tags(f["tags"]), self._shelf(f["shelf"]), item_id,
                  now, now, f["source"], json.dumps(f["meta"]), old["use_count"], old["strength"]))
             new_id = cur.lastrowid
             # the new version is still found by the old one's search keys (and those of its new words), and stays
@@ -1414,7 +1430,7 @@ class Store:
         args += va
         if shelf:
             where.append("(i.shelf = ? OR i.shelf LIKE ?)")
-            args += [clean_shelf(shelf), clean_shelf(shelf) + "/%"]
+            args += [self._shelf(shelf), self._shelf(shelf) + "/%"]
         if kind:
             where.append("i.kind = ?")
             args.append(kind)
@@ -1538,7 +1554,7 @@ class Store:
         res = [d for d in res if _visible(d.get("meta"))]      # and whatever was reached through links or hops
         if shelf or kind:
             # notes reached through links or a group note keep to the shelf and kind asked for, like the search
-            sh = clean_shelf(shelf) if shelf else None
+            sh = self._shelf(shelf) if shelf else None
             res = [d for d in res if (not kind or d.get("kind") == kind) and
                    (not sh or d.get("shelf") == sh or (d.get("shelf") or "").startswith(sh + "/"))]
         if not quiet:          # the nightly checks search a lot; they don't fill the activity log
@@ -1670,7 +1686,7 @@ class Store:
         """The shelf tree (with counts) under a shelf, and the items kept directly on it."""
         from .speakers import sql as _vis
         vs, va = _vis()
-        base = clean_shelf(shelf) if shelf else ""
+        base = self._shelf(shelf) if shelf else ""
         rows = self.db.execute(f"SELECT shelf, COUNT(*) n FROM items WHERE status IN ('active','faded') AND {vs} "
                                "GROUP BY shelf", va).fetchall()
         tree = {}

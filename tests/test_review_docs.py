@@ -159,5 +159,17 @@ folder_scan()
 places()
 shelves()
 apps()
+def shelf_upgrade():
+    from homemind.store import Store
+    st = Store(os.path.join(tempfile.mkdtemp(), "m.db"))
+    st.db.execute("INSERT INTO items(title, body, shelf, created, updated) VALUES('Pan', 'The big pan.', 'k-che', 1, 1)")
+    st.db.commit()
+    r = st.remember(text="The whisk is in the drawer.", shelf="Küche")
+    check("a shelf filed under its old name before the upgrade isn't split in two", st.get(r["id"])["shelf"] == "k-che")
+    st2 = Store(os.path.join(tempfile.mkdtemp(), "m.db"))
+    check("a new install keeps the letters", st2.get(st2.remember(text="The whisk.", shelf="Küche")["id"])["shelf"] == "küche")
+
+
+shelf_upgrade()
 print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")
 sys.exit(1 if FAILS else 0)
