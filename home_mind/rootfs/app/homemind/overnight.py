@@ -294,6 +294,13 @@ class Overnight:
         self.log.mark(done)
         self.log.prune()
         read = await self.read_structure(model) if self.structure_on else None
+        reshelved = {"moved": [], "suggested": []}
+        if getattr(self.store, "filer", None):
+            try:
+                from .filing import reshelve
+                reshelved = reshelve(self.store.filer)        # #32: filing has learned more since these were filed
+            except Exception as e:  # noqa: BLE001
+                log.warning("reshelve: %s", e)
         tagged = 0
         try:
             tagged = await self.tag_languages(model)
@@ -313,6 +320,7 @@ class Overnight:
                 log.warning("search keys: %s", e)
         self.last = {"at": time.time(), "model": name, "turns": len(done), "filed": len(filed), "already_known": skipped,
                      "unknown_voices": len(guests), "keys_added": keyed, "links_moved": relinked, "tagged_languages": tagged,
+                     "reshelved": len(reshelved["moved"]), "reshelve_suggested": len(reshelved["suggested"]),
                      "ids": filed, **({"structure_read": read} if read is not None else {})}
         return self.last
 

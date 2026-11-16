@@ -128,6 +128,12 @@ configuration:
     description: 0 = off. Results on the Tests tab, at /api/compare and as a sensor per model.
   compare_suites:
     name: Suites for the model comparison
+  use_preferences:
+    name: Use learned settings
+    description: When you ask to turn on a light or fan without saying how much, use the brightness or speed you usually choose at this time of day.
+  label_url:
+    name: Address for QR labels
+    description: Where a scanned label opens, for example https://ha.example.com/hassio/ingress/local_home_mind. Empty = the address you are using the panel from.
   automation_pin:
     name: PIN for automations that open the house
     description: Drafted automations that unlock, open a garage door or disarm an alarm are installed only with this PIN. Empty = never.

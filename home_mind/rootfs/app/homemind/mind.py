@@ -781,10 +781,48 @@ class Mind:
     WRONG = re.compile(r"^\s*(?:no[,.!]?\s*)?(?:that'?s|that is|this is|it'?s)\s+(?:wrong|not right|incorrect|not true|"
                        r"out of date|outdated|old)\b", re.I)
 
+    HANDOFF_SECONDS = 600      # a conversation moves with its person to another device for this long (#53)
+
+    def _conversations(self, store=None):
+        """The live conversations; read back once from the database after a restart (#53)."""
+        if "_convs" not in self.__dict__:
+            self._convs, self._person_conv = {}, {}
+            st = store or self.store
+            if st is self.store:
+                saved = st.kv_get("conversations") or {}
+                now = time.time()
+                self._convs = {k: v for k, v in (saved.get("convs") or {}).items()
+                               if now - v.get("t", 0) <= self.FOLLOW_SECONDS}
+                self._person_conv = saved.get("people") or {}
+        return self._convs
+
+    def _handoff(self, conversation_id, convs):
+        """#53: a new conversation from a person who was just talking on another device (the kitchen speaker, then
+        the phone) picks up where that one left off: "and the shed?" still knows what came before."""
+        from .speakers import VIEWER
+        who = VIEWER.get()
+        if not conversation_id or not who:
+            return
+        people = self.__dict__.setdefault("_person_conv", {})
+        prev = people.get(who)
+        if prev and prev != conversation_id and conversation_id not in convs and prev in convs and \
+                time.time() - convs[prev]["t"] <= self.HANDOFF_SECONDS:
+            convs[conversation_id] = dict(convs[prev], handed_from=prev)
+        people[who] = conversation_id
+
+    def _save_conversations(self, store):
+        if store is not self.store:
+            return
+        try:
+            keep = dict(sorted(self._convs.items(), key=lambda kv: kv[1].get("t", 0))[-50:])
+            store.kv_set("conversations", {"convs": keep, "people": self.__dict__.get("_person_conv", {})})
+        except Exception:  # noqa: BLE001 - a conversation that can't be saved still works until a restart
+            pass
+
     def resolve(self, question, conversation_id, store=None):
         """Rewrite a follow-up ("and the shed?") into a full question using the last one in the same conversation."""
         store = store or self.store
-        convs = self.__dict__.setdefault("_convs", {})
+        convs = self._conversations(store)
         now = time.time()
         for k in [k for k, v in convs.items() if now - v["t"] > self.FOLLOW_SECONDS]:
             convs.pop(k)
@@ -792,6 +830,7 @@ class Mind:
         full = followup(question, prev, store) if prev else question
         if conversation_id:
             convs[conversation_id] = {"q": full, "t": now}
+            self._save_conversations(store)
         return full
 
     async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False,
@@ -817,7 +856,8 @@ class Mind:
         store = store or self.store
         t0 = time.time()
         original = question
-        convs = self.__dict__.setdefault("_convs", {})
+        convs = self._conversations(store)
+        self._handoff(conversation_id, convs)
         last = convs.get(conversation_id) if conversation_id else None
         if last and last.get("src") and self.WRONG.search(question.replace("’", "'")) and \
                 time.time() - last["t"] <= self.FOLLOW_SECONDS:
@@ -918,6 +958,7 @@ class Mind:
                    if any(i in byid for i in named) and not DONT_KNOW.search(text) else sources_for(text, hits, question))
         if conversation_id and conversation_id in convs:
             convs[conversation_id].update(src=sources, q=question, a=text)
+            self._save_conversations(store)
         cl = getattr(self, "convlog", None)
         if cl and store is self.store:
             cl.add(time.time(), original, text, conversation_id, None, "home_mind")

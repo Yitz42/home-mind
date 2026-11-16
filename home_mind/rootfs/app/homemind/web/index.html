@@ -47,6 +47,7 @@
   <div class="card"><h2>Export and import <span class="mute">every note with its history and links, as one JSON file</span></h2>
     <div class="row"><a class="go" href="api/export" download onclick="this.href = 'api/export' + ($('#ex_secrets').checked ? '?secrets=1' : '')">Export</a> <label class="mute"><input type="checkbox" id="ex_secrets"> with secrets</label>
       <input type="file" id="im_file" accept=".json"> <button class="go" onclick="importFile(true)">Check</button> <button class="go" onclick="importFile(false)">Import</button> <span id="im_out" class="mute"></span></div>
+    <p class="mute">QR labels: <button class="go" onclick="labelPrompt()">Make a label</button> scanning it opens everything known about that thing here.</p>
     <p class="mute">Two-way Markdown sync: set the option markdown_folder. <button class="go" onclick="mdSync()">Sync now</button> <span id="md_out"></span></p></div>
   <div class="card hide" id="reviewcard"><h2>To review <span class="mute">learned or guessed, not checked yet</span></h2><table id="review"></table>
     <p class="mute">Held notes read like instructions to the assistant and are left out of answers until approved. Unconfirmed ones are shown to models marked UNCONFIRMED.</p></div>
@@ -320,8 +321,35 @@ async function item(id) {
       <button class="go" onclick="scopeItem(${d.id}, '${d.meta && d.meta.scope === 'personal' ? 'household' : 'personal'}', '${esc((d.meta && (d.meta.owner || d.meta.said_by)) || '')}')">${d.meta && d.meta.scope === 'personal' ? 'Share with household' : 'Make personal'}</button>
       <button class="go" style="background:var(--bad)" onclick="purgeItem(${d.id})">Delete for good</button>
       <span id="e_out" class="mute"></span></div>
+    <h2>Photos</h2><div class="row">${((d.meta && d.meta.photos) || []).map(p => `<figure style="margin:0 8px 8px 0"><a href="api/photo/${esc(p.file)}" target="_blank"><img src="api/photo/${esc(p.file)}" style="max-width:160px;max-height:120px;border-radius:6px"></a><figcaption class="mute">${esc(p.caption)} <a data-f="${esc(p.file)}" onclick="photoDel(${d.id}, this.dataset.f)">×</a></figcaption></figure>`).join('') || '<span class="mute">none</span>'}</div>
+    <div class="row"><input type="file" id="ph_file" accept="image/*" capture="environment"> <input id="ph_cap" placeholder="caption (searchable)"> <button class="go" onclick="photoAdd(${d.id})">Add photo</button></div>
     ${vers ? `<h2>Other versions</h2><ul>${vers}</ul>` : ''}${hist ? `<h2>Earlier values</h2><ul>${hist}</ul>` : ''}`;
 }
+async function photoAdd(id) {
+  const f = $('#ph_file').files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('caption', $('#ph_cap').value); fd.append('file', f);
+  const r = await (await fetch('api/item/' + id + '/photo', {method: 'POST', body: fd})).json();
+  if (r.error) alert(r.error); item(id);
+}
+async function photoDel(id, f) { await fetch('api/item/' + id + '/photo/' + encodeURIComponent(f), {method: 'DELETE'}); item(id); }
+function labelBase() { try { return window.top.location.origin + window.top.location.pathname; } catch (e) { return location.origin + location.pathname; } }
+function labelUrl(text) { return 'api/label?text=' + encodeURIComponent(text) + '&base=' + encodeURIComponent(labelBase()); }
+async function thingPage(name) {
+  document.querySelector('nav button[data-t=memory]').click();
+  const t = await (await fetch('api/thing?name=' + encodeURIComponent(name))).json(), c = $('#itemcard');
+  c.classList.remove('hide');
+  c.innerHTML = `<div class="row"><h2 style="margin:0;flex:1">${esc(t.name)}</h2><a href="${labelUrl(t.name)}" target="_blank">print label</a> <a onclick="$('#itemcard').classList.add('hide')">close</a></div>
+    <ul>${(t.known || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li class="mute">nothing known yet</li>'}</ul>
+    <div class="row"><input id="th_note" placeholder="add a note about ${esc(t.name)}" style="flex:1"> <button class="go" onclick="thingNote()">Add</button></div>
+    <ul>${(t.notes || []).map(n => `<li><a onclick="item(${n.id})">${esc(n.title || n.body)}</a> <span class="mute">${esc(n.shelf)}</span></li>`).join('')}</ul>`;
+  c.dataset.thing = t.name;
+}
+async function thingNote() {
+  const name = $('#itemcard').dataset.thing, v = $('#th_note').value.trim(); if (!v) return;
+  const text = v.toLowerCase().includes(name.toLowerCase()) ? v : `${name}: ${v}`;
+  await api('api/remember', {text}); thingPage(name);
+}
+function labelPrompt() { const n = prompt('Label for which thing, place or shelf?'); if (n) window.open(labelUrl(n), '_blank'); }
 async function pantry() {
   const r = await api('api/pantry');
   $('#p_items').innerHTML = '<tr><th>item</th><th>where</th><th>use within</th><th></th></tr>' + r.items.map(i => {
@@ -385,6 +413,8 @@ async function checkModels() { const rs = await api('api/models/check', {}); rs.
 async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); $('#a_out').textContent = r.error || (r.answer + '\n\n— ' + (r.ms || '') + ' ms; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ')); }
 async function checkUpd() { $('#upd').textContent = '…'; const r = await api('api/updates'); delete r.manifest; $('#upd').textContent = JSON.stringify(r, null, 1); }
 async function applyUpd() { $('#upd').textContent = '…'; $('#upd').textContent = JSON.stringify(await api('api/updates/apply', {}), null, 1); }
+(function () { let q = ''; try { q = window.top.location.search; } catch (e) { q = location.search; }
+  const m = /[?&]hm_thing=([^&]+)/.exec(q); if (m) setTimeout(() => thingPage(decodeURIComponent(m[1].replace(/\+/g, ' '))), 300); })();
 load('overview'); setInterval(() => !$('#overview').classList.contains('hide') && load('overview'), 30000);
 </script>
 </body>

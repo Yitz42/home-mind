@@ -45,8 +45,9 @@ class Filer:
             self.build()
         return self._model
 
-    def guess(self, text):
-        """(shelf, probability) or (None, 0)."""
+    def guess(self, text, without=None):
+        """(shelf, probability) or (None, 0). without: the shelf the note is on now, to leave the note itself out of
+        what the model learned (reshelving, #32)."""
         m = self.model()
         if not m["docs"]:
             return None, 0.0
@@ -54,12 +55,19 @@ class Filer:
         if not ws:
             return None, 0.0
         logp = {}
+        total = m["total"] - (1 if without in m["docs"] else 0)
         for shelf, n in m["docs"].items():
-            lp = math.log(n / m["total"])
+            own = shelf == without
+            n = n - 1 if own else n
+            if n <= 0:
+                continue
+            lp = math.log(n / total)
             wc = m["words"][shelf]
             for w in ws:
-                lp += math.log((wc[w] + 0.5) / (n + 1.0))     # each word: in how many of this shelf's notes
+                lp += math.log((wc[w] - (1 if own else 0) + 0.5) / (n + 1.0))   # in how many of this shelf's notes
             logp[shelf] = lp
+        if not logp:
+            return None, 0.0
         top = max(logp.values())
         z = sum(math.exp(v - top) for v in logp.values())
         best = max(logp, key=logp.get)
@@ -73,3 +81,52 @@ class Filer:
         if shelf and p >= 0.5:
             return "inbox", {"suggested_shelf": shelf, "suggested_p": round(p, 2)}
         return "inbox", {}
+
+
+RESHELVE_P = 0.95
+RESHELVE_DAYS = 7
+
+
+def reshelve(filer, now=None, apply=True, limit=500):
+    """Reshelve over time (#32). As filing learns, a note that was filed by the model (or left in the inbox) a while
+    ago may now clearly belong elsewhere: it is moved (and says where it came from). A note you placed yourself is
+    never moved; if it clearly looks like another shelf's, that shelf is suggested instead. A note you moved, or kept
+    where it is, is left alone."""
+    st = filer.store
+    now = now or time.time()
+    import json
+    m = filer.model()
+    rows = st.db.execute(
+        f"SELECT id, shelf, title, body, meta, source FROM items WHERE status='active' AND kind NOT IN ('procedure','task') "
+        f"AND created < ? AND shelf NOT LIKE 'home/%' AND shelf NOT LIKE 'comfort/%' AND shelf NOT LIKE 'summaries%' "
+        f"AND shelf NOT LIKE 'procedures/%' AND source NOT LIKE 'pack:%' AND source NOT IN ({','.join('?' * len(SKIP))}) "
+        f"ORDER BY id DESC LIMIT ?", (now - RESHELVE_DAYS * 86400, *SKIP, limit)).fetchall()
+    moved, suggested = [], []
+    for r in rows:
+        meta = json.loads(r["meta"] or "{}")
+        if meta.get("moved_from") is not None or meta.get("keep_shelf") or meta.get("sensitive"):
+            continue
+        best, p = filer.guess(f"{r['title']} {r['body']}", without=r["shelf"])
+        if not best or best == r["shelf"] or p < RESHELVE_P or m["docs"].get(best, 0) < MIN_NOTES + 1:
+            continue
+        machine = r["shelf"] == "inbox" or meta.get("filed_by") in ("learned", "reshelved")
+        if machine:
+            moved.append({"id": r["id"], "from": r["shelf"], "to": best, "p": round(p, 2)})
+            if apply:
+                meta.update(filed_by="reshelved", reshelved_from=r["shelf"], filed_p=round(p, 2))
+                meta.pop("suggested_shelf", None)
+                meta.pop("suggested_p", None)
+                with st.lock:
+                    st.db.execute("UPDATE items SET shelf=?, meta=? WHERE id=?", (best, json.dumps(meta), r["id"]))
+                    st.db.commit()
+        elif meta.get("suggested_shelf") != best:
+            suggested.append({"id": r["id"], "from": r["shelf"], "to": best, "p": round(p, 2)})
+            if apply:
+                meta.update(suggested_shelf=best, suggested_p=round(p, 2))
+                with st.lock:
+                    st.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), r["id"]))
+                    st.db.commit()
+    if apply and moved:
+        st.log("reshelve", None, moved=moved[:50])
+        filer._model = None
+    return {"moved": moved, "suggested": suggested}

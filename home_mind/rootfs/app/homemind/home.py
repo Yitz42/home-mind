@@ -101,7 +101,8 @@ class Home:
             name = re.sub(r"^Dyson C2A-US-MDB9996A", "Dyson", a.get("friendly_name") or s["entity_id"]).strip()
             name = re.sub(r"^Yitz \(Wyze scale\) ", "", name)
             cat[s["entity_id"]] = dict(k, name=name, domain=s["entity_id"].split(".")[0], state=s["state"],
-                                       unit=a.get("unit_of_measurement") or "", attrs=a)
+                                       unit=a.get("unit_of_measurement") or "", attrs=a,
+                                       ctx=s.get("context") or {})
         self.catalog = cat
         return len(cat)
 
@@ -421,6 +422,13 @@ class Home:
         dom = entity_id.split(".")[0]
         data = {"entity_id": entity_id}
         a = (action or "").lower()
+        prefs = getattr(self, "prefs", None)
+        if a == "on" and value in (None, "") and prefs is not None and dom in ("light", "fan"):
+            p = prefs.preferred(entity_id)          # #30: "turn on the desk lamp" -> how you usually like it
+            if p:
+                a, value = ("brightness" if dom == "light" else "speed"), p["value"]
+        self.own = getattr(self, "own", {})
+        self.own[entity_id] = now
         if a == "run" or dom in RUN_DOMAINS:
             svc = (dom, "turn_on")
         elif a in ("on", "off", "toggle"):

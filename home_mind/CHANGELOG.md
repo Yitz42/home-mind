@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.29.0
+- Learned settings (#30): how bright you like each light, how fast each fan, how far each blind and how loud each speaker, by time of day and weekday or weekend. Only settings a person chose count (not automations, not Home Mind). Five that agree make a preference: it is filed as a note and used when you ask to turn a light or fan on without saying how much (option `use_preferences`). `/api/preferences`.
+- Reshelving over time (#32): each night, notes filed by the model (or left in the inbox) a week or more ago move when filing now clearly knows better, and say where they came from. A note you placed yourself only gets a suggestion; one you moved or kept stays put. `/api/reshelve`.
+- Photos with notes (#36): add photos to any note from the Memory tab (the phone camera works). Captions become search words. Files are checked (JPEG, PNG, GIF, WebP, HEIC, at most 12 MB) and removed when no note uses them.
+- QR labels (#63): print a label for a box, shelf or place. Scanning it opens the panel on everything known about that thing, with a box to add a note. Built-in QR encoder, no new package. Option `label_url`.
+- Conversations across devices (#53): a follow-up on your phone right after asking the kitchen speaker ("and where is it?") knows what came before, for the same person, within 10 minutes. Live conversations survive a restart.
+
 ## 0.28.0
 - Export and import (#35): `/api/export` gives every note with its history, links and fields as one JSON file (secrets masked unless asked for with the vault key loaded; house readings left out). `/api/import` merges one in: notes already here are skipped, ids renumbered, versions and links follow. A dry run says what would be added. Buttons on the Memory tab.
 - Two-way Markdown sync (#67): option `markdown_folder`. Every note becomes a Markdown file, one folder per shelf. Editing a file makes a new version; a new file becomes a note on its folder's shelf; deleting a file archives the note; archiving a note deletes its file. If both changed, the note wins and the file's text is kept as `.conflict.md`. Secrets and house readings are never written out.

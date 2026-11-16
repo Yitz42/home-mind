@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.28.0"
+version: "0.29.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -95,6 +95,8 @@ options:
   markdown_minutes: 10
   compare_models: []
   compare_days: 0
+  use_preferences: true
+  label_url: ""
   compare_suites:
     - recall
     - tricky
@@ -184,6 +186,8 @@ schema:
   compare_models:
     - str?
   compare_days: int(0,90)?
+  use_preferences: bool?
+  label_url: str?
   compare_suites:
     - str?
   comfort_rooms:

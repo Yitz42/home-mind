@@ -54,7 +54,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
             "paperless_url": "", "paperless_token": "", "rerank_model": "",
             "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
-            "compare_suites": ["recall", "tricky", "hard"],
+            "compare_suites": ["recall", "tricky", "hard"], "use_preferences": True, "label_url": "",
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
@@ -147,6 +147,10 @@ class App:
         from .compare import Compare
         self.mdsync = MdSync(self.mind.store, self.opts.get("markdown_folder") or None)
         self.mind.views = self.views = Views(self.mind.store)
+        from .prefs import Prefs
+        from .photos import Photos
+        self.prefs = Prefs(self.mind.store)
+        self.photos = Photos(self.mind.store, os.path.join(DATA, "photos"))
         self.compare = Compare(self.mind, self.opts.get("compare_models") or [], self.opts.get("compare_days") or 0,
                                self.opts.get("compare_suites") or None)
         self.comforts = self.comfort_rooms()
@@ -154,6 +158,8 @@ class App:
         self.body = Body(self.mind.store, self.ha)
         self.home = Home(self.mind.store, self.ha, self.opts)
         self.mind.home = self.home if self.opts.get("home", True) else None
+        if self.opts.get("use_preferences", True) is not False:
+            self.home.prefs = self.prefs
         self.engine = Engine(self.mind.store, self.ha, DATA)
         self.mind.FALLBACK = list(self.opts.get("fallback") or [])
         self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
@@ -327,6 +333,14 @@ class App:
                 try:
                     await self.home.refresh()
                     n = self.home.log_changes(first=home_first)
+                    try:
+                        self.prefs.observe(self.home.catalog, getattr(self.home, "own", {}), now)    # #30
+                        if now - last.get("prefs", 0) > 6 * 3600:
+                            last["prefs"] = now
+                            self.prefs.file_notes({e: c["name"] for e, c in self.home.catalog.items()})
+                            self.photos.sweep()
+                    except Exception:  # noqa: BLE001
+                        log.exception("preferences")
                     if home_first:
                         log.info("home: %d things, %d filed", len(self.home.catalog), n)
                     home_first = False
@@ -815,6 +829,26 @@ def build(app_state):
             return J(st.feedback(i, bool(b.get("helpful")), b.get("note", "")))
         if op == "confirm":
             return J(st.confirm(i))
+        if op == "photo":                       # #36: multipart file (+ caption)
+            rd = await q.multipart()
+            data, caption = None, ""
+            async for part in rd:
+                if part.name == "caption":
+                    caption = (await part.text())[:200]
+                elif part.filename:
+                    data = await part.read(decode=False)
+            try:
+                return J(await asyncio.to_thread(A.photos.add, i, data, caption))
+            except (ValueError, KeyError) as e:
+                return J({"error": str(e)}, status=400)
+        if op == "keep":                        # #32: leave it on its shelf, don't suggest another
+            d = st.get(i)
+            m = {k: v for k, v in (d["meta"] or {}).items() if k not in ("suggested_shelf", "suggested_p")}
+            m["keep_shelf"] = True
+            with st.lock:
+                st.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(m), i))
+                st.db.commit()
+            return J({"id": i, "kept": d["shelf"]})
         if op == "move":           # to another shelf; filing learns from where notes are (#58, #59)
             b = await q.json()
             from .store import clean_shelf
@@ -1137,6 +1171,61 @@ def build(app_state):
             return J(await asyncio.to_thread(sqlview.query, A.mind.store.path, b.get("q") or b.get("sql")))
         except sqlview.SqlError as e:
             return J({"error": str(e), "views": sqlview.HELP}, status=400)
+
+    @r.get("/api/photo/{name}")
+    async def photo_get(q):
+        try:
+            path, ctype = A.photos.path(q.match_info["name"])
+        except (ValueError, KeyError):
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={"Content-Type": ctype, "Cache-Control": "private, max-age=86400"})
+
+    @r.delete("/api/item/{id}/photo/{name}")
+    async def photo_delete(q):
+        return J({"removed": A.photos.remove(int(q.match_info["id"]), q.match_info["name"])})
+
+    @r.get("/api/reshelve")
+    async def reshelve_list(q):
+        """Notes on a shelf that filing now thinks belong on another (#32); ?run=1 checks now (dry run)."""
+        if q.query.get("run") == "1" and st.filer:
+            from .filing import reshelve
+            return J(reshelve(st.filer, apply=False))
+        rows = st.db.execute("SELECT * FROM items WHERE status='active' AND shelf != 'inbox' AND "
+                             "meta LIKE '%\"suggested_shelf\"%' ORDER BY id DESC LIMIT 100").fetchall()
+        return J([{k: v for k, v in st._row(r).items() if k in ("id", "title", "body", "shelf", "meta")} for r in rows])
+
+    @r.get("/api/preferences")
+    async def preferences(_):
+        names = {e: c["name"] for e, c in A.home.catalog.items()}
+        return J([dict(p, name=names.get(p["entity_id"], p["entity_id"])) for p in A.prefs.learned()])
+
+    @r.get("/api/thing")
+    async def thing(q):
+        """Everything known about one thing or place (#20), for the page a QR label opens (#63)."""
+        from . import profiles
+        name = (q.query.get("name") or "").strip()[:80]
+        if not name:
+            return J({"error": "give a name"}, status=400)
+        return J({"name": name, "known": profiles.picture(st, name.lower(), time.time()),
+                  "notes": [{k: h.get(k) for k in ("id", "title", "body", "shelf", "meta")}
+                            for h in st.recall(name, limit=10, touch=False, quiet=True)]})
+
+    @r.get("/api/label")
+    async def label(q):
+        """A QR label (SVG) for a thing, place or shelf (#63). url: where scanning it should go (the panel works it
+        out; option label_url overrides), text: what's printed under it."""
+        from . import qr
+        from urllib.parse import quote
+        text = (q.query.get("text") or q.query.get("name") or "").strip()[:60]
+        base = A.opts.get("label_url") or q.query.get("base") or ""
+        if not text or not base:
+            return J({"error": "give text and base (or set label_url)"}, status=400)
+        url = base + ("&" if "?" in base else "?") + "hm_thing=" + quote(text)
+        try:
+            return web.Response(text=qr.svg(url, scale=int(q.query.get("scale") or 6), label=text),
+                                content_type="image/svg+xml")
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
 
     @r.get("/api/views")
     async def views_list(_):

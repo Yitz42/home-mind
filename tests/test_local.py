@@ -164,6 +164,21 @@ def main():
         _, r = call("/mcp", {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
                              "params": {"name": "mind_sql", "arguments": {"q": "SELECT count(*) FROM notes"}}})
         check("mcp mind_sql", not r["result"]["isError"], r)
+        # set 7 (0.29)
+        code, _ = call("/api/label?text=Garage%20shelf%203")
+        check("label without an address -> 400", code == 400)
+        req = urllib.request.Request(base + "/api/label?text=Garage%20shelf%203&base=http://ha.local/x",
+                                     headers={"X-Home-Mind-Token": token})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            check("label is an SVG", r.headers.get("Content-Type", "").startswith("image/svg") and b"<svg" in r.read())
+        _, t = call("/api/thing?name=Vellum%20shed%20padlock")
+        check("thing page gathers notes", t.get("notes") and any("Vellum" in n["body"] for n in t["notes"]), t)
+        _, rs = call("/api/reshelve?run=1")
+        check("reshelve dry run answers", "moved" in rs and "suggested" in rs, rs)
+        _, pr = call("/api/preferences")
+        check("preferences list", isinstance(pr, list), pr)
+        code, _ = call("/api/photo/..%2Fm.db")
+        check("photo path traversal -> 404", code == 404)
         _, c = call("/api/compare")
         check("comparison status", "runs" in c and c.get("every_days") == 0, c)
 
