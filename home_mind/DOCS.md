@@ -22,6 +22,40 @@ Everything is in one SQLite file in the app's data folder, included in Home Assi
 3. A notification shows the address. In Claude: Settings › Connectors › Add custom connector, and paste the
    **Remote** address. Treat it like a password.
 
+## First start
+
+With the default options Home Mind starts with an empty memory and one model, `haiku`, which uses the Home Assistant
+AI Task entity `ai_task.claude_ai_task`. If you don't have that entity, change or remove the model (Configuration ›
+Models) and add your own (see **Models** below). The panel's Overview shows a **Getting started** card until the basics
+are in place: a model, the bridge, and a first note.
+
+- **No model answers** (none set up, the computer is off, a wrong entity or key): every question still gets the best
+  matching note, marked "No model answered". The panel's Ask box lists each model's error; Models › Check all shows
+  them too.
+- **Not inside Home Assistant** (running the tests or the app on its own): house watching, phone notifications and
+  the `ha_ai_task` / `ha_conversation` models are off; memory, search and the other models work.
+- **Empty memory**: tell it something on Memory › Remember something, or through your assistant ("remember the wifi
+  password is on the fridge"). Questions about things never filed are answered "nothing in memory matched".
+- **Nothing is controlled** in the house until you choose the control list and switch controls on (next section).
+- Off by default: encryption, off-site backups, Telegram, web lookups, email, the Markdown folder, Homebox and
+  Paperless. On by default and worth a look: *Install new packs automatically*, *Food database* (about 450 MB) and
+  *Offline Wikipedia* (about 50 GB, downloaded at night): turn those two off if disk space is short.
+
+## Controlling the house
+
+Models can switch things only when all of these hold:
+
+1. The Toggle helper `input_boolean.mind_control_enabled` exists and is on. Create it under Settings › Devices &
+   services › Helpers › Create helper › Toggle, named `mind_control_enabled`. Turning it off stops every control at
+   once.
+2. The thing is on the control list, option `home_controls` (entity ids, or `domain.*` such as `script.*`). **Set this
+   list yourself**: left empty it falls back to the author's own devices plus every `script.*` and `scene.*`, so on
+   your house every script and scene could be run.
+3. Locks, alarms, valves and garage doors also need the person's confirmation each time (`confirm: true`), and
+   `/api/do` never confirms. At most 20 actions a minute; fans are capped at `home_fan_max`.
+
+`/api/home/act`, `/api/do` and the MCP tools `mind_control` / `mind_do` need an admin token.
+
 ## Controls in Home Assistant
 
 The bridge adds a **Home Mind** device (Settings › Devices & services › Home Mind Bridge) whose entities control
@@ -246,6 +280,273 @@ was remembered, and suggested automations waiting. It goes to the same phone as 
 evening_notify names another. Nothing is sent on a day with nothing notable. A switch, a time and a "send now" button
 are on the Home Mind device in Home Assistant.
 
+## Who is speaking
+
+Home Mind works out who is asking from the strongest clue it has:
+
+1. **Signed in**: the Home Assistant user. Text chats and the app know it; in an LLM tool script pass
+   `user: "{{ context.user_id }}"` to `/api/ask`. Person entities with a linked user are recognised without setup.
+2. **Their device**: a phone or voice satellite listed for one person in option `people` (`devices`, comma-separated
+   device IDs). Voice runs from the Assist pipeline carry the satellite's device ID, so overnight learning knows who
+   spoke too.
+3. **The room**: a satellite's area when only one person is listed for it (`areas`).
+4. **Only one home**: exactly one listed person's person entity is home.
+
+Otherwise the speaker is unknown.
+
+- **Personal and household notes.** What a known person files about themselves ("my bank PIN", "I'm allergic to…")
+  is personal: only they see it. Everything else is household. Change a note on its card (Make personal / Share with
+  household), or set option `personal_rule: household` to share everything.
+- **Unknown voices** get household notes only, never a code or password, and nothing when they ask for every secret
+  or for the whole memory.
+- **Calls with no speaker information at all** (the panel, Claude through MCP, the API without `user`, `device_id`,
+  `area` or `speaker`) see everything, as before. Set option `unknown_caller: guest` to treat them as unknown.
+- **Learning.** Once option `people` lists anyone, overnight learning skips turns from voices it can't recognise, and
+  marks each fact with who said it.
+
+## Extra search keys
+
+Each note also files under broader words for what it names, which are searched but never shown: a beagle under dog,
+pet and breed; a Civic under car; a dentist under doctor and appointment (a built-in word list for household things).
+Overnight, the model adds other words for recent notes. So "what's our new dog called?" finds "We adopted a beagle
+named Rufus".
+
+## Search by meaning, links and importance
+
+- **By meaning.** Set option `embed_model` to one of your models (type ollama or openai) that can make embeddings,
+  and give it an `embed_model` field naming the embedding model (for Ollama, e.g. `nomic-embed-text`). Notes are
+  embedded in the background, a batch every 30 seconds, and each question's nearest notes are fused with the keyword
+  results, so "planter" finds "flower box". Without it, search is by keywords (with the extra search keys) as before.
+- **Links.** Notes that name the same specific thing ("the red Trek", a rare name) are linked when filed. A question
+  that finds one note is led to a linked note that has the missing words: "where is Dana's bike locked?" reaches "the
+  red Trek is locked at the station" through "Dana's bike is the red Trek".
+- **Importance and fading.** Each note gets a category when filed. Safety notes (allergies, shutoffs, medication),
+  facts about who people are, and corrections never fade; preferences fade 3 times and device notes 4 times more
+  slowly than other notes (option fade_days). Safety notes also rank a little higher.
+
+## Tokens, signatures, encryption and backups
+
+- **Tokens.** Every client can have its own token (Models tab › Access tokens): read (ask and search), write (also
+  remember, change, forget) or admin (everything). A token tied to a person answers as that person. Revoke one and
+  that client stops working at once; the others don't. The main token (in /data/token) is admin.
+- **Signed packs.** `python tools/sign_manifest.py keygen ~/.home-mind-pack.key` makes a key pair; put the printed
+  public key in `homemind/pack_keys.txt`. After every manifest change, `python tools/sign_manifest.py sign
+  ~/.home-mind-pack.key packs/manifest.json` writes `manifest.json.sig`. Once a key is set, a manifest without a valid
+  signature installs nothing.
+- **Encrypted secrets.** Option `encrypt_secrets` stores notes marked secret encrypted; the key file is left out of
+  Home Assistant backups, so a backup never holds them in the clear. Copy the key somewhere safe from
+  `/api/vault/key`: without it, sealed secrets show only their masked copy. Ordinary notes, the activity log (secret
+  values in logged answers are masked) and recent conversations are not encrypted.
+- **Off-site backups.** Set `backup_target` (folder, webdav or s3), `backup_url`, credentials and
+  `backup_passphrase`. Restore on any machine with `python tools/restore_backup.py FILE mind.db` and the passphrase.
+
+## Comfort in more than one room
+
+Option `comfort_rooms` lists each room: `name`, `person`, the entities `climate`, `temp_sensor`, `humidifier`, `fan`,
+`phone_battery`, `alarm`, and `signals` and `helpers` as comma-separated `key=entity` pairs. Each room learns from its
+own votes; leave the option empty for the original bedroom. `/api/comfort/check?room=NAME` shows which entities Home
+Assistant doesn't have.
+
+## Documents, filing and your other apps
+
+- **Documents.** Put manuals, warranties, recipes and other PDF, text, Markdown or HTML files in the documents folder
+  (option `docs_folder`, default `/share/home-mind/docs`) or add them on the Memory tab. A question about them gets the
+  best two pages, and the answer names the document and page. Documents are kept apart from your notes, so a long
+  manual never pushes a note out of the way. A scanned PDF with no text needs OCR first.
+- **Filing.** Notes without a shelf are filed where notes like them are, when that is clear; otherwise they wait in
+  the inbox (Memory tab) with a suggested shelf. Moving a note teaches the filing. Turn it off with `learn_filing`.
+- **Homebox and Paperless-ngx.** Give their URL and token and Home Mind asks them at question time ("where is the
+  extension cord?", "do we still have the dishwasher receipt?") and says the answer came from them.
+
+## Search details (0.27)
+
+- **Prefix matches** count for less than whole-word matches.
+- **Links** between notes about the same named thing are walked up to three steps when a question needs more than one note.
+- **Older notes learn new words.** When you add a note about a thing that's already known by name, the older notes about it pick up the new note's rare words as search keys. Their text doesn't change.
+- **Re-ranking** (option `rerank_model`): a small model re-orders the top ten notes for typed questions. Leave it empty to turn it off.
+- **"Tell me everything about X"** gathers the thing's place, notes, linked notes, chores and fields.
+- **Languages.** Guesses ("creo que", "vielleicht", "je pense"), corrections ("en realidad", "eigentlich", "en fait") and who said it ("Marta dice", "Jonas sagt") are read in six languages besides English. Notes in other languages are tagged by the overnight model.
+
+## Your memory outside the app (0.28)
+
+- **Export / import.** Memory tab > Export downloads everything as JSON. Tick "with secrets" to include secret values (needs the vault key). Import merges a file in; "Check" shows what it would add first.
+- **Markdown folder.** Set `markdown_folder` (for example `/share/home-mind/notes`) and every note appears as a `.md` file, one folder per shelf, synced every `markdown_minutes` (default 10). Point Obsidian or Syncthing at it. Edit a file to change a note, add a file to add one, delete a file to archive the note.
+- **SQL.** Memory tab > Views and SQL. Only SELECT on `notes` and `links`. Example: `SELECT shelf, count(*) FROM notes WHERE status='active' GROUP BY shelf`.
+- **Saved views.** Save a search or filter by name; open it from the panel or say "show my <name>".
+- **Model comparison.** Set `compare_days` (for example 7) to have the connected models answer the same test questions every week. The Tests tab shows accuracy, speed and the change since last time.
+
+## Learning and labels (0.29)
+
+- **Learned settings.** Home Mind watches the levels you pick for lights, fans, blinds and speakers. After five similar choices at the same time of day it remembers ("Desk lamp: usually 40% on weekday evenings") and uses it when you say "turn on the desk lamp". Turn off with `use_preferences: false`.
+- **Reshelving.** Filing keeps learning. Notes it placed earlier move to a better shelf when it becomes sure; notes you placed get a suggestion you can accept (Move) or dismiss (Keep).
+- **Photos.** Open a note on the Memory tab and add a photo with a caption. The caption is searchable.
+- **QR labels.** Memory tab > Make a label. Stick it on a box or shelf; scanning it opens that thing in the panel. If the panel is reached at another address from your phone, set `label_url`.
+- **Across devices.** Ask the kitchen speaker, follow up on your phone: it carries over for the same person for 10 minutes.
+
+## Telegram, web and email (0.30)
+
+- **Telegram.** Create a bot with @BotFather, put its token in `telegram_token`, send it /start, and add the chat id it replies with to `telegram_chats` as `12345: Dana`. Then ask it questions or say "remember the plumber is coming Tuesday". Send a photo with a caption to file both.
+- **Web lookups.** Set `web_search` to `searxng` (and `web_search_url` to your SearXNG, with JSON output on) or `brave` (and `web_search_key`). Questions about current facts your notes can't answer get a few dated search results. Nothing from your notes is sent.
+- **Email.** Make a mailbox just for Home Mind and fill in the `email_*` options. Put your own addresses in `email_senders`. Forward receipts, warranties and notes to it; they're filed within `email_minutes`.
+- **Prompt caching** happens on its own for Anthropic models when a long prefix repeats (mostly in tests). Add `cache: false` to a model to turn it off.
+
+## Limits (0.31)
+
+- A note holds up to 200,000 characters; put longer texts in Documents.
+- Uploads (photos, documents, imports) can be up to 32 MB per request; one photo up to 12 MB.
+- Read-only SQL shows each person household notes and their own personal notes; values are capped at 1 MB and results at 500 rows.
+
+## Options
+
+Every option, as on the Configuration tab (each has a longer description there). The ones that need thought before
+you turn them on are listed after the tables.
+
+**Models and answers**
+
+| option | default | what |
+|---|---|---|
+| `models` | `haiku` (AI Task) | Models |
+| `fallback` | haiku | Fallback models |
+| `voice_seconds` | 8 | Voice time limit (seconds) |
+| `embed_model` | empty | Embedding model (search by meaning) |
+| `rerank_model` | empty | Re-ranking model |
+| `answer_edges` | off | Repeat the best note before the question |
+| `answer_notes_first` | off | Name the notes before answering |
+| `use_preferences` | on | Use learned settings |
+
+**People and privacy**
+
+| option | default | what |
+|---|---|---|
+| `people` | empty | People |
+| `personal_rule` | `first_person` | Personal notes |
+| `unknown_caller` | `admin` | Calls with no speaker |
+| `encrypt_secrets` | off | Encrypt secrets |
+| `automation_pin` | empty | PIN for automations that open the house |
+
+**The house**
+
+| option | default | what |
+|---|---|---|
+| `home` | on | Watch the house |
+| `home_controls` | empty | Things the brain may control |
+| `home_fan_max` | 100 | Highest fan speed the brain may set (%) |
+| `house_notices` | on | Notices about unusual house events |
+| `comfort` | on | Bedroom comfort brain |
+| `comfort_rooms` | empty | Comfort rooms |
+| `calendar_quiet` | 4 entries | Calendars to leave out |
+
+**Learning and upkeep**
+
+| option | default | what |
+|---|---|---|
+| `overnight_enabled` | on | Overnight learning |
+| `overnight_time` | `03:00` | Overnight learning time |
+| `overnight_model` | empty | Overnight learning model |
+| `overnight_structure` | off | Overnight, read what the patterns missed |
+| `learn_filing` | on | Learn where notes go |
+| `fade_days` | 60 | Fade unused notes after N days |
+| `events_keep_days` | 90 | Keep the detailed activity log for (days) |
+| `checkin_old_facts` | on | Ask about old facts in the morning |
+| `checkin_after_days` | 180 | Ask about facts older than (days) |
+
+**Summaries and notifications**
+
+| option | default | what |
+|---|---|---|
+| `morning_enabled` | on | Send the morning summary |
+| `morning_time` | `07:30` | Morning summary time |
+| `morning_notify` | empty | Morning summary goes to |
+| `evening_enabled` | on | Send the evening home brief |
+| `evening_time` | `21:00` | Evening brief time |
+| `evening_notify` | empty | Evening brief goes to |
+| `quiet_hours` | on | Quiet hours for phone notifications |
+| `quiet_start` | `22:00` | Quiet hours start (HH:MM) |
+| `quiet_end` | `07:00` | Quiet hours end (HH:MM) |
+| `notify_daily_cap` | 0 | Most phone notifications a day |
+| `patterns_checkins` | on | Fog check-ins |
+| `patterns_checkin_time` | `11:00` | Check-in time |
+| `patterns_evening_time` | `19:00` | Evening check-in time |
+| `patterns_report_day` | 5 | Weekly patterns report day |
+| `patterns_report_time` | `08:00` | Weekly patterns report time |
+
+**Packs, tests and knowledge**
+
+| option | default | what |
+|---|---|---|
+| `update_url` | `https://raw.githubusercontent.com/Yitz42/home-mind/main/packs/manifest.json` | Update manifest |
+| `auto_update_packs` | on | Install new packs automatically |
+| `auto_test_hours` | 0 | Run brain tests every N hours |
+| `compare_models` | empty | Models to compare |
+| `compare_days` | 0 | Compare models every (days) |
+| `compare_suites` | recall, tricky, hard | Suites for the model comparison |
+| `knowledge_food` | on | Food database |
+| `knowledge_wikipedia` | on | Offline Wikipedia |
+| `knowledge_window` | `00:00-07:00` | Download window |
+| `log_level` | `info` | Log level |
+
+**Backups**
+
+| option | default | what |
+|---|---|---|
+| `backup_target` | empty | Off-site backup |
+| `backup_url` | empty | Backup folder or URL |
+| `backup_user` | empty | Backup user (or S3 access key) |
+| `backup_password` | empty | Backup password (or S3 secret key) |
+| `backup_passphrase` | empty | Backup passphrase |
+| `backup_region` | empty | S3 region |
+| `backup_every_hours` | 6 | Back up every (hours) |
+| `backup_keep` | 14 | Backups to keep |
+
+**Your other apps**
+
+| option | default | what |
+|---|---|---|
+| `docs_folder` | `/share/home-mind/docs` | Documents folder |
+| `markdown_folder` | empty | Markdown folder (two-way sync) |
+| `markdown_minutes` | 10 | Markdown sync every (minutes) |
+| `homebox_url` | empty | Homebox URL |
+| `homebox_token` | empty | Homebox token |
+| `paperless_url` | empty | Paperless-ngx URL |
+| `paperless_token` | empty | Paperless-ngx API token |
+| `label_url` | empty | Address for QR labels |
+
+**Telegram, web and email**
+
+| option | default | what |
+|---|---|---|
+| `telegram_token` | empty | Telegram bot token |
+| `telegram_chats` | empty | Telegram chats allowed |
+| `web_search` | `off` | Web lookups |
+| `web_search_url` | empty | SearXNG address |
+| `web_search_key` | empty | Brave Search API key |
+| `email_host` | empty | Email (IMAP) server |
+| `email_user` | empty | Email user |
+| `email_password` | empty | Email password |
+| `email_folder` | `INBOX` | Email folder |
+| `email_senders` | empty | Email senders allowed |
+| `email_minutes` | 10 | Check email every (minutes) |
+**Before you turn these on**
+
+- `home_controls`: set it yourself; empty means every script and scene (see **Controlling the house**).
+- `unknown_caller: admin` (the default): the panel, Claude over MCP and the API with no speaker see every note,
+  personal notes and secrets included. Choose `guest` if others can reach the panel or hold a token.
+- `auto_update_packs`: installs procedures from `update_url` without asking. Until a public key is in
+  `homemind/pack_keys.txt` the manifest is only sha256-checked, not signed.
+- `web_search`: the question (never one holding a secret or a household name) leaves your network to SearXNG or
+  Brave. Results are shown to the model as data, not instructions.
+- `telegram_token` / `telegram_chats`: messages pass through Telegram; anyone in a listed chat asks and files notes
+  as the person named for it.
+- `email_*`: use a mailbox made for Home Mind. A From address can be forged, so `email_senders` is a filter, not
+  proof; mail that reads like instructions is held for review.
+- `encrypt_secrets` and `backup_passphrase`: without the vault key (`/api/vault/key`) sealed secrets can't be read,
+  and without the passphrase an off-site backup can't be restored. Keep both somewhere safe.
+- `automation_pin`: whoever knows it can install drafted automations that unlock doors, open the garage or disarm the
+  alarm.
+- `overnight_model` pointing at a cloud model: the day's conversations go to it, with secret values hidden.
+- `knowledge_wikipedia` (on): about 50 GB of disk; `knowledge_food` (on): about 450 MB.
+- Deleting for good (purge, `POST /api/item/{id}/purge`, `mind_purge_about`) can't be undone; see **Trust and privacy**.
+
 ## Bedroom comfort
 
 Say "I'm cold", "I'm hot" or "I'm comfortable" to Jeeves (also from the Pebble's Ask Jeeves), or press
@@ -265,5 +566,154 @@ room is more than 3°F outside your limits for 30 minutes.
 
 ## API
 
-Inside Home Assistant the web panel uses ingress. Other callers need the token in `/data/token` as header
-`X-Home-Mind-Token`. MCP is at `POST /mcp`.
+Inside Home Assistant the web panel uses ingress and needs no token. Other callers send a token as header
+`X-Home-Mind-Token` (or `Authorization: Bearer`): the main token in `/data/token` (admin), or one made on Models ›
+Access tokens with scope **read** (ask, search, look), **write** (also remember, change, forget) or **admin**
+(everything). A token without enough scope gets 403 saying what it needs; no token or an unknown one gets 401.
+Bodies are JSON objects; errors come back as `{"error": "..."}` with status 400 (your request), 404 (no such
+note), 502 (a model failed) or 500.
+
+| method | path | scope | what |
+|---|---|---|---|
+| GET | `/` | read | the web panel |
+| GET | `/api/status` | read | version, counts, models, bridge state |
+| GET | `/api/recall` | read | search for a caller that writes its own answer (`q`, `limit`, `shelf`, `kind`, `old=1`, `raw=1`); secrets not asked for are masked |
+| POST | `/api/ask` | read | answer a question (`question`, `model?`, `use_brain`, `voice`, `deadline`, `conversation_id`, `user`/`speaker`) |
+| POST | `/api/remember` | write | file a note (`text`, `title?`, `shelf?`, `key?`, `kind?`, `tags?`, `scope?`, `owner?`) |
+| GET | `/api/item/{id}` | read | one note with its versions (null if missing) |
+| POST | `/api/item/{id}/{op}` | write; purge: admin | `forget`, `restore`, `revise`, `sensitive`, `feedback`, `confirm`, `photo`, `keep`, `move`, `scope`, `purge` (`confirm: true`) |
+| GET | `/api/photo/{name}` | read | a note's photo |
+| DELETE | `/api/item/{id}/photo/{name}` | write | remove a photo from a note |
+| POST | `/api/purge_about` | admin | delete for good every note about a name (`name`, `confirm: true`) |
+| GET | `/api/review` | read | held and unconfirmed notes |
+| GET | `/api/browse` | read | shelves and the notes on one (`shelf`) |
+| GET | `/api/recent` | read | recently added notes (`filter`, `hours`) |
+| GET | `/api/inbox` | read | notes not on a shelf yet, with the suggested shelf |
+| GET | `/api/reshelve` | read | notes filing would now put elsewhere (`run=1` checks now) |
+| GET | `/api/tasks` | read | open tasks |
+| POST | `/api/organize` | write | have a model choose title, shelf and key for a text |
+| GET | `/api/structure` | read | what was worked out: chores, repeating things, places, fields (the Worked out tab) |
+| GET | `/api/profile` | read | who is who (the profile shelf) |
+| GET | `/api/tidy` | read; now=1: write | possible duplicates (`now=1` looks again) |
+| GET | `/api/cases` | read | kept corrections (the corrections suite) |
+| POST | `/api/cases` | write | keep a question as a correction case |
+| POST | `/api/cases/{id}/remove` | write | drop a kept case |
+| GET | `/api/thing` | read | everything known about one thing or place (`name`) |
+| GET | `/api/label` | read | a QR label (SVG) for a thing, place or shelf (`text`, `base`) |
+| GET | `/api/views` | read | saved views |
+| POST | `/api/views` | write | save a view (`name`, `query`, `shelf`, `tags`, `kind`, `days`, `sort`, `limit` or `sql`) |
+| GET | `/api/views/{name}` | read | run a saved view |
+| DELETE | `/api/views/{name}` | write | delete a saved view |
+| POST | `/api/sql` | read | read-only SQL on the `notes` and `links` views (`sql`) |
+| GET | `/api/export` | admin | everything as JSON (`secrets=1`, `home=1`) |
+| POST | `/api/import` | admin | merge an export in (`?dry_run=1` only shows what it would add) |
+| POST | `/api/markdown/sync` | write | sync the Markdown folder now |
+| GET | `/api/docs` | read | documents |
+| POST | `/api/docs` | write | add documents (multipart files) |
+| DELETE | `/api/docs/{did}` | write | remove a document |
+| GET | `/api/models` | read | configured models |
+| POST | `/api/models/check` | read | try every model, with each one's error |
+| GET | `/api/usage` | read | model calls, tokens and cost per day (`days`) |
+| GET | `/api/suites` | read | test suites |
+| POST | `/api/tests` | write | start a test run (`suite`, `arm`, `model`, `seed`, `n`, ...) |
+| GET | `/api/runs` | read | test runs (`limit`, `suite`) |
+| GET | `/api/runs/{id}` | read | one run with its answers |
+| GET | `/api/trend` | read | a suite's score over time (`suite`, `name`, `arm`) |
+| GET | `/api/compare` | read | the latest model comparison |
+| POST | `/api/compare/run` | admin | run the model comparison now |
+| GET | `/api/events` | read | the activity log (`limit`) |
+| GET | `/api/updates` | read | check the update manifest |
+| POST | `/api/updates/apply` | admin | install pack updates |
+| GET | `/api/knowledge` | read | food database and Wikipedia download state |
+| GET | `/api/knowledge/food` | read | look a food up (`q`) |
+| GET | `/api/knowledge/search` | read | search offline Wikipedia (`q`, `n`) |
+| POST | `/api/knowledge/{op}` | write | `food` or `wiki`: start that download now |
+| GET | `/api/home` | read | the house as Home Mind sees it (watched things, control list) |
+| POST | `/api/home/act` | admin | switch one thing (`entity_id`, `action`, `value?`, `confirm?`) |
+| POST | `/api/do` | admin | do what a sentence asks (`text`); never confirms locks |
+| GET | `/api/controls` | read | the Home tab: devices with their map spots, presets, comfort, weather, routines, plugs |
+| POST | `/api/controls/{op}` | admin | `act` (`entity`, `service`, `data`; allow-listed per domain, values clamped), `scene` (`name`), `routine` (`entity`, `on`) |
+| GET | `/api/today` | read | the Today page: readiness, fog, food to eat first, protein so far, the bedroom, what was learned |
+| GET | `/api/house` | read | habits, usual ranges, notable changes, suggested automations |
+| POST | `/api/house/learn` | write | work the habits out now |
+| POST | `/api/house/suggestion/{sid}/{op}` | write; create: admin | `create` (installs it switched off) or `dismiss` a suggested automation |
+| GET | `/api/automations` | read | automations Home Mind runs and their recent runs |
+| POST | `/api/automations/draft` | write | draft an automation from a request (`request`, `model?`), checked against Home Assistant |
+| POST | `/api/automations/install` | admin | install a checked draft, switched off (`config`, `pin` for ones that unlock) |
+| POST | `/api/automations/{op}` | admin | `takeover`, `release`, `run`, `retire`, `reload` (`ids`, `id`, `all`) |
+| GET | `/api/preferences` | read | learned light and fan levels |
+| GET | `/api/comfort` | read | comfort state for each room |
+| POST | `/api/comfort/vote` | write | a cold / hot / ok vote (`feeling`, `room?`) |
+| POST | `/api/comfort/cycle` | write | run a comfort cycle now |
+| GET | `/api/comfort/check` | read | which of a room's entities Home Assistant doesn't have (`room`) |
+| POST | `/api/body/backfill` | write | fill in past body-signal readings |
+| GET | `/api/calendar` | read | calendar events for a day (`day`, `q`) |
+| POST | `/api/calendar/sync` | write | sync calendars now |
+| GET | `/api/pantry` | read | pantry items and goals |
+| POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`), `used`, `tossed`, `remove`, `suggest`, `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
+| GET | `/api/patterns` | read | brain-fog report, findings, experiment and daily rows (`days`) |
+| POST | `/api/patterns/{op}` | write | `refresh`, `send`, `experiment`, `ask`, `answer`, `weather` |
+| GET | `/api/journal` | read | daily journal summaries |
+| POST | `/api/journal/summarize` | write | summarize a day now |
+| GET | `/api/morning` | read | preview the morning summary |
+| POST | `/api/morning/send` | write | send the morning summary now |
+| GET | `/api/evening` | read | preview the evening brief |
+| POST | `/api/evening/send` | write | send the evening brief now |
+| GET | `/api/overnight` | read | last overnight run and turns waiting |
+| POST | `/api/overnight/run` | write | run overnight learning now |
+| GET | `/api/people` | read | who Home Mind can recognise, and how |
+| GET | `/api/connections` | read | Telegram, web lookups and email: on or off, last result |
+| POST | `/api/email/check` | admin | read the mailbox now |
+| GET | `/api/backup` | admin | off-site backup state |
+| POST | `/api/backup/now` | admin | make an off-site backup now |
+| GET | `/api/vault` | read | whether secrets are encrypted (vault state) |
+| GET | `/api/vault/key` | admin | the key that opens sealed secrets |
+| GET | `/api/tokens` | admin | access tokens |
+| POST | `/api/tokens` | admin | make a token (`name`, `scope`, `person?`); shown once |
+| DELETE | `/api/tokens/{tid}` | admin | revoke a token |
+| GET | `/api/control` | read | the switches, numbers, times and buttons the bridge shows |
+| POST | `/api/control/set` | admin | change one (`key`, `value`) |
+| POST | `/api/control/reset` | admin | drop changes made from Home Assistant (`key?`) |
+| POST | `/api/control/run/{action}` | admin | press a button: `overnight`, `morning`, `evening`, `house`, `calendars`, `models`, `packs`, `comfort`, `patterns`, `tests`, `release_automations` |
+| POST | `/mcp` | read; each tool its own | MCP (Streamable HTTP) for Claude and other clients |
+| GET | `/mcp` | read | MCP: no server-sent stream (405) |
+| DELETE | `/mcp` | read | MCP: end a session |
+
+**MCP tools** (`POST /mcp`; the scope is what a token needs for the tool):
+
+| tool | scope | what |
+|---|---|---|
+| `mind_recall` | read | find notes for a query |
+| `mind_get` | read | one note with its history |
+| `mind_ask` | read | answer a question with a connected model and the memory |
+| `mind_remember` | write | file a note (`inferred` for what Claude worked out) |
+| `mind_update` | write | a new version of a note |
+| `mind_organize` | write | a model chooses title, shelf and key, then files it |
+| `mind_forget` | write | archive a note (recoverable) |
+| `mind_forget_about` | write | archive everything about a name |
+| `mind_restore` | write | bring an archived note back |
+| `mind_confirm` | write | confirm a note learned overnight or inferred |
+| `mind_feedback` | write | say whether a recalled note helped |
+| `mind_purge` | admin | delete a note for good (`confirm: true`) |
+| `mind_purge_about` | admin | delete for good everything about a name |
+| `mind_review` | read | held and unconfirmed notes |
+| `mind_browse` | read | the shelf tree and a shelf's notes |
+| `mind_tasks` | read | tasks, soonest first |
+| `mind_sql` | read | read-only SQL on `notes` and `links` |
+| `mind_view` | read; save/delete: write | saved views |
+| `mind_home` | read | the live house state |
+| `mind_house` | read | habits, usual ranges, suggested automations |
+| `mind_control` | admin | switch one thing on the control list |
+| `mind_do` | admin | do what a sentence asks in the house |
+| `mind_draft_automation` | read | draft an automation, checked against Home Assistant; installs nothing |
+| `mind_install_automation` | admin | install a checked draft |
+| `mind_automations` | read; other actions: admin | automations Home Mind runs; takeover, release, run |
+| `mind_comfort` | write | comfort status and votes |
+| `mind_pantry` | write | the pantry |
+| `mind_meals` | read | meal ideas from the pantry |
+| `mind_models` | read | connected models (`check` pings them) |
+| `mind_status` | read | counts, version, packs, models |
+| `mind_updates` | read; apply: admin | check for updates, install packs |
+| `mind_run_test` | admin | start a test run |
+| `mind_test_results` | read | a run's results |
+| `mind_trend` | read | how a test number moved |

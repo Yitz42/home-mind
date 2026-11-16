@@ -7,6 +7,8 @@ import re
 import time
 from datetime import datetime
 
+from .speakers import visible
+
 from . import house, structure
 from .patterns import E, MIN_DAYS
 
@@ -72,17 +74,20 @@ async def build(A, now=None):
     for r in st.db.execute("SELECT id, title, body, meta, created FROM items WHERE shelf='body/meals' AND status='active' "
                            "AND created >= ? ORDER BY created", (midnight,)):
         meta = json.loads(r["meta"] or "{}") if isinstance(r["meta"], str) else (r["meta"] or {})
+        if not visible(meta):
+            continue                # someone else's personal note (a person-bound token sees only its own)
         m = PROTEIN.search((r["title"] or "") + " " + (r["body"] or ""))
         g = float(m.group(1)) if m else meta.get("protein_g")
         out["meals"].append({"id": r["id"], "title": re.sub(r"^Ate:\s*", "", r["title"] or ""), "protein_g": g,
                              "calories": meta.get("calories"), "estimated": bool(meta.get("estimated")),
                              "at": r["created"]})
         out["protein_g"] += g or 0
-    for r in st.db.execute("SELECT id, title, source, shelf, created FROM items WHERE created >= ? AND status='active' "
+    for r in st.db.execute("SELECT id, title, source, shelf, meta, created FROM items WHERE created >= ? AND status='active' "
                            "AND kind != 'procedure' ORDER BY created DESC", (midnight,)):
         if (structure.wanted(r["source"], r["shelf"]) or r["shelf"] in ("body/meals", "body/weight", "comfort/votes")) \
                 and not (r["source"] or "").startswith("pack:"):
-            out["remembered"].append({"id": r["id"], "title": r["title"], "shelf": r["shelf"]})
+            if visible(json.loads(r["meta"] or "{}") if isinstance(r["meta"], str) else (r["meta"] or {})):
+                out["remembered"].append({"id": r["id"], "title": r["title"], "shelf": r["shelf"]})
     out["remembered"] = out["remembered"][:6]
     model = st.kv_get("house_model") or {}
     done = set(st.kv_get("suggestions_done") or [])

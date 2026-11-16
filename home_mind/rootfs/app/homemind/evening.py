@@ -53,7 +53,9 @@ class Evening:
                              "('home','calendar','automations','journal','scale','morning','evening','habits','tidy',"
                              "'patterns','comfort','weather') AND source NOT LIKE 'pack:%' AND shelf NOT LIKE 'summaries%'",
                              (start, now))
-        learned = [r for r in learned if structure.wanted(r["source"], r["shelf"])]   # not meals, check-ins, summaries
+        from .speakers import visible
+        learned = [r for r in learned if structure.wanted(r["source"], r["shelf"])     # not meals, check-ins, summaries
+                   and visible(json.loads(r["meta"] or "{}"), "")]                       # shared phone: household only
         if learned:
             lines.append(f"Remembered {len(learned)}: " + "; ".join(mask_all(r["title"])[:50] for r in learned[:4])
                          + (" …" if len(learned) > 4 else ""))

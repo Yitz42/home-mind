@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.24.1"
+version: "0.25.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -7,6 +7,7 @@ arch:
   - amd64
   - aarch64
 init: false
+timeout: 30
 startup: application
 boot: auto
 ingress: true
@@ -15,12 +16,17 @@ panel_icon: mdi:brain
 panel_title: Home Mind
 homeassistant_api: true
 backup: hot
+backup_pre: python3 /app/backup_pre.py
 backup_exclude:
   - "knowledge/*"
+  - "vault.key"
+  - "sandbox/*"
 map:
   - type: homeassistant_config
     read_only: false
   - type: media
+    read_only: false
+  - type: share
     read_only: false
 ports:
   8099/tcp: null
@@ -67,6 +73,48 @@ options:
   evening_notify: ""
   house_notices: true
   automation_pin: ""
+  people: []
+  personal_rule: first_person
+  unknown_caller: admin
+  embed_model: ""
+  comfort_rooms: []
+  encrypt_secrets: false
+  backup_target: ""
+  backup_url: ""
+  backup_user: ""
+  backup_password: ""
+  backup_passphrase: ""
+  backup_region: ""
+  backup_every_hours: 6
+  backup_keep: 14
+  learn_filing: true
+  docs_folder: /share/home-mind/docs
+  homebox_url: ""
+  homebox_token: ""
+  paperless_url: ""
+  paperless_token: ""
+  rerank_model: ""
+  markdown_folder: ""
+  markdown_minutes: 10
+  compare_models: []
+  compare_days: 0
+  use_preferences: true
+  label_url: ""
+  telegram_token: ""
+  telegram_chats: []
+  web_search: "off"
+  web_search_url: ""
+  web_search_key: ""
+  email_host: ""
+  email_user: ""
+  email_password: ""
+  email_folder: INBOX
+  email_senders: []
+  email_minutes: 10
+  compare_suites:
+    - recall
+    - tricky
+    - hard
   answer_edges: false
   answer_notes_first: false
   events_keep_days: 90
@@ -101,33 +149,91 @@ schema:
   fallback:
     - str
   voice_seconds: int(2,60)
-  morning_time: str
+  morning_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   morning_notify: str?
   patterns_checkins: bool
-  patterns_checkin_time: str
-  patterns_evening_time: str
+  patterns_checkin_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
+  patterns_evening_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   patterns_report_day: int(0,6)
-  patterns_report_time: str
+  patterns_report_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   knowledge_food: bool
   knowledge_wikipedia: bool
-  knowledge_window: str
+  knowledge_window: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])? *- *([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   calendar_quiet:
     - str
-  overnight_time: str
+  overnight_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   overnight_model: str?
   overnight_enabled: bool
   morning_enabled: bool
   evening_enabled: bool
-  evening_time: str
+  evening_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   evening_notify: str?
   house_notices: bool
   automation_pin: password?
+  people:
+    - name: str
+      ha_users: str?
+      devices: str?
+      areas: str?
+      persons: str?
+  personal_rule: list(first_person|household)
+  unknown_caller: list(admin|guest)
+  embed_model: str?
+  encrypt_secrets: bool
+  backup_target: str?
+  backup_url: str?
+  backup_user: str?
+  backup_password: password?
+  backup_passphrase: password?
+  backup_region: str?
+  backup_every_hours: int(1,168)
+  backup_keep: int(1,365)
+  learn_filing: bool
+  docs_folder: str?
+  homebox_url: url?
+  homebox_token: password?
+  paperless_url: url?
+  paperless_token: password?
+  rerank_model: str?
+  markdown_folder: str?
+  markdown_minutes: int(1,1440)?
+  compare_models:
+    - str?
+  compare_days: int(0,90)?
+  use_preferences: bool?
+  label_url: str?
+  telegram_token: password?
+  telegram_chats:
+    - str?
+  web_search: list(off|searxng|brave)?
+  web_search_url: url?
+  web_search_key: password?
+  email_host: str?
+  email_user: str?
+  email_password: password?
+  email_folder: str?
+  email_senders:
+    - email?
+  email_minutes: int(1,1440)?
+  compare_suites:
+    - str?
+  comfort_rooms:
+    - name: str
+      person: str?
+      climate: str?
+      temp_sensor: str?
+      humidifier: str?
+      fan: str?
+      phone_battery: str?
+      alarm: str?
+      signals: str?
+      helpers: str?
   answer_edges: bool
   answer_notes_first: bool
   events_keep_days: int(0,3650)
   quiet_hours: bool
-  quiet_start: str
-  quiet_end: str
+  quiet_start: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
+  quiet_end: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   notify_daily_cap: int(0,50)
   checkin_old_facts: bool
   checkin_after_days: int(30,3650)

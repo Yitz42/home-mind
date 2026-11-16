@@ -134,7 +134,8 @@ class ComfortModel:
         if self._sigs is not None:
             return self._sigs
         out = {}
-        for name in list(SIGNALS) + ["humidity"]:
+        names = sorted({k for v in self.votes for k in (v.get("signals") or {})} - {"humidity"}) or list(SIGNALS)
+        for name in names + ["humidity"]:
             vs = [v for v in self.votes if (v.get("signals") or {}).get(name) is not None]
             info = {"n": len(vs), "confirmed": False}
             if len(vs) >= MIN_SIGNAL_VOTES:
@@ -206,19 +207,27 @@ def _num(s, attr=None):
 class Comfort:
     """The live part: reads Home Assistant, stores votes in the mind, writes the variables."""
 
-    def __init__(self, mind, ha, clock=time.time):
+    def __init__(self, mind, ha, clock=time.time, room=None, signals=None, vars_=None, person="Yitz", name="bedroom",
+                 primary=True):
+        """One room (#29): its entities (room: climate, temp_sensor, humidifier, fan, phone_battery, alarm), the
+        person's body signals, and the helpers it writes (vars). Defaults are the original bedroom's; option
+        comfort_rooms sets them, and more than one room each learns from its own votes."""
         self.mind, self.ha, self.clock = mind, ha, clock
+        self.room = dict(ROOM, **(room or {}))
+        self.signals = dict(SIGNALS, **(signals or {})) if signals is None or signals else {}
+        self.vars = dict(VARS, **(vars_ or {}))
+        self.person, self.name, self.primary = person or "Yitz", name or "bedroom", primary
         self.store = mind.store
         self.last = {}
         self.out_since = None
 
     # ---- reading ----------------------------------------------------------------------------------------------
     async def snapshot(self):
-        ids = list(SIGNALS.values()) + list(ROOM.values()) + list(VARS.values())
+        ids = list(self.signals.values()) + list(self.room.values()) + list(self.vars.values())
         states = {i: await self.ha.state(i) for i in ids}
-        clim = states.get(ROOM["climate"])
-        room = _num(clim, "current_temperature") or _num(states.get(ROOM["temp_sensor"]))
-        alarm = states.get(ROOM["alarm"])
+        clim = states.get(self.room["climate"])
+        room = _num(clim, "current_temperature") or _num(states.get(self.room["temp_sensor"]))
+        alarm = states.get(self.room["alarm"])
         ahm = None
         if alarm and alarm.get("state") and ":" in alarm["state"]:
             try:
@@ -227,15 +236,15 @@ class Comfort:
             except ValueError:
                 pass
         now = datetime.fromtimestamp(self.clock())
-        sig = {k: _num(states.get(e)) for k, e in SIGNALS.items()}
-        sig["humidity"] = _num(states.get(ROOM["humidifier"]), "current_humidity")
+        sig = {k: _num(states.get(e)) for k, e in self.signals.items()}
+        sig["humidity"] = _num(states.get(self.room["humidifier"]), "current_humidity")
         return {"room": room, "target": _num(clim, "temperature"),
                 "heating": (clim or {}).get("attributes", {}).get("hvac_action"),
-                "fan": (states.get(ROOM["fan"]) or {}).get("state"),
-                "phone": (states.get(ROOM["phone_battery"]) or {}).get("state"),
+                "fan": (states.get(self.room["fan"]) or {}).get("state"),
+                "phone": (states.get(self.room["phone_battery"]) or {}).get("state"),
                 "situation": situation(now, ahm), "hour": now.hour, "signals": sig,
                 "vars": {k: _num(states.get(e)) if k != "enabled" else (states.get(e) or {}).get("state")
-                         for k, e in VARS.items()}}
+                         for k, e in self.vars.items()}}
 
     def votes(self):
         rows = self.store.db.execute("SELECT id, created, meta FROM items WHERE kind='episode' AND shelf='comfort/votes' "
@@ -244,6 +253,8 @@ class Comfort:
         out = []
         for r in rows:
             m = json.loads(r["meta"])
+            if m.get("room_name", self.name if self.primary else None) != self.name:
+                continue        # another room's vote
             out.append({"id": r["id"], "ts": r["created"], **m})
         return out
 
@@ -254,9 +265,9 @@ class Comfort:
         snap = await self.snapshot()
         meta = {"feeling": feeling, "source": source, "room": snap["room"], "target": snap["target"],
                 "heating": snap["heating"], "fan": snap["fan"], "situation": snap["situation"], "hour": snap["hour"],
-                "signals": snap["signals"]}
+                "signals": snap["signals"], "room_name": self.name}
         words = {"cold": "felt cold", "hot": "felt hot", "ok": "felt just right"}[feeling]
-        r = self.store.remember(text=f"Yitz {words} at {snap['room']}°F ({snap['situation']}).",
+        r = self.store.remember(text=f"{self.person} {words} at {snap['room']}°F ({snap['situation']}).",
                                 title=f"Comfort: {words} at {snap['room']}°F", kind="episode",
                                 shelf="comfort/votes", tags=["comfort", feeling, snap["situation"]], source=source,
                                 meta=meta)
@@ -266,7 +277,7 @@ class Comfort:
 
     async def poll_buttons(self):
         """Votes from input_buttons (pressed by Jeeves, the watch or a dashboard): a new press time is a new vote."""
-        seen = self.store.kv_get("comfort_buttons", {})
+        seen = self.store.kv_get("comfort_buttons" + ("" if self.primary else ":" + self.name), {})
         out = []
         for feeling, ent in VOTE_BUTTONS.items():
             s = await self.ha.state(ent)
@@ -278,7 +289,7 @@ class Comfort:
             if s["state"] != seen[ent]:
                 seen[ent] = s["state"]
                 out.append(await self.vote(feeling, source="button"))
-        self.store.kv_set("comfort_buttons", seen)
+        self.store.kv_set("comfort_buttons" + ("" if self.primary else ":" + self.name), seen)
         return out
 
     # ---- control ----------------------------------------------------------------------------------------------
@@ -300,7 +311,7 @@ class Comfort:
         if room is not None and (room < lo - BREAK_DEGREES or room > hi + BREAK_DEGREES):
             self.out_since = self.out_since or self.clock()
             if self.clock() - self.out_since >= BREAK_MINUTES * 60:
-                await self.ha.call("input_boolean", "turn_off", {"entity_id": VARS["enabled"]})
+                await self.ha.call("input_boolean", "turn_off", {"entity_id": self.vars["enabled"]})
                 msg = (f"Home Mind turned comfort control off: the bedroom has been at {room}°F, outside your limits "
                        f"{lo:g}-{hi:g}°F by more than {BREAK_DEGREES:g}° for {BREAK_MINUTES} minutes (window open? "
                        "heater fault?). Turn input_boolean.mind_comfort_enabled back on when it's fixed.")
@@ -338,7 +349,7 @@ class Comfort:
         if v.get("humidity") is None or abs(hum - v["humidity"]) >= 1:
             writes["humidity"] = hum
         for k, val in writes.items():
-            await self.ha.call("input_number", "set_value", {"entity_id": VARS[k], "value": val})
+            await self.ha.call("input_number", "set_value", {"entity_id": self.vars[k], "value": val})
         if writes:
             base = (f"{sit}: preferred {pref:.1f}°F from {len([x for x in model.votes if x['situation'] == sit])} "
                     f"votes" + (f", {used['signal']} moved it {used['adjust']:+.1f}" if used else ""))
