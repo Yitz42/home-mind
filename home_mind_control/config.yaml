@@ -1,0 +1,24 @@
+name: Home Mind Control Model
+version: "0.1.0"
+slug: home_mind_control
+description: Runs the small house-control model you trained for Home Mind (llama.cpp, on the CPU)
+url: https://github.com/Yitz42/home-mind
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+timeout: 20
+map:
+  - type: share
+    read_only: true
+watchdog: "http://[HOST]:[PORT:8081]/health"
+options:
+  model_file: /share/home_mind/home-mind-control.gguf
+  threads: 4
+  context: 4096
+schema:
+  model_file: str
+  threads: int(1,64)
+  context: int(1024,32768)

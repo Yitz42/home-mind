@@ -402,8 +402,8 @@ If Home Assistant runs on modest hardware, a 270M-parameter model trained on you
 
 1. Download training data (admin token): `GET /api/control_model/dataset?part=train` and `?part=test`. Add `&paraphrase=1` to the train link to have your normal model add more varied wording. Only device names and request wording are used.
 2. Open `tools/finetune_functiongemma.ipynb` in Google Colab (free T4 GPU), upload both files, and run it. It prints the test score before and after training (on wording and devices it never saw) and gives you `home-mind-control.gguf` (about 300 MB).
-3. Run it with llama.cpp: `llama-server -m home-mind-control.gguf --jinja --port 8081 --host 0.0.0.0`.
-4. Add it as a model (`type: openai`, `url: http://HOST:8081/v1`) and set `control_model` to its name.
+3. Copy it into the share folder as `home_mind/home-mind-control.gguf` and start the **Home Mind Control Model** add-on from this repository. It runs llama.cpp's server on the CPU and is reachable only inside Home Assistant. On another computer, run `llama-server -m home-mind-control.gguf --jinja --port 8081 --host 0.0.0.0` instead.
+4. Add it as a model (`type: openai`, `url: http://HOSTNAME:8081/v1`, where HOSTNAME is shown on the add-on's Info page) and set `control_model` to its name.
 
 House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
 

@@ -1,0 +1,10 @@
+configuration:
+  model_file:
+    name: Model file
+    description: The .gguf file from the Colab notebook, copied into the share folder (for example /share/home_mind/home-mind-control.gguf).
+  threads:
+    name: CPU threads
+    description: How many CPU threads the model may use. 4 is a good start on a 4-core laptop; leave some for Home Assistant.
+  context:
+    name: Context length (tokens)
+    description: Room for the tool list plus the request. 4096 is plenty.

@@ -286,7 +286,31 @@ def para():
           got == ["could you dim the den lamp to 40 percent", "den lamp, 40% please"], got)
 
 
+def addon():
+    import subprocess
+    import yaml
+    base = os.path.join(ROOT, "home_mind_control")
+    cfg = yaml.safe_load(open(os.path.join(base, "config.yaml")))
+    tr = yaml.safe_load(open(os.path.join(base, "translations", "en.yaml")))["configuration"]
+    check("control add-on: options, schema and translations name the same settings",
+          set(cfg["options"]) == set(cfg["schema"]) == set(tr), (cfg["options"], cfg["schema"], tr))
+    check("control add-on: no port opened on the network", not cfg.get("ports"))
+    check("control add-on: the share folder is read-only", cfg["map"] == [{"type": "share", "read_only": True}])
+    check("control add-on: run.sh parses as shell", subprocess.run(["sh", "-n", os.path.join(base, "run.sh")]).returncode == 0)
+    mode = subprocess.run(["git", "ls-files", "-s", "home_mind_control/run.sh"], cwd=ROOT, capture_output=True,
+                          text=True).stdout
+    check("control add-on: run.sh is executable in git", not mode or mode.startswith("100755"), mode)
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, "options.json"), "w") as f:
+        json.dump({"model_file": "/nonexistent/m.gguf", "threads": 6, "context": 4096}, f)
+    script = open(os.path.join(base, "run.sh")).read().replace("/data/options.json", os.path.join(d, "options.json"))
+    out = subprocess.run(["timeout", "2", "sh", "-c", script], capture_output=True, text=True).stdout
+    check("control add-on: waits for a missing model file and says where to put it",
+          "Waiting for the model file /nonexistent/m.gguf" in out, out)
+
+
 dataset()
+addon()
 parsing()
 resolving()
 wiring()
