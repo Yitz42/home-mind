@@ -461,6 +461,20 @@ class Store:
             r["superseded_by"] = later["id"] if later else None
         return r
 
+    def seen(self, item_id, history=False):
+        """get(), but None for a personal note the current viewer may not see (#48): what a person-bound token
+        reads one item at a time."""
+        from .speakers import visible
+        d = self.get(item_id, history=history)
+        return d if d and visible(d.get("meta")) else None
+
+    def check_seen(self, item_id):
+        """Raise KeyError for an item the current viewer may not see, so a person-bound token can't change (or learn
+        about) someone else's personal note by its id (#48). Items that don't exist are left to the caller."""
+        if self.get(int(item_id)) and not self.seen(int(item_id)):
+            raise KeyError(f"no item {item_id}")
+        return int(item_id)
+
     def active_by_key(self, key):
         return self._row(self.db.execute(
             "SELECT * FROM items WHERE key=? AND status IN ('active','faded') ORDER BY id DESC LIMIT 1", (key,)).fetchone())
@@ -643,7 +657,10 @@ class Store:
         """Archive every note that mentions a name, including notes linked to it ("Changed its code to 8812
         [re: ... Kosk locker ...]"). Recoverable, like every archive; nothing is deleted."""
         pat = re.compile(rf"\b{re.escape(name.strip())}\b", re.I)
-        rows = self.db.execute("SELECT id, title, body FROM items WHERE status IN ('active','faded')").fetchall()
+        from .speakers import sql as _vis
+        vs, va = _vis()
+        rows = self.db.execute(f"SELECT id, title, body FROM items WHERE status IN ('active','faded') AND {vs}",
+                               va).fetchall()
         ids = [r["id"] for r in rows if pat.search(r["title"] + " " + r["body"])]
         with self.lock:
             self.db.executemany("UPDATE items SET status='archived', updated=? WHERE id=?", [(self.clock(), i) for i in ids])
@@ -763,11 +780,13 @@ class Store:
     def review_queue(self, limit=100):
         """What a person should look at (#16): notes held because they read like instructions, and inferred notes
         still unconfirmed (on probation, or waiting to replace a value you set). Newest first."""
+        from .speakers import sql as _vis
+        vs, va = _vis()
         now, out = self.clock(), []
         for r in self.db.execute("SELECT * FROM items WHERE status IN ('review','active') AND (status='review' OR "
                                  "meta LIKE '%learned_overnight%' OR meta LIKE '%inferred%' OR source IN "
-                                 f"({','.join('?' * len(MODEL_SOURCES))})) ORDER BY created DESC LIMIT ?",
-                                 (*MODEL_SOURCES, limit * 3)).fetchall():
+                                 f"({','.join('?' * len(MODEL_SOURCES))})) AND {vs} ORDER BY created DESC LIMIT ?",
+                                 (*MODEL_SOURCES, *va, limit * 3)).fetchall():
             d = self._row(r)
             m = d.get("meta") or {}
             if r["status"] == "review":
@@ -1394,9 +1413,11 @@ class Store:
 
     def browse(self, shelf=None, limit=50):
         """The shelf tree (with counts) under a shelf, and the items kept directly on it."""
+        from .speakers import sql as _vis
+        vs, va = _vis()
         base = clean_shelf(shelf) if shelf else ""
-        rows = self.db.execute("SELECT shelf, COUNT(*) n FROM items WHERE status IN ('active','faded') "
-                               "GROUP BY shelf").fetchall()
+        rows = self.db.execute(f"SELECT shelf, COUNT(*) n FROM items WHERE status IN ('active','faded') AND {vs} "
+                               "GROUP BY shelf", va).fetchall()
         tree = {}
         for r in rows:
             s = r["shelf"]
@@ -1409,8 +1430,8 @@ class Store:
         items = []
         if base:
             items = [self._row(r) for r in self.db.execute(
-                "SELECT * FROM items WHERE shelf=? AND status IN ('active','faded') ORDER BY updated DESC LIMIT ?",
-                (base, limit)).fetchall()]
+                f"SELECT * FROM items WHERE shelf=? AND status IN ('active','faded') AND {vs} ORDER BY updated DESC "
+                "LIMIT ?", (base, *va, limit)).fetchall()]
         self.log("browse", None, shelf=base)
         return {"shelf": base or "/", "shelves": [{"name": k, "path": (base + "/" + k).strip("/"), "items": v}
                                                     for k, v in sorted(tree.items())],
@@ -1418,8 +1439,10 @@ class Store:
 
     def tasks(self, project=None, status="open", due_before=None, limit=100):
         """Tasks are items of kind 'task' with meta {due, priority, project, done}. Sorted by due, then priority."""
+        from .speakers import sql as _vis
+        vs, va = _vis()
         rows = [self._row(r) for r in self.db.execute(
-            "SELECT * FROM items WHERE kind='task' AND status='active'").fetchall()]
+            f"SELECT * FROM items WHERE kind='task' AND status='active' AND {vs}", va).fetchall()]
         out = []
         for t in rows:
             m = t["meta"]

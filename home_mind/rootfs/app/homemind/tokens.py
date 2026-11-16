@@ -16,7 +16,7 @@ SCOPES = ("read", "write", "admin")
 ADMIN_PATHS = [r"^/api/tokens", r"^/api/item/\d+/purge$", r"^/api/purge_about$", r"^/api/automations/(?!draft$)",
                r"^/api/house/suggestion/[^/]+/create$", r"^/api/updates/apply$", r"^/api/backup", r"^/api/restore",
                r"^/api/import", r"^/api/control/", r"^/api/export", r"^/api/vault/key$", r"^/api/compare/run$",
-               r"^/api/email/check$"]
+               r"^/api/email/check$", r"^/api/home/act$", r"^/api/do$"]   # house control: admin, as mind_control/mind_do
 READ_POSTS = [r"^/api/ask$", r"^/api/recall$", r"^/api/search$", r"^/api/lookup$", r"^/api/models/check$", r"^/api/sql$"]
 MCP_READ = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_tasks", "mind_ask",
             "mind_models", "mind_test_results", "mind_trend", "mind_home", "mind_automations", "mind_status",
@@ -37,7 +37,14 @@ def needed(method, path):
     return "write"
 
 
-def tool_needs(name):
+def tool_needs(name, args=None):
+    """The scope an MCP tool call needs. A read tool whose action changes things needs what the same action needs over
+    HTTP: running or taking over automations and installing updates are admin (/api/automations/..., /api/updates/apply)."""
+    a = args if isinstance(args, dict) else {}
+    if name == "mind_automations" and (a.get("action") or "list") != "list":
+        return "admin"
+    if name == "mind_updates" and a.get("apply"):
+        return "admin"
     return "admin" if name in MCP_ADMIN else "read" if name in MCP_READ else "write"
 
 
