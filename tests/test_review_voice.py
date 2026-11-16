@@ -185,7 +185,7 @@ def app(delay=0):
                                   models={"haiku": planner}, get=lambda n: planner))
     for n in ("YES", "NO", "PENDING_SECONDS"):
         setattr(A, n, getattr(M.App, n))
-    for n in ("do", "pending_reply", "has_pending", "speaker_for"):
+    for n in ("do", "pending_reply", "has_pending", "speaker_for", "local_plan", "_run_plan"):
         setattr(A, n, getattr(M.App, n).__get__(A))
     A.people = lambda: []
     return A, ha, M.build(A)
