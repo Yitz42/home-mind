@@ -243,6 +243,7 @@ def singular(w):
 
 PRONOUN = re.compile(r"\b(its|their)\b|(?:^|[.;!?]\s+)(it|it's|it is|there|there's|this one|that one)\b", re.I)
 OWNER = re.compile(r"\b(its|their)\b", re.I)
+THING_PAIR = re.compile(r"\b([A-Z][a-z]+)(?:['\u2019]s)?\s+([a-z]+)")
 # a sentence that starts with "It" is an update only if it carries one ("It's in the shed now", "It opens with 4417");
 # "It rained all afternoon" is not
 UPDATE_HINT = re.compile(r"\d|\b(now|moved|changed|set|updated|switched|replaced|opens|is in|is at|is on|lives)\b", re.I)
@@ -379,6 +380,46 @@ class Store:
             if (fresh_keys or not had_fts) and self.fts:
                 self.db.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')")
             self.db.commit()
+        self._gen, self._watch, self._cache, self._fix_memo, self._index = 0, {"index": set()}, {}, None, None
+        self._index_lock = threading.Lock()
+        self.watching = self._watch_items(conn)
+
+    WATCHED = ("kind", "key", "title", "body", "tags", "shelf", "status", "supersedes", "created", "updated", "source",
+               "meta", "secret", "keys")      # every column but the use counters (use_count, last_used, strength)
+
+    def _changed(self, item_id):
+        self._gen += 1
+        for s in self._watch.values():
+            s.add(item_id)
+
+    def _watch_items(self, conn):
+        """Count changes to notes (temporary triggers on this connection, so nothing is stored), whatever code makes
+        them: caches built from the notes (the index of things, typo repairs, places) are reused until a note changes
+        instead of re-read on every call, and the index is updated from the changed notes only."""
+        try:
+            conn.create_function("hm_changed", 1, self._changed)
+            with self.lock:
+                for ev, ref in (("INSERT", "new"), ("DELETE", "old"), (f"UPDATE OF {', '.join(self.WATCHED)}", "new")):
+                    self.db.execute(f"CREATE TEMP TRIGGER IF NOT EXISTS hm_watch_{ev.split()[0].lower()} AFTER {ev} "
+                                    f"ON main.items BEGIN SELECT hm_changed({ref}.id); END")
+            return True
+        except sqlite3.Error:
+            return False
+
+    def cached(self, key, fn):
+        """fn(), kept until a note changes. Without the change count (no triggers) it is called every time."""
+        if not self.watching:
+            return fn()
+        g = self._gen
+        c = self._cache
+        if c.get("_gen") != g:
+            c = self._cache = {"_gen": g}
+        if key in c:
+            return c[key]
+        v = fn()
+        if self._gen == g:      # a note changed while it was built: don't keep it
+            c[key] = v
+        return v
 
     def close(self):
         with self.lock:
@@ -1066,30 +1107,106 @@ class Store:
                 self._caps[lw] = self._vocab[lw]
         self._vocab_n = new_id
 
+    def _index_entries(self, r):
+        """What one note adds to index(): its ("word", "name") pairs in order, and its group entries."""
+        text = r["title"] + " " + r["body"]
+        pairs = []
+        for nm, w in THING_PAIR.findall(text):
+            n, w = nm.lower(), w.lower()
+            if n in STOP or n in CALENDAR or w in STOP:
+                continue
+            pairs.append((w, n))
+        universal = []
+        if r["kind"] == "fact":
+            m = UNIVERSAL_NOUN.search(r["body"])
+            p = UNIVERSAL_PLACE.search(r["body"])
+            if m and m.group(1).lower() not in STOP:
+                universal.append({"id": r["id"], "noun": singular(m.group(1).lower()), "created": r["created"]})
+            if p:
+                universal.append({"id": r["id"], "place": (p.group(1) or p.group(2)).lower(), "created": r["created"]})
+        return list(dict.fromkeys(pairs)), universal
+
     def index(self):
         """Things in memory: for every '<Name> <word>' ("Harlix crate", "Kosk locker"), which notes mention it; plus
-        notes about a whole group ("all the cabinet codes", "the shed was cleared out"). Cached until notes change."""
-        key = self.db.execute("SELECT MAX(id), COUNT(*) FROM items WHERE status IN ('active','faded')").fetchone()
-        key = (key[0], key[1], self.db.execute("SELECT MAX(updated) FROM items").fetchone()[0])
-        if getattr(self, "_index_key", None) == key:
+        notes about a whole group ("all the cabinet codes", "the shed was cleared out"). Kept between calls and updated
+        from the notes that changed (at 30,000 notes a rebuild took ~0.3 s, after every new note)."""
+        if not self.watching:
+            key = self.db.execute("SELECT MAX(id), COUNT(*) FROM items WHERE status IN ('active','faded')").fetchone()
+            key = (key[0], key[1], self.db.execute("SELECT MAX(updated) FROM items").fetchone()[0])
+            if getattr(self, "_index_key", None) == key:
+                return self._index
+            self._index_key = key
+        with self._index_lock:
+            if self.watching and self._index is not None:
+                with self.lock:
+                    dirty, self._watch["index"] = self._watch["index"], set()
+                if len(dirty) <= 1000:       # (more, as after fading: a fresh build is quicker)
+                    if dirty:
+                        try:
+                            self._index_update(dirty)
+                        except BaseException:
+                            self._index = None      # half updated: built afresh next time
+                            raise
+                    return self._index
+            with self.lock:
+                self._watch["index"] = set()
+                rows = self.db.execute("SELECT id, kind, title, body, created FROM items WHERE status IN "
+                                       "('active','faded') ORDER BY id").fetchall()
+            things, by_id, unis = {}, {}, {}
+            for r in rows:
+                pairs, uni = self._index_entries(r)
+                if pairs:
+                    by_id[r["id"]] = pairs
+                if uni:
+                    unis[r["id"]] = uni
+                for w, n in pairs:
+                    things.setdefault(w, {}).setdefault(n, set()).add(r["id"])
+            self._index_by_id, self._index_uni = by_id, unis
+            self._index = {"things": things, "universal": [u for i in unis for u in unis[i]]}
             return self._index
-        things, universal = {}, []
-        for r in self.db.execute("SELECT id, kind, title, body, created FROM items WHERE status IN ('active','faded')"):
-            text = r["title"] + " " + r["body"]
-            for nm, w in re.findall(r"\b([A-Z][a-z]+)(?:['\u2019]s)?\s+([a-z]+)", text):
-                n, w = nm.lower(), w.lower()
-                if n in STOP or n in CALENDAR or w in STOP:
+
+    def _index_update(self, ids):
+        """index() after the notes `ids` changed: their old entries out, their current ones in, in the order a full
+        rebuild gives (by note id, then by place in the note). The published index is never changed in place (another
+        thread may be reading it): the words touched get new entries."""
+        by_id, unis = self._index_by_id, dict(self._index_uni)
+        old_pairs = {}
+        for i in ids:
+            unis.pop(i, None)
+            old_pairs[i] = by_id.pop(i, [])
+        new_pairs = {}
+        ids = sorted(ids)
+        for k in range(0, len(ids), 500):
+            part = ids[k:k + 500]
+            for r in self.db.execute(f"SELECT id, kind, title, body, created, status FROM items WHERE id IN "
+                                     f"({','.join('?' * len(part))})", part).fetchall():
+                if r["status"] not in ("active", "faded"):
                     continue
-                things.setdefault(w, {}).setdefault(n, set()).add(r["id"])
-            if r["kind"] == "fact":
-                m = UNIVERSAL_NOUN.search(r["body"])
-                p = UNIVERSAL_PLACE.search(r["body"])
-                if m and m.group(1).lower() not in STOP:
-                    universal.append({"id": r["id"], "noun": singular(m.group(1).lower()), "created": r["created"]})
-                if p:
-                    universal.append({"id": r["id"], "place": (p.group(1) or p.group(2)).lower(), "created": r["created"]})
-        self._index, self._index_key = {"things": things, "universal": universal}, key
-        return self._index
+                pairs, uni = self._index_entries(r)
+                if pairs:
+                    by_id[r["id"]] = new_pairs[r["id"]] = pairs
+                if uni:
+                    unis[r["id"]] = uni
+        things = dict(self._index["things"])
+        touched = {w for ps in (*old_pairs.values(), *new_pairs.values()) for w, _ in ps}
+        for w in touched:
+            inner = {n: set(s) for n, s in things.get(w, {}).items()}
+            for i, ps in old_pairs.items():
+                for w2, n in ps:
+                    if w2 == w and n in inner:
+                        inner[n].discard(i)
+            for i, ps in new_pairs.items():
+                for w2, n in ps:
+                    if w2 == w:
+                        inner.setdefault(n, set()).add(i)
+            inner = {n: s for n, s in inner.items() if s}
+            if not inner:
+                things.pop(w, None)
+                continue
+            first = {n: min((i, by_id[i].index((w, n))) for i in s) for n, s in inner.items()}
+            things[w] = dict(sorted(inner.items(), key=lambda x: first[x[0]]))
+        self._index_uni = unis = dict(sorted(unis.items()))
+        self._index = {"things": things, "universal": [u for i in unis for u in unis[i]]}
 
     def gather(self, query, limit=60):
         """For questions that need every match ("how many safes", "which crates are in the garage", "everything about
@@ -1191,6 +1308,22 @@ class Store:
         long words), if there is one. Capitals are kept so names stay names. 'Ranvn toolbox' -> 'Ranven toolbox'."""
         if not self.FIX_TYPOS or not query:
             return query
+        if not self.watching:
+            return self._fix_typos(query)
+        # one question repairs its words four or five times (search, context, checks): the same answer until a note
+        # changes, without reading the word list, the index and the search keys again
+        key = (self._gen, self.FIX_SOUNDS, self.STRICT_THING)
+        memo = self._fix_memo
+        if memo is None or memo[0] != key:
+            memo = self._fix_memo = (key, {})
+        if query not in memo[1]:
+            out = self._fix_typos(query)
+            if self._gen != key[0] or len(memo[1]) > 500:
+                return out
+            memo[1][query] = out
+        return memo[1][query]
+
+    def _fix_typos(self, query):
         vocab = self.vocab()
         names = names_in(query)      # capitalized words that don't start a sentence
 
@@ -1378,9 +1511,11 @@ class Store:
                 res = ([res[0]] + hop + [d for d in res[1:] if d["id"] not in hop_ids])[:limit]
         if touch and res:
             with self.lock:
-                self.db.executemany("UPDATE items SET use_count=use_count+1, last_used=?, "
-                                    "status=CASE WHEN status='faded' THEN 'active' ELSE status END WHERE id=?",
+                # (the status only where it changes: a plain use count is not a change to the notes, see WATCHED)
+                self.db.executemany("UPDATE items SET use_count=use_count+1, last_used=? WHERE id=?",
                                     [(now, d["id"]) for d in res])
+                self.db.executemany("UPDATE items SET status='active' WHERE id=? AND status='faded'",
+                                    [(d["id"],) for d in res])
                 self.db.commit()
         if self.LINKS and res and len(res) < limit + 3 and not getattr(self, "_inner", False) and \
                 not (self.FOLLOW_NAMES and FOLLOW.search(query)):

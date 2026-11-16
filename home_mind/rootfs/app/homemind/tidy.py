@@ -37,19 +37,28 @@ def duplicates(store, limit=20):
             continue
         seen[n] = r["id"]
         info.append((r["id"], r["kind"], set(words(text)), set(re.findall(r"\d+", text)), names_in(text)))
+    # Only notes of the same kind with the same numbers and names can pair, and two word sets that share DUP_SHARE of
+    # the larger must share one of each set's rarest len - int(DUP_SHARE * len) + 1 words (prefix filtering): so each
+    # note is looked up by those words only, within its group. (Looking up every note sharing any word was quadratic:
+    # ~20 s at 30,000 notes, on the event loop.)
+    df = {}
+    for _, _, ws, _, _ in info:
+        for w in ws:
+            df[w] = df.get(w, 0) + 1
+    prefix = [sorted(ws, key=lambda w: (df[w], w))[:len(ws) - int(DUP_SHARE * len(ws)) + 1] for _, _, ws, _, _ in info]
     by_word = {}
     for i, (rid, kind, ws, nums, nms) in enumerate(info):
-        for w in ws:
-            by_word.setdefault(w, []).append(i)
+        g = (kind, frozenset(nums), frozenset(nms))
+        for w in prefix[i]:
+            by_word.setdefault((g, w), []).append(i)
     done = {frozenset(p) for p in pairs}
     for i, (rid, kind, ws, nums, nms) in enumerate(info):
         if not ws:
             continue
-        cand = {j for w in ws for j in by_word.get(w, ()) if j > i}
-        for j in cand:
+        g = (kind, frozenset(nums), frozenset(nms))
+        cand = {j for w in prefix[i] for j in by_word.get((g, w), ()) if j > i}
+        for j in sorted(cand):
             rj, kj, wj, nj, mj = info[j]
-            if kj != kind or nj != nums or mj != nms:
-                continue
             share = len(ws & wj) / max(len(ws), len(wj))
             if share >= DUP_SHARE and frozenset((rid, rj)) not in done:
                 pairs.append((rid, rj))

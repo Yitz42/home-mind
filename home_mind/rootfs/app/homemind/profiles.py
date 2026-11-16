@@ -71,7 +71,10 @@ def picture(store, thing, now, cap=14):
                 if x and x["status"] == "active" and visible(x.get("meta")):
                     linked.append(x)
                     ids.add(o)
-    chores = [c for c in structure.chore_states(store, now) if _has(c["thing"], thing)]
+    # only this thing's chores are worked out (each one reads the notes for when it was last done)
+    chores = structure.chore_states(store, now, [h for h in structure._rows(store, "meta LIKE '%\"chore\"%'")
+                                                 if (h.get("meta") or {}).get("chore")
+                                                 and _has(h["meta"]["chore"]["thing"], thing)])
     fields = [(d["meta"].get("fields") or {}) for d in rows if (d.get("meta") or {}).get("fields")]
     out = []
     if own:
