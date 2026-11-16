@@ -80,7 +80,7 @@ async def run_loop(a, rounds=40):
     try:
         t = asyncio.create_task(a.upkeep())
         for _ in range(rounds):
-            await real(0)
+            await real(0.01)        # real time too: steps that use a worker thread (documents) need it
         died = t.done()
         t.cancel()
         try:
