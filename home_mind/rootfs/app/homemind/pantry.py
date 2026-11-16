@@ -369,10 +369,15 @@ class Pantry:
         ext = os.path.splitext(filename)[1].lower() or ".jpg"
         ctype = {".png": "image/png", ".webp": "image/webp", ".heic": "image/heic"}.get(ext, "image/jpeg")
         media = "/media/home_mind"
-        os.makedirs(media, exist_ok=True)
         name = f"pantry_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:6]}{ext}"
-        with open(os.path.join(media, name), "wb") as f:
-            f.write(data)
+        try:
+            os.makedirs(media, exist_ok=True)
+            with open(os.path.join(media, name), "wb") as f:
+                f.write(data)
+        except OSError as e:
+            # Home Assistant reads the photo from its media folder: without it there's nothing to send
+            raise ValueError(f"can't save the photo where Home Assistant can read it ({media}: {e.strerror}); "
+                             "is the media folder mapped for this add-on?") from None
         try:
             r = await self.ha.post_json("services/ai_task/generate_data?return_response", {
                 "task_name": "home_mind_pantry_photo", "entity_id": entity, "instructions": PHOTO_INSTRUCTIONS,
