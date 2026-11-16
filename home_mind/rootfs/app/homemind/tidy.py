@@ -155,11 +155,16 @@ def run(store):
     return pairs
 
 
+def _shown(d):
+    from .speakers import visible
+    return visible(d.get("meta"))      # the morning summary is built for anyone: no one's personal notes
+
+
 def conflict_line(store, short=lambda d: d["title"][:40]):
     live = []
     for a, b, why in store.kv_get("tidy_conflicts") or []:
         da, db = store.get(a), store.get(b)
-        if da and db and da["status"] == "active" and db["status"] == "active":
+        if da and db and da["status"] == "active" and db["status"] == "active" and _shown(da) and _shown(db):
             live.append((da, db, why))
     if not live:
         return None
@@ -172,7 +177,7 @@ def summary_line(store, short=lambda d: d["title"][:40]):
     live = []
     for a, b in pairs:
         da, db = store.get(a), store.get(b)
-        if da and db and da["status"] == "active" and db["status"] == "active":
+        if da and db and da["status"] == "active" and db["status"] == "active" and _shown(da) and _shown(db):
             live.append((da, db))
     if not live:
         return None
