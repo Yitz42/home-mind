@@ -37,7 +37,7 @@
   <div class="card hide" id="itemcard"></div>
   <div class="card hide" id="inboxcard"><h2>Inbox <span class="mute">notes not on a shelf yet; filing learns from where you put them</span></h2><table id="inbox"></table></div>
   <div class="card"><h2>Documents <span class="mute">manuals, warranties, recipes: searched for questions, answers name the page</span></h2><table id="docs"></table>
-    <div class="row"><input type="file" id="doc_file" multiple accept=".pdf,.txt,.md,.html"> <button class="go" onclick="addDocs()">Add</button> <span id="doc_out" class="mute"></span></div>
+    <div class="row"><input type="file" id="doc_file" aria-label="documents to add" multiple accept=".pdf,.txt,.md,.html"> <button class="go" onclick="addDocs()">Add</button> <span id="doc_out" class="mute"></span></div>
     <p class="mute">Files in the documents folder (option docs_folder, default /share/home-mind/docs) are added every hour.</p></div>
   <div class="card"><h2>Views and SQL <span class="mute">saved searches, and read-only SQL on the notes and links views</span></h2>
     <div class="row" id="views"></div>
@@ -46,14 +46,14 @@
     <div style="overflow:auto"><table id="sql_out"></table></div></div>
   <div class="card"><h2>Export and import <span class="mute">every note with its history and links, as one JSON file</span></h2>
     <div class="row"><a class="go" href="api/export" download onclick="this.href = 'api/export' + ($('#ex_secrets').checked ? '?secrets=1' : '')">Export</a> <label class="mute"><input type="checkbox" id="ex_secrets"> with secrets</label>
-      <input type="file" id="im_file" accept=".json"> <button class="go" onclick="importFile(true)">Check</button> <button class="go" onclick="importFile(false)">Import</button> <span id="im_out" class="mute"></span></div>
+      <input type="file" id="im_file" aria-label="export file to import" accept=".json"> <button class="go" onclick="importFile(true)">Check</button> <button class="go" onclick="importFile(false)">Import</button> <span id="im_out" class="mute"></span></div>
     <p class="mute">QR labels: <button class="go" onclick="labelPrompt()">Make a label</button> scanning it opens everything known about that thing here.</p>
     <p class="mute">Two-way Markdown sync: set the option markdown_folder. <button class="go" onclick="mdSync()">Sync now</button> <span id="md_out"></span></p></div>
   <div class="card hide" id="reviewcard"><h2>To review <span class="mute">learned or guessed, not checked yet</span></h2><table id="review"></table>
     <p class="mute">Held notes read like instructions to the assistant and are left out of answers until approved. Unconfirmed ones are shown to models marked UNCONFIRMED.</p></div>
   <div class="card"><div class="row"><h2 style="margin:0">Recently added</h2>
-      <select id="rf" onchange="recent()"><option value="told">Told or learned</option><option value="all">Everything</option><option value="calendar">Calendar</option><option value="house">House readings</option><option value="automations">Automation runs</option><option value="archived">Forgotten</option></select>
-      <select id="rh" onchange="recent()"><option value="24">last day</option><option value="72" selected>last 3 days</option><option value="168">last week</option><option value="720">last 30 days</option></select></div>
+      <select id="rf" aria-label="which notes" onchange="recent()"><option value="told">Told or learned</option><option value="all">Everything</option><option value="calendar">Calendar</option><option value="house">House readings</option><option value="automations">Automation runs</option><option value="archived">Forgotten</option></select>
+      <select id="rh" aria-label="how far back" onchange="recent()"><option value="24">last day</option><option value="72" selected>last 3 days</option><option value="168">last week</option><option value="720">last 30 days</option></select></div>
     <table id="recent"></table></div>
   <div class="card"><div class="row"><input id="q" placeholder="Search memory…" style="flex:1"> <label class="mute"><input type="checkbox" id="old"> old versions</label> <button class="go" onclick="search()">Search</button></div>
     <table id="hits"></table></div>
@@ -84,7 +84,7 @@
   <div class="card"><h2>Suggested automations <span class="mute">things done by hand at about the same time</span></h2><table id="h_sug"></table>
     <p class="mute">Create makes it in Home Assistant switched off; turn it on there when you're happy with it.</p></div>
   <div class="card"><h2>Ask for an automation</h2>
-    <div class="row"><input id="ad_req" placeholder="e.g. turn off the desk outlets at midnight on weeknights" style="flex:1"> <select id="ad_model"></select> <button class="go" onclick="draftAuto()">Draft</button></div>
+    <div class="row"><input id="ad_req" placeholder="e.g. turn off the desk outlets at midnight on weeknights" style="flex:1"> <select id="ad_model" aria-label="model"></select> <button class="go" onclick="draftAuto()">Draft</button></div>
     <pre id="ad_out" class="mute" style="white-space:pre-wrap"></pre>
     <div class="row hide" id="ad_install"><input id="ad_pin" type="password" placeholder="PIN (only for unlocking or opening)"> <button class="go" onclick="installAuto()">Install switched off</button> <span id="ad_res" class="mute"></span></div>
     <p class="mute">A model writes it; Home Mind checks every entity, service and trigger against Home Assistant before anything is installed. Unlocking, opening a garage door or disarming needs option automation_pin.</p></div>
@@ -92,13 +92,13 @@
 </section>
 <section id="pantry" class="hide">
   <div class="card"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
-      <select id="m_meal"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select>
+      <select id="m_meal" aria-label="meal"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select>
       <input id="m_req" placeholder="anything else? (quick, no cooking…)" style="width:240px"> <button class="go" onclick="meals()">Suggest</button></div>
     <div id="m_today" class="mute"></div><div id="m_out"></div></div>
   <div class="card"><div class="row"><h2 style="margin:0;flex:1">In the house</h2>
       <label class="go" style="background:var(--acc);color:#fff;border-radius:7px;padding:7px 14px;cursor:pointer">📷 Add from photo<input type="file" accept="image/*" capture="environment" id="p_photo" class="hide" onchange="photo(this)"></label></div>
     <div class="row"><input id="p_text" placeholder="e.g. chicken, 2 lb ground beef and a dozen eggs" style="flex:1">
-      <select id="p_loc"><option value="">where? (guess)</option><option>fridge</option><option>freezer</option><option>pantry</option></select>
+      <select id="p_loc" aria-label="where"><option value="">where? (guess)</option><option>fridge</option><option>freezer</option><option>pantry</option></select>
       <button class="go" onclick="padd()">Add</button> <span id="p_out" class="mute"></span></div>
     <table id="p_items"></table></div>
   <div class="card"><h2>Goals</h2>
@@ -108,10 +108,10 @@
 </section>
 <section id="tests" class="hide">
   <div class="card"><h2>Run a test</h2>
-    <div class="row"><select id="t_suite"></select>
-      <select id="t_arm"><option value="brain">brain (no model)</option><option value="model+brain">model + brain</option><option value="model+context">model + whole log</option><option value="model">model alone</option></select>
-      <select id="t_model"><option value="">(model)</option></select>
-      <select id="t_ingest"><option value="raw">store as given</option><option value="model">model files each item</option><option value="extract">model extracts from conversations</option></select>
+    <div class="row"><select id="t_suite" aria-label="suite"></select>
+      <select id="t_arm" aria-label="arm"><option value="brain">brain (no model)</option><option value="model+brain">model + brain</option><option value="model+context">model + whole log</option><option value="model">model alone</option></select>
+      <select id="t_model" aria-label="model"><option value="">(model)</option></select>
+      <select id="t_ingest" aria-label="ingest"><option value="raw">store as given</option><option value="model">model files each item</option><option value="extract">model extracts from conversations</option></select>
       <label class="mute"><input type="checkbox" id="t_keyed"> keyed facts</label> <label class="mute"><input type="checkbox" id="t_expand"> model suggests search words</label>
       <input id="t_seed" placeholder="seed" style="width:80px"> <input id="t_n" placeholder="size" style="width:70px">
       <button class="go" onclick="runTest()">Run</button></div>
@@ -126,10 +126,10 @@
   <p class="mute">Add or change models in Settings › Apps › Home Mind › Configuration.</p></div>
   <div class="card"><h2>Use, last 30 days</h2><table id="usage"></table>
   <p class="mute">Tokens come from the model's own count; Home Assistant's AI Task and conversation models don't report them. Cost shows for models given price_in and price_out (dollars per million tokens) on the Configuration tab.</p></div>
-  <div class="card"><h2>Ask</h2><div class="row"><select id="a_model"></select> <label class="mute"><input type="checkbox" id="a_brain" checked> use brain</label></div>
+  <div class="card"><h2>Ask</h2><div class="row"><select id="a_model" aria-label="model"></select> <label class="mute"><input type="checkbox" id="a_brain" checked> use brain</label></div>
     <div class="row"><input id="a_q" placeholder="Question" style="flex:1"> <button class="go" onclick="ask()">Ask</button></div><pre id="a_out" class="hide"></pre></div>
   <div class="card"><h2>Access tokens <span class="mute">one per client, each revocable</span></h2><table id="toks"></table>
-    <div class="row"><input id="tk_name" placeholder="who uses it (e.g. Jeeves, phone shortcut)"> <select id="tk_scope"><option>read</option><option>write</option><option>admin</option></select> <input id="tk_person" placeholder="answer as (optional person)" style="width:12em"> <button class="go" onclick="makeToken()">Make token</button></div>
+    <div class="row"><input id="tk_name" placeholder="who uses it (e.g. Jeeves, phone shortcut)"> <select id="tk_scope" aria-label="scope"><option>read</option><option>write</option><option>admin</option></select> <input id="tk_person" placeholder="answer as (optional person)" style="width:12em"> <button class="go" onclick="makeToken()">Make token</button></div>
     <pre id="tk_new" class="mute" style="white-space:pre-wrap"></pre>
     <p class="mute">read: ask and search. write: also remember, change and forget. admin: everything, as the main token. A token tied to a person is answered as that person (their personal notes). The token is shown once.</p></div>
 </section>
@@ -138,8 +138,18 @@
 </section>
 </main>
 <script>
-const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-async function api(path, body) { const r = await fetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); return r.json(); }
+const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// a JS string literal for use inside a double-quoted on*="..." attribute (esc alone leaves ' and \ live in the JS)
+const jsq = s => esc(JSON.stringify(String(s ?? '')));
+// only the newest call of each kind may draw (a slow older answer must not overwrite a newer one)
+const seq = {}, fresh = k => { const n = seq[k] = (seq[k] || 0) + 1; return () => seq[k] === n; };
+function api(path, body) { return jfetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); }
+// fetch + JSON that never throws on an error page (ingress 502, aiohttp 404 text): gives {error} instead
+async function jfetch(path, opts) {
+  let r; try { r = await fetch(path, opts || {}); } catch (e) { return {error: 'cannot reach Home Mind: ' + e.message}; }
+  let d; try { const t = await r.text(); d = t ? JSON.parse(t) : {}; } catch (e) { return {error: `HTTP ${r.status}: not a JSON answer`}; }
+  return !r.ok && (d === null || typeof d !== 'object' || Array.isArray(d) || !d.error) ? {error: `HTTP ${r.status}`} : d;
+}
 const ago = t => { const s = Date.now()/1000 - t; return s < 90 ? Math.round(s)+'s ago' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
 const pct = v => v === undefined ? '' : Math.round(v*100)+'%';
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => { document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b)); document.querySelectorAll('main section').forEach(s => s.classList.toggle('hide', s.id !== b.dataset.t)); load(b.dataset.t); });
@@ -151,22 +161,22 @@ async function load(t) {
       .map(([k, v]) => `<div class="card stat"><b class="num">${esc(v)}</b><span>${k}</span></div>`).join('');
     const runs = await api('api/runs?limit=200'), seen = {}, rows = [];
     for (const r of runs) { const k = r.suite + '|' + r.arm + '|' + (r.model || ''); if (!seen[k] && r.status === 'done') { seen[k] = 1; rows.push(r); } }
-    $('#latest').innerHTML = '<tr><th>suite</th><th>arm</th><th>model</th><th>accuracy</th><th>found first</th><th>stale on top</th><th>when</th></tr>' + rows.map(r => `<tr><td>${r.suite}</td><td>${r.arm}</td><td>${esc(r.model || '')}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.stale_above)}</td><td class="mute">${ago(r.ts)}</td></tr>`).join('');
+    $('#latest').innerHTML = '<tr><th>suite</th><th>arm</th><th>model</th><th>accuracy</th><th>found first</th><th>stale on top</th><th>when</th></tr>' + rows.map(r => `<tr><td>${esc(r.suite)}</td><td>${esc(r.arm)}</td><td>${esc(r.model || '')}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.stale_above)}</td><td class="mute">${ago(r.ts)}</td></tr>`).join('');
     const ev = await api('api/events?limit=15');
-    $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${e.type}</td><td class="mute">${esc(e.data).slice(0, 140)}</td></tr>`).join('');
+    $('#events').innerHTML = ev.map(e => `<tr><td class="mute">${ago(e.ts)}</td><td>${esc(e.type)}</td><td class="mute">${esc(String(e.data ?? '').slice(0, 140))}</td></tr>`).join('');
   }
   if (t === 'memory') { browse(''); recent(); review(); inbox(); docsList(); viewsList(); }
   if (t === 'worked') { worked(); }
   if (t === 'house') { houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
   if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
-    const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${k}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
+    const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${esc(k)}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
     const ms = await api('api/models'); $('#t_model').innerHTML = '<option value="">(model)</option>' + ms.map(m => `<option>${esc(m.name)}</option>`).join('');
     runs(); cmp();
   }
   if (t === 'models') { tokens();
     const ms = await api('api/models');
-    $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${m.type}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('');
+    $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('');
     $('#a_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join('');
     const u = await api('api/usage?days=30');
     const n = x => x ? Number(x).toLocaleString() : '—';
@@ -180,7 +190,7 @@ async function inbox() {
   $('#inboxcard').classList.toggle('hide', !r.items.length);
   const opts = r.shelves.map(x => `<option>${esc(x)}</option>`).join('');
   $('#inbox').innerHTML = r.items.map(x => `<tr><td><a onclick="item(${x.id})">${esc(x.title)}</a><br><span class="mute">${when(x.created)}</span></td>
-    <td style="white-space:nowrap">${x.suggested ? `<button class="go" onclick="moveTo(${x.id}, '${esc(x.suggested)}')">File in ${esc(x.suggested)}</button> ` : ''}<select id="mv_${x.id}"><option value="">other shelf…</option>${opts}</select> <button class="go" onclick="moveTo(${x.id}, $('#mv_${x.id}').value)">Move</button></td></tr>`).join('');
+    <td style="white-space:nowrap">${x.suggested ? `<button class="go" onclick="moveTo(${x.id}, ${jsq(x.suggested)})">File in ${esc(x.suggested)}</button> ` : ''}<select id="mv_${x.id}" aria-label="shelf"><option value="">other shelf…</option>${opts}</select> <button class="go" onclick="moveTo(${x.id}, $('#mv_${x.id}').value)">Move</button></td></tr>`).join('');
 }
 async function moveTo(id, shelf) { if (!shelf) return; await api('api/item/' + id + '/move', {shelf}); inbox(); recent(); }
 async function docsList() {
@@ -191,18 +201,18 @@ async function addDocs() {
   const f = $('#doc_file').files; if (!f.length) return;
   const fd = new FormData(); for (const x of f) fd.append('file', x, x.name);
   $('#doc_out').textContent = 'reading…';
-  const r = await (await fetch('api/docs', {method: 'POST', body: fd})).json();
+  const r = await jfetch('api/docs', {method: 'POST', body: fd});
   $('#doc_out').textContent = r.error || r.map(x => x.name + (x.already ? ' (already there)' : ` (${x.sections} sections)`)).join(', ');
   docsList();
 }
-async function docRemove(id) { await fetch('api/docs/' + id, {method: 'DELETE'}); docsList(); }
+async function docRemove(id) { const r = await jfetch('api/docs/' + id, {method: 'DELETE'}); if (r.error) alert(r.error); docsList(); }
 async function viewsList() {
   const vs = await api('api/views');
   $('#views').innerHTML = Object.keys(vs).map(n => `<button class="go" data-n="${esc(n)}" onclick="viewRun(this.dataset.n)">${esc(n)}</button> <a class="mute" href="#" data-n="${esc(n)}" onclick="viewDel(this.dataset.n);return false">×</a>`).join(' ') || '<span class="mute">no saved views yet</span>';
 }
 function table(cols, rows) { return '<tr>' + cols.map(c => `<th>${esc(c)}</th>`).join('') + '</tr>' + rows.map(r => '<tr>' + r.map(c => `<td>${esc(c == null ? '' : c)}</td>`).join('') + '</tr>').join(''); }
 async function viewRun(n) {
-  const r = await (await fetch('api/views/' + encodeURIComponent(n))).json();
+  const r = await jfetch('api/views/' + encodeURIComponent(n));
   if (r.error) { $('#sql_out').innerHTML = `<tr><td>${esc(r.error)}</td></tr>`; return; }
   $('#sql_out').innerHTML = r.rows ? table(r.columns, r.rows) : table(['title', 'shelf', 'when'], r.items.map(i => [i.title || i.body, i.shelf, ago(i.created)]));
 }
@@ -211,14 +221,14 @@ async function viewSave() {
   if (!b.query && !b.shelf && !b.tags.length && $('#sql_q').value) b.sql = $('#sql_q').value;
   const r = await api('api/views', b); if (r.error) alert(r.error); viewsList();
 }
-async function viewDel(n) { await fetch('api/views/' + encodeURIComponent(n), {method: 'DELETE'}); viewsList(); }
+async function viewDel(n) { const r = await jfetch('api/views/' + encodeURIComponent(n), {method: 'DELETE'}); if (r.error) alert(r.error); viewsList(); }
 async function sqlRun() {
   const r = await api('api/sql', {q: $('#sql_q').value});
   $('#sql_out').innerHTML = r.error ? `<tr><td>${esc(r.error)}</td></tr>` : table(r.columns, r.rows) + (r.truncated ? '<tr><td class="mute">first 500 rows</td></tr>' : '');
 }
 async function importFile(dry) {
   const f = $('#im_file').files[0]; if (!f) return;
-  const r = await (await fetch('api/import' + (dry ? '?dry_run=1' : ''), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: await f.text()})).json();
+  const r = await jfetch('api/import' + (dry ? '?dry_run=1' : ''), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: await f.text()});
   $('#im_out').textContent = r.error || `${dry ? 'would add' : 'added'} ${r.added}, already here ${r.skipped}${r.bad ? ', unreadable ' + r.bad : ''}`;
   if (!dry) recent();
 }
@@ -242,8 +252,8 @@ async function houseTab() {
   $('#h_at').textContent = h.at ? 'learned ' + when(h.at) : 'not learned yet';
   $('#h_notable').innerHTML = h.notable.map(x => `<tr><td class="mute num" style="white-space:nowrap">${when(x.created)}</td><td><a onclick="document.querySelector('nav button[data-t=memory]').click(); item(${x.id})">${esc(x.unusual || x.title)}</a></td><td class="mute">${esc((x.why || []).join(', '))}</td></tr>`).join('') || none(3, 'nothing notable in the last day');
   $('#h_habits').innerHTML = h.habits.map(x => `<li>${esc(x.text)}</li>`).join('') || '<li class="mute">none found yet (it needs at least 5 days of the same thing)</li>';
-  $('#h_sug').innerHTML = h.suggestions.map(x => `<tr><td><b>${esc(x.config.alias)}</b><br><span class="mute">${esc(x.habit)}</span></td><td style="white-space:nowrap"><button class="go" onclick="sugOp('${x.id}', 'create')">Create (off)</button> <button class="go" style="background:var(--mute)" onclick="sugOp('${x.id}', 'dismiss')">Dismiss</button></td></tr>`).join('') || none(2, 'none');
-  $('#h_base').innerHTML = '<tr><th>reading</th><th class="num">usually</th><th class="num">middle</th><th class="num">readings</th></tr>' + (h.baselines.map(b => `<tr><td>${esc(b.name)}</td><td class="num">${b.low}–${b.high}</td><td class="num">${b.middle}</td><td class="num mute">${b.readings}</td></tr>`).join('') || none(4, 'not enough readings yet'));
+  $('#h_sug').innerHTML = h.suggestions.map(x => `<tr><td><b>${esc(x.config.alias)}</b><br><span class="mute">${esc(x.habit)}</span></td><td style="white-space:nowrap"><button class="go" onclick="sugOp(${jsq(x.id)}, 'create')">Create (off)</button> <button class="go" style="background:var(--mute)" onclick="sugOp(${jsq(x.id)}, 'dismiss')">Dismiss</button></td></tr>`).join('') || none(2, 'none');
+  $('#h_base').innerHTML = '<tr><th>reading</th><th class="num">usually</th><th class="num">middle</th><th class="num">readings</th></tr>' + (h.baselines.map(b => `<tr><td>${esc(b.name)}</td><td class="num">${esc(b.low)}–${esc(b.high)}</td><td class="num">${esc(b.middle)}</td><td class="num mute">${esc(b.readings)}</td></tr>`).join('') || none(4, 'not enough readings yet'));
 }
 async function houseLearn() { await api('api/house/learn', {}); houseTab(); }
 async function sugOp(id, op) { const r = await api('api/house/suggestion/' + id + '/' + op, {}); if (r.problems) alert(r.problems.join('\n')); houseTab(); }
@@ -260,21 +270,21 @@ async function installAuto() {
 }
 async function tokens() {
   const ts = await api('api/tokens');
-  $('#toks').innerHTML = ts.map(t => `<tr><td>${esc(t.name)}</td><td>${t.scope}${t.person ? ' · as ' + esc(t.person) : ''}</td><td class="mute">${t.last_used ? 'used ' + when(t.last_used) : 'not used yet'}</td><td><button class="go" style="background:var(--bad)" onclick="revokeToken('${t.id}')">Revoke</button></td></tr>`).join('') || '<tr><td class="mute">none yet; clients use the main token</td></tr>';
+  $('#toks').innerHTML = ts.map(t => `<tr><td>${esc(t.name)}</td><td>${esc(t.scope)}${t.person ? ' · as ' + esc(t.person) : ''}</td><td class="mute">${t.last_used ? 'used ' + when(t.last_used) : 'not used yet'}</td><td><button class="go" style="background:var(--bad)" onclick="revokeToken(${jsq(t.id)})">Revoke</button></td></tr>`).join('') || '<tr><td class="mute">none yet; clients use the main token</td></tr>';
 }
 async function makeToken() {
   const r = await api('api/tokens', {name: $('#tk_name').value, scope: $('#tk_scope').value, person: $('#tk_person').value || null});
   $('#tk_new').textContent = r.error ? r.error : `Token for ${r.name} (${r.scope}), shown once:\n${r.token}`;
   tokens();
 }
-async function revokeToken(id) { await fetch('api/tokens/' + id, {method: 'DELETE'}); tokens(); }
+async function revokeToken(id) { const r = await jfetch('api/tokens/' + encodeURIComponent(id), {method: 'DELETE'}); if (r.error) alert(r.error); tokens(); }
 async function worked() {
   const w = await api('api/structure');
   const none = (n, msg) => `<tr><td class="mute" colspan="${n}">${msg}</td></tr>`;
   const link = (id, text) => `<a onclick="document.querySelector('nav button[data-t=memory]').click(); item(${id})">${esc(text)}</a>`;
   $('#w_profile').innerHTML = w.profile.map(x => `<li>${esc(x)}</li>`).join('') || '<li class="mute">nothing yet</li>';
   $('#w_chores').innerHTML = '<tr><th>chore</th><th>every</th><th>last done</th><th>next due</th></tr>' + (w.chores.map(c =>
-    `<tr><td>${link(c.id, c.verb + ' the ' + c.thing)}</td><td class="num">${c.every} days</td><td>${esc(c.last || 'never noted')}</td><td class="${c.left < 0 ? 'bad' : c.left <= 1 ? '' : 'mute'}">${esc(c.due)} · ${esc(c.state)}</td></tr>`).join('') || none(4, 'no chores yet'));
+    `<tr><td>${link(c.id, c.verb + ' the ' + c.thing)}</td><td class="num">${esc(c.every)} days</td><td>${esc(c.last || 'never noted')}</td><td class="${c.left < 0 ? 'bad' : c.left <= 1 ? '' : 'mute'}">${esc(c.due)} · ${esc(c.state)}</td></tr>`).join('') || none(4, 'no chores yet'));
   $('#w_repeat').innerHTML = '<tr><th>note</th><th>next</th></tr>' + (w.repeating.map(r =>
     `<tr><td>${link(r.id, r.title)}</td><td>${esc(r.next)}</td></tr>`).join('') || none(2, 'nothing repeating yet'));
   $('#w_places').innerHTML = '<tr><th>thing</th><th>is in</th><th>since</th></tr>' + (w.places.map(p =>
@@ -288,56 +298,58 @@ async function worked() {
 }
 async function dropCase(id) { await api('api/cases/' + id + '/remove', {}); worked(); }
 async function search() {
-  const hits = await api('api/recall?raw=1&q=' + encodeURIComponent($('#q').value) + ($('#old').checked ? '&old=1' : '') + '&touch=0');
-  $('#hits').innerHTML = hits.map(h => `<tr><td class="num mute">${h.score}</td><td><a onclick="item(${h.id})">${esc(h.title)}</a><div class="mute">${esc(h.body).slice(0, 200)}</div></td><td class="mute">${esc(h.shelf)}<br>${h.kind}${h.status !== 'active' ? ' · ' + h.status : ''}</td></tr>`).join('') || '<tr><td class="mute">nothing found</td></tr>';
+  const ok = fresh('search'), hits = await api('api/recall?raw=1&q=' + encodeURIComponent($('#q').value) + ($('#old').checked ? '&old=1' : '') + '&touch=0'); if (!ok()) return;
+  $('#hits').innerHTML = hits.map(h => `<tr><td class="num mute">${esc(h.score)}</td><td><a onclick="item(${h.id})">${esc(h.title)}</a><div class="mute">${esc(h.body).slice(0, 200)}</div></td><td class="mute">${esc(h.shelf)}<br>${esc(h.kind)}${h.status !== 'active' ? ' · ' + esc(h.status) : ''}</td></tr>`).join('') || '<tr><td class="mute">nothing found</td></tr>';
 }
 $('#q').addEventListener('keydown', e => e.key === 'Enter' && search());
 async function browse(shelf) {
-  const b = await api('api/browse?shelf=' + encodeURIComponent(shelf)); const up = shelf.includes('/') ? shelf.slice(0, shelf.lastIndexOf('/')) : '';
+  const ok = fresh('browse'), b = await api('api/browse?shelf=' + encodeURIComponent(shelf)); if (!ok()) return; const up = shelf.includes('/') ? shelf.slice(0, shelf.lastIndexOf('/')) : '';
   $('#shelfpath').textContent = b.shelf;
-  $('#shelves').innerHTML = (shelf ? `<span class="pill" onclick="browse('${esc(up)}')">↑ up</span>` : '') + b.shelves.map(s => `<span class="pill" onclick="browse('${esc(s.path)}')">${esc(s.name)} · ${s.items}</span>`).join('');
-  $('#shelfitems').innerHTML = b.items.map(i => `<tr><td><a onclick="item(${i.id})">${esc(i.title)}</a></td><td class="mute">${i.kind}</td></tr>`).join('');
+  $('#shelves').innerHTML = (shelf ? `<span class="pill" onclick="browse(${jsq(up)})">↑ up</span>` : '') + b.shelves.map(s => `<span class="pill" onclick="browse(${jsq(s.path)})">${esc(s.name)} · ${s.items}</span>`).join('');
+  $('#shelfitems').innerHTML = b.items.map(i => `<tr><td><a onclick="item(${i.id})">${esc(i.title)}</a></td><td class="mute">${esc(i.kind)}</td></tr>`).join('');
 }
 const when = t => new Date(t * 1000).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
 async function recent() {
-  const rs = await api('api/recent?filter=' + $('#rf').value + '&hours=' + $('#rh').value + '&limit=150');
-  $('#recent').innerHTML = rs.map(i => `<tr><td class="mute num" style="white-space:nowrap">${when(i.created)}</td><td><a onclick="item(${i.id})">${esc(i.title)}</a>${i.meta && i.meta.sensitive ? ' <span class="pill">🔒</span>' : ''}${i.status !== 'active' ? ` <span class="mute">· ${i.status}</span>` : ''}</td><td class="mute">${esc(i.shelf)}<br>${esc(i.source || '')}</td></tr>`).join('') || '<tr><td class="mute">nothing in this stretch</td></tr>';
+  const ok = fresh('recent'), rs = await api('api/recent?filter=' + $('#rf').value + '&hours=' + $('#rh').value + '&limit=150'); if (!ok()) return;
+  $('#recent').innerHTML = rs.map(i => `<tr><td class="mute num" style="white-space:nowrap">${when(i.created)}</td><td><a onclick="item(${i.id})">${esc(i.title)}</a>${i.meta && i.meta.sensitive ? ' <span class="pill">🔒</span>' : ''}${i.status !== 'active' ? ` <span class="mute">· ${esc(i.status)}</span>` : ''}</td><td class="mute">${esc(i.shelf)}<br>${esc(i.source || '')}</td></tr>`).join('') || '<tr><td class="mute">nothing in this stretch</td></tr>';
 }
 async function item(id) {
-  const d = await api('api/item/' + id), c = $('#itemcard'); c.classList.remove('hide'); c.scrollIntoView({behavior:'smooth'});
-  if (!d) { c.innerHTML = '<span class="mute">not found</span>'; return; }
+  const ok = fresh('card'), d = await api('api/item/' + id), c = $('#itemcard'); if (!ok()) return;
+  c.classList.remove('hide'); c.scrollIntoView({behavior:'smooth'});
+  if (!d || d.error) { c.innerHTML = '<span class="mute">not found</span>'; return; }
   const sens = !!(d.meta && d.meta.sensitive), gone = d.status === 'archived';
   const unconf = !!(d.meta && (d.meta.learned_overnight || d.meta.inferred) && !d.meta.confirmed) || d.status === 'review';
   const vers = (d.versions || []).map(v => `<li><a onclick="item(${v.id})">${esc(v.title)}</a> <span class="mute">${when(v.created)}${v.current ? ' · current' : ''}${v.status !== 'active' ? ' · ' + v.status : ''}</span></li>`).join('');
   const hist = (d.history || []).map(v => `<li>${esc(v.body)} <span class="mute">${when(v.created)}</span></li>`).join('');
   c.innerHTML = `<div class="row"><h2 style="margin:0;flex:1">${esc(d.title)}</h2><a onclick="$('#itemcard').classList.add('hide')">close</a></div>
-    <div class="mute" style="margin-bottom:8px">#${d.id} · ${esc(d.shelf)} · ${d.kind} · from ${esc(d.source || '?')} · filed ${when(d.created)}${d.updated && d.updated - d.created > 60 ? ' · changed ' + when(d.updated) : ''} · ${d.status}${d.newer ? ` · <b>replaced by <a onclick="item(${d.newer})">#${d.newer}</a></b>` : ''}${d.superseded_by ? ` · <b>replaced by <a onclick="item(${d.superseded_by})">#${d.superseded_by}</a></b>` : ''}${sens ? ' · 🔒 kept from cloud models unless asked' : ''}${unconf ? ' · <b>unconfirmed</b>: learned overnight from a conversation' : ''}${d.meta && d.meta.scope === 'personal' ? ' · 👤 personal to ' + esc(d.meta.owner || '?') : ''}${d.meta && d.meta.said_by ? ' · said by ' + esc(d.meta.said_by) : ''}</div>
+    <div class="mute" style="margin-bottom:8px">#${d.id} · ${esc(d.shelf)} · ${esc(d.kind)} · from ${esc(d.source || '?')} · filed ${when(d.created)}${d.updated && d.updated - d.created > 60 ? ' · changed ' + when(d.updated) : ''} · ${esc(d.status)}${d.newer ? ` · <b>replaced by <a onclick="item(${d.newer})">#${d.newer}</a></b>` : ''}${d.superseded_by ? ` · <b>replaced by <a onclick="item(${d.superseded_by})">#${d.superseded_by}</a></b>` : ''}${sens ? ' · 🔒 kept from cloud models unless asked' : ''}${unconf ? ' · <b>unconfirmed</b>: learned overnight from a conversation' : ''}${d.meta && d.meta.scope === 'personal' ? ' · 👤 personal to ' + esc(d.meta.owner || '?') : ''}${d.meta && d.meta.said_by ? ' · said by ' + esc(d.meta.said_by) : ''}</div>
     <textarea id="e_text" rows="4" style="width:100%">${esc(d.body)}</textarea>
     <div class="row" style="margin-top:8px"><button class="go" onclick="saveItem(${d.id})">Save edit</button>
       <button class="go" style="background:var(--bad)" onclick="itemOp(${d.id}, '${gone ? 'restore' : 'forget'}')">${gone ? 'Restore' : 'Forget'}</button>
       <button class="go" style="background:var(--mute)" onclick="itemOp(${d.id}, 'feedback', {helpful:false})">Not helpful</button>
       <button class="go" style="background:var(--mute)" onclick="itemOp(${d.id}, 'sensitive', {value:${!sens}})">${sens ? 'Not secret' : 'Mark secret'}</button>
       ${unconf ? `<button class="go" onclick="itemOp(${d.id}, 'confirm')">Confirm</button>` : ''}
-      <button class="go" onclick="scopeItem(${d.id}, '${d.meta && d.meta.scope === 'personal' ? 'household' : 'personal'}', '${esc((d.meta && (d.meta.owner || d.meta.said_by)) || '')}')">${d.meta && d.meta.scope === 'personal' ? 'Share with household' : 'Make personal'}</button>
+      <button class="go" onclick="scopeItem(${d.id}, '${d.meta && d.meta.scope === 'personal' ? 'household' : 'personal'}', ${jsq((d.meta && (d.meta.owner || d.meta.said_by)) || '')})">${d.meta && d.meta.scope === 'personal' ? 'Share with household' : 'Make personal'}</button>
       <button class="go" style="background:var(--bad)" onclick="purgeItem(${d.id})">Delete for good</button>
       <span id="e_out" class="mute"></span></div>
-    <h2>Photos</h2><div class="row">${((d.meta && d.meta.photos) || []).map(p => `<figure style="margin:0 8px 8px 0"><a href="api/photo/${esc(p.file)}" target="_blank"><img src="api/photo/${esc(p.file)}" style="max-width:160px;max-height:120px;border-radius:6px"></a><figcaption class="mute">${esc(p.caption)} <a data-f="${esc(p.file)}" onclick="photoDel(${d.id}, this.dataset.f)">×</a></figcaption></figure>`).join('') || '<span class="mute">none</span>'}</div>
-    <div class="row"><input type="file" id="ph_file" accept="image/*" capture="environment"> <input id="ph_cap" placeholder="caption (searchable)"> <button class="go" onclick="photoAdd(${d.id})">Add photo</button></div>
+    <h2>Photos</h2><div class="row">${((d.meta && d.meta.photos) || []).map(p => `<figure style="margin:0 8px 8px 0"><a href="api/photo/${esc(encodeURIComponent(p.file))}" target="_blank"><img src="api/photo/${esc(encodeURIComponent(p.file))}" alt="${esc(p.caption || 'photo')}" style="max-width:160px;max-height:120px;border-radius:6px"></a><figcaption class="mute">${esc(p.caption)} <a data-f="${esc(p.file)}" onclick="photoDel(${d.id}, this.dataset.f)">×</a></figcaption></figure>`).join('') || '<span class="mute">none</span>'}</div>
+    <div class="row"><input type="file" id="ph_file" accept="image/*" capture="environment" aria-label="photo"> <input id="ph_cap" placeholder="caption (searchable)"> <button class="go" onclick="photoAdd(${d.id})">Add photo</button></div>
     ${vers ? `<h2>Other versions</h2><ul>${vers}</ul>` : ''}${hist ? `<h2>Earlier values</h2><ul>${hist}</ul>` : ''}`;
 }
 async function photoAdd(id) {
   const f = $('#ph_file').files[0]; if (!f) return;
   const fd = new FormData(); fd.append('caption', $('#ph_cap').value); fd.append('file', f);
-  const r = await (await fetch('api/item/' + id + '/photo', {method: 'POST', body: fd})).json();
+  const r = await jfetch('api/item/' + id + '/photo', {method: 'POST', body: fd});
   if (r.error) alert(r.error); item(id);
 }
-async function photoDel(id, f) { await fetch('api/item/' + id + '/photo/' + encodeURIComponent(f), {method: 'DELETE'}); item(id); }
+async function photoDel(id, f) { const r = await jfetch('api/item/' + id + '/photo/' + encodeURIComponent(f), {method: 'DELETE'}); if (r.error) alert(r.error); item(id); }
 function labelBase() { try { return window.top.location.origin + window.top.location.pathname; } catch (e) { return location.origin + location.pathname; } }
 function labelUrl(text) { return 'api/label?text=' + encodeURIComponent(text) + '&base=' + encodeURIComponent(labelBase()); }
 async function thingPage(name) {
   document.querySelector('nav button[data-t=memory]').click();
-  const t = await (await fetch('api/thing?name=' + encodeURIComponent(name))).json(), c = $('#itemcard');
+  const ok = fresh('card'), t = await api('api/thing?name=' + encodeURIComponent(name)), c = $('#itemcard'); if (!ok()) return;
   c.classList.remove('hide');
+  if (t.error) { c.innerHTML = `<span class="bad">${esc(t.error)}</span>`; return; }
   c.innerHTML = `<div class="row"><h2 style="margin:0;flex:1">${esc(t.name)}</h2><a href="${labelUrl(t.name)}" target="_blank">print label</a> <a onclick="$('#itemcard').classList.add('hide')">close</a></div>
     <ul>${(t.known || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li class="mute">nothing known yet</li>'}</ul>
     <div class="row"><input id="th_note" placeholder="add a note about ${esc(t.name)}" style="flex:1"> <button class="go" onclick="thingNote()">Add</button></div>
@@ -355,8 +367,8 @@ async function pantry() {
   $('#p_items').innerHTML = '<tr><th>item</th><th>where</th><th>use within</th><th></th></tr>' + r.items.map(i => {
     const d = i.days_left, cls = d === null ? '' : d < 0 ? 'bad' : d < 2 ? 'bad' : d < 4 ? '' : 'ok';
     const when = d === null ? '' : d < 0 ? 'past its date' : d < 1 ? 'today' : Math.round(d) + (Math.round(d) === 1 ? ' day' : ' days');
-    return `<tr><td>${esc(i.name)} <span class="mute">${esc(i.amount || '')}</span></td><td class="mute">${i.location}</td><td class="${cls}">${when}</td>
-      <td><a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','used')">used</a> · <a onclick="puse('${esc(i.name).replace(/'/g, "\\'")}','tossed')">tossed</a> · <a class="mute" onclick="premove(${i.id})">remove</a></td></tr>`; }).join('') || '<tr><td class="mute">nothing yet: add from a photo or type what you bought</td></tr>';
+    return `<tr><td>${esc(i.name)} <span class="mute">${esc(i.amount || '')}</span></td><td class="mute">${esc(i.location)}</td><td class="${cls}">${when}</td>
+      <td><a onclick="puse(${jsq(i.name)},'used')">used</a> · <a onclick="puse(${jsq(i.name)},'tossed')">tossed</a> · <a class="mute" onclick="premove(${i.id})">remove</a></td></tr>`; }).join('') || '<tr><td class="mute">nothing yet: add from a photo or type what you bought</td></tr>';
   const g = r.goals; $('#g_goals').value = (g.goals || []).join('\n'); $('#g_tired').value = g.tired_days || ''; $('#g_avoid').value = (g.avoid || []).join(', ');
 }
 async function padd() { const r = await api('api/pantry/add', {text: $('#p_text').value, location: $('#p_loc').value || null, source: 'web'}); $('#p_out').textContent = r.error || ('added ' + (r.added || []).map(a => a.name).join(', ')); $('#p_text').value = ''; pantry(); }
@@ -365,7 +377,7 @@ async function puse(name, op) { await api('api/pantry/' + op, {name}); pantry();
 async function photo(inp) {
   if (!inp.files.length) return; $('#p_out').textContent = 'reading the photo…';
   const fd = new FormData(); fd.append('photo', inp.files[0]);
-  const r = await (await fetch('api/pantry/photo', {method: 'POST', body: fd})).json(); inp.value = '';
+  const r = await jfetch('api/pantry/photo', {method: 'POST', body: fd}); inp.value = '';
   $('#p_out').textContent = r.error || `read ${r.read}, added ${r.added.map(a => a.name).join(', ') || 'nothing'}`; pantry();
 }
 async function meals() {
@@ -374,9 +386,9 @@ async function meals() {
   if (r.error) { $('#m_out').textContent = r.error; return; }
   const t = r.today || {}; $('#m_today').textContent = (r.focus || '') + (t.tired ? ' · tired day: ' + t.tired_why.join(', ') : '');
   const missing = [].concat(...(r.meals || []).map(m => m.missing || []));
-  $('#m_out').innerHTML = (r.meals || []).map(m => `<div style="margin:10px 0"><b>${esc(m.name)}</b> <span class="mute">${esc(m.meal || '')} · ~${m.protein_g ?? '?'} g protein · ~${m.calories ?? '?'} kcal (estimates)</span>
+  $('#m_out').innerHTML = (r.meals || []).map(m => `<div style="margin:10px 0"><b>${esc(m.name)}</b> <span class="mute">${esc(m.meal || '')} · ~${esc(m.protein_g ?? '?')} g protein · ~${esc(m.calories ?? '?')} kcal (estimates)</span>
       <div>${esc(m.why || '')}</div><div class="mute">uses ${esc((m.uses || []).join(', '))}${(m.missing || []).length ? ' · need ' + esc(m.missing.join(', ')) : ''}</div><div class="mute">${esc(Array.isArray(m.steps) ? m.steps.map((s, i) => (i + 1) + '. ' + s).join('  ') : (m.steps || ''))}</div></div>`).join('') || `<pre>${esc(r.raw || 'no ideas')}</pre>`;
-  if (missing.length) $('#m_out').innerHTML += `<button class="go" onclick='shop(${JSON.stringify(missing)})'>Add ${missing.length} missing to the shopping list</button>`;
+  if (missing.length) $('#m_out').innerHTML += `<button class="go" onclick="shop(${esc(JSON.stringify(missing.map(String)))})">Add ${missing.length} missing to the shopping list</button>`;
 }
 async function shop(items) { const r = await api('api/pantry/shop', {items}); alert('Added: ' + r.added.join(', ')); }
 async function saveGoals() { const r = await api('api/pantry/goals', {goals: $('#g_goals').value.split('\n').map(s => s.trim()).filter(Boolean), tired_days: $('#g_tired').value, avoid: $('#g_avoid').value.split(',').map(s => s.trim()).filter(Boolean)}); $('#g_out').textContent = r.error || 'saved'; }
@@ -406,15 +418,16 @@ async function runTest() {
 async function poll(id) { for (let i = 0; i < 400; i++) { await new Promise(r => setTimeout(r, 3000)); const r = await api('api/runs/' + id); if (r && r.status !== 'running') { runs(); return; } } }
 async function runs() {
   const rs = await api('api/runs?limit=60');
-  $('#runs').innerHTML = '<tr><th>when</th><th>suite</th><th>arm</th><th>model</th><th>ingest</th><th>accuracy</th><th>found first</th><th>in top 5</th><th>stale on top</th><th>status</th></tr>' + rs.map(r => `<tr><td class="mute">${ago(r.ts)}</td><td>${r.suite}</td><td>${r.arm}</td><td>${esc(r.model || '')}</td><td class="mute">${r.config.ingest}${r.config.keyed ? ' · keyed' : ''}${r.config.expand ? ' · expand' : ''}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.hit5)}</td><td class="num">${pct(r.summary.stale_above)}</td><td><a onclick="showRun('${r.id}')" class="${r.status === 'error' ? 'bad' : ''}">${r.status}</a></td></tr>`).join('');
+  $('#runs').innerHTML = '<tr><th>when</th><th>suite</th><th>arm</th><th>model</th><th>ingest</th><th>accuracy</th><th>found first</th><th>in top 5</th><th>stale on top</th><th>status</th></tr>' + rs.map(r => `<tr><td class="mute">${ago(r.ts)}</td><td>${esc(r.suite)}</td><td>${esc(r.arm)}</td><td>${esc(r.model || '')}</td><td class="mute">${esc(r.config.ingest)}${r.config.keyed ? ' · keyed' : ''}${r.config.expand ? ' · expand' : ''}</td><td class="num">${pct(r.summary.accuracy)}</td><td class="num">${pct(r.summary.hit1)}</td><td class="num">${pct(r.summary.hit5)}</td><td class="num">${pct(r.summary.stale_above)}</td><td><a onclick="showRun(${jsq(r.id)})" class="${r.status === 'error' ? 'bad' : ''}">${esc(r.status)}</a></td></tr>`).join('');
 }
 async function showRun(id) { const r = await api('api/runs/' + id); $('#runcard').classList.remove('hide'); $('#runid').textContent = id; $('#run').textContent = JSON.stringify({summary: r.summary, config: r.config, seed: r.seed, wrong: r.details.filter(d => !d.correct)}, null, 1); }
-async function checkModels() { const rs = await api('api/models/check', {}); rs.forEach(r => { const el = document.getElementById('chk_' + r.name); if (el) el.innerHTML = r.ok ? `<span class="ok">ok</span> <span class="mute">${r.ms} ms</span>` : `<span class="bad">${esc(r.error)}</span>`; }); }
+async function checkModels() { const rs = await api('api/models/check', {}); rs.forEach(r => { const el = document.getElementById('chk_' + r.name); if (el) el.innerHTML = r.ok ? `<span class="ok">ok</span> <span class="mute">${esc(r.ms)} ms</span>` : `<span class="bad">${esc(r.error)}</span>`; }); }
 async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); $('#a_out').textContent = r.error || (r.answer + '\n\n— ' + (r.ms || '') + ' ms; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ')); }
 async function checkUpd() { $('#upd').textContent = '…'; const r = await api('api/updates'); delete r.manifest; $('#upd').textContent = JSON.stringify(r, null, 1); }
 async function applyUpd() { $('#upd').textContent = '…'; $('#upd').textContent = JSON.stringify(await api('api/updates/apply', {}), null, 1); }
 (function () { let q = ''; try { q = window.top.location.search; } catch (e) { q = location.search; }
-  const m = /[?&]hm_thing=([^&]+)/.exec(q); if (m) setTimeout(() => thingPage(decodeURIComponent(m[1].replace(/\+/g, ' '))), 300); })();
+  const m = /[?&]hm_thing=([^&]+)/.exec(q); let name = null; try { name = m && decodeURIComponent(m[1].replace(/\+/g, ' ')); } catch (e) {}
+  if (name) setTimeout(() => thingPage(name), 300); })();
 load('overview'); setInterval(() => !$('#overview').classList.contains('hide') && load('overview'), 30000);
 </script>
 </body>
