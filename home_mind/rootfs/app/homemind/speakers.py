@@ -94,5 +94,16 @@ def sql(alias=""):
     col = f"{alias}meta" if alias else "meta"
     if not v:
         return f"COALESCE({col},'') NOT LIKE '%\"scope\": \"personal\"%'", []
-    return (f"(COALESCE({col},'') NOT LIKE '%\"scope\": \"personal\"%' OR LOWER({col}) LIKE ?)",
-            [f'%"owner": "{v.lower()}"%'])
+    # the owner is compared the way visible() compares it (hm_seen, registered by Store): a LIKE on the stored JSON
+    # missed owners with accents ("Zoë" is stored as "Zo\\u00eb", and SQLite's LOWER folds ASCII only), so their
+    # own personal notes vanished from search while get() still showed them
+    return (f"(COALESCE({col},'') NOT LIKE '%\"scope\": \"personal\"%' OR hm_seen({col}, ?))", [v])
+
+
+def seen_sql(meta, viewer):
+    """hm_seen(meta, viewer) for SQLite: visible() on a stored meta."""
+    import json
+    try:
+        return 1 if visible(json.loads(meta or "{}"), viewer) else 0
+    except (ValueError, TypeError, AttributeError):
+        return 0
