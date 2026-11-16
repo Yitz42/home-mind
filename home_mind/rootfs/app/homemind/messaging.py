@@ -14,8 +14,18 @@ import re
 
 log = logging.getLogger("homemind.telegram")
 API = "https://api.telegram.org"
-TELL = re.compile(r"^\s*(?:/?remember|/?note|/?save|remember that)\b[:,]?\s*(?:that\s+)?([^\s:,].*\w.*|\w)$",
-                  re.I | re.S)
+TELL = re.compile(r"^\s*(?:/?remember|/?note|/?save|remember that)\b[:,]?\s*(?:that\s+)?(?:to self\b[:,]?\s*)?"
+                  r"([^\s:,].*\w.*|\w)$", re.I | re.S)
+# "Remember where I put the drill?" is a question about memory, not something to file
+ASKS = re.compile(r"\?\s*$|^\s*/?remember\s+(?:what|where|which|who|whose|whether|how|if)\b", re.I)
+
+
+def tell(text):
+    """The note to file when a message tells something ("remember the bins go out Tuesday"), else None."""
+    m = TELL.match(text or "")
+    if not m or (ASKS.search(text) and not text.lstrip().startswith("/")):
+        return None
+    return m.group(1).strip()
 MAX_LEN = 4000      # Telegram allows 4096, counted in UTF-16 units (an emoji is two)
 
 
@@ -115,8 +125,7 @@ class Telegram:
         if msg.get("photo"):
             if not text:
                 return "Add a caption so I know what the photo is of."
-            m = TELL.match(text)
-            note = (m.group(1) if m else text).strip()
+            note = tell(text) or text.strip()
             data = await self._file(msg["photo"][-1]["file_id"])     # first: a failed download files nothing
             meta = self.app.scope_meta({}, note, who or None)
             r = st.remember(text=note, source="telegram", meta=meta or None)
@@ -124,9 +133,8 @@ class Telegram:
             return f"Saved with the photo: {note}"
         if not text:
             return None
-        m = TELL.match(text)
-        if m:
-            note = m.group(1).strip()
+        note = tell(text)
+        if note:
             meta = self.app.scope_meta({}, note, who or None)
             st.remember(text=note, source="telegram", meta=meta or None)
             return f"Saved: {note}"
