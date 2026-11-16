@@ -634,7 +634,14 @@ def backfill(store):
 
 
 def _places(store):
-    """thing -> (container, when, id), from each thing's latest place note."""
+    """thing -> (container, when, id), from each thing's latest place note. Kept until a note changes (read for every
+    "where" question and every picture; don't change what it returns)."""
+    from .speakers import sql as _vis
+    vs, va = _vis()
+    return store.cached(("places", vs, tuple(va)), lambda: _places_now(store))
+
+
+def _places_now(store):
     cur = {}
     for h in _rows(store, "meta LIKE '%\"place\"%'"):
         p = (h.get("meta") or {}).get("place")
@@ -746,7 +753,14 @@ PROFILE_MAX = 15
 
 
 def profile(store):
-    """The always-loaded lines: notes on the profile shelf (newest per title first), at most PROFILE_MAX."""
+    """The always-loaded lines: notes on the profile shelf (newest per title first), at most PROFILE_MAX. Read for
+    every question: kept until a note changes (the query reads every note)."""
+    from .speakers import sql as _vis
+    vs, va = _vis()
+    return list(store.cached(("profile", vs, tuple(va)), lambda: _profile_now(store)))
+
+
+def _profile_now(store):
     rows = store.db.execute("SELECT * FROM items WHERE status='active' AND (shelf='profile' OR shelf LIKE 'profile/%') "
                             "ORDER BY created DESC LIMIT 60").fetchall()
     from .speakers import visible
