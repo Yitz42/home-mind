@@ -66,6 +66,8 @@ def asked_days(question, today):
             d = date(today.year, MONTHS.index(m.group(1)) + 1, int(m.group(2)))
             if d < today - timedelta(days=180):
                 d = d.replace(year=d.year + 1)
+            elif d > today + timedelta(days=185):
+                d = d.replace(year=d.year - 1)      # "Dec 31" asked on Jan 2: the one just past, not next December
             out.append(d)
         except ValueError:
             pass

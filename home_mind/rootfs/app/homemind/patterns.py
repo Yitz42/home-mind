@@ -120,6 +120,12 @@ def _t(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
 
 
+def _day_span(day):
+    """Local midnight to the next local midnight, as timestamps (23 or 25 hours apart on DST days, not 86400)."""
+    lo = datetime.combine(day, datetime.min.time())
+    return lo.timestamp(), (lo + timedelta(days=1)).timestamp()
+
+
 def _hours(dt, day):
     """Clock time as hours after midnight of `day` (a bedtime of 00:40 the next day is 24.67)."""
     return (dt - datetime.combine(day, datetime.min.time())).total_seconds() / 3600
@@ -238,9 +244,9 @@ class Patterns:
         return d
 
     def _weather_from_table(self, day):
-        lo = datetime.combine(day, datetime.min.time()).timestamp()
+        lo, hi = _day_span(day)
         rows = [json.loads(r["data"]) for r in self.store.db.execute(
-            "SELECT data FROM weather_hours WHERE t >= ? AND t < ? ORDER BY t", (lo, lo + 86400))]
+            "SELECT data FROM weather_hours WHERE t >= ? AND t < ? ORDER BY t", (lo, hi))]
         return rows
 
     @staticmethod
@@ -346,9 +352,9 @@ class Patterns:
     def _answer(self, day, what):
         """A check-in answer (or note) for that day, which beats the watch."""
         shelf = "body/fog" if what == "fog" else "body/sleep"
-        lo = datetime.combine(day, datetime.min.time()).timestamp()
+        lo, hi = _day_span(day)
         r = self.store.db.execute(f"SELECT body, meta FROM items WHERE shelf=? AND status='active' AND created >= ? "
-                                  f"AND created < ? ORDER BY created DESC LIMIT 1", (shelf, lo, lo + 86400)).fetchone()
+                                  f"AND created < ? ORDER BY created DESC LIMIT 1", (shelf, lo, hi)).fetchone()
         if not r:
             return None
         m = json.loads(r["meta"] or "{}")
@@ -360,10 +366,10 @@ class Patterns:
         return None
 
     def _meals(self, day):
-        lo = datetime.combine(day, datetime.min.time()).timestamp()
+        lo, hi = _day_span(day)
         out = []
         for r in self.store.db.execute("SELECT body, meta, created FROM items WHERE shelf='body/meals' AND "
-                                       "status='active' AND created >= ? AND created < ?", (lo, lo + 86400 + 4 * 3600)):
+                                       "status='active' AND created >= ? AND created < ?", (lo, hi + 4 * 3600)):
             m = json.loads(r["meta"] or "{}")
             t = datetime.fromtimestamp(m.get("at") or r["created"])
             out.append({"hour": round(_hours(t, day), 2), "caffeine": bool(m.get("caffeine"))})
