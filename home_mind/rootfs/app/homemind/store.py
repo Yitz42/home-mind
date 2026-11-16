@@ -365,12 +365,15 @@ class Store:
                 rows = self.db.execute("SELECT id, title, body FROM items").fetchall()
                 self.db.executemany("UPDATE items SET keys=? WHERE id=?",
                                     [(" ".join(lexicon_keys(f"{r['title']} {r['body']}")) or None, r["id"]) for r in rows])
+            had_fts = bool(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='items_fts'").fetchone())
             try:
                 self.db.executescript(FTS)
                 self.fts = True
             except sqlite3.OperationalError:
                 self.fts = False
-            if fresh_keys and self.fts:
+            # a new index over notes already there (the keys migration above, or a start that stopped between dropping
+            # the old index and rebuilding it): fill it, or search finds nothing until every note is edited
+            if (fresh_keys or not had_fts) and self.fts:
                 self.db.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')")
             self.db.commit()
 
@@ -383,6 +386,7 @@ class Store:
     LINK_BY_ATTR = True    # #13: a pronoun note links to the recent note naming its attribute ("its code")
     filer = None           # filing.Filer, set by the app (#58)
     vault_key = None       # set by the app with option encrypt_secrets (#66)
+    on_purge = None        # called after purge(): the app deletes the photo files no note lists any more
 
     def _row(self, r):
         if r is None:
@@ -403,7 +407,7 @@ class Store:
                 d["locked"] = True      # sealed, and the key isn't loaded: only the masked copy
         return d
 
-    def seal_item(self, item_id):
+    def seal_item(self, item_id, _scrub=True):
         """#66: keep a secret note's real text sealed (AES-GCM, key outside the database) and a masked copy for
         search. Nothing happens without a key or for a note that isn't sensitive or is sealed already."""
         if not self.vault_key:
@@ -416,10 +420,28 @@ class Store:
                 return False
             sealed = vault.seal(self.vault_key, json.dumps({"title": r["title"], "body": r["body"]}),
                                 aad=str(r["id"]).encode())
+            # the clear text must not stay in the file: freed space is overwritten, and the search index's old
+            # segments (which still hold the clear words after the update) are merged away (below)
+            self.db.execute("PRAGMA secure_delete = ON")
             self.db.execute("UPDATE items SET secret=?, title=?, body=? WHERE id=?",
                             (sealed, mask_all(r["title"] or ""), mask_all(r["body"] or ""), r["id"]))
             self.db.commit()
+            if _scrub:
+                self._scrub_index()
         return True
+
+    def _scrub_index(self):
+        """Merge the search index into one segment, dropping the words of text that was replaced (sealed), and empty
+        the write-ahead log, so the old text is not left in the files (#66)."""
+        if not self.fts:
+            return
+        with self.lock:
+            self.db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
+            self.db.commit()
+            try:
+                self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.OperationalError:
+                pass
 
     def unseal_item(self, item_id):
         if not self.vault_key:
@@ -437,7 +459,10 @@ class Store:
 
     def seal_all(self):
         ids = [r[0] for r in self.db.execute("SELECT id FROM items WHERE secret IS NULL AND meta LIKE '%\"sensitive\": true%'")]
-        return sum(1 for i in ids if self.seal_item(i))
+        n = sum(1 for i in ids if self.seal_item(i, _scrub=False))
+        if n:
+            self._scrub_index()
+        return n
 
     def unseal_all(self):
         ids = [r[0] for r in self.db.execute("SELECT id FROM items WHERE secret IS NOT NULL")]
@@ -640,6 +665,12 @@ class Store:
         for k, v in changes.items():
             if v is not None and k in ("kind", "key", "title", "body", "shelf", "tags", "meta", "source"):
                 f[k] = v if k != "meta" else {**old["meta"], **v}
+        if changes.get("title") is None and isinstance(f["body"], str) and f["body"] != old["body"]:
+            # a title made from the old text's first line (remember() makes one when none is given) follows the new
+            # text, or an edit from the panel (text only) keeps the old value in the title, and search finds it there
+            first = (old["body"] or "").split("\n")[0][:90]
+            if first and (old["title"] == first or old["title"].startswith(first + " [re: ")):
+                f["title"] = (f["body"].strip().split("\n")[0][:90] or old["title"]) + old["title"][len(first):]
         from .privacy import is_sensitive
         if "sensitive" not in f["meta"] and f["kind"] != "procedure" and is_sensitive(f"{f['title']} {f['body']}"):
             # an edit that adds a code is a secret note now, as if filed that way (sealed, kept out of files)
@@ -721,14 +752,21 @@ class Store:
                             if x["id"] not in ids:
                                 ids.add(x["id"])
                                 todo.add(x["id"])
-                for x in self.db.execute("SELECT id FROM items WHERE meta LIKE ?", (f'%"refers_to": {i}%',)):
+                for x in self.db.execute("SELECT id, meta FROM items WHERE meta LIKE ?", (f'%"refers_to": {i}%',)):
+                    # the LIKE also matches "refers_to": 12 for note 1: only a note that refers to this one goes
+                    try:
+                        if json.loads(x["meta"] or "{}").get("refers_to") != i:
+                            continue
+                    except (ValueError, AttributeError):
+                        continue
                     if x["id"] not in ids:
                         ids.add(x["id"])
                         todo.add(x["id"])
             if not ids:
                 return {"deleted": 0}
-            rows = self.db.execute(f"SELECT id, title, body FROM items WHERE id IN ({','.join('?' * len(ids))})",
-                                   list(ids)).fetchall()
+            # a sealed note's row holds the masked copy: its values are in the sealed text (#66)
+            rows = [self._row(r) for r in self.db.execute(f"SELECT * FROM items WHERE id IN ({','.join('?' * len(ids))})",
+                                                          list(ids)).fetchall()]
             # the note's values, to find them in logs: codes, serials, passwords (a digit or a symbol, 4+ long), and
             # what follows a secret word; not years or plain words, so unrelated log rows stay
             from .privacy import RIGHT_AFTER, WORD_AFTER
@@ -740,38 +778,42 @@ class Store:
             vals = {v for v in vals if len(v) >= 4 and not re.fullmatch(r"(19|20)\d\d", v) and v.lower() not in STOP}
             self.db.execute("PRAGMA secure_delete = ON")
             q = ",".join("?" * len(ids))
-            n_items = self.db.execute(f"DELETE FROM items WHERE id IN ({q})", list(ids)).rowcount
-            try:        # a note's embedding is its content in another form (#10)
-                self.db.execute(f"DELETE FROM vectors WHERE item_id IN ({q})", list(ids))
-            except sqlite3.OperationalError:
-                pass
-            self.db.execute(f"DELETE FROM links WHERE a IN ({q}) OR b IN ({q})", list(ids) * 2)
-            n_ev = self.db.execute(f"DELETE FROM events WHERE item_id IN ({q})", list(ids)).rowcount
-            evs = self.db.execute("SELECT id, data FROM events").fetchall()
-            gone = []
-            for e in evs:
-                d = e["data"] or ""
-                try:
-                    j = json.loads(d)
-                except ValueError:
-                    j = {}
-                if any(i in ids for i in (j.get("ids") or []) if isinstance(i, int)) or any(v in d for v in vals):
-                    gone.append(e["id"])
-            for k in range(0, len(gone), 500):
-                part = gone[k:k + 500]
-                n_ev += self.db.execute(f"DELETE FROM events WHERE id IN ({','.join('?' * len(part))})", part).rowcount
-            n_conv = 0
-            if self.db.execute("SELECT 1 FROM sqlite_master WHERE name='conversations'").fetchone():
-                for v in vals:
-                    n_conv += self.db.execute("DELETE FROM conversations WHERE user_text LIKE ? OR reply LIKE ?",
-                                              (f"%{v}%", f"%{v}%")).rowcount
-            if self.db.execute("SELECT 1 FROM sqlite_master WHERE name='cases'").fetchone():
-                self.db.execute(f"DELETE FROM cases WHERE item_id IN ({q}) OR fixed_id IN ({q})", list(ids) * 2)
-                for v in vals:
-                    self.db.execute("DELETE FROM cases WHERE question LIKE ? OR wrong LIKE ? OR right LIKE ?",
-                                    (f"%{v}%",) * 3)
-            pairs = self.kv_get("tidy_pairs") or []
-            self.db.commit()
+            try:        # all of it or nothing: a half purge would leave the logs holding the values
+                n_items = self.db.execute(f"DELETE FROM items WHERE id IN ({q})", list(ids)).rowcount
+                try:        # a note's embedding is its content in another form (#10)
+                    self.db.execute(f"DELETE FROM vectors WHERE item_id IN ({q})", list(ids))
+                except sqlite3.OperationalError:
+                    pass
+                self.db.execute(f"DELETE FROM links WHERE a IN ({q}) OR b IN ({q})", list(ids) * 2)
+                n_ev = self.db.execute(f"DELETE FROM events WHERE item_id IN ({q})", list(ids)).rowcount
+                evs = self.db.execute("SELECT id, data FROM events").fetchall()
+                gone = []
+                for e in evs:
+                    d = e["data"] or ""
+                    try:
+                        j = json.loads(d)
+                    except ValueError:
+                        j = {}
+                    if any(i in ids for i in (j.get("ids") or []) if isinstance(i, int)) or any(v in d for v in vals):
+                        gone.append(e["id"])
+                for k in range(0, len(gone), 500):
+                    part = gone[k:k + 500]
+                    n_ev += self.db.execute(f"DELETE FROM events WHERE id IN ({','.join('?' * len(part))})", part).rowcount
+                n_conv = 0
+                if self.db.execute("SELECT 1 FROM sqlite_master WHERE name='conversations'").fetchone():
+                    for v in vals:
+                        n_conv += self.db.execute("DELETE FROM conversations WHERE user_text LIKE ? OR reply LIKE ?",
+                                                  (f"%{v}%", f"%{v}%")).rowcount
+                if self.db.execute("SELECT 1 FROM sqlite_master WHERE name='cases'").fetchone():
+                    self.db.execute(f"DELETE FROM cases WHERE item_id IN ({q}) OR fixed_id IN ({q})", list(ids) * 2)
+                    for v in vals:
+                        self.db.execute("DELETE FROM cases WHERE question LIKE ? OR wrong LIKE ? OR right LIKE ?",
+                                        (f"%{v}%",) * 3)
+                pairs = self.kv_get("tidy_pairs") or []
+                self.db.commit()
+            except BaseException:
+                self.db.rollback()
+                raise
             self.kv_set("tidy_pairs", [p for p in pairs if not set(p) & ids])
             self.db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
             self.db.commit()
@@ -780,6 +822,11 @@ class Store:
             except sqlite3.OperationalError:
                 pass
         self._vocab_n = None
+        if self.on_purge:
+            try:
+                self.on_purge()
+            except Exception:  # noqa: BLE001 - the notes are gone; a stray file is swept again later
+                pass
         self.log("purge", None, n=n_items)          # how many, never what
         return {"deleted": n_items, "events_removed": n_ev, "conversation_turns_removed": n_conv}
 

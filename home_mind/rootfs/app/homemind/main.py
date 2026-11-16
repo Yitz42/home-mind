@@ -157,6 +157,7 @@ class App:
         from .photos import Photos
         self.prefs = Prefs(self.mind.store)
         self.photos = Photos(self.mind.store, os.path.join(DATA, "photos"))
+        self.mind.store.on_purge = self.photos.sweep      # a purged note's photos go with it
         from .weblook import Web
         from .messaging import Telegram
         from .mailbox import Mailbox
