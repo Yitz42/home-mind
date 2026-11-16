@@ -91,8 +91,9 @@ TOOLS = [
      S({"q": STR})),
     ("mind_control", "Control one thing in the house (only things on the control list, only while "
                      "input_boolean.mind_control_enabled is on). action: on, off, toggle, brightness (1-100), color "
-                     "(name), speed (fan %), humidity (%), run (script/scene). Logged in memory.",
-     S({"entity_id": STR, "action": STR, "value": STR}, ["entity_id", "action"])),
+                     "(name), speed (fan %), humidity (%), run (script/scene); covers open/close; locks lock/unlock. Locks, alarms "
+                     "and garage doors need confirm=true, only after the user said yes. Logged in memory.",
+     S({"entity_id": STR, "action": STR, "value": STR, "confirm": BOOL}, ["entity_id", "action"])),
     ("mind_do", "A request in words ('dim the desk light to 30%'): a connected model picks one action from the "
                 "control list, then it is checked and done like mind_control.", S({"text": STR, "model": STR}, ["text"])),
     ("mind_automations", "Home Assistant automations run by Home Mind. action: list (who runs each, last run), "
@@ -263,7 +264,8 @@ class MCP:
         if name == "mind_control":
             if not app.home.catalog:
                 await app.home.refresh()
-            return await app.home.act(a["entity_id"], a["action"], a.get("value"), source="claude")
+            return await app.home.act(a["entity_id"], a["action"], a.get("value"), source="claude",
+                                      confirm=a.get("confirm") is True)
         if name == "mind_do":
             return await app.do(a["text"], a.get("model"), source="claude")
         if name == "mind_automations":

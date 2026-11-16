@@ -18,8 +18,10 @@ Controls
   - Limits: brightness 1-100%, fan speed up to option home_fan_max, humidity between input_number.mind_humidity_min
     and max, at most 20 actions a minute. Every action is filed in memory (home/actions).
 """
+import fnmatch
 import json
 import logging
+import math
 import re
 import time
 from datetime import datetime
@@ -39,6 +41,9 @@ DEFAULT_CONTROLS = ["light.bedroom_lights", "light.rgbic_tv_light_bars", "light.
                     "switch.tp_link_power_strip_a849_led_2", "switch.tp_link_power_strip_a849_speaker",
                     "script.*", "scene.*"]
 GATE = "input_boolean.mind_control_enabled"
+# doors and locks: never moved on a model's say-so alone; act() needs confirm=True (the person said yes)
+SENSITIVE_DOMAINS = ("lock", "alarm_control_panel", "valve")
+SENSITIVE_COVERS = re.compile(r"garage|gate|door", re.I)
 STEP = {"temperature": 1.0, "humidity": 3.0, "pm25": 5.0, "aqi": 5.0, "battery": 10.0}
 
 
@@ -49,12 +54,22 @@ def _f(x):
         return None
 
 
+def _num(x):
+    """A finite number from 40, "40", "40%" or "about 40 percent"; None otherwise."""
+    if isinstance(x, str):
+        m = re.search(r"-?\d+(?:\.\d+)?", x)
+        x = m.group(0) if m else None
+    v = _f(x)
+    return v if v is not None and math.isfinite(v) else None
+
+
 class Home:
     def __init__(self, store, ha, opts=None):
         self.store, self.ha = store, ha
         o = opts or {}
         self.controls = o.get("home_controls") or DEFAULT_CONTROLS
-        self.fan_max = int(o.get("home_fan_max") or 100)
+        fm = o.get("home_fan_max")
+        self.fan_max = max(0, min(100, int(fm))) if fm not in (None, "") else 100     # 0 is a real limit
         self.catalog = {}          # entity_id -> {"name", "kind", "domain", "unit", "state"}
         self.seen = {}             # entity_id -> (value, time filed)
         self.actions = []
@@ -396,15 +411,27 @@ class Home:
 
     # ---- controls ---------------------------------------------------------------------------------------------------
     def allowed(self, eid):
+        return any(eid == p or fnmatch.fnmatchcase(eid, p) for p in self.controls)
+
+    def sensitive(self, eid):
+        """Locks, alarms, valves, and garage doors / gates / doors: opening one needs the person's yes."""
         dom = eid.split(".")[0]
-        return eid in self.controls or f"{dom}.*" in self.controls
+        if dom in SENSITIVE_DOMAINS:
+            return True
+        if dom == "cover":
+            c = self.catalog.get(eid) or {}
+            dc = str((c.get("attrs") or {}).get("device_class") or "")
+            return bool(SENSITIVE_COVERS.search(dc) or SENSITIVE_COVERS.search(eid)
+                        or SENSITIVE_COVERS.search(c.get("name") or ""))
+        return False
 
     def controllable(self):
         return [{"entity_id": e, "name": c["name"], "state": c["state"]} for e, c in sorted(self.catalog.items())
                 if self.allowed(e)]
 
-    async def act(self, entity_id, action, value=None, source="api"):
-        """action: on, off, toggle, brightness (1-100), color (name), speed (fan %), humidity (%), run."""
+    async def act(self, entity_id, action, value=None, source="api", confirm=False):
+        """action: on, off, toggle, brightness (1-100), color (name), speed (fan %), humidity (%), run; covers also
+        open, close; locks lock, unlock. Locks, alarms and garage doors need confirm=True."""
         if entity_id not in self.catalog:
             m = self.matching(entity_id, 1)
             if not m:
@@ -412,6 +439,10 @@ class Home:
             entity_id = m[0]
         if not self.allowed(entity_id):
             raise PermissionError(f"{entity_id} is not on the control list")
+        if self.sensitive(entity_id) and confirm is not True:
+            raise PermissionError(f"{entity_id} is a lock or door: it needs the person's confirmation (confirm: true)")
+        if (self.catalog[entity_id].get("state") or "") in ("unavailable", "unknown"):
+            raise ValueError(f"{entity_id} is {self.catalog[entity_id]['state']} in Home Assistant")
         gate = await self.ha.state(GATE)
         if not gate or gate.get("state") != "on":
             raise PermissionError(f"controls are off ({GATE} is not on)")
@@ -429,27 +460,44 @@ class Home:
                 a, value = ("brightness" if dom == "light" else "speed"), p["value"]
         self.own = getattr(self, "own", {})
         self.own[entity_id] = now
-        if a == "run" or dom in RUN_DOMAINS:
+        if dom in RUN_DOMAINS:
+            svc = (dom, "turn_on")
+        elif dom == "cover" and a in ("on", "open", "off", "close", "toggle"):
+            svc = ("cover", {"on": "open_cover", "open": "open_cover", "off": "close_cover",
+                             "close": "close_cover", "toggle": "toggle"}[a])
+        elif dom == "lock" and a in ("lock", "unlock"):
+            svc = ("lock", a)
+        elif dom in ("lock", "alarm_control_panel", "valve"):
+            raise ValueError(f"can't {action} {entity_id}")
+        elif a == "run":
             svc = (dom, "turn_on")
         elif a in ("on", "off", "toggle"):
             svc = (dom if dom != "climate" else "climate", f"turn_{a}" if a != "toggle" else "toggle")
         elif a == "brightness" and dom == "light":
-            v = max(1, min(100, int(_f(value) or 0)))
+            v = _num(value)
+            if v is None:
+                raise ValueError(f"brightness needs a number from 1 to 100, not {value!r}")
+            v = max(1, min(100, int(round(v))))
             svc, data["brightness_pct"] = ("light", "turn_on"), v
         elif a == "color" and dom == "light":
             svc, data["color_name"] = ("light", "turn_on"), str(value).lower().strip()
         elif a == "speed" and dom == "fan":
-            v = max(0, min(self.fan_max, int(_f(value) or 0)))
+            v = _num(value)
+            if v is None:
+                raise ValueError(f"speed needs a number from 0 to {self.fan_max}, not {value!r}")
+            v = max(0, min(self.fan_max, int(round(v))))
             svc, data["percentage"] = ("fan", "set_percentage"), v
         elif a == "humidity" and dom == "humidifier":
             lo = _f((await self.ha.state("input_number.mind_humidity_min") or {}).get("state")) or 30
             hi = _f((await self.ha.state("input_number.mind_humidity_max") or {}).get("state")) or 55
-            v = max(lo, min(hi, _f(value) or lo))
+            v = max(lo, min(hi, _num(value) or lo))
             svc, data["humidity"] = ("humidifier", "set_humidity"), v
         else:
             raise ValueError(f"can't {action} {entity_id}")
         status = await self.ha.call(svc[0], svc[1], data)
         self.actions.append(now)
+        if isinstance(status, int) and status >= 400:
+            raise ValueError(f"Home Assistant refused {'.'.join(svc)} for {entity_id} (HTTP {status})")
         name = self.catalog[entity_id]["name"]
         said = f"{a}" + (f" {value}" if value not in (None, "") else "")
         when = datetime.now().strftime("%a %b %d %Y %I:%M %p").replace(" 0", " ")

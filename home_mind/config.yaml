@@ -146,24 +146,24 @@ schema:
   fallback:
     - str
   voice_seconds: int(2,60)
-  morning_time: str
+  morning_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   morning_notify: str?
   patterns_checkins: bool
-  patterns_checkin_time: str
-  patterns_evening_time: str
+  patterns_checkin_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
+  patterns_evening_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   patterns_report_day: int(0,6)
-  patterns_report_time: str
+  patterns_report_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   knowledge_food: bool
   knowledge_wikipedia: bool
-  knowledge_window: str
+  knowledge_window: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])? *- *([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   calendar_quiet:
     - str
-  overnight_time: str
+  overnight_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   overnight_model: str?
   overnight_enabled: bool
   morning_enabled: bool
   evening_enabled: bool
-  evening_time: str
+  evening_time: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   evening_notify: str?
   house_notices: bool
   automation_pin: password?
@@ -229,8 +229,8 @@ schema:
   answer_notes_first: bool
   events_keep_days: int(0,3650)
   quiet_hours: bool
-  quiet_start: str
-  quiet_end: str
+  quiet_start: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
+  quiet_end: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   notify_daily_cap: int(0,50)
   checkin_old_facts: bool
   checkin_after_days: int(30,3650)
