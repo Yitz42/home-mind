@@ -441,7 +441,8 @@ def _rows(store, where, args=()):
 
 
 def eff(h):
-    return float((h.get("meta") or {}).get("valid_from") or h["created"])
+    vf = (h.get("meta") or {}).get("valid_from")
+    return min(float(vf), float(h["created"])) if vf else float(h["created"])     # never after it was filed
 
 
 WHEN_NEXT = re.compile(r"\b(when|what day|which day|next|how soon|is .* (?:today|tomorrow))\b", re.I)

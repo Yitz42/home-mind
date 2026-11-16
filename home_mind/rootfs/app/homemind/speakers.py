@@ -77,6 +77,22 @@ def scope_for(text, owner, rule="first_person"):
     return "household", None
 
 
+def own_meta(meta):
+    """Meta sent with a person-bound token (#48): what it files is its own person's. An owner or said_by naming
+    someone else (planting a "personal" note in another person's notes, or a value "said" by them) becomes the token's
+    person."""
+    v = VIEWER.get()
+    if not v or not isinstance(meta, dict):
+        return meta
+    m = dict(meta)
+    for k in ("owner", "said_by", "speaker"):
+        if k in m and str(m[k] or "").lower() != v.lower():
+            m[k] = v
+    if m.get("scope") == "personal":
+        m["owner"] = v
+    return m
+
+
 def visible(meta, viewer=None):
     """May this viewer see a note with this meta? (None sees everything.)"""
     viewer = VIEWER.get() if viewer is None else viewer

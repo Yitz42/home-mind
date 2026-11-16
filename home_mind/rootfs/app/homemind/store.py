@@ -111,7 +111,10 @@ def _eff(r):
         m = json.loads(m or "{}") if isinstance(m, str) else (m or {})
     except (ValueError, TypeError, KeyError, IndexError):
         m = {}
-    return float(m.get("valid_from") or r["created"])
+    vf = m.get("valid_from")
+    # never later than it was filed: a date in the future (a forged email's Date header, a model's tag, an import)
+    # would make a note "the newest" for good, so no later correction could replace it
+    return min(float(vf), float(r["created"])) if vf else float(r["created"])
 
 
 def fold(text):
@@ -677,8 +680,7 @@ class Store:
                 self.log("reinforce", old["id"], key=key)
                 return {"id": old["id"], "action": "reinforced"}
             m = dict(meta or {})
-            if old and m.get("valid_from") and m["valid_from"] < float((json.loads(old["meta"] or "{}") if isinstance(
-                    old["meta"], str) else old["meta"] or {}).get("valid_from") or old["created"]):
+            if old and m.get("valid_from") and min(float(m["valid_from"]), now) < _eff(old):
                 # "On Monday it changed to X", filed after a newer value: history, not the current value
                 cur = self.db.execute(
                     "INSERT INTO items(kind,key,title,body,tags,shelf,status,supersedes,created,updated,source,meta) "
