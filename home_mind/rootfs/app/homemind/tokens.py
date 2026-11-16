@@ -20,7 +20,7 @@ ADMIN_PATHS = [r"^/api/tokens", r"^/api/item/\d+/purge$", r"^/api/purge_about$",
 READ_POSTS = [r"^/api/ask$", r"^/api/recall$", r"^/api/search$", r"^/api/lookup$", r"^/api/models/check$", r"^/api/sql$"]
 MCP_READ = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_tasks", "mind_ask",
             "mind_models", "mind_test_results", "mind_trend", "mind_home", "mind_automations", "mind_status",
-            "mind_updates", "mind_meals", "mind_draft_automation", "mind_sql"}
+            "mind_updates", "mind_meals", "mind_draft_automation", "mind_sql", "mind_view"}
 MCP_ADMIN = {"mind_purge", "mind_purge_about", "mind_install_automation", "mind_control", "mind_do", "mind_run_test"}
 
 
@@ -45,6 +45,8 @@ def tool_needs(name, args=None):
         return "admin"
     if name == "mind_updates" and a.get("apply"):
         return "admin"
+    if name == "mind_view" and (a.get("action") or "list") not in ("list", "run"):
+        return "write"          # as POST/DELETE /api/views; listing and running one is a read (GET /api/views...)
     return "admin" if name in MCP_ADMIN else "read" if name in MCP_READ else "write"
 
 

@@ -765,6 +765,8 @@ class Store:
     def forget_about(self, name):
         """Archive every note that mentions a name, including notes linked to it ("Changed its code to 8812
         [re: ... Kosk locker ...]"). Recoverable, like every archive; nothing is deleted."""
+        if not str(name or "").strip():
+            raise ValueError("give a name (a blank one would match every note)")
         pat = re.compile(rf"\b{re.escape(name.strip())}\b", re.I)
         from .speakers import sql as _vis
         vs, va = _vis()
@@ -1064,6 +1066,8 @@ class Store:
 
     def purge_about(self, name):
         """Delete for good every note that mentions a name (any status), with everything purge() removes."""
+        if not str(name or "").strip():
+            raise ValueError("give a name (a blank one would match every note)")
         pat = re.compile(rf"\b{re.escape(name.strip())}\b", re.I)
         rows = self.db.execute("SELECT id, title, body FROM items").fetchall()
         ids = [r["id"] for r in rows if pat.search((r["title"] or "") + " " + (r["body"] or ""))]

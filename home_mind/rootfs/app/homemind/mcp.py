@@ -8,7 +8,7 @@ from .version import VERSION
 PROTOCOLS = ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
 
 INSTRUCTIONS = (
-    "Home Mind is a long-term memory that lives on Yitz's Home Assistant. Use mind_recall before answering anything "
+    "Home Mind is a long-term memory that lives on this home's Home Assistant. Use mind_recall before answering anything "
     "that may depend on what was stored before, and mind_remember for things worth keeping. Give facts that can change "
     "a key ('subject|attribute') so a new value replaces the old one. Use shelves (paths like 'projects/pebble') to "
     "organize, and mind_browse to see how things are organized. Tests: mind_run_test, then mind_test_results.")
@@ -58,10 +58,11 @@ TOOLS = [
     ("mind_sql", "Read-only SQL over the memory: SELECT on the views notes(id, kind, key, shelf, status, replaces, "
      "source, title, body, tags, created, updated, created_ts, use_count, strength, category, owner, scope) and "
      "links(a, b, kind). Secret text shows as [secret]. Up to 500 rows.", S({"q": STR}, ["q"])),
-    ("mind_view", "Saved views (named searches). action: list, run (name), save (name with query/shelf/kind/tags/"
+    ("mind_view", "Saved views (named searches). action: list (default), run (name), save (name with query/shelf/kind/tags/"
      "days/sort/limit or sql), remove (name).",
-     S({"action": STR, "name": STR, "query": STR, "shelf": STR, "kind": STR, "tags": {"type": "array", "items": STR},
-        "days": {"type": "number"}, "sort": STR, "limit": INT, "sql": STR}, ["action"])),
+     S({"action": {"type": "string", "enum": ["list", "run", "save", "remove"]}, "name": STR, "query": STR, "shelf": STR,
+        "kind": STR, "tags": {"type": "array", "items": STR},
+        "days": {"type": "number"}, "sort": STR, "limit": INT, "sql": STR})),
     ("mind_tasks", "Tasks (kind 'task', meta due/priority/project/done), soonest first. status: open, done, all.",
      S({"project": STR, "status": STR, "due_before": {"type": "number"}})),
     ("mind_feedback", "Say whether a recalled item was useful (it ranks higher or lower afterwards).",
@@ -83,9 +84,11 @@ TOOLS = [
      S({"id": STR, "details": BOOL, "limit": INT, "suite": STR})),
     ("mind_trend", "How a test number moved over time. name: accuracy, hit1, hit5, mrr, stale_above, shelf_ok.",
      S({"suite": STR, "name": STR, "arm": STR}, ["suite"])),
-    ("mind_comfort", "Bedroom comfort. action: status (learned preferences per situation, votes, which body/room "
+    ("mind_comfort", "Bedroom comfort. action: status (default; learned preferences per situation, votes, which body/room "
      "signals are confirmed, recent actions), vote (feeling: cold, hot or ok — stores a snapshot and reacts), or cycle "
-     "(run the controller now).", S({"action": STR, "feeling": STR}, ["action"])),
+     "(run the controller now).",
+     S({"action": {"type": "string", "enum": ["status", "vote", "cycle"]},
+        "feeling": {"type": "string", "enum": ["cold", "hot", "ok"]}})),
     ("mind_home", "The house as Home Assistant reports it. With q: the live state of the things a question names. "
                   "Without: every thing the brain watches, its state, and whether the brain may control it.",
      S({"q": STR})),
@@ -96,19 +99,50 @@ TOOLS = [
      S({"entity_id": STR, "action": STR, "value": STR, "confirm": BOOL}, ["entity_id", "action"])),
     ("mind_do", "A request in words ('dim the desk light to 30%'): a connected model picks one action from the "
                 "control list, then it is checked and done like mind_control.", S({"text": STR, "model": STR}, ["text"])),
-    ("mind_automations", "Home Assistant automations run by Home Mind. action: list (who runs each, last run), "
+    ("mind_automations", "Home Assistant automations run by Home Mind. action: list (default; who runs each, last run), "
                          "takeover (ids, or all=true), retire (stop running and leave the HA copy off), release (hand back to Home Assistant; ids or all), run (id, "
                          "optional trigger id), reload (re-read configs after editing in Home Assistant).",
-     S({"action": STR, "ids": {"type": "array", "items": STR}, "all": BOOL, "id": STR, "trigger": STR}, ["action"])),
-    ("mind_pantry", "The pantry. action: list (what's in the house with days left), add (text like 'chicken, 2 lb ground "
+     S({"action": {"type": "string", "enum": ["list", "takeover", "retire", "release", "run", "reload"]},
+        "ids": {"type": "array", "items": STR}, "all": BOOL, "id": STR, "trigger": STR})),
+    ("mind_pantry", "The pantry. action: list (default; what's in the house with days left), add (text like 'chicken, 2 lb ground "
                     "beef and eggs', optional location fridge/freezer/pantry), used or tossed (text), goals (show), "
-                    "today (tired day? weight trend).", S({"action": STR, "text": STR, "location": STR}, ["action"])),
+                    "today (tired day? weight trend).",
+     S({"action": {"type": "string", "enum": ["list", "add", "used", "tossed", "goals", "today"]}, "text": STR,
+        "location": STR})),
     ("mind_meals", "Meal ideas from what's in the house: uses what expires first, fits today (tired days lower-carb) and "
                    "the goals (more protein, fewer calories). meal: breakfast/lunch/dinner/snack; request: anything extra.",
      S({"meal": STR, "request": STR, "model": STR}, [])),
     ("mind_status", "Counts, version, packs, models.", S({})),
     ("mind_updates", "Check for updates (apply=true installs available packs).", S({"apply": BOOL})),
 ]
+
+
+# Tool annotations (MCP 2025-03-26+): clients use these to decide what to ask the user before a call. readOnlyHint for
+# tools that never change anything; destructiveHint for those that delete, archive in bulk, act on the house or
+# install things; openWorldHint for those that reach Home Assistant, models or the internet.
+_READ_ONLY = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_sql", "mind_tasks",
+              "mind_models", "mind_test_results", "mind_trend", "mind_home", "mind_status", "mind_draft_automation",
+              "mind_meals"}
+_DESTRUCTIVE = {"mind_purge", "mind_purge_about", "mind_forget_about", "mind_install_automation", "mind_control",
+                "mind_do", "mind_automations", "mind_updates", "mind_comfort"}
+_OPEN_WORLD = {"mind_draft_automation", "mind_install_automation", "mind_ask", "mind_organize", "mind_models",
+               "mind_comfort", "mind_home", "mind_control", "mind_do", "mind_automations", "mind_meals",
+               "mind_updates", "mind_run_test"}
+MAX_TEXT = 100_000      # characters in one tool result: Claude Code and others refuse or cut much bigger outputs
+
+
+def annotations(name):
+    return {"title": name.replace("mind_", "").replace("_", " ").capitalize(),
+            "readOnlyHint": name in _READ_ONLY, "destructiveHint": name in _DESTRUCTIVE,
+            "idempotentHint": name in _READ_ONLY, "openWorldHint": name in _OPEN_WORLD}
+
+
+def _text(out):
+    t = json.dumps(out, default=str, indent=1)
+    if len(t) > MAX_TEXT:
+        t = t[:MAX_TEXT] + (f"\n... [cut: {len(t) - MAX_TEXT:,} more characters. Ask for less: a lower limit, a shelf "
+                            "or kind filter, or a narrower query]")
+    return t
 
 
 class MCP:
@@ -122,8 +156,8 @@ class MCP:
         if not isinstance(msg, dict):
             return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request: not an object"}}
         mid, method, params = msg.get("id"), msg.get("method", ""), msg.get("params") or {}
-        if mid is None:  # a notification
-            return None
+        if mid is None or ("method" not in msg and ("result" in msg or "error" in msg)):
+            return None     # a notification, or the client's answer to a request: neither gets a reply
         if not isinstance(params, dict):
             return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "params should be an object"}}
         try:
@@ -137,22 +171,30 @@ class MCP:
                 res = {}
             elif method == "tools/list":
                 from .tokens import tool_needs, allows
-                res = {"tools": [{"name": n, "description": d, "inputSchema": s} for n, d, s in TOOLS
-                                 if allows(scope, tool_needs(n))]}
+                res = {"tools": [{"name": n, "title": annotations(n)["title"], "description": d, "inputSchema": s,
+                                  "annotations": annotations(n)} for n, d, s in TOOLS if allows(scope, tool_needs(n))]}
             elif method == "tools/call":
                 name, args = params.get("name"), params.get("arguments") or {}
                 if not isinstance(args, dict):
                     return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
                             "arguments should be an object"}], "isError": True}}
                 from .tokens import tool_needs, allows
+                schema = next((s for n, _, s in TOOLS if n == name), None)
+                if schema is None:
+                    return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
+                            f"no tool {name}; tools/list has the ones this token can use"}], "isError": True}}
                 if not allows(scope, tool_needs(name, args)):
                     return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
                             f"not allowed: this token can {scope}; {name} needs {tool_needs(name, args)}"}],
                             "isError": True}}
+                missing = [k for k in schema["required"] if args.get(k) in (None, "")]
+                if missing:
+                    return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
+                            f"{name} needs {', '.join(missing)}"}], "isError": True}}
                 try:
                     out = await self.call(name, args)
-                    res = {"content": [{"type": "text", "text": json.dumps(out, default=str, indent=1)}],
-                           "isError": False}
+                    res = {"content": [{"type": "text", "text": _text(out)}],
+                           "isError": bool(isinstance(out, dict) and out.get("error"))}
                 except Exception as e:  # noqa: BLE001 - tool errors go back to the model
                     res = {"content": [{"type": "text", "text": f"{type(e).__name__}: {e}"}], "isError": True}
             elif method in ("resources/list", "prompts/list"):
