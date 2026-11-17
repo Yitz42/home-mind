@@ -80,5 +80,7 @@ jobs:
         run: python tests/test_today.py
       - name: Fitness goals, workouts, weekly review
         run: python tests/test_fitness.py
+      - name: Sleep said in words, watch zeros
+        run: python tests/test_sleeplog.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py

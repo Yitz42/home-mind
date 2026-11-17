@@ -420,6 +420,8 @@ Set goals on the Health tab (or `POST /api/fitness/goals` with any of `weight_ta
 
 Log workouts in plain words by voice, chat or `POST /api/fitness/workout`: "squats 3x8 at 185", "deadlift 1x5 @ 275, pull ups 3x10", "ran 3 miles in 28 minutes", "30 min yoga". Kilograms and kilometres are converted. The answer says last time and any new best.
 
+Sleep can be said the same way: "slept from 12 to 7am last night", "went to bed at 11:30 and woke up at 6:45", "slept 6.5 hours". It's filed on `body/sleep` and replaces the watch's number for that night (handy when the watch was off).
+
 Sunday's evening brief carries the week in review. Suggested changes (fewer or more calories, a lighter week for a stalled lift, more steps) are listed on the Health tab and only apply when you press **Use** (`POST /api/fitness/accept`). It never suggests fewer than 1,500 kcal a day or losing more than about 1% of body weight a week. This is general guidance, not medical advice.
 
 ## Options

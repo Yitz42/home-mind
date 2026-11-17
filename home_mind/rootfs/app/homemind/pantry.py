@@ -483,14 +483,36 @@ class Pantry:
                 return float((s or {}).get("state"))
             except (TypeError, ValueError):
                 return None
+        async def fresh(eid):
+            """Today's value only: fog_today still holds yesterday's rating until today's check-in."""
+            s = await self.ha.state(eid)
+            try:
+                v = float((s or {}).get("state"))
+            except (TypeError, ValueError):
+                return None
+            lc = (s or {}).get("last_changed") or (s or {}).get("last_updated")
+            if lc:
+                try:
+                    if datetime.fromisoformat(str(lc).replace("Z", "+00:00")).astimezone().date() != datetime.now().date():
+                        return None
+                except ValueError:
+                    pass
+            return v
         sig = {k: await num(f"input_number.steady_{k}") for k in
-               ("readiness", "sleep_hours", "recovery", "hrv", "stress_alerts", "fog_today", "steps")}
-        # a sleep note from today beats the watch (it was off one night)
-        note = self.store.db.execute("SELECT body FROM items WHERE shelf='body/sleep' AND status='active' AND created > ? "
+               ("readiness", "sleep_hours", "recovery", "hrv", "stress_alerts", "steps")}
+        sig["fog_today"] = await fresh("input_number.steady_fog_today")
+        for k in ("readiness", "sleep_hours", "recovery", "hrv"):
+            if sig[k] == 0:
+                sig[k] = None           # 0 means the watch was off or hasn't synced, not a real reading
+        # a sleep note from today beats the watch (it was off one night, or "slept from 12 to 7am" was said)
+        note = self.store.db.execute("SELECT body, meta FROM items WHERE shelf='body/sleep' AND status='active' AND created > ? "
                                      "ORDER BY created DESC LIMIT 1", (time.time() - 20 * 3600,)).fetchone()
         if note:
+            nm = json.loads(note["meta"] or "{}")
             m = re.search(r"\((\d+(?:\.\d+)?) hours?\)", note["body"])
-            if m:
+            if isinstance(nm.get("sleep"), (int, float)):
+                sig["sleep_hours"] = float(nm["sleep"])
+            elif m:
                 sig["sleep_hours"] = float(m.group(1))
         tired_why = []
         if sig["readiness"] is not None and sig["readiness"] < 50:

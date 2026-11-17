@@ -1074,6 +1074,20 @@ class Mind:
                 if VIEWER.get() == "":
                     said = mask_all(said)       # a list read to someone the house doesn't know: no codes (#78)
                 return {"answer": said, "hits": [], "model": None, "view": name}
+        if store is self.store and re.search(r"\b(?:slept|sleep|bed|asleep|woke)\b", said, re.I):
+            from .sleeplog import log_sleep
+            from .speakers import VIEWER
+            who = VIEWER.get()
+            r = log_sleep(store, said, meta={"said_by": who} if who else None)
+            if r:
+                # "slept from 12 to 7am last night": the night's sleep, which beats the watch's reading
+                pat = getattr(self, "patterns", None)
+                if pat is not None:
+                    try:
+                        await asyncio.wait_for(pat.refresh(2), 10)
+                    except Exception:  # noqa: BLE001
+                        pass
+                return {"answer": r["answer"], "hits": [], "model": None, "sleep": r}
         fit = getattr(self, "fitness", None)
         if fit is not None and store is self.store:
             from .fitness import is_workout_log

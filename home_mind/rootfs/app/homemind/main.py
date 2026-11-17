@@ -251,6 +251,7 @@ class App:
         self.morning.pantry = self.pantry
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
         self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
+        self.mind.patterns = self.patterns
         self.mind.fitness = self.morning.fitness = self.evening.fitness = self.fitness
         self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
             lambda d: self.patterns.on_action(d.get("action")))

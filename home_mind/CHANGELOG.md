@@ -11,6 +11,8 @@ Fitness goals, built on the scale, meal and watch data Home Mind already collect
 - **Targets that adjust:** if weight has held for three weeks while you ate to target, it suggests about 150 kcal less; losing too fast, 150 more; aiming to gain and not gaining, 150 more. Suggestions only: nothing changes until you accept one, and it never suggests under 1,500 kcal.
 - Questions like "am I on track?" or "what did I bench last time?" get the fitness numbers in the answer. The morning brief shows weight against the goal and uses a set protein goal.
 - Fitness lines in the briefs only appear once a goal is set.
+- **Sleep in words:** "Slept from 12 to 7am last night", "went to bed at 11:30 and woke up at 6:45" or "slept 6.5 hours" typed or said to Home Mind is filed as last night's sleep and replaces the watch's reading. Before, it was treated as a question and answered with an old sleep note.
+- **Watch zeros aren't readings:** a readiness or sleep of 0 (watch off or not synced) shows as "–" and no longer makes a "tired day". Yesterday's fog rating no longer counts as today's.
 
 ## 0.27.0
 - **House commands without a model.** Plain commands are read directly, instantly and on any hardware (option `rule_planner`, on). Examples: "kitchen light off", "den lamp to 40%", "dim the den lamp a bit", "close all the blinds", "movie night". A name that fits several devices gets "which one?". Anything uncertain (questions, schedules, "everything off", vague requests) still goes to the models.

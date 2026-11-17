@@ -490,7 +490,7 @@ async function loadToday() {
   $('#nav_review').textContent = t.review; $('#nav_review').classList.toggle('hide', !t.review);
 }
 async function rateFog(n) { await api('api/patterns/answer', {action: 'HM_FOG_' + n}); loadToday(); }
-async function todayAsk() { const q = $('#td_q').value.trim(); if (!q) return; $('#td_ans').classList.remove('hide'); $('#td_ans').textContent = '…'; const r = await api('api/ask', {question: q}); $('#td_ans').textContent = r.error || r.answer; }
+async function todayAsk() { const q = $('#td_q').value.trim(); if (!q) return; $('#td_ans').classList.remove('hide'); $('#td_ans').textContent = '…'; const r = await api('api/ask', {question: q}); $('#td_ans').textContent = r.error || r.answer; if (r.sleep || r.workout) { $('#td_q').value = ''; loadToday(); } }
 $('#td_q').addEventListener('keydown', e => e.key === 'Enter' && todayAsk());
 const TAGS = {sleep: ['SLEEP', 'var(--acc-ink)'], bed: ['SLEEP', 'var(--acc-ink)'], wake: ['SLEEP', 'var(--acc-ink)'], nap: ['SLEEP', 'var(--acc-ink)'], step: ['PACING', 'var(--food-ink)'], away: ['PACING', 'var(--food-ink)'], stress: ['STRESS', 'var(--bad)'], calm: ['STRESS', 'var(--bad)'],
   room: ['ROOM', 'var(--house-ink)'], pm: ['ROOM', 'var(--house-ink)'], voc: ['ROOM', 'var(--house-ink)'], aqi: ['ROOM', 'var(--house-ink)'], daylight: ['WEATHER', 'var(--house-ink)'], pressure: ['WEATHER', 'var(--house-ink)'], temp: ['WEATHER', 'var(--house-ink)'],
