@@ -415,6 +415,13 @@ If Home Assistant runs on modest hardware, a 270M-parameter model trained on you
 
 House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
 
+## Fitness goals (0.28)
+Set goals on the Health tab (or `POST /api/fitness/goals` with any of `weight_target` (lb), `weight_by` (YYYY-MM-DD), `calories`, `protein_g`, `steps`, `workouts_per_week`, `body_fat_target`; `null` clears one). Progress uses the scale's weigh-ins (a 7-day average and a 28-day trend), the meals you log (protein and calorie estimates) and the watch's steps and sleep.
+
+Log workouts in plain words by voice, chat or `POST /api/fitness/workout`: "squats 3x8 at 185", "deadlift 1x5 @ 275, pull ups 3x10", "ran 3 miles in 28 minutes", "30 min yoga". Kilograms and kilometres are converted. The answer says last time and any new best.
+
+Sunday's evening brief carries the week in review. Suggested changes (fewer or more calories, a lighter week for a stalled lift, more steps) are listed on the Health tab and only apply when you press **Use** (`POST /api/fitness/accept`). It never suggests fewer than 1,500 kcal a day or losing more than about 1% of body weight a week. This is general guidance, not medical advice.
+
 ## Options
 
 Every option, as on the Configuration tab (each has a longer description there). The ones that need thought before
@@ -671,6 +678,10 @@ note), 502 (a model failed) or 500.
 | POST | `/api/body/backfill` | write | fill in past body-signal readings |
 | GET | `/api/calendar` | read | calendar events for a day (`day`, `q`) |
 | POST | `/api/calendar/sync` | write | sync calendars now |
+| GET | `/api/fitness` | read | goals, progress, today's protein and calories, recent workouts, bests, stalls, suggestions |
+| GET | `/api/fitness/review` | read | the week in review and suggested changes |
+| GET | `/api/fitness/workouts` | read | `days?`, `exercise?`: logged workouts with bests and stalled lifts |
+| POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review) |
 | GET | `/api/pantry` | read | pantry items and goals |
 | POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`), `used`, `tossed`, `remove`, `suggest`, `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
 | GET | `/api/patterns` | read | brain-fog report, findings, experiment and daily rows (`days`) |
@@ -733,6 +744,7 @@ note), 502 (a model failed) or 500.
 | `mind_comfort` | write | comfort status and votes |
 | `mind_pantry` | write | the pantry |
 | `mind_meals` | read | meal ideas from the pantry |
+| `mind_fitness` | read | fitness goals, progress, workouts, weekly review (`log` and setting `goals` need write) |
 | `mind_models` | read | connected models (`check` pings them) |
 | `mind_status` | read | counts, version, packs, models |
 | `mind_updates` | read; apply: admin | check for updates, install packs |

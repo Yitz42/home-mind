@@ -64,6 +64,12 @@ class Evening:
         if sug:
             lines.append(f"Suggested automations {len(sug)}: " + "; ".join(s["config"]["alias"] for s in sug[:2])
                          + ". Create or dismiss them in Home Mind › House.")
+        fit = getattr(self, "fitness", None)
+        if fit and any(v not in (None, "") for v in fit.goals().values()):
+            try:                                   # only once fitness goals are set (0.28)
+                lines += fit.evening_lines()
+            except Exception:  # noqa: BLE001
+                pass
         return "\n".join(lines)
 
     async def send(self, text=None):

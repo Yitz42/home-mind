@@ -111,6 +111,13 @@ TOOLS = [
                     "today (tired day? weight trend).",
      S({"action": {"type": "string", "enum": ["list", "add", "used", "tossed", "goals", "today"]}, "text": STR,
         "location": STR})),
+    ("mind_fitness", "Fitness goals and progress. action: status (default; weight trend against the goal, today's protein "
+                     "and calories, workouts this week), review (the week, with what to change), goals (show, or set "
+                     "with goals={weight_target, weight_by, protein_g, calories, steps, workouts_per_week, "
+                     "body_fat_target}), log (text like 'squats 3x8 at 185, ran 2 miles in 18 min'), workouts "
+                     "(recent ones, bests and stalled lifts; optional exercise).",
+     S({"action": {"type": "string", "enum": ["status", "review", "goals", "log", "workouts"]}, "text": STR,
+        "goals": {"type": "object"}, "exercise": STR})),
     ("mind_meals", "Meal ideas from what's in the house: uses what expires first, fits today (tired days lower-carb) and "
                    "the goals (more protein, fewer calories). meal: breakfast/lunch/dinner/snack; request: anything extra.",
      S({"meal": STR, "request": STR, "model": STR}, [])),
@@ -356,6 +363,23 @@ class MCP:
                 return pa.goals()
             if act == "today":
                 return await pa.today()
+            raise ValueError(f"unknown action {act}")
+        if name == "mind_fitness":
+            fi, act = app.fitness, a.get("action", "status")
+            if act == "status":
+                return fi.status()
+            if act == "review":
+                return {"lines": fi.review(), "suggestions": fi.suggestions()}
+            if act == "goals":
+                return fi.set_goals(a["goals"]) if a.get("goals") else fi.goals()
+            if act == "log":
+                return fi.log(a.get("text") or "", source="claude")
+            if act == "workouts":
+                from .fitness import exercise_name
+                rows = fi.workouts(90)
+                if a.get("exercise"):
+                    rows = [w for w in rows if w["entry"]["exercise"] == exercise_name(a["exercise"])]
+                return {"workouts": rows, "records": fi.records(), "stalls": fi.stalls()}
             raise ValueError(f"unknown action {act}")
         if name == "mind_meals":
             return await app.pantry.suggest(a.get("meal"), a.get("model"), 3, a.get("request", ""))

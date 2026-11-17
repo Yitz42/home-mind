@@ -174,6 +174,14 @@ class Morning:
         last_w = self.store.db.execute("SELECT meta FROM items WHERE shelf='body/weight' AND status='active' "
                                        "ORDER BY created DESC LIMIT 1").fetchone()
         target = nutrition.protein_target(json.loads(last_w["meta"] or "{}").get("weight")) if last_w else None
+        fit = getattr(self, "fitness", None)
+        if fit:
+            try:
+                target = fit.protein_goal() or target       # a set protein goal wins over the weight-based one
+                if fit.goals().get("weight_target"):
+                    lines += [ln for ln in fit.status_lines() if ln.startswith("Weight:")]
+            except Exception:  # noqa: BLE001
+                pass
         if target:
             lines.append(f"Protein today: aim for about {target} g (1.6 g per kg, the level where muscle gains top out)")
         pantry = getattr(self, "pantry", None)

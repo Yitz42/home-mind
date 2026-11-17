@@ -227,6 +227,27 @@
     <div class="card wide"><h2>Last 14 days</h2><div id="hl_table" style="overflow-x:auto"></div></div>
     <div class="card wide"><div class="hrow"><h2>Suspects being watched</h2><span class="mute" style="font-size:12px">tested once there are enough days on both sides</span></div><div id="hl_find" style="display:flex;flex-direction:column;gap:8px"></div></div>
     <div class="card" style="border-style:dashed"><h2>2-week experiment</h2><div id="hl_exp" class="mute"></div></div>
+    <div class="card wide"><div class="hrow"><h2>Fitness goals</h2><a onclick="$('#ft_goals').classList.toggle('hide')">Set goals</a></div>
+      <div id="ft_lines" style="display:flex;flex-direction:column;gap:6px;font-size:14px"></div>
+      <div id="ft_sug" style="display:flex;flex-direction:column;gap:8px;margin-top:10px"></div>
+      <div id="ft_goals" class="hide" style="margin-top:12px">
+        <div class="row" style="flex-wrap:wrap;gap:8px">
+          <label>Weight goal (lb) <input id="fg_weight_target" type="number" step="0.5" style="width:90px"></label>
+          <label>by <input id="fg_weight_by" type="date"></label>
+          <label>Calories <input id="fg_calories" type="number" style="width:90px"></label>
+          <label>Protein (g) <input id="fg_protein_g" type="number" style="width:80px" placeholder="auto"></label>
+          <label>Steps <input id="fg_steps" type="number" style="width:90px"></label>
+          <label>Workouts/week <input id="fg_workouts_per_week" type="number" style="width:60px"></label>
+          <label>Body fat % <input id="fg_body_fat_target" type="number" step="0.5" style="width:70px"></label>
+          <button class="go" onclick="saveGoals()">Save</button></div>
+        <div class="mute" id="ft_gmsg" style="font-size:12px;margin-top:6px">Leave a box empty for no goal. Protein left empty follows your weight (1.6 g/kg).</div>
+      </div>
+    </div>
+    <div class="card wide"><h2>Log a workout</h2>
+      <div class="row"><input id="ft_w" placeholder="squats 3x8 at 185, ran 2 miles in 18 min" style="flex:1;min-width:0" aria-label="Workout"> <button class="go" onclick="logWorkout()">Log</button></div>
+      <div class="mute" id="ft_wmsg" style="font-size:13px;margin-top:6px"></div>
+      <div id="ft_recent" style="margin-top:10px;font-size:13px"></div>
+    </div>
   </div>
 </section>
 <section id="more" class="hide">
@@ -495,8 +516,31 @@ async function loadHealth() {
     return `<div style="display:flex;align-items:center;gap:10px;background:var(--card2);border-radius:12px;padding:10px 12px;flex-wrap:wrap"><span class="chip" style="color:${c}">${tg}</span><span style="flex:1;min-width:160px">${esc(f.label)}</span>
       <span class="mute" style="font-size:12px">${f.n_risk ?? 0} vs ${f.n_base ?? 0} days${f.diff != null ? ' · ' + (f.diff > 0 ? '+' : '') + nf(f.diff, 1) + ' fog' : ''}</span><span style="font-size:12px;color:${s[1]};min-width:70px;text-align:right">${f.hunch ? 'your hunch · ' : ''}${s[0]}</span></div>`; }).join('') + (all.length > 6 ? `<a onclick="window._hlAll=!window._hlAll;loadHealth()" style="padding:4px 2px">${showAll ? 'Show fewer' : 'Show all ' + all.length}</a>` : '');
   const e = p.experiment;
+  loadFitness();
   $('#hl_exp').innerHTML = e && e.factor ? `<b style="color:var(--ink)">${esc(e.change || e.factor)}</b><br>${esc(e.start)} to ${esc(e.end)}` : 'None running. One unlocks when a suspect holds up, like keeping the same bedtime within 30 minutes every night.';
 }
+const FG = ['weight_target', 'weight_by', 'calories', 'protein_g', 'steps', 'workouts_per_week', 'body_fat_target'];
+async function loadFitness() {
+  const f = await api('api/fitness');
+  if (f.error) { $('#ft_lines').innerHTML = `<span class="bad">${esc(f.error)}</span>`; return; }
+  $('#ft_lines').innerHTML = (f.lines || []).map(l => `<div>${esc(l)}</div>`).join('') || '<span class="mute">No weigh-ins, meals or workouts yet. Set a goal to see progress against it.</span>';
+  const acc = (f.suggestions || []).filter(x => x.set);
+  $('#ft_sug').innerHTML = (f.suggestions || []).map(x => `<div style="display:flex;gap:10px;align-items:center;background:var(--card2);border-radius:12px;padding:10px 12px;flex-wrap:wrap"><span style="flex:1;min-width:180px">${esc(x.why)}</span>${x.set ? `<button class="go" onclick="acceptSug(${acc.indexOf(x)})">Use ${esc(Object.entries(x.set).map(([k, v]) => k + ' ' + v).join(', '))}</button>` : ''}</div>`).join('');
+  FG.forEach(k => { const el = $('#fg_' + k); if (el && document.activeElement !== el) el.value = f.goals[k] ?? ''; });
+  const w = (f.workouts || []).slice(-6).reverse();
+  $('#ft_recent').innerHTML = w.length ? w.map(x => `<div class="kv"><span>${esc(x.entry.exercise)}</span><span class="mute">${esc(new Date(x.t * 1000).toLocaleDateString())} · ${x.entry.sets ? x.entry.sets + '×' + x.entry.reps + (x.entry.weight_lb ? ' at ' + x.entry.weight_lb + ' lb' : '') : [x.entry.miles ? x.entry.miles + ' mi' : '', x.entry.minutes ? x.entry.minutes + ' min' : ''].filter(Boolean).join(' in ')}</span></div>`).join('') : '';
+}
+async function saveGoals() {
+  const b = {}; FG.forEach(k => { const v = $('#fg_' + k).value.trim(); b[k] = v === '' ? null : (k === 'weight_by' ? v : Number(v)); });
+  const r = await api('api/fitness/goals', b);
+  $('#ft_gmsg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : 'Saved.'; if (!r.error) loadFitness();
+}
+async function logWorkout() {
+  const t = $('#ft_w').value.trim(); if (!t) return;
+  const r = await api('api/fitness/workout', {text: t});
+  $('#ft_wmsg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : esc(r.answer); if (!r.error) { $('#ft_w').value = ''; loadFitness(); }
+}
+async function acceptSug(i) { const r = await api('api/fitness/accept', {index: i}); if (r.error) alert(r.error); loadFitness(); }
 async function sendReport() { const r = await api('api/patterns/send', {}); alert(r.error || 'Sent.'); }
 async function vote(feeling) {
   document.querySelectorAll('#ho_choice button').forEach(b => b.classList.toggle('on', b.dataset.f === feeling));

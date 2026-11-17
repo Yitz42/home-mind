@@ -55,6 +55,12 @@ async def build(A, now=None):
             out["day"] = None
         if out["day"]:
             out["protein_target_g"] = out["day"].get("protein_target_g")
+        fit = getattr(A, "fitness", None)
+        if fit:
+            try:                     # a set protein goal (0.28) wins over the weight-based one
+                out["protein_target_g"] = fit.goals().get("protein_g") or out["protein_target_g"]
+            except Exception:  # noqa: BLE001
+                pass
         items = A.pantry.items()
         for i in items:
             out["where"][i["location"] or "?"] = out["where"].get(i["location"] or "?", 0) + 1

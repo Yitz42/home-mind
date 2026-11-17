@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.28.0
+Fitness goals, built on the scale, meal and watch data Home Mind already collects.
+- **Goals as numbers:** target weight (and a date), calories, protein (or automatic from body weight, 1.6 g/kg), steps, workouts a week and body fat. Set them on the Health tab, with `POST /api/fitness/goals` or the `mind_fitness` tool. Calorie goals below 1,200 are refused.
+- **Progress against them:** a 7-day average weight (daily swings are water), the weekly rate from the last 28 days, the date you're on pace for, and whether that's on track for your date. A date that needs more than about 1% of body weight a week is flagged.
+- **The day's tally:** protein and calories eaten so far against the targets. The evening brief says how far short you are and names protein foods that would close it, the ones in the pantry first.
+- **Workout log:** say or type "squats 3x8 at 185", "bench 3 sets of 5 at 135", "ran 3 miles in 28 minutes" or "30 min yoga". Home Mind files it without a model and answers with last time, whether it went up and any new best (estimated one-rep max). Logged by voice, a workout is personal to the speaker.
+- **Stalled lifts:** a lift with no gain over its last three sessions (3+ weeks) gets a nudge: a lighter week, or different reps.
+- **Weekly review** in Sunday's evening brief (`GET /api/fitness/review`): weight against the week before, protein days on target, average calories, workouts against the goal, new bests, steps and sleep, and one suggestion.
+- **Targets that adjust:** if weight has held for three weeks while you ate to target, it suggests about 150 kcal less; losing too fast, 150 more; aiming to gain and not gaining, 150 more. Suggestions only: nothing changes until you accept one, and it never suggests under 1,500 kcal.
+- Questions like "am I on track?" or "what did I bench last time?" get the fitness numbers in the answer. The morning brief shows weight against the goal and uses a set protein goal.
+- Fitness lines in the briefs only appear once a goal is set.
+
 ## 0.27.0
 - **House commands without a model.** Plain commands are read directly, instantly and on any hardware (option `rule_planner`, on). Examples: "kitchen light off", "den lamp to 40%", "dim the den lamp a bit", "close all the blinds", "movie night". A name that fits several devices gets "which one?". Anything uncertain (questions, schedules, "everything off", vague requests) still goes to the models.
 - **Several actions in one request:** "lights off and lock up", "kitchen light off, porch light on, then run goodnight", "all the lights off but leave the hall on". The ordinary actions run at once. Locks, alarms and garage doors among them wait for one "yes" together. The general model can also plan several actions (`{"actions": [...]}`).

@@ -229,6 +229,11 @@ ROUTES = [
     ("POST", "/api/control/set", ["key", "value"]),
     ("POST", "/api/control/reset", ["key"]),
     ("POST", "/api/control/run/{action}", []),
+    ("GET", "/api/fitness", []),
+    ("GET", "/api/fitness/review", []),
+    ("GET", "/api/fitness/workouts", ["days", "exercise"]),
+    ("POST", "/api/fitness/{op}", ["text", "at", "scope", "speaker", "index", "weight_target", "weight_by", "protein_g",
+                                   "calories", "steps", "workouts_per_week", "body_fat_target"]),
     ("POST", "/mcp", ["jsonrpc", "id", "method", "params"]),
     ("GET", "/mcp", []),
     ("DELETE", "/mcp", []),
@@ -242,7 +247,7 @@ OPS = {"op": ["forget", "restore", "revise", "sensitive", "feedback", "confirm",
                      "nope"],
        "controls_op": ["act", "scene", "routine", "nope"],
        "patterns_op": ["refresh", "send", "experiment", "ask", "answer", "weather", "nope"],
-       "knowledge_op": ["nope"], "suggestion_op": ["enable", "dismiss", "nope"], "action": ["nope", ""]}
+       "knowledge_op": ["nope"], "fitness_op": ["goals", "workout", "accept", "nope"], "suggestion_op": ["enable", "dismiss", "nope"], "action": ["nope", ""]}
 BAD_VALUES = [None, "", 0, -1, 10 ** 30, 1.5, float("1e308"), "abc", "x" * 20000, [], [1, "a", None], {}, {"a": [1]},
               True]
 BAD_QUERY = ["", "abc", "-1", "0", "1e999", "nan", "inf", "99999999999999999999", "x" * 5000, "\x00", "1.5"]
@@ -258,7 +263,8 @@ def paths_for(path):
         return [f"/api/item/1/{op}" for op in OPS["op"]] + [f"/api/item/{i}/forget" for i in BAD_PATH["id"]]
     for key, opk in (("/api/automations/{op}", "automations_op"), ("/api/pantry/{op}", "pantry_op"),
                      ("/api/patterns/{op}", "patterns_op"), ("/api/knowledge/{op}", "knowledge_op"),
-                     ("/api/controls/{op}", "controls_op")):
+                     ("/api/controls/{op}", "controls_op"),
+                     ("/api/fitness/{op}", "fitness_op")):
         if path == key:
             return [key.replace("{op}", o) for o in OPS[opk]]
     if path == "/api/house/suggestion/{sid}/{op}":
@@ -405,6 +411,21 @@ def contracts(app, A):
     check("tags as 'a, b' text still work", s == 200 and "garage" in st.get(d["id"])["tags"], (s, d))
     s, d = call(app, "POST", "/api/pantry/add", {"name": "eggs", "amount": 12})
     check("a pantry amount given as a number still works (Home Assistant scripts send them)", s == 200, (s, d))
+    s, d = call(app, "POST", "/api/fitness/goals", {"weight_target": 180, "calories": "2100"})
+    check("fitness goals set over HTTP", s == 200 and d["goals"]["calories"] == 2100, (s, d))
+    s, d = call(app, "POST", "/api/fitness/goals", {"calories": 500})
+    check("fitness goal under the floor: 400", s == 400, (s, d))
+    s, d = call(app, "POST", "/api/fitness/workout", {"text": "squats 3x5 at 185"})
+    check("workout logged over HTTP", s == 200 and d["entries"][0]["exercise"] == "squat", (s, d))
+    s, d = call(app, "POST", "/api/fitness/workout", {"text": "hello"})
+    check("not a workout: 400", s == 400, (s, d))
+    s, d = call(app, "GET", "/api/fitness")
+    check("fitness status", s == 200 and d["sessions_7d"] == 1 and d["goals"]["weight_target"] == 180, (s, d))
+    s, d = call(app, "POST", "/api/fitness/accept", {"index": 0})
+    check("accepting a suggestion that isn't there: 400", s == 400, (s, d))
+    out = asyncio.run(A.mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                      "params": {"name": "mind_fitness", "arguments": {"action": "review"}}}))
+    check("MCP mind_fitness review", not out["result"]["isError"], out)
     out = asyncio.run(A.mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                       "params": {"name": "mind_forget", "arguments": {"id": 987654}}}))
     check("MCP mind_forget of a missing item: isError, not 'archived'", out["result"]["isError"], out)

@@ -781,6 +781,16 @@ class Mind:
                 live = (live + "\n\n" if live else "") + hist
             if live:
                 ctx = live + "\n\nMEMORY NOTES:\n" + (ctx or "(none)")
+        fit = getattr(self, "fitness", None)
+        if fit and store is self.store:
+            from .fitness import FIT_Q
+            if FIT_Q.search(question or ""):
+                try:
+                    fl = fit.context_lines(question)
+                except Exception:  # noqa: BLE001
+                    fl = ""
+                if fl:
+                    ctx = fl + "\n\n" + (ctx or "")
         cal = getattr(self, "calendars", None)
         if cal and store is self.store:
             days = cal.lines_for(question)
@@ -1064,6 +1074,19 @@ class Mind:
                 if VIEWER.get() == "":
                     said = mask_all(said)       # a list read to someone the house doesn't know: no codes (#78)
                 return {"answer": said, "hits": [], "model": None, "view": name}
+        fit = getattr(self, "fitness", None)
+        if fit is not None and store is self.store:
+            from .fitness import is_workout_log
+            if is_workout_log(said):
+                # "squats 3x8 at 185": a workout to log, answered with last time and any new best, no model needed
+                from .speakers import VIEWER
+                who = VIEWER.get()
+                meta = {"said_by": who, "scope": "personal", "owner": who} if who else {}
+                try:
+                    r = fit.log(said, source="voice" if voice else "ask", meta=meta)
+                    return {"answer": r["answer"], "hits": [], "model": None, "workout": r}
+                except ValueError:
+                    pass
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS

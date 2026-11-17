@@ -23,6 +23,7 @@ from .morning import Morning
 from .evening import Evening
 from .overnight import ConvLog, Overnight
 from .pantry import Pantry
+from .fitness import Fitness
 from . import nutrition
 from .patterns import FACTOR, Patterns
 from .knowledge import Knowledge
@@ -249,6 +250,8 @@ class App:
         self.pantry.knowledge = self.knowledge
         self.morning.pantry = self.pantry
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
+        self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
+        self.mind.fitness = self.morning.fitness = self.evening.fitness = self.fitness
         self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
             lambda d: self.patterns.on_action(d.get("action")))
         self.engine.event_handlers["mobile_app_notification_action"].append(
@@ -1460,6 +1463,49 @@ def build(app_state):
     async def today_get(_):
         from . import today
         return J(await today.build(A))
+
+    @r.get("/api/fitness")
+    async def fitness_get(_):
+        return J(A.fitness.status())
+
+    @r.get("/api/fitness/review")
+    async def fitness_review(_):
+        return J({"lines": A.fitness.review(), "suggestions": A.fitness.suggestions()})
+
+    @r.get("/api/fitness/workouts")
+    async def fitness_workouts(q):
+        try:
+            days = max(1, min(3650, int(q.query.get("days", "90"))))
+        except ValueError:
+            raise ValueError("days must be a number") from None
+        ex = q.query.get("exercise")
+        rows = A.fitness.workouts(days)
+        if ex:
+            from .fitness import exercise_name
+            rows = [w for w in rows if w["entry"]["exercise"] == exercise_name(ex)]
+        return J({"workouts": rows, "records": A.fitness.records(), "stalls": A.fitness.stalls()})
+
+    @r.post("/api/fitness/{op}")
+    async def fitness_op(q):
+        op = q.match_info["op"]
+        if op == "goals":
+            from .fitness import GOALS
+            b = await read_body(q, optional=True, **{k: (float, str) for k in GOALS})
+            return J({"goals": A.fitness.set_goals(b)})
+        if op == "workout":
+            b = await read_body(q, text=str, at=float, scope=str, speaker=str)
+            who = A.speaker_for(b)[0]
+            meta = {"said_by": who, "scope": "personal", "owner": who} if who and b.get("scope") != "household" else {}
+            return J(A.fitness.log(b.get("text") or "", when=b.get("at"),
+                                   source="api", meta=meta))
+        if op == "accept":
+            b = await read_body(q, index=float)
+            sug = [s for s in A.fitness.suggestions() if s.get("set")]
+            i = int(b.get("index") or 0)
+            if not 0 <= i < len(sug):
+                raise ValueError("no such suggestion (GET /api/fitness/review lists them)")
+            return J({"goals": A.fitness.set_goals(sug[i]["set"]), "applied": sug[i]})
+        return J({"error": f"unknown {op}"}, status=404)
 
     @r.get("/api/pantry")
     async def pantry_list(q):
