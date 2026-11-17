@@ -396,7 +396,7 @@ Assistant doesn't have.
 - Uploads (photos, documents, imports) can be up to 32 MB per request; one photo up to 12 MB.
 - Read-only SQL shows each person household notes and their own personal notes; values are capped at 1 MB and results at 500 rows.
 
-## House commands: rules first, then models (0.26)
+## House commands: rules first, then models (0.27)
 
 `/api/do` (and voice through it) reads plain commands itself, with no model: "kitchen light off", "den lamp to 40%", "dim the den lamp a bit", "make the porch light blue", "close all the blinds", "movie night", "lights off and lock up", "turn off all the lights but leave the hall on". Several actions in one request run together. Locks, alarms and garage doors among them wait for one "yes". If a name fits several devices ("turn off the light"), it asks which one and does nothing.
 

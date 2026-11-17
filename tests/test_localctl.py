@@ -295,6 +295,8 @@ def addon():
     check("control add-on: options, schema and translations name the same settings",
           set(cfg["options"]) == set(cfg["schema"]) == set(tr), (cfg["options"], cfg["schema"], tr))
     check("control add-on: no port opened on the network", not cfg.get("ports"))
+    check("control add-on: no watchdog (it waits without serving until the model file is there)",
+          "watchdog" not in cfg)
     check("control add-on: the share folder is read-only", cfg["map"] == [{"type": "share", "read_only": True}])
     check("control add-on: run.sh parses as shell", subprocess.run(["sh", "-n", os.path.join(base, "run.sh")]).returncode == 0)
     mode = subprocess.run(["git", "ls-files", "-s", "home_mind_control/run.sh"], cwd=ROOT, capture_output=True,
