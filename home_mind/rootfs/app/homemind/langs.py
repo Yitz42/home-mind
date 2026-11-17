@@ -28,3 +28,23 @@ def guess(text):
 
 def english(text):
     return guess(text) == "en"
+
+
+_ONES = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen "
+                                     "fourteen fifteen sixteen seventeen eighteen nineteen".split())}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+_NUM_WORD = re.compile(r"\b(" + "|".join(sorted(_TENS, key=len, reverse=True)) + r")(?:[\s-](" +
+                       "|".join(w for w in _ONES if w not in ("zero",) and _ONES[w] < 10) + r"))?\b|\b(" +
+                       "|".join(sorted(_ONES, key=len, reverse=True)) + r")\b|\b(a dozen|dozen)\b", re.I)
+
+
+def digits(text):
+    """English number words as digits: 'five sets of five' -> '5 sets of 5', 'seven and a half hours' keeps 'and a
+    half'. 'one' before a noun that isn't a count ('the one in the den') is rare in a log line, so it's converted too."""
+    def sub(m):
+        if m.group(1):
+            return str(_TENS[m.group(1).lower()] + (_ONES[m.group(2).lower()] if m.group(2) else 0))
+        if m.group(3):
+            return str(_ONES[m.group(3).lower()])
+        return "12"
+    return _NUM_WORD.sub(sub, text or "")

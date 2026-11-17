@@ -12,6 +12,8 @@ Fitness goals, built on the scale, meal and watch data Home Mind already collect
 - Questions like "am I on track?" or "what did I bench last time?" get the fitness numbers in the answer. The morning brief shows weight against the goal and uses a set protein goal.
 - Fitness lines in the briefs only appear once a goal is set.
 - **Sleep in words:** "Slept from 12 to 7am last night", "went to bed at 11:30 and woke up at 6:45" or "slept 6.5 hours" typed or said to Home Mind is filed as last night's sleep and replaces the watch's reading. Before, it was treated as a question and answered with an old sleep note.
+- **Other ways of saying it:** the pieces are found in any order and wording. Examples: "crashed at 12, up at 7", "in bed 12-7", "dozed off around 11:30, woke 6:45", "slept like 6 hours", "did 3 sets of 8 squats at 185", "squatted 185 for 3 sets of 8", "went for a 3 mile run", "did yoga for 30 minutes", "walked for an hour". Number words work too ("five sets of five", "half past twelve"). Plans, habits and questions ("I need 8 hours", "going to bed at 11", "remind me to run") aren't logged, and nor is "last night" without sleep ("watched TV for 2 hours last night").
+- **Anything else, in any language:** when a message clearly mentions sleep or exercise but can't be read, the model rewrites it into the plain form and it's logged ("read as: …" in the reply). The rewrite may only use numbers that were actually said, or nothing is logged.
 - **Watch zeros aren't readings:** a readiness or sleep of 0 (watch off or not synced) shows as "–" and no longer makes a "tired day". Yesterday's fog rating no longer counts as today's.
 
 ## 0.27.0

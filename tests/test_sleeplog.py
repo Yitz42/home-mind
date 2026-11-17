@@ -39,6 +39,20 @@ def test_parse():
     for t in ["how long did I sleep?", "slept 7 hours on Friday", "I slept well", "what time did I go to bed",
               "slept 40 hours", "turn on the bedroom light", "remind me to sleep at 11", ""]:
         check(f"not a sleep log: {t!r}", parse_sleep(t, NOW) is None)
+    said = {"I got to sleep around midnight and woke at 7": 7.0, "crashed at 12, up at 7": 7.0, "was in bed 12-7": 7.0,
+            "fell asleep at 1 and got up at 7:30": 6.5, "Slept between 12 and 7": 7.0, "sleep last night 12-7": 7.0,
+            "I slept like 6 hours": 6.0, "only got 5 hours last night": 5.0, "7 hours of sleep last night": 7.0,
+            "bed at 12, up at 7": 7.0, "I went to bed at midnight, alarm at 7": 7.0,
+            "dozed off around 11:30, woke 6:45": 7.25, "slept poorly, maybe 4 hours": 4.0, "slept 6-7 hours": 6.5,
+            "hit the sack at 11, woke up at 6": 7.0, "Got 6h sleep": 6.0}
+    for t, h in said.items():
+        r = parse_sleep(t, NOW)
+        check(f"other wording: {t!r}", r and r["hours"] == h, r)
+    for t in ["I need 8 hours of sleep", "I usually sleep 7 hours", "going to bed at 11", "took a 2 hour nap",
+              "set the bed heater to 3", "did I sleep 7 hours", "bedroom light to 30%", "ran 3 miles last night in 28 min",
+              "watched TV for 2 hours last night", "watched TV 9-11 last night", "the party went from 8 to 12 last night",
+              "charged the car for 3 hours last night"]:
+        check(f"not a sleep log: {t!r}", parse_sleep(t, NOW) is None)
     check("night is the morning woken up on", parse_sleep("slept from 12 to 7", NOW)["night"].isoformat() == "2026-11-17")
 
 
@@ -117,7 +131,68 @@ def test_ask():
     check("a question about sleep still goes to the model", len(called) == 1)
 
 
-for fn in [test_parse, test_log, test_signals, test_ask]:
+def test_rewrite():
+    """Wording the parsers can't read goes to a model for a plain rewrite; numbers it adds are refused."""
+    from homemind.mind import Mind
+    from homemind.fitness import Fitness
+    st = Store(tempfile.mktemp())
+    m = Mind.__new__(Mind)
+    m.store, m.views = st, None
+    m.fitness = Fitness(st)
+    m._conversations = lambda store: {}
+    m._handoff = lambda *a: None
+    m._chain = lambda model: [model]
+    asked, reply = [], {"text": ""}
+
+    class Model:
+        async def chat(self, system, messages, **k):
+            asked.append(messages[0]["content"])
+            return dict(reply)
+
+    class Models:
+        models = {"m": Model()}
+
+        def get(self, name):
+            return self.models[name]
+    m.models = Models()
+
+    async def ctx(*a, **k):
+        raise RuntimeError("model path reached")
+    m.context_for = ctx
+
+    def ask(q):
+        try:
+            return asyncio.run(m._ask(q, model="m"))
+        except RuntimeError:
+            return None
+    out = ask("conked out half past twelve, alarm went off at 7")
+    check("number words and 'half past' read without a model", out and out["sleep"]["hours"] == 6.5 and not asked, out)
+    reply["text"] = "slept from 12:30 am to 7 am"
+    out = ask("sleep: 12:30 → 7")
+    check("odd sleep wording: model rewrite logged", out and out.get("sleep") and out["sleep"]["hours"] == 6.5
+          and "read as" in out["answer"], out)
+    reply["text"] = "squat 5x5 at 225 lb"
+    out = ask("knocked out five sets of five on squats with 225")
+    check("odd workout wording: model rewrite logged", out and out.get("workout") and
+          out["workout"]["entries"][0]["weight_lb"] == 225, out)
+    row = st.db.execute("SELECT body FROM items WHERE shelf='body/workouts' ORDER BY id DESC LIMIT 1").fetchone()
+    check("the note keeps what was said", row is not None)
+    reply["text"] = "squat 5x5 at 315 lb"
+    n = len(asked)
+    out = ask("squats were heavy today, did 5 sets")
+    check("a rewrite with a number nobody said isn't logged", out is None and len(asked) == n + 1)
+    reply["text"] = "NONE"
+    check("NONE: answered as usual", ask("my bed is too soft, 2 pillows help") is None)
+    n = len(asked)
+    ask("how many hours did I sleep last night?")
+    ask("turn off the bedroom light")
+    check("questions and commands are never sent for a rewrite", len(asked) == n)
+    reply["text"] = "slept from 12 am to 7 am"
+    out = ask("ישנתי מ-12 עד 7 בבוקר")
+    check("another language: rewritten and logged", out and out.get("sleep") and out["sleep"]["hours"] == 7.0, out)
+
+
+for fn in [test_parse, test_log, test_signals, test_ask, test_rewrite]:
     try:
         fn()
     except Exception as e:  # noqa: BLE001

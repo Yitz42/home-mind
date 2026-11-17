@@ -34,81 +34,187 @@ PROTEIN_FOODS = [("Greek yogurt", 17), ("cottage cheese", 14), ("protein shake",
 
 
 # ---- workouts: reading them --------------------------------------------------------------------------------------
-UNIT = r"(?:lb|lbs|pounds?|kg|kilos?)"
+# The pieces (exercise, sets x reps, weight, distance, time) are found wherever they are in the sentence, so "squats
+# 3x8 at 185", "did 3 sets of 8 squats at 185", "squatted 185 for 3 sets of 8" and "185 squat 3x8" all read the same.
+LIFTS = {
+    "squat": ["back squats?", "squats?", "squatted", "squatting"], "front squat": ["front squats?"],
+    "bench press": ["bench press(?:es)?", "bench(?:ed)?", "benching"], "incline bench": ["incline bench(?: press)?"],
+    "deadlift": ["deadlifts?", "deadlifted", "deadlifting", "dl"], "romanian deadlift": ["romanian deadlifts?", "rdls?"],
+    "overhead press": ["overhead press(?:es)?", "ohp", "shoulder press(?:es)?", "military press(?:es)?", "pressed"],
+    "row": ["barbell rows?", "bent[- ]over rows?", "dumbbell rows?", "cable rows?"],
+    "pull-up": ["pull[- ]?ups?"], "chin-up": ["chin[- ]?ups?"], "push-up": ["push[- ]?ups?"], "dip": ["dips"],
+    "curl": ["bicep curls?", "biceps curls?", "curls", "curled"], "lunge": ["lunges?"], "leg press": ["leg press(?:es)?"],
+    "lat pulldown": ["lat pull[- ]?downs?", "pull[- ]?downs?"], "hip thrust": ["hip thrusts?"],
+    "sit-up": ["sit[- ]?ups?"], "crunch": ["crunch(?:es)?"], "burpee": ["burpees?"], "plank": ["planks?"],
+    "kettlebell swing": ["kettlebell swings?", "kb swings?", "swings"], "step-up": ["step[- ]?ups?"],
+    "lateral raise": ["lateral raises?", "side raises?"], "calf raise": ["calf raises?"], "leg curl": ["leg curls?"],
+    "leg extension": ["leg extensions?"], "tricep extension": ["tricep extensions?", "triceps extensions?"],
+    "power clean": ["power cleans?"], "clean": ["cleans"], "snatch": ["snatch(?:es)?"],
+}
+CARDIO = {
+    "run": ["run", "ran", "running", "jog", "jogged", "jogging"], "walk": ["walk", "walked", "walking"],
+    "bike": ["bike", "biked", "biking", "cycled", "cycling", "ride", "rode", "spin", "spinning"],
+    "swim": ["swim", "swam", "swimming"], "row": ["rowed", "rowing", "rower", "row"], "hike": ["hike", "hiked", "hiking"],
+    "yoga": ["yoga"], "pilates": ["pilates"], "stretching": ["stretching", "stretched", "stretch"],
+    "elliptical": ["elliptical"], "treadmill": ["treadmill"], "stairs": ["stairs", "stairmaster", "stair climber"],
+    "hiit": ["hiit"], "cardio": ["cardio"],
+}
+BODYWEIGHT = {"pull-up", "chin-up", "push-up", "dip", "sit-up", "crunch", "burpee", "lunge", "step-up", "kettlebell swing"}
+
+
+def _alt(d):
+    pairs = sorted(((p, k) for k, ps in d.items() for p in ps), key=lambda x: -len(x[0]))
+    return [(re.compile(r"(?<![a-z])" + p + r"(?![a-z])", re.I), k) for p, k in pairs]
+
+
+LIFT_RX, CARDIO_RX = _alt(LIFTS), _alt(CARDIO)
+UNIT = r"(?:lb|lbs|pounds?|kg|kilos?|kgs)"
+W_UNIT = re.compile(r"(\d{1,4}(?:\.\d)?)\s*(" + UNIT + r")\b", re.I)
+W_AT = re.compile(r"(?:\bat|@|\bwith)\s*(\d{1,4}(?:\.\d)?)\b(?!\s*(?:sets?|reps?|x|×|min|minutes|mins|miles?|km))", re.I)
+W_FOR = re.compile(r"(?<![\d.x×])(\d{2,4}(?:\.\d)?)\s*(?:" + UNIT + r")?\s+for\b", re.I)
+XS = re.compile(r"(\d{1,4}(?:\.\d)?)\s*(?:x|×|by)\s*(\d{1,3})(?:\s*(?:x|×)\s*(\d{1,4}(?:\.\d)?))?", re.I)
+SETS_OF = re.compile(r"(\d{1,2})\s*sets?\s*(?:of\s*)?(\d{1,3})\b", re.I)
+REPS_SETS = re.compile(r"(\d{1,3})\s*reps?\b.{0,20}?(\d{1,2})\s*sets?\b", re.I)
+SETS_REPS = re.compile(r"(\d{1,2})\s*sets?\b.{0,20}?(\d{1,3})\s*reps?\b", re.I)
+REPS = re.compile(r"(\d{1,3})\s*reps?\b", re.I)
+DIST = re.compile(r"(\d+(?:\.\d+)?)\s*-?\s*(miles?|mi|km|kilometers?|k)(?![a-z])", re.I)
+MINS = re.compile(r"(\d{1,3})\s*-?\s*(?:min|mins|minutes?)\b", re.I)
+HRS = re.compile(r"\b(?:(an|one|1)\s+hours?|(\d(?:\.\d+)?)\s*(?:hours?|hrs?)|(half an?|a half)\s+hours?|"
+                 r"an hour and a half|(\d)\s+and a half hours?)\b", re.I)
+LOG = re.compile(r"^\s*(?:log|logged|did|done|workout|gym|lifted|today i did|i did|hit the gym|at the gym)\b[:\s,]*", re.I)
+NOT_EXERCISE = {"i", "i did", "did", "and", "then", "plus", "also", "log", "workout", "for", "at", "the", "a", "my"}
 STRENGTH = [
-    re.compile(r"(?P<ex>[a-z][a-z '\-]*?)\s*[:,\-]?\s*(?P<sets>\d{1,2})\s*(?:x|×|by)\s*(?P<reps>\d{1,3})"
-               r"(?:\s*(?:reps?)?\s*(?:at|@|with|x|×)?\s*(?P<w>\d{1,4}(?:\.\d)?)\s*(?P<u>" + UNIT + r")?)?\b", re.I),
-    re.compile(r"(?P<ex>[a-z][a-z '\-]*?)\s*[:,\-]?\s*(?P<sets>\d{1,2})\s*sets?\s*(?:of\s*)?(?P<reps>\d{1,3})\s*(?:reps?)?"
-               r"(?:\s*(?:at|@|with)\s*(?P<w>\d{1,4}(?:\.\d)?)\s*(?P<u>" + UNIT + r")?)?\b", re.I),
+    re.compile(r"(?P<ex>[a-z][a-z '\-]*?)\s*[:,\-]?\s*(?P<sets>\d{1,2})\s*(?:x|×)\s*(?P<reps>\d{1,3})\b", re.I),
+    re.compile(r"(?P<ex>[a-z][a-z '\-]*?)\s*[:,\-]?\s*(?P<sets>\d{1,2})\s*sets?\s*(?:of\s*)?(?P<reps>\d{1,3})\b", re.I),
 ]
-CARDIO_DIST = re.compile(r"\b(?P<act>ran|run|jogged|walked|walk|biked|cycled|rode|swam|rowed|hiked)\s+(?P<d>\d+(?:\.\d+)?)"
-                         r"\s*(?P<du>miles?|mi|km|k|kilometers?)?(?:\s+in\s+(?P<m>\d{1,3})\s*(?:min|minutes|mins))?", re.I)
-CARDIO_TIME = re.compile(r"\b(?P<m>\d{1,3})\s*(?:min|minutes|mins)\s+(?:of\s+)?(?P<act>running|run|bike|biking|cycling|"
-                         r"walk|walking|yoga|swim|swimming|rowing|elliptical|hiit|cardio|stretching|treadmill|stairs|"
-                         r"spin|pilates)\b", re.I)
-LOG = re.compile(r"^\s*(?:log|logged|did|done|workout|gym|lifted|today i did|i did)\b[:\s,]*", re.I)
-ALIASES = {"bench": "bench press", "squat": "squat", "squats": "squat", "back squat": "squat", "dead": "deadlift",
-           "deadlifts": "deadlift", "dl": "deadlift", "ohp": "overhead press", "press": "overhead press",
-           "pull ups": "pull-up", "pull-ups": "pull-up", "pullups": "pull-up", "chin ups": "chin-up",
-           "push ups": "push-up", "push-ups": "push-up", "pushups": "push-up", "rows": "row", "lunges": "lunge",
-           "curls": "curl", "dips": "dip"}
-NOT_EXERCISE = {"i", "i did", "did", "and", "then", "plus", "also", "log", "workout"}
+ALIASES = {"bench": "bench press", "squats": "squat", "deadlifts": "deadlift", "ohp": "overhead press"}
 
 
 def exercise_name(s):
     s = re.sub(r"\s+", " ", (s or "").lower().strip(" ,.:-"))
     s = re.sub(r"^(?:and|then|plus|also|did|i did|log|logged)\s+", "", s)
+    for rx, k in LIFT_RX + CARDIO_RX:
+        if rx.fullmatch(s):
+            return k
     s = ALIASES.get(s, s)
-    if s.endswith("es") and s[:-2] in ALIASES.values():
-        s = s[:-2]
-    elif s.endswith("s") and not s.endswith("ss") and len(s) > 4:
-        s = ALIASES.get(s[:-1], s[:-1])
+    if s.endswith("s") and not s.endswith("ss") and len(s) > 4:
+        s = s[:-1]
     return s
+
+
+def _minutes(t):
+    m = MINS.search(t)
+    if m:
+        return int(m.group(1))
+    h = HRS.search(t)
+    if not h:
+        return None
+    if h.group(1):
+        return 60
+    if h.group(2):
+        return int(float(h.group(2)) * 60)
+    if h.group(3):
+        return 30
+    if h.group(4):
+        return int(h.group(4)) * 60 + 30
+    return 90
+
+
+def _weight(t):
+    m = W_UNIT.search(t)
+    if m:
+        w = float(m.group(1))
+        return round(w * 2.20462, 1) if m.group(2).lower().startswith("k") else w
+    for rx in (W_AT, W_FOR):
+        m = rx.search(t)
+        if m and float(m.group(1)) >= 5:
+            return float(m.group(1))
+    return None
+
+
+def _clause(part):
+    """One exercise from one piece of a sentence, or None."""
+    p = part.strip()
+    if not p:
+        return None
+    lift = next(((m, k) for rx, k in LIFT_RX for m in [rx.search(p)] if m), None)
+    cardio = next(((m, k) for rx, k in CARDIO_RX for m in [rx.search(p)] if m), None)
+    sets = reps = w = None
+    x = XS.search(p)
+    if x:
+        a, b, c = float(x.group(1)), int(x.group(2)), x.group(3)
+        if a > 20:                         # "275 x 5": weight x reps (x sets)
+            w, reps, sets = a, b, int(float(c)) if c else 1
+        else:                              # "3x8" (x 185)
+            sets, reps = int(a), b
+            if c and float(c) > 20:
+                w = float(c)
+    for rx, order in ((SETS_OF, "sr"), (SETS_REPS, "sr"), (REPS_SETS, "rs")):
+        if sets is None:
+            m = rx.search(p)
+            if m:
+                sets, reps = (int(m.group(1)), int(m.group(2))) if order == "sr" else (int(m.group(2)), int(m.group(1)))
+    if sets is None and lift:
+        m = REPS.search(p) or re.search(r"(?<![\d.])(\d{1,3})\s+(?:\w+\s+)?$", p[:lift[0].start()])
+        if m and (lift[1] in BODYWEIGHT or REPS.search(p)):
+            sets, reps = 1, int(m.group(1))
+    if lift and sets:
+        if w is None:
+            w = _weight(p)
+        if w is None:                      # "185 squat 3x8": a number right before the lift's name
+            m = re.search(r"(?<![\d.x×])(\d{2,4}(?:\.\d)?)\s*$", p[:lift[0].start()].strip())
+            if m and float(m.group(1)) > 20:
+                w = float(m.group(1))
+        if not (1 <= sets <= 20 and 1 <= reps <= 200):
+            return None
+        e = {"exercise": lift[1], "sets": sets, "reps": reps}
+        if w and 5 <= w <= 1500 and lift[1] not in BODYWEIGHT or (w and W_UNIT.search(p)):
+            e["weight_lb"] = w
+        return e
+    if cardio and not sets:
+        d = DIST.search(p)
+        mins = _minutes(p)
+        if not d and not mins:
+            return None
+        e = {"exercise": cardio[1]}
+        if d:
+            km = d.group(2).lower().startswith("k")
+            v = float(d.group(1))
+            e["miles"] = round(v * 0.621371, 2) if km else v
+        if mins:
+            e["minutes"] = mins
+        return e
+    if sets and not lift:                  # an exercise not in the list: "face pulls 3x12"
+        for rx in STRENGTH:
+            m = rx.search(p)
+            if m:
+                ex = exercise_name(m.group("ex"))
+                bad = re.match(r"(?:in|on|at|to|of|the|my|a|an|it|this|that|for|with|from)\b", ex) or \
+                    re.search(r"\b(?:the|my|your|room|light|lamp|den|kitchen)\b", ex) or len(ex.split()) > 4
+                if ex and not bad and ex not in NOT_EXERCISE and len(ex) <= 40 and 1 <= sets <= 20 and 1 <= reps <= 200:
+                    e = {"exercise": ex, "sets": sets, "reps": reps}
+                    if _weight(p):
+                        e["weight_lb"] = _weight(p)
+                    return e
+    return None
 
 
 def parse_workout(text):
     """'squats 3x8 at 185, bench 3 sets of 5 at 135 and ran 2 miles in 18 min' -> entries, or [] if it isn't a
     workout. Weights are kept in pounds (kg converted)."""
-    t = LOG.sub("", (text or "").replace("’", "'"))
-    out = []
-    for part in re.split(r"\s*(?:,|;|\band\b|\bthen\b|\bplus\b)\s*", t):
-        part = part.strip()
-        if not part:
-            continue
-        m = next((rx.search(part) for rx in STRENGTH if rx.search(part)), None)
-        if m:
-            ex = exercise_name(m.group("ex"))
-            if not ex or ex in NOT_EXERCISE or len(ex) > 40:
-                continue
-            sets, reps = int(m.group("sets")), int(m.group("reps"))
-            if not (1 <= sets <= 20 and 1 <= reps <= 100):
-                continue
-            e = {"exercise": ex, "sets": sets, "reps": reps}
-            if m.group("w"):
-                w = float(m.group("w"))
-                if m.group("u") and m.group("u").lower().startswith("k"):
-                    w = round(w * 2.20462, 1)
-                e["weight_lb"] = w
-            out.append(e)
-            continue
-        m = CARDIO_DIST.search(part)
-        if m:
-            d = float(m.group("d"))
-            km = (m.group("du") or "mi").lower().startswith("k")
-            act = {"ran": "run", "jogged": "run", "walked": "walk", "biked": "bike", "cycled": "bike", "rode": "bike",
-                   "swam": "swim", "rowed": "row", "hiked": "hike"}.get(m.group("act").lower(), m.group("act").lower())
-            e = {"exercise": act, "miles": round(d * 0.621371, 2) if km else d}
-            if m.group("m"):
-                e["minutes"] = int(m.group("m"))
-            out.append(e)
-            continue
-        m = CARDIO_TIME.search(part)
-        if m:
-            act = m.group("act").lower()
-            act = {"running": "run", "biking": "bike", "cycling": "bike", "walking": "walk", "swimming": "swim",
-                   "spin": "bike"}.get(act, act)
-            out.append({"exercise": act, "minutes": int(m.group("m"))})
-    return out
+    from .langs import digits
+    t = LOG.sub("", digits((text or "").replace("’", "'")))
+    t = re.sub(r"\b1 hour\b", "an hour", t, flags=re.I)
+    parts = [x for x in re.split(r"\s*(?:,|;|\band then\b|\bthen\b|\bplus\b|\band\b(?!\s+a half))\s*", t) if x.strip()]
+    # a piece with numbers but no exercise belongs to the one before ("benched 135 for 5 reps, 3 sets")
+    merged = []
+    for x in parts:
+        named = any(rx.search(x) for rx, _ in LIFT_RX + CARDIO_RX)
+        if merged and not named and re.search(r"\d", x) and not _clause(x):
+            merged[-1] += " " + x
+        else:
+            merged.append(x)
+    return [e for e in (_clause(x) for x in merged) if e]
 
 
 def describe(e):
@@ -286,8 +392,9 @@ class Fitness:
         return [f"{f} (~{g} g)" for f, g in pick if grams > 0]
 
     # ---- workouts --------------------------------------------------------------------------------------------------
-    def log(self, text, when=None, source="api", meta=None):
-        entries = parse_workout(text)
+    def log(self, text, when=None, source="api", meta=None, read_as=None):
+        """read_as: the same workout in the plain form (a model's rewrite of other wording); the note keeps text."""
+        entries = parse_workout(read_as or text)
         if not entries:
             raise ValueError("couldn't read a workout (try 'squats 3x8 at 185' or 'ran 3 miles in 28 min')")
         now = when or self.store.clock()
@@ -565,13 +672,31 @@ FIT_Q = re.compile(r"\b(?:weigh|weight|lb|pounds|protein|calories|kcal|macros|wo
                    r"training|muscle|cut|bulk)\b", re.I)
 
 
+PLANS = re.compile(r"\b(?:remind|need to|want to|going to|gonna|will|should|plan(?:ning)? to|tomorrow|tonight|later|"
+                   r"have to|how (?:many|much|long|far)|program|routine for)\b", re.I)
+DONE = re.compile(r"\b(?:did|done|ran|jogged|walked|biked|cycled|rode|swam|rowed|hiked|went for|finished|completed|got in|"
+                  r"squatted|benched|deadlifted|pressed|curled|lifted|hit|today|this morning|just)\b", re.I)
+
+
 def is_workout_log(text):
-    """A message that is a workout to log ('squats 3x8 at 185', 'log: ran 3 miles'), not a question about one."""
-    t = (text or "").strip()
-    if not t or "?" in t or re.match(r"^(?:what|when|how|did|do|is|was|should|can|which|show|tell)\b", t, re.I):
+    """A message that is a workout to log ('squats 3x8 at 185', 'went for a 3 mile run'), not a question or a plan."""
+    from .langs import digits
+    t = digits(text or "").strip()
+    if not t or "?" in t or re.match(r"^(?:what|when|how|did i|do|is|was|should|can|which|show|tell)\b", t, re.I) \
+            or PLANS.search(t):
         return False
     entries = parse_workout(t)
     if not entries:
         return False
-    return bool(LOG.match(t)) or any("sets" in e for e in entries) or bool(re.match(
-        r"^(?:i\s+)?(?:ran|jogged|walked|biked|cycled|rode|swam|rowed|hiked|\d+\s*min)", t, re.I))
+    return bool(LOG.match(t)) or any("sets" in e for e in entries) or bool(DONE.search(t)) or bool(re.match(
+        r"^(?:i\s+)?(?:\d+\s*(?:min|minutes|k|km|miles?)|an? (?:hour|\d))", t, re.I))
+
+
+WORKOUT_CUE = re.compile(r"\b(?:gym|workout|worked out|work out|lift(?:ed|ing)?|sets?|reps?|run|ran|jog|walk(?:ed)?|bike|biked|"
+                         r"swim|swam|row(?:ed)?|hike|hiked|yoga|treadmill|cardio|miles?|km|5k|10k)\b", re.I)
+
+
+def workout_cue(text):
+    """Worth asking a model to rewrite: it mentions training but the parser couldn't read it."""
+    t = text or ""
+    return bool(WORKOUT_CUE.search(t) or any(rx.search(t) for rx, _ in LIFT_RX)) and bool(re.search(r"\d|an hour", t))

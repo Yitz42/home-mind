@@ -81,6 +81,18 @@ def test_parse():
     for t, want in cases.items():
         got = [(e["exercise"], e["sets"], e["reps"], e.get("weight_lb")) for e in parse_workout(t)]
         check(f"parse: {t}", got == want, got)
+    said = {"did 3 sets of 8 squats at 185": "squat 3×8 at 185 lb", "squatted 185 for 3 sets of 8": "squat 3×8 at 185 lb",
+            "benched 135 for 5 reps, 3 sets": "bench press 3×5 at 135 lb", "3x5 bench at 135": "bench press 3×5 at 135 lb",
+            "185 squat 3x8": "squat 3×8 at 185 lb", "hit the gym: deadlifts 275 x 5": "deadlift 1×5 at 275 lb",
+            "squats 5x5x225": "squat 5×5 at 225 lb", "did 50 pushups": "push-up 1×50",
+            "went for a 3 mile run": "run 3 mi", "did 30 minutes on the treadmill": "treadmill 30 min",
+            "did a 20 min walk": "walk 20 min", "did yoga for 30 minutes": "yoga 30 min", "walked for an hour": "walk 60 min",
+            "face pulls 3x12 at 40": "face pull 3×12 at 40 lb"}
+    for t, want in said.items():
+        got = "; ".join(F.describe(e) for e in parse_workout(t))
+        check(f"other wording: {t!r}", got == want and is_workout_log(t), got)
+    for t in ["remind me to do squats 3x8", "need to run 3 miles tomorrow", "I'm going to bench 3x5 later"]:
+        check(f"a plan isn't logged: {t!r}", not is_workout_log(t))
     r = parse_workout("ran 3 miles in 28 minutes and 30 min of yoga")
     check("parse: cardio distance and time", r == [{"exercise": "run", "miles": 3.0, "minutes": 28},
                                                    {"exercise": "yoga", "minutes": 30}], r)

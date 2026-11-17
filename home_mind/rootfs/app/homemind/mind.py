@@ -874,6 +874,93 @@ class Mind:
     VOICE_SECONDS = 8.0
     DOWN_SECONDS = 300          # a model that just failed is skipped for this long
 
+    REWRITE_SYSTEM = (
+        "If the message reports last night's sleep or exercise the person did, rewrite it as ONE line in exactly one "
+        "of these forms, in English, keeping the person's own numbers and units:\n"
+        "slept from <time> to <time>   (e.g. slept from 11:30 pm to 6:45 am)\n"
+        "slept <N> hours\n"
+        "<exercise> <sets>x<reps> at <weight> lb|kg   (leave out 'at ...' with no weight; several joined by ', ')\n"
+        "<activity> <N> miles|km in <M> min   (or just '<activity> <M> min', or '<activity> <N> miles')\n"
+        "Otherwise answer NONE: for a question, a plan or wish, a habit, another night or day, or anything else. "
+        "Answer with the line only.")
+
+    async def _log_said(self, said, model=None, voice=False, deadline=None):
+        """Sleep or a workout said in words is logged, not answered: the parsers first (any word order), then, when
+        the message clearly mentions sleep or training but they can't read it (other wording, another language), a
+        model rewrites it into the plain form the parsers read. The rewrite may only use numbers that were said."""
+        from .sleeplog import log_sleep, SLEEP_CUE
+        from .speakers import VIEWER
+        fit = getattr(self, "fitness", None)
+        who = VIEWER.get()
+
+        async def done(kind, r):
+            if kind == "sleep":
+                pat = getattr(self, "patterns", None)
+                if pat is not None:
+                    try:
+                        await asyncio.wait_for(pat.refresh(2), 10)
+                    except Exception:  # noqa: BLE001
+                        pass
+                return {"answer": r["answer"], "hits": [], "model": None, "sleep": r}
+            return {"answer": r["answer"], "hits": [], "model": None, "workout": r}
+
+        def sleep(read_as=None):
+            return log_sleep(self.store, said, meta={"said_by": who} if who else None, read_as=read_as)
+
+        def workout(read_as=None):
+            from .fitness import is_workout_log, parse_workout
+            if fit is None or not (parse_workout(read_as) if read_as else is_workout_log(said)):
+                return None
+            meta = {"said_by": who, "scope": "personal", "owner": who} if who else {}
+            try:
+                return fit.log(said, source="voice" if voice else "ask", meta=meta, read_as=read_as)
+            except ValueError:
+                return None
+        r = sleep()
+        if r:
+            return await done("sleep", r)
+        r = workout()
+        if r:
+            return await done("workout", r)
+        # the parsers couldn't read it: worth a model's rewrite only when it is clearly about sleep or training
+        from .fitness import workout_cue, PLANS
+        from .langs import guess
+        t = said.strip()
+        if not model or t.endswith("?") or re.match(r"^(?:what|where|when|who|which|why|how|remind|can|could|should)\b",
+                                                     t, re.I) or len(t) > 300:
+            return None
+        other_lang = guess(t) != "en" and re.search(r"\d", t)
+        is_sleep = bool(SLEEP_CUE.search(t)) and not PLANS.search(t)
+        if not (is_sleep or (workout_cue(t) and not PLANS.search(t)) or other_lang):
+            return None
+        chain = self._chain(model)
+        if not chain:
+            return None
+        try:
+            rr = await asyncio.wait_for(self.models.get(chain[0]).chat(
+                self.REWRITE_SYSTEM, [{"role": "user", "content": t}], max_tokens=60, temperature=0),
+                min(deadline or 8, 5 if voice else 8))
+        except Exception:  # noqa: BLE001 - a slow or missing model: answer it the usual way
+            return None
+        line = (rr.get("text") or "").strip().strip('"').splitlines()[0:1]
+        line = line[0].strip() if line else ""
+        if not line or line.upper().startswith("NONE"):
+            return None
+        from .langs import digits
+        said_nums = set(re.findall(r"\d+(?:\.\d+)?", digits(t)))
+        words_ok = {"12", "1", "60", "30", "90", "0"} if re.search(
+            r"midnight|noon|hour|half", t, re.I) or guess(t) != "en" else set()
+        new = {n for n in re.findall(r"\d+(?:\.\d+)?", re.sub(r":\d{2}", "", line))} - said_nums - words_ok
+        if new:
+            log.info("rewrite of %r added numbers %s: not logged", t[:80], sorted(new))
+            return None
+        r = sleep(line) if line.lower().startswith("slept") else workout(line)
+        if not r:
+            return None
+        r["read_by"] = chain[0]
+        r["answer"] = r["answer"].rstrip(".") + f" (read as: {line})."
+        return await done("sleep" if line.lower().startswith("slept") else "workout", r)
+
     def _chain(self, model):
         """The requested model, then the fallbacks that exist; models that failed in the last few minutes go last."""
         names = list(self.models.models)
@@ -1074,33 +1161,10 @@ class Mind:
                 if VIEWER.get() == "":
                     said = mask_all(said)       # a list read to someone the house doesn't know: no codes (#78)
                 return {"answer": said, "hits": [], "model": None, "view": name}
-        if store is self.store and re.search(r"\b(?:slept|sleep|bed|asleep|woke)\b", said, re.I):
-            from .sleeplog import log_sleep
-            from .speakers import VIEWER
-            who = VIEWER.get()
-            r = log_sleep(store, said, meta={"said_by": who} if who else None)
-            if r:
-                # "slept from 12 to 7am last night": the night's sleep, which beats the watch's reading
-                pat = getattr(self, "patterns", None)
-                if pat is not None:
-                    try:
-                        await asyncio.wait_for(pat.refresh(2), 10)
-                    except Exception:  # noqa: BLE001
-                        pass
-                return {"answer": r["answer"], "hits": [], "model": None, "sleep": r}
-        fit = getattr(self, "fitness", None)
-        if fit is not None and store is self.store:
-            from .fitness import is_workout_log
-            if is_workout_log(said):
-                # "squats 3x8 at 185": a workout to log, answered with last time and any new best, no model needed
-                from .speakers import VIEWER
-                who = VIEWER.get()
-                meta = {"said_by": who, "scope": "personal", "owner": who} if who else {}
-                try:
-                    r = fit.log(said, source="voice" if voice else "ask", meta=meta)
-                    return {"answer": r["answer"], "hits": [], "model": None, "workout": r}
-                except ValueError:
-                    pass
+        if store is self.store:
+            logged = await self._log_said(said, model, voice, deadline)
+            if logged:
+                return logged
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS
