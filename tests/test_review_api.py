@@ -234,6 +234,9 @@ ROUTES = [
     ("GET", "/api/fitness/workouts", ["days", "exercise"]),
     ("POST", "/api/fitness/{op}", ["text", "at", "scope", "speaker", "index", "weight_target", "weight_by", "protein_g",
                                    "calories", "steps", "workouts_per_week", "body_fat_target"]),
+    ("GET", "/api/phrasebook", ["status", "source", "limit"]),
+    ("GET", "/api/phrasebook/export", []),
+    ("POST", "/api/phrasebook/{op}", ["said", "plain", "id", "model", "n", "limit", "text"]),
     ("POST", "/mcp", ["jsonrpc", "id", "method", "params"]),
     ("GET", "/mcp", []),
     ("DELETE", "/mcp", []),
@@ -247,7 +250,8 @@ OPS = {"op": ["forget", "restore", "revise", "sensitive", "feedback", "confirm",
                      "nope"],
        "controls_op": ["act", "scene", "routine", "nope"],
        "patterns_op": ["refresh", "send", "experiment", "ask", "answer", "weather", "nope"],
-       "knowledge_op": ["nope"], "fitness_op": ["goals", "workout", "accept", "nope"], "suggestion_op": ["enable", "dismiss", "nope"], "action": ["nope", ""]}
+       "knowledge_op": ["nope"], "fitness_op": ["goals", "workout", "accept", "nope"],
+       "phrasebook_op": ["add", "approve", "reject", "remove", "try", "grow", "eval", "nope"], "suggestion_op": ["enable", "dismiss", "nope"], "action": ["nope", ""]}
 BAD_VALUES = [None, "", 0, -1, 10 ** 30, 1.5, float("1e308"), "abc", "x" * 20000, [], [1, "a", None], {}, {"a": [1]},
               True]
 BAD_QUERY = ["", "abc", "-1", "0", "1e999", "nan", "inf", "99999999999999999999", "x" * 5000, "\x00", "1.5"]
@@ -264,7 +268,7 @@ def paths_for(path):
     for key, opk in (("/api/automations/{op}", "automations_op"), ("/api/pantry/{op}", "pantry_op"),
                      ("/api/patterns/{op}", "patterns_op"), ("/api/knowledge/{op}", "knowledge_op"),
                      ("/api/controls/{op}", "controls_op"),
-                     ("/api/fitness/{op}", "fitness_op")):
+                     ("/api/fitness/{op}", "fitness_op"), ("/api/phrasebook/{op}", "phrasebook_op")):
         if path == key:
             return [key.replace("{op}", o) for o in OPS[opk]]
     if path == "/api/house/suggestion/{sid}/{op}":
@@ -423,6 +427,16 @@ def contracts(app, A):
     check("fitness status", s == 200 and d["sessions_7d"] == 1 and d["goals"]["weight_target"] == 180, (s, d))
     s, d = call(app, "POST", "/api/fitness/accept", {"index": 0})
     check("accepting a suggestion that isn't there: 400", s == 400, (s, d))
+    s, d = call(app, "POST", "/api/phrasebook/add", {"said": "zonked at 2, up at 9", "plain": "slept from 2 am to 9 am"})
+    check("phrasebook entry added over HTTP", s == 200 and d["kind"] == "sleep", (s, d))
+    s, d = call(app, "POST", "/api/phrasebook/add", {"said": "zonked at 2", "plain": "slept from 2 am to 9 am"})
+    check("phrasebook entry with a number nobody said: 400", s == 400 and "9" in d["error"], (s, d))
+    s, d = call(app, "POST", "/api/phrasebook/try", {"text": "zonked at 1, up at 8"})
+    check("phrasebook try reads a known shape", s == 200 and d["phrasebook"]["plain"] == "slept from 1 am to 8 am", (s, d))
+    s, d = call(app, "POST", "/api/phrasebook/remove", {"id": 99999})
+    check("removing a missing entry: 400", s == 400, (s, d))
+    s, d = call(app, "GET", "/api/phrasebook/export")
+    check("phrasebook export", s == 200 and len(d["pairs"]) > 40, (s, len(d.get("pairs", []))))
     out = asyncio.run(A.mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                       "params": {"name": "mind_fitness", "arguments": {"action": "review"}}}))
     check("MCP mind_fitness review", not out["result"]["isError"], out)

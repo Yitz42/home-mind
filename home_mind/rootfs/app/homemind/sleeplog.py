@@ -120,5 +120,7 @@ def log_sleep(store, text, now=None, meta=None, read_as=None):
     r = store.remember(text=body, title=f"Sleep about {s['hours']:g} h ({eve:%a} night)", kind="fact",
                        shelf="body/sleep", tags=["sleep"], source="said", meta=m, at=ts)
     when = f" ({_hm(s['start'])}–{_hm(s['end'])})" if s.get("start") else ""
-    return {"id": r.get("id"), "hours": s["hours"], "night": night.isoformat(),
+    plain = (f"slept from {_hm(s['start']).lower()} to {_hm(s['end']).lower()}" if s.get("start")
+             else f"slept {s['hours']:g} hours")
+    return {"id": r.get("id"), "hours": s["hours"], "night": night.isoformat(), "plain": plain,
             "answer": f"Logged: {s['hours']:g} hours of sleep {eve:%A} night{when}. It replaces the watch's reading."}

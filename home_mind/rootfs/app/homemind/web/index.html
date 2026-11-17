@@ -243,6 +243,14 @@
         <div class="mute" id="ft_gmsg" style="font-size:12px;margin-top:6px">Leave a box empty for no goal. Protein left empty follows your weight (1.6 g/kg).</div>
       </div>
     </div>
+    <div class="card wide"><div class="hrow" style="flex-wrap:wrap"><h2>Phrasebook</h2><span class="mute" id="pb_stats" style="font-size:12px"></span></div>
+      <div class="mute" style="font-size:13px;margin-bottom:8px">Odd ways of saying sleep and workouts, and how to read them. It grows from what you say, your corrections ("no, 6 hours"), and new cases the overnight model writes and checks twice.</div>
+      <div id="pb_review" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px"><input id="pb_said" placeholder="how it was said" style="flex:2;min-width:160px" aria-label="Said"><input id="pb_plain" placeholder="slept from 1 am to 6 am · squat 3x8 at 185 lb · NONE" style="flex:2;min-width:160px" aria-label="Plain line"><button class="go" onclick="pbAdd()">Add</button><button onclick="pbTry()">Try</button></div>
+      <div class="mute" id="pb_msg" style="font-size:13px;margin-top:6px"></div>
+      <div class="row" style="gap:8px;margin-top:8px"><button onclick="pbRun('grow')">Grow now</button><button onclick="pbRun('eval')">Test the model</button><a onclick="window._pbAll=!window._pbAll;loadPhrasebook()" style="align-self:center">Show entries</a></div>
+      <div id="pb_list" style="margin-top:10px;font-size:13px"></div>
+    </div>
     <div class="card wide"><h2>Log a workout</h2>
       <div class="row"><input id="ft_w" placeholder="squats 3x8 at 185, ran 2 miles in 18 min" style="flex:1;min-width:0" aria-label="Workout"> <button class="go" onclick="logWorkout()">Log</button></div>
       <div class="mute" id="ft_wmsg" style="font-size:13px;margin-top:6px"></div>
@@ -516,7 +524,7 @@ async function loadHealth() {
     return `<div style="display:flex;align-items:center;gap:10px;background:var(--card2);border-radius:12px;padding:10px 12px;flex-wrap:wrap"><span class="chip" style="color:${c}">${tg}</span><span style="flex:1;min-width:160px">${esc(f.label)}</span>
       <span class="mute" style="font-size:12px">${f.n_risk ?? 0} vs ${f.n_base ?? 0} days${f.diff != null ? ' · ' + (f.diff > 0 ? '+' : '') + nf(f.diff, 1) + ' fog' : ''}</span><span style="font-size:12px;color:${s[1]};min-width:70px;text-align:right">${f.hunch ? 'your hunch · ' : ''}${s[0]}</span></div>`; }).join('') + (all.length > 6 ? `<a onclick="window._hlAll=!window._hlAll;loadHealth()" style="padding:4px 2px">${showAll ? 'Show fewer' : 'Show all ' + all.length}</a>` : '');
   const e = p.experiment;
-  loadFitness();
+  loadFitness(); loadPhrasebook();
   $('#hl_exp').innerHTML = e && e.factor ? `<b style="color:var(--ink)">${esc(e.change || e.factor)}</b><br>${esc(e.start)} to ${esc(e.end)}` : 'None running. One unlocks when a suspect holds up, like keeping the same bedtime within 30 minutes every night.';
 }
 const FG = ['weight_target', 'weight_by', 'calories', 'protein_g', 'steps', 'workouts_per_week', 'body_fat_target'];
@@ -541,6 +549,29 @@ async function logWorkout() {
   $('#ft_wmsg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : esc(r.answer); if (!r.error) { $('#ft_w').value = ''; loadFitness(); }
 }
 async function acceptSug(i) { const r = await api('api/fitness/accept', {index: i}); if (r.error) alert(r.error); loadFitness(); }
+async function loadPhrasebook() {
+  const p = await api('api/phrasebook?limit=' + (window._pbAll ? 300 : 1)), q = await api('api/phrasebook?status=pending&limit=50');
+  if (p.error) { $('#pb_stats').textContent = p.error; return; }
+  const st = p.stats, bs = st.by_source || {};
+  $('#pb_stats').textContent = `${st.active} entries · ${bs.learned || 0} learned from you · ${bs.correction || 0} corrections · ${bs.grown || 0} grown` + (st.last_eval ? ` · model read ${Math.round(100 * st.last_eval.right_share)}% right` : '');
+  $('#pb_review').innerHTML = (q.entries || []).map(e => `<div style="display:flex;gap:10px;align-items:center;background:var(--card2);border-radius:12px;padding:10px 12px;flex-wrap:wrap"><span style="flex:1;min-width:180px">“${esc(e.said)}” → <b>${esc(e.plain)}</b><br><span class="mute" style="font-size:12px">${esc(e.note || 'waiting for review')}</span></span><button class="go" onclick="pbOp('approve',${+e.id})">Right</button><button onclick="pbOp('reject',${+e.id})">Wrong</button></div>`).join('');
+  $('#pb_list').innerHTML = window._pbAll ? (p.entries || []).filter(e => e.status === 'active').map(e => `<div class="kv"><span>“${esc(e.said)}”</span><span>${esc(e.plain)} <span class="mute">· ${esc(e.source)}${e.uses ? ' · used ' + e.uses : ''}</span> <a onclick="pbOp('remove',${+e.id})">remove</a></span></div>`).join('') : '';
+}
+async function pbOp(op, id) { const r = await api('api/phrasebook/' + op, {id}); if (r.error) alert(r.error); loadPhrasebook(); }
+async function pbAdd() {
+  const r = await api('api/phrasebook/add', {said: $('#pb_said').value, plain: $('#pb_plain').value});
+  $('#pb_msg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : 'Added.'; if (!r.error) { $('#pb_said').value = $('#pb_plain').value = ''; loadPhrasebook(); }
+}
+async function pbTry() {
+  const r = await api('api/phrasebook/try', {text: $('#pb_said').value});
+  $('#pb_msg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : `Phrasebook: <b>${esc(r.phrasebook ? r.phrasebook.plain : '–')}</b> · built-in reading: <b>${esc(r.parsers || '–')}</b>` + (r.similar && r.similar[0] ? ` · closest: “${esc(r.similar[0].said)}”` : '');
+}
+async function pbRun(op) {
+  $('#pb_msg').textContent = op === 'grow' ? 'Writing and checking new cases…' : 'Reading the phrasebook with the model…';
+  const r = await api('api/phrasebook/' + op, {});
+  $('#pb_msg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : op === 'grow' ? `${esc(r.model)}: kept ${+r.kept}, ${+r.review} to review, ${+r.dropped} dropped, ${+r.known} already understood${r.parser_misread ? ', ' + (+r.parser_misread) + ' the built-in reading got wrong' : ''}.` : `${esc(r.model)}: ${+r.right} of ${+r.n} right, ${+r.wrong_log} wrong logs, ${+r.missed} missed.`;
+  loadPhrasebook();
+}
 async function sendReport() { const r = await api('api/patterns/send', {}); alert(r.error || 'Sent.'); }
 async function vote(feeling) {
   document.querySelectorAll('#ho_choice button').forEach(b => b.classList.toggle('on', b.dataset.f === feeling));

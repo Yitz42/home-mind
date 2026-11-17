@@ -422,6 +422,11 @@ Log workouts in plain words by voice, chat or `POST /api/fitness/workout`: "squa
 
 Sleep can be said the same way: "slept from 12 to 7am last night", "went to bed at 11:30 and woke up at 6:45", "slept 6.5 hours". It's filed on `body/sleep` and replaces the watch's number for that night (handy when the watch was off). Other wording works too ("crashed at 12, up at 7", "did 3 sets of 8 squats at 185", "went for a 3 mile run"). If Home Mind can't read a message that clearly mentions sleep or exercise, including one in another language, your model rewrites it into the plain form first. The reply shows what it was read as, and nothing is logged if the rewrite has a number you didn't say.
 
+### The phrasebook
+Odd ways of saying sleep and workouts, each with the plain line Home Mind reads. It starts with a checked set and grows from four places: model readings of your messages, your corrections right after a log ("no, 6 hours", "that wasn't sleep"), cases you add on the Health tab, and new cases the overnight model writes (option `phrasebook_grow`). A written case is kept only if its line can be read, it has no number that wasn't said, and a second blind reading agrees; otherwise it waits for **Right / Wrong** on the Health tab.
+
+A message shaped like an entry (same words, different numbers) is read with no model. Otherwise the most similar entries go into the model's prompt as examples. **Test the model** (`POST /api/phrasebook/eval`, `model?`) reads every entry with the others as examples and reports right, wrong logs (the ones that matter) and missed: a quick way to see whether a small local model is good enough. **Try** (`POST /api/phrasebook/try`) shows what the phrasebook, the built-in reading and (with `model`) a model make of a message. `GET /api/phrasebook/export` gives the pairs, e.g. for fine-tuning.
+
 Sunday's evening brief carries the week in review. Suggested changes (fewer or more calories, a lighter week for a stalled lift, more steps) are listed on the Health tab and only apply when you press **Use** (`POST /api/fitness/accept`). It never suggests fewer than 1,500 kcal a day or losing more than about 1% of body weight a week. This is general guidance, not medical advice.
 
 ## Options
@@ -474,6 +479,7 @@ you turn them on are listed after the tables.
 | `overnight_time` | `03:00` | Overnight learning time |
 | `overnight_model` | empty | Overnight learning model |
 | `overnight_structure` | off | Overnight, read what the patterns missed |
+| `phrasebook_grow` | on | Each night, write new odd wordings for sleep and workouts; keep those a blind second reading agrees with |
 | `learn_filing` | on | Learn where notes go |
 | `fade_days` | 60 | Fade unused notes after N days |
 | `events_keep_days` | 90 | Keep the detailed activity log for (days) |
@@ -684,6 +690,9 @@ note), 502 (a model failed) or 500.
 | GET | `/api/fitness/review` | read | the week in review and suggested changes |
 | GET | `/api/fitness/workouts` | read | `days?`, `exercise?`: logged workouts with bests and stalled lifts |
 | POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review) |
+| GET | `/api/phrasebook` | read | `status?`, `source?`, `limit?`: entries and counts |
+| GET | `/api/phrasebook/export` | read | every active pair, for training |
+| POST | `/api/phrasebook/{op}` | write | `add` (`said`, `plain`), `approve`/`reject`/`remove` (`id`), `try` (`text`, `model?`), `grow` (`model?`, `n?`), `eval` (`model?`, `limit?`) |
 | GET | `/api/pantry` | read | pantry items and goals |
 | POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`), `used`, `tossed`, `remove`, `suggest`, `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
 | GET | `/api/patterns` | read | brain-fog report, findings, experiment and daily rows (`days`) |
@@ -746,6 +755,7 @@ note), 502 (a model failed) or 500.
 | `mind_comfort` | write | comfort status and votes |
 | `mind_pantry` | write | the pantry |
 | `mind_meals` | read | meal ideas from the pantry |
+| `mind_phrasebook` | read | the phrasebook of odd wordings (`add`, `approve`, `reject`, `remove` need write) |
 | `mind_fitness` | read | fitness goals, progress, workouts, weekly review (`log` and setting `goals` need write) |
 | `mind_models` | read | connected models (`check` pings them) |
 | `mind_status` | read | counts, version, packs, models |

@@ -258,5 +258,8 @@ configuration:
   overnight_structure:
     name: Overnight, read what the patterns missed
     description: The overnight model reads recent notes where the built-in patterns found no place, schedule, chore, details or who-is-who, and keeps only what it copies word for word from the note. Off until tests/compare_structure.py shows it helps your model and adds nothing wrong.
+  phrasebook_grow:
+    name: Grow the phrasebook overnight
+    description: Each night the overnight model writes new odd ways of saying sleep and workouts. A case is kept only if it can be read, adds no number that wasn't said, and a second blind reading agrees; the rest wait for review on the Health tab.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.

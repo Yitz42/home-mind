@@ -24,6 +24,7 @@ from .evening import Evening
 from .overnight import ConvLog, Overnight
 from .pantry import Pantry
 from .fitness import Fitness
+from .phrasebook import Phrasebook
 from . import nutrition
 from .patterns import FACTOR, Patterns
 from .knowledge import Knowledge
@@ -94,7 +95,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
-            "overnight_structure": False,
+            "overnight_structure": False, "phrasebook_grow": True,
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -252,6 +253,9 @@ class App:
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
         self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
         self.mind.patterns = self.patterns
+        self.phrasebook = Phrasebook(self.mind.store)
+        self.mind.phrasebook = self.overnight.phrasebook = self.phrasebook
+        self.overnight.grow_phrasebook = self.opts.get("phrasebook_grow", True) is not False
         self.mind.fitness = self.morning.fitness = self.evening.fitness = self.fitness
         self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
             lambda d: self.patterns.on_action(d.get("action")))
@@ -1506,6 +1510,62 @@ def build(app_state):
             if not 0 <= i < len(sug):
                 raise ValueError("no such suggestion (GET /api/fitness/review lists them)")
             return J({"goals": A.fitness.set_goals(sug[i]["set"]), "applied": sug[i]})
+        return J({"error": f"unknown {op}"}, status=404)
+
+    @r.get("/api/phrasebook")
+    async def phrasebook_get(q):
+        st = q.query.get("status") or None
+        if st not in (None, "active", "pending", "rejected"):
+            raise ValueError("status is active, pending or rejected")
+        src = q.query.get("source") or None
+        lim = num(q.query.get("limit"), "limit", 100, 1, 5000)
+        return J({"stats": A.phrasebook.stats(), "entries": A.phrasebook.entries(st, src, lim)})
+
+    @r.get("/api/phrasebook/export")
+    async def phrasebook_export(_):
+        return J({"pairs": A.phrasebook.export()})
+
+    def _pb_model(name):
+        name = name or A.overnight.pick_model() or (A.mind.FALLBACK[0] if A.mind.FALLBACK else None)
+        if not name:
+            raise ValueError("no model to use: give model, or set overnight_model")
+        return name, A.models.get(name)
+
+    @r.post("/api/phrasebook/{op}")
+    async def phrasebook_op(q):
+        op, pb = q.match_info["op"], A.phrasebook
+        b = await read_body(q, optional=True, said=str, plain=str, id=float, model=str, n=float, limit=float, text=str)
+        if op == "add":
+            return J(pb.add(b.get("said") or "", b.get("plain") or "", "added"))
+        if op in ("approve", "reject", "remove"):
+            if b.get("id") is None:
+                raise ValueError("give id")
+            rid = int(b["id"])
+            return J(pb.remove(rid) if op == "remove" else pb.set_status(rid, "active" if op == "approve" else "rejected"))
+        if op == "try":
+            from .phrasebook import meaning
+            t = b.get("text") or ""
+            hit = pb.match(t)
+            out = {"text": t, "phrasebook": {"entry": hit[0]["id"], "plain": hit[1]} if hit else None,
+                   "similar": pb.similar(t, 5)}
+            from .sleeplog import parse_sleep
+            from .fitness import parse_workout, is_workout_log, describe
+            ps = parse_sleep(t)
+            out["parsers"] = ps and ps.get("plain") or (f"slept {ps['hours']:g} hours" if ps else None) or \
+                (", ".join(describe(e) for e in parse_workout(t)) if is_workout_log(t) else None)
+            if b.get("model"):
+                name, m = _pb_model(b["model"])
+                line = await pb.read(m, t)
+                out["model"] = {"name": name, "line": line, "meaning": meaning(line)}
+            return J(out)
+        if op == "grow":
+            name, m = _pb_model(b.get("model"))
+            n = int(num(b.get("n"), "n", 10, 1, 30))
+            return J(dict(await pb.grow(m, n), model=name))
+        if op == "eval":
+            name, m = _pb_model(b.get("model"))
+            lim = int(num(b.get("limit"), "limit", 40, 1, 500))
+            return J(dict(await pb.evaluate(m, lim), model=name))
         return J({"error": f"unknown {op}"}, status=404)
 
     @r.get("/api/pantry")

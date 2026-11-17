@@ -883,17 +883,118 @@ class Mind:
         "<activity> <N> miles|km in <M> min   (or just '<activity> <M> min', or '<activity> <N> miles')\n"
         "Otherwise answer NONE: for a question, a plan or wish, a habit, another night or day, or anything else. "
         "Answer with the line only.")
+    LOG_FIX_SECONDS = 600
+    # sleep said without the usual words: worth a model's reading (with phrasebook examples) when the parsers miss it
+    SLEEPISH = re.compile(r"\b(?:alarm|woke|wake|waking|zonk\w*|conk\w*|out cold|zz+|snooz\w*|doz\w*|drift\w* off|"
+                          r"sawed logs|shut-?eye|insomnia|tossed and turned|hit the (?:hay|sack)|night'?s rest)\b", re.I)
+    UNDO_LOG = re.compile(r"^\s*(?:no[,.!]?\s*)?(?:that'?s wrong|that is wrong|wrong|undo(?: that)?|delete that|remove that|"
+                          r"scratch that|don'?t log (?:that|it)|that wasn'?t\b.*|it wasn'?t\b.*|not (?:a )?(?:sleep|workout|log)\b.*|"
+                          r"i didn'?t (?:sleep|work out|do (?:that|it))\b.*|that'?s not (?:right|what i (?:meant|said))|"
+                          r"that'?s not a (?:sleep|workout|log)\b.*)[\s.!]*$", re.I)
+    NOT_A_LOG = re.compile(r"wasn'?t|didn'?t|don'?t log|not (?:a )?(?:sleep|workout|log)", re.I)
+    FIX_LOG = re.compile(r"^\s*(?:no|nope|actually|wrong|correction|not quite)\b[,.!:\s-]*(?:it was|i meant|make it|it'?s|"
+                         r"that was|should be)?\s*(\S.*)$", re.I)
 
-    async def _log_said(self, said, model=None, voice=False, deadline=None):
-        """Sleep or a workout said in words is logged, not answered: the parsers first (any word order), then, when
-        the message clearly mentions sleep or training but they can't read it (other wording, another language), a
-        model rewrites it into the plain form the parsers read. The rewrite may only use numbers that were said."""
+    def _log_key(self, conversation_id):
+        from .speakers import VIEWER
+        return conversation_id or VIEWER.get() or "_"
+
+    def _remember_log(self, conversation_id, said, kind, r, plain, entry=None):
+        logs = self.__dict__.setdefault("_logs", {})
+        logs[self._log_key(conversation_id)] = {"t": time.time(), "said": said, "kind": kind, "id": r.get("id"),
+                                                "plain": plain, "entry": entry}
+        if len(logs) > 200:
+            logs.pop(next(iter(logs)))
+
+    async def _fix_log(self, said, conversation_id=None):
+        """Right after a log: "that's wrong" removes it, "no, 6 hours" fixes it. Either way the phrasebook learns
+        how that wording should be read next time."""
+        logs = self.__dict__.get("_logs") or {}
+        key = self._log_key(conversation_id)
+        rec = logs.get(key)
+        if not rec or time.time() - rec["t"] > self.LOG_FIX_SECONDS or rec.get("done"):
+            return None
+        pb = getattr(self, "phrasebook", None)
+        t = said.strip()
+        if self.UNDO_LOG.match(t):
+            if rec["id"]:
+                self.store.set_status(rec["id"], "archived")
+            not_log = bool(self.NOT_A_LOG.search(t))
+            if pb is not None:
+                if not_log:
+                    pb.add(rec["said"], "NONE", "correction", numbers_said=False)
+                elif rec.get("entry"):
+                    pb.set_status(rec["entry"], "rejected")
+            rec.update(removed=True, t=time.time(), done=not_log)     # "that wasn't sleep": nothing more to wait for
+            what = "sleep" if rec["kind"] == "sleep" else "workout"
+            return {"answer": f"Removed that {what} log." + (" I won't read that wording as a log again." if not_log else
+                    f" Tell me the right {'times or hours' if what == 'sleep' else 'numbers'} and I'll log it and "
+                    "remember how to read it."), "hits": [], "model": None, "unlogged": rec["id"]}
+        m = self.FIX_LOG.match(t) if not rec.get("removed") else None
+        rest = m.group(1).strip().rstrip(".!") if m else (t if rec.get("removed") else None)
+        if not rest:
+            return None
+        from .phrasebook import meaning
+        if rec["kind"] == "sleep":
+            tries = [rest, f"slept {rest}", f"slept {rest} hours"] if not rest.lower().startswith("slept") else [rest]
+            plain = next((x for x in tries if (meaning(x) or ("",))[0] == "sleep"), None)
+        else:
+            plain = rest if (meaning(rest) or ("",))[0] == "workout" else None
+        if not plain:
+            return None
+        if rec["id"] and not rec.get("removed"):
+            self.store.set_status(rec["id"], "archived")
+        from .speakers import VIEWER
+        who = VIEWER.get()
+        if rec["kind"] == "sleep":
+            from .sleeplog import log_sleep
+            r = log_sleep(self.store, rec["said"], meta={"said_by": who} if who else None, read_as=plain)
+        else:
+            fit = getattr(self, "fitness", None)
+            meta = {"said_by": who, "scope": "personal", "owner": who} if who else {}
+            r = fit.log(rec["said"], source="correction", meta=meta, read_as=plain) if fit else None
+        if not r:
+            return None
+        if pb is not None:
+            try:
+                pb.add(rec["said"], plain, "correction", numbers_said=False)
+            except ValueError:
+                pass
+        rec.update(done=True)
+        r["answer"] = r["answer"].replace("Logged:", "Fixed:", 1).rstrip(".") + \
+            ". I'll read it that way next time."
+        if rec["kind"] == "sleep":
+            pat = getattr(self, "patterns", None)
+            if pat is not None:
+                try:
+                    await asyncio.wait_for(pat.refresh(2), 10)
+                except Exception:  # noqa: BLE001
+                    pass
+        return {"answer": r["answer"], "hits": [], "model": None, rec["kind"]: r, "fixed": rec["id"]}
+
+    async def _log_said(self, said, model=None, voice=False, deadline=None, conversation_id=None):
+        """Sleep or a workout said in words is logged, not answered:
+        1. the phrasebook: a message shaped like an entry is read with no model (and a known "not a log" stops here)
+        2. the parsers (any word order)
+        3. a model, with the closest phrasebook entries as examples, when the message clearly mentions sleep or
+           training, is close to an entry, or is in another language. Its line may only use numbers that were said;
+           a reading that's used is kept in the phrasebook."""
         from .sleeplog import log_sleep, SLEEP_CUE
         from .speakers import VIEWER
+        from .fitness import describe
         fit = getattr(self, "fitness", None)
+        pb = getattr(self, "phrasebook", None)
         who = VIEWER.get()
 
-        async def done(kind, r):
+        async def done(kind, r, plain, entry=None):
+            rec = (self.__dict__.get("_logs") or {}).get(self._log_key(conversation_id))
+            if pb is not None and rec and rec.get("removed") and not rec.get("done") and rec["kind"] == kind and \
+                    time.time() - rec["t"] <= self.LOG_FIX_SECONDS:
+                try:        # "that's wrong", then the right one said again: that's how the first wording reads
+                    pb.add(rec["said"], plain, "correction", numbers_said=False)
+                except ValueError:
+                    pass
+            self._remember_log(conversation_id, said, kind, r, plain, entry)
             if kind == "sleep":
                 pat = getattr(self, "patterns", None)
                 if pat is not None:
@@ -916,13 +1017,28 @@ class Mind:
                 return fit.log(said, source="voice" if voice else "ask", meta=meta, read_as=read_as)
             except ValueError:
                 return None
+
+        def wplain(r):
+            return ", ".join(describe(e) for e in r["entries"]).replace("×", "x")
+
+        if pb is not None:
+            hit = pb.match(said)
+            if hit:
+                e, plain = hit
+                if plain == "NONE":
+                    return None
+                is_sleep = plain.lower().startswith("slept")
+                r = sleep(plain) if is_sleep else workout(plain)
+                if r:
+                    pb.used(e["id"])
+                    return await done("sleep" if is_sleep else "workout", r, plain, e["id"])
         r = sleep()
         if r:
-            return await done("sleep", r)
+            return await done("sleep", r, r["plain"])
         r = workout()
         if r:
-            return await done("workout", r)
-        # the parsers couldn't read it: worth a model's rewrite only when it is clearly about sleep or training
+            return await done("workout", r, wplain(r))
+        # the parsers couldn't read it: worth a model's reading only when it's clearly about sleep or training
         from .fitness import workout_cue, PLANS
         from .langs import guess
         t = said.strip()
@@ -930,36 +1046,44 @@ class Mind:
                                                      t, re.I) or len(t) > 300:
             return None
         other_lang = guess(t) != "en" and re.search(r"\d", t)
-        is_sleep = bool(SLEEP_CUE.search(t)) and not PLANS.search(t)
-        if not (is_sleep or (workout_cue(t) and not PLANS.search(t)) or other_lang):
+        is_sleep = bool(SLEEP_CUE.search(t) or self.SLEEPISH.search(t)) and not PLANS.search(t)
+        near = pb is not None and pb.close(t) >= 0.34
+        if not (is_sleep or (workout_cue(t) and not PLANS.search(t)) or other_lang or near):
             return None
         chain = self._chain(model)
         if not chain:
             return None
+        limit = min(deadline or 8, 5 if voice else 8)
         try:
-            rr = await asyncio.wait_for(self.models.get(chain[0]).chat(
-                self.REWRITE_SYSTEM, [{"role": "user", "content": t}], max_tokens=60, temperature=0),
-                min(deadline or 8, 5 if voice else 8))
+            if pb is not None:
+                line = await pb.read(self.models.get(chain[0]), t, timeout=limit)
+            else:
+                rr = await asyncio.wait_for(self.models.get(chain[0]).chat(
+                    self.REWRITE_SYSTEM, [{"role": "user", "content": t}], max_tokens=60, temperature=0), limit)
+                line = (rr.get("text") or "").strip().strip('"').splitlines()
+                line = line[0].strip() if line else ""
         except Exception:  # noqa: BLE001 - a slow or missing model: answer it the usual way
             return None
-        line = (rr.get("text") or "").strip().strip('"').splitlines()[0:1]
-        line = line[0].strip() if line else ""
         if not line or line.upper().startswith("NONE"):
             return None
-        from .langs import digits
-        said_nums = set(re.findall(r"\d+(?:\.\d+)?", digits(t)))
-        words_ok = {"12", "1", "60", "30", "90", "0"} if re.search(
-            r"midnight|noon|hour|half", t, re.I) or guess(t) != "en" else set()
-        new = {n for n in re.findall(r"\d+(?:\.\d+)?", re.sub(r":\d{2}", "", line))} - said_nums - words_ok
-        if new:
-            log.info("rewrite of %r added numbers %s: not logged", t[:80], sorted(new))
+        from .phrasebook import new_numbers
+        extra = new_numbers(t, line)
+        if extra and not (guess(t) != "en" and extra <= {"12", "1", "60", "30", "90", "0"}):
+            log.info("rewrite of %r added numbers %s: not logged", t[:80], sorted(extra))
             return None
-        r = sleep(line) if line.lower().startswith("slept") else workout(line)
+        is_sleep = line.lower().startswith("slept")
+        r = sleep(line) if is_sleep else workout(line)
         if not r:
             return None
+        entry = None
+        if pb is not None:
+            try:
+                entry = pb.add(said, line, "learned")["id"]
+            except ValueError:
+                pass
         r["read_by"] = chain[0]
         r["answer"] = r["answer"].rstrip(".") + f" (read as: {line})."
-        return await done("sleep" if line.lower().startswith("slept") else "workout", r)
+        return await done("sleep" if is_sleep else "workout", r, line, entry)
 
     def _chain(self, model):
         """The requested model, then the fallbacks that exist; models that failed in the last few minutes go last."""
@@ -1091,6 +1215,10 @@ class Mind:
         last = convs.get(conversation_id) if conversation_id else None
         said = question.replace("’", "'")
         fresh = bool(last) and time.time() - last["t"] <= self.FOLLOW_SECONDS
+        if store is self.store:
+            fixed = await self._fix_log(said, conversation_id)    # "no, 6 hours" right after a sleep or workout log
+            if fixed:
+                return fixed
         right = self.RIGHT_IS.match(said.strip()) if fresh and last.get("src") and \
             not said.rstrip().endswith("?") and not self.LET_GO.match(said) else None
         if right and re.match(r"(?:not|wrong|incorrect|out of date|outdated|old)\b", right.group(1), re.I):
@@ -1162,7 +1290,7 @@ class Mind:
                     said = mask_all(said)       # a list read to someone the house doesn't know: no codes (#78)
                 return {"answer": said, "hits": [], "model": None, "view": name}
         if store is self.store:
-            logged = await self._log_said(said, model, voice, deadline)
+            logged = await self._log_said(said, model, voice, deadline, conversation_id)
             if logged:
                 return logged
         question = self.resolve(question, conversation_id, store) if conversation_id else question

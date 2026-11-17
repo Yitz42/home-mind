@@ -127,6 +127,7 @@ options:
   checkin_old_facts: true
   checkin_after_days: 180
   overnight_structure: false
+  phrasebook_grow: true
 schema:
   models:
     - name: str
@@ -242,3 +243,4 @@ schema:
   checkin_old_facts: bool
   checkin_after_days: int(30,3650)
   overnight_structure: bool
+  phrasebook_grow: bool?

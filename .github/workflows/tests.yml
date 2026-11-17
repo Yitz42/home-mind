@@ -82,5 +82,7 @@ jobs:
         run: python tests/test_fitness.py
       - name: Sleep said in words, watch zeros
         run: python tests/test_sleeplog.py
+      - name: Phrasebook (learning odd wordings)
+        run: python tests/test_phrasebook.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py
