@@ -88,5 +88,7 @@ jobs:
         run: python tests/test_persona.py
       - name: Voice bridge (Voicebox, emotions, Piper fallback)
         run: python tests/test_voice_bridge.py
+      - name: GPU computer as a model server (up/away, Ollama options, persona model)
+        run: python tests/test_gpu_server.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py

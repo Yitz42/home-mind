@@ -128,6 +128,7 @@ options:
   checkin_after_days: 180
   overnight_structure: false
   phrasebook_grow: true
+  persona_model: ""
 schema:
   models:
     - name: str
@@ -137,6 +138,11 @@ schema:
       api_key: password?
       entity_id: str?
       timeout: int(5,900)?
+      connect_timeout: int(1,60)?
+      keep_alive: str?
+      num_gpu: int(0,999)?
+      num_ctx: int(512,131072)?
+      num_thread: int(1,128)?
       price_in: float?
       price_out: float?
   update_url: str
@@ -244,3 +250,4 @@ schema:
   checkin_after_days: int(30,3650)
   overnight_structure: bool
   phrasebook_grow: bool?
+  persona_model: str?

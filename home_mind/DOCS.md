@@ -415,6 +415,43 @@ If Home Assistant runs on modest hardware, a 270M-parameter model trained on you
 
 House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
 
+## A GPU computer as a model server (0.28)
+A newer computer with an NVIDIA GPU (for example a laptop left plugged in at home) can run local models for Home Mind through **Ollama**, next to **Voicebox** (see the Home Mind Voice app). Home Mind checks that computer every 30 seconds and skips its models while it's asleep, off or restarting, so answers go straight to the next model instead of waiting. The Models page shows each computer as **up** or **away**.
+
+**On the computer (Windows):**
+1. Install Ollama (ollama.com).
+2. Add the system environment variable `OLLAMA_HOST` = `0.0.0.0`, then restart Ollama so other machines on your network can reach it.
+3. Allow TCP port 11434 in Windows Firewall for your home network only (Private profile).
+4. Give the computer a fixed address. When plugged in it should never sleep, and closing the lid should do nothing (as for Voicebox).
+5. Pull the models, e.g. `ollama pull qwen3:4b` and `ollama pull qwen3:1.7b`.
+
+**Sharing an 8 GB GPU with Voicebox.** Voicebox's VoiceDesign voice takes a good part of the GPU, so keep the answer model small enough to sit beside it, and run the persona model on the CPU (a modern laptop CPU rewords a sentence quickly):
+
+```yaml
+models:
+  - name: precision
+    type: ollama
+    url: http://192.168.1.50:11434
+    model: qwen3:4b
+    keep_alive: 30m
+  - name: jeeves-style
+    type: ollama
+    url: http://192.168.1.50:11434
+    model: qwen3:1.7b
+    num_gpu: 0          # on the CPU, leaving the GPU to Voicebox
+    keep_alive: "-1"    # stay loaded
+  - name: haiku
+    type: ha_ai_task
+    entity_id: ai_task.claude_ai_task
+fallback: [precision, haiku]
+persona_model: jeeves-style
+overnight_model: precision
+```
+
+These sizes are a starting point, not measured on your computer. Use **Models › Check** and the phrasebook's **Test the model** to see real speeds and accuracy. If Voicebox and a model don't both fit, Ollama keeps part of the model in system memory: it still works, just slower.
+
+New model fields: `connect_timeout` (default 4 s: an unreachable computer fails fast) and, for Ollama, `num_gpu` (0 = on the CPU), `keep_alive`, `num_ctx` and `num_thread`. Option `persona_model`: a model that rewords answers in the persona's voice, with the same fact check as the rules. If it's slow (over 1.5 s spoken, 4 s written), away, or changes a fact, the rules style the answer instead. Answers it styled are marked `styled_by: model`.
+
 ## Persona: Jeeves (0.28)
 Answers from Home Mind (the Ask box, `/api/ask`, `/api/do`) come in a persona's voice, Jeeves by default: an English butler, composed, precise and quietly dry. Each answer gets an **emotion marker** from what actually happened:
 
@@ -503,6 +540,7 @@ you turn them on are listed after the tables.
 | `overnight_model` | empty | Overnight learning model |
 | `overnight_structure` | off | Overnight, read what the patterns missed |
 | `phrasebook_grow` | on | Each night, write new odd wordings for sleep and workouts; keep those a blind second reading agrees with |
+| `persona_model` | empty | a model that rewords answers in the persona's voice (checked like the rules); empty = rules only |
 | `learn_filing` | on | Learn where notes go |
 | `fade_days` | 60 | Fade unused notes after N days |
 | `events_keep_days` | 90 | Keep the detailed activity log for (days) |

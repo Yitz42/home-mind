@@ -6,6 +6,9 @@ configuration:
       ollama / openai use a computer on your network (url like http://192.168.1.50:11434, plus model name);
       anthropic calls Claude directly (needs api_key and model). Optional price_in and price_out (dollars per
       million tokens) let Home Mind show what each model costs; none are built in because prices change.
+      For a computer that sleeps or restarts: its models are checked every 30 seconds and skipped while it's
+      away (connect_timeout, default 4 s). Ollama only: num_gpu (0 = on that computer's CPU, leaving the GPU to
+      Voicebox), keep_alive (how long it stays loaded, e.g. 10m, 0, -1), num_ctx, num_thread.
   update_url:
     name: Update manifest
     description: Where to look for new knowledge packs (procedures written by a large model). Change it only if you host your own packs.
@@ -258,6 +261,9 @@ configuration:
   overnight_structure:
     name: Overnight, read what the patterns missed
     description: The overnight model reads recent notes where the built-in patterns found no place, schedule, chore, details or who-is-who, and keeps only what it copies word for word from the note. Off until tests/compare_structure.py shows it helps your model and adds nothing wrong.
+  persona_model:
+    name: Persona model
+    description: A model that rewords answers in the persona's voice (a small one on a GPU computer, e.g. an Ollama qwen3:1.7b). Checked like the rules; slow (over 1.5 s spoken, 4 s written), asleep or a changed fact and the rules style it instead. Empty = rules only.
   phrasebook_grow:
     name: Grow the phrasebook overnight
     description: Each night the overnight model writes new odd ways of saying sleep and workouts. A case is kept only if it can be read, adds no number that wasn't said, and a second blind reading agrees; the rest wait for review on the Health tab.

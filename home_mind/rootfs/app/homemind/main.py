@@ -96,7 +96,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
-            "overnight_structure": False, "phrasebook_grow": True,
+            "overnight_structure": False, "phrasebook_grow": True, "persona_model": "",
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -853,7 +853,16 @@ class App:
         """The persona's voice and emotion marker on an answer (never on errors; facts checked, see persona.py)."""
         try:
             name = (who or "").strip().title() or None
-            return self.persona.apply(res, question, who=name, voice=voice, tired=await self.tired(), kind=kind)
+            if not isinstance(res, dict) or not isinstance(res.get("answer"), str) or res.get("error"):
+                return res
+            emotion = self.persona.emotion(res, question, name, await self.tired(), kind)
+            by_model = None
+            pm = self.opts.get("persona_model")
+            if pm and pm in self.models.models and self.models.up(pm) is not False:
+                # Jeeves's words from a model (on the GPU computer); slow, asleep or a changed fact: the rules instead
+                by_model = await self.persona.style_model(self.models.get(pm), res["answer"], emotion, who=name,
+                                                          voice=voice, timeout=1.5 if voice else 4.0)
+            return self.persona.finish(res, emotion, voice, name, by_model)
         except Exception as e:  # noqa: BLE001 - styling never costs an answer
             log.warning("persona: %s", e)
             return res

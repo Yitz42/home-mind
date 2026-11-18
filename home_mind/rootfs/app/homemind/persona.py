@@ -268,14 +268,54 @@ class Persona:
                                           for i, x in enumerate(parts[1:], 1))
         return f'<speak><prosody rate="{rate}" pitch="{pitch}">{body}</prosody></speak>'
 
+    def styleable(self, plain):
+        p = (plain or "").strip()
+        return bool(p) and "\n" not in p and len(p) <= 600 and not p.startswith(("{", "[", "|", "#", "-", "*")) \
+            and "Say yes" not in p           # a safety question is said word for word
+
+    MODEL_SYSTEM = ("Rewrite the plain answer in your own voice, in the emotion given in brackets. Keep every number, "
+                    "date, name and 'not' exactly; add no facts, advice or questions that aren't in it; at most one "
+                    "short remark. Reply with the rewritten answer only.")
+
+    async def style_model(self, model, plain, emotion, who=None, voice=False, timeout=4.0):
+        """The answer reworded by a model (a small one on a GPU computer will do), or None when it's slow, off, or
+        changed a fact; then the rules style it instead."""
+        import asyncio
+        if not self.settings()["enabled"] or not self.styleable(plain):
+            return None
+        shots = "\n".join(f"[{e['emotion']}] {e['plain']}\n=> {e['styled']}" for e in self.examples()[:8])
+        name = who if self.settings()["address"] == "name" and who else ""
+        system = self.prompt() + "\n\n" + self.MODEL_SYSTEM + ("\nThe person is " + name + "." if name else "") + \
+            ("\nThis is spoken: one or two short sentences." if voice else "") + "\n\nExamples:\n" + shots
+        try:
+            r = await asyncio.wait_for(model.chat(system, [{"role": "user", "content": f"[{emotion}] {plain.strip()}"}],
+                                                  max_tokens=160, temperature=0.4), timeout)
+        except Exception:  # noqa: BLE001
+            return None
+        out = (r.get("text") or "").strip().strip('"').strip()
+        out = re.sub(r"^(?:=>|\[\w+\])\s*", "", out).splitlines()[0].strip() if out else ""
+        ok, _ = check(plain.strip(), out) if out else (False, "")
+        return out if ok and out != plain.strip() else None
+
     def apply(self, result, question="", who=None, voice=False, tired=False, kind="ask"):
-        """Mark an answer with its emotion and style it. Adds emotion, plain (and ssml when on) to the result."""
+        """Mark an answer with its emotion and style it (rules). Adds emotion, plain (and ssml when on)."""
         if not isinstance(result, dict) or not isinstance(result.get("answer"), str) or result.get("error"):
             return result
+        emotion = self.emotion(result, question, who, tired, kind)
+        return self.finish(result, emotion, voice, who, None)
+
+    def emotion(self, result, question="", who=None, tired=False, kind="ask"):
+        return pick_emotion(result, question, tired=tired, repeat=self.repeat(who, question) if kind == "ask"
+                            else False, kind=kind)
+
+    def finish(self, result, emotion, voice=False, who=None, styled_by_model=None):
+        """The styled answer (a model's when it passed the check, else the rules') and its markers."""
         s = self.settings()
-        emotion = pick_emotion(result, question, tired=tired, repeat=self.repeat(who, question) if kind == "ask"
-                               else False, kind=kind)
-        styled, applied = self.style(result["answer"], emotion, who=who, voice=voice)
+        if styled_by_model:
+            styled, applied = styled_by_model, True
+            result["styled_by"] = "model"
+        else:
+            styled, applied = self.style(result["answer"], emotion, who=who, voice=voice)
         result["emotion"] = emotion
         said = self.__dict__.setdefault("_said", {})
         said[self._key(styled if applied else result["answer"])] = emotion

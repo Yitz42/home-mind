@@ -651,7 +651,8 @@ async function load(t) {
   }
   if (t === 'models') { tokens();
     const ms = await api('api/models');
-    $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('') + (ms.some(m => m.type !== 'mock') ? '' : '<tr><td class="mute" colspan="4">no models yet (mock only copies the best note): add one under Settings › Apps › Home Mind › Configuration › Models (type ha_ai_task, ollama, openai or anthropic; see the Documentation tab)</td></tr>');
+    const pc = m => !m.host ? '<span class="mute">—</span>' : m.up === true ? '<span class="ok">up</span>' : m.up === false ? `<span class="bad">away</span> <span class="mute">since ${esc(new Date(m.up_since * 1000).toLocaleTimeString())}</span>` : '<span class="mute">checking</span>';
+    $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>computer</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td>${pc(m)}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('') + (ms.some(m => m.type !== 'mock') ? '' : '<tr><td class="mute" colspan="5">no models yet (mock only copies the best note): add one under Settings › Apps › Home Mind › Configuration › Models (type ha_ai_task, ollama, openai or anthropic; see the Documentation tab)</td></tr>');
     $('#a_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join('');
     const u = await api('api/usage?days=30');
     const n = x => x ? Number(x).toLocaleString() : '—';

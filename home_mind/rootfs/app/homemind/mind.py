@@ -1092,8 +1092,10 @@ class Mind:
         chain = list(dict.fromkeys(chain))
         down = getattr(self, "_down", {})
         now = time.time()
-        return [m for m in chain if now - down.get(m, 0) > self.DOWN_SECONDS] + \
-            [m for m in chain if now - down.get(m, 0) <= self.DOWN_SECONDS]
+        up = getattr(self.models, "up", None)
+        asleep = {m for m in chain if up and up(m) is False}     # its computer isn't answering (asleep, off)
+        ok = [m for m in chain if now - down.get(m, 0) > self.DOWN_SECONDS and m not in asleep]
+        return ok + [m for m in chain if m not in ok]
 
     FOLLOW_SECONDS = 600       # a question can follow up on the one before it for this long
     ORDER = "default"          # option answer_order: "edges" repeats the best note just before the question
@@ -1337,6 +1339,10 @@ class Mind:
                 break
             if left is not None and i < len(chain) - 1:
                 left *= 0.6         # leave the fallbacks time to answer
+            up = getattr(self.models, "up", None)
+            if up and up(m) is False and i < len(chain) - 1:
+                errors.append(f"{m}: its computer isn't answering")      # skipped at once; a fallback answers
+                continue
             try:
                 coro = self.models.get(m).chat(sysmsg, [{"role": "user", "content": content}])
                 r = await (asyncio.wait_for(coro, left) if left is not None else coro)
@@ -1345,6 +1351,8 @@ class Mind:
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                 errors.append(f"{m}: {type(e).__name__} {e}"[:200])
                 self._down[m] = time.time()
+                if re.search(r"Cannot connect|ClientConnector|timed out", str(e)) and hasattr(self.models, "mark"):
+                    self.models.mark(m, False)
         if r is None:
             best = hits[0] if hits else None
             said = best_note(hits, voice)
