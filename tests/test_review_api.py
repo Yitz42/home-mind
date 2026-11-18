@@ -240,6 +240,7 @@ ROUTES = [
     ("POST", "/api/persona", ["enabled", "name", "address", "wit", "ssml", "person"]),
     ("POST", "/api/persona/try", ["text", "emotion"]),
     ("GET", "/api/persona/emotion", ["text"]),
+    ("GET", "/api/persona/corpus", ["n", "download"]),
     ("GET", "/api/phrasebook", ["status", "source", "limit"]),
     ("GET", "/api/phrasebook/export", []),
     ("POST", "/api/phrasebook/{op}", ["said", "plain", "id", "model", "n", "limit", "text"]),

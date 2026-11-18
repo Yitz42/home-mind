@@ -18,6 +18,7 @@ import re
 
 DEVICE = {"type": "string", "description": "The device, room or scene as the person said it, e.g. 'kitchen light'."}
 PERCENT = {"type": "integer", "description": "A level from 1 to 100."}
+LINE = {"type": "string", "description": "The plain log line, keeping the person's own numbers."}
 
 
 def _tool(name, desc, props=None, required=None):
@@ -41,11 +42,16 @@ TOOLS = [
     _tool("lock", "Lock a door lock."),
     _tool("unlock", "Unlock a door lock."),
     _tool("run", "Run a script or activate a scene."),
+    _tool("log_sleep", "Log last night's sleep the person reports, as a plain line: 'slept from 11:30 pm to 6:45 am' "
+          "or 'slept 6.5 hours'. Only their own sleep that already happened.", {"line": LINE}, ["line"]),
+    _tool("log_workout", "Log exercise the person did, as a plain line: 'squat 3x5 at 185 lb, run 3 miles in 28 min' "
+          "or 'yoga 30 min'. Only something already done.", {"line": LINE}, ["line"]),
     _tool("not_a_command", "The request isn't one device action: a question, a reminder, chit-chat, several "
           "actions at once, or it doesn't say which device.", {"reason": {"type": "string", "description":
                                                                         "Why, in a few words."}}, ["reason"]),
 ]
 TOOL_NAMES = {t["function"]["name"] for t in TOOLS}
+LOG_TOOLS = {"log_sleep", "log_workout"}       # sleep and workouts said in words (trained from the phrasebook)
 SYSTEM = "You are a model that can do function calling with the following functions"
 
 # tool -> (act() action, the value argument, domains it can apply to)
@@ -158,6 +164,10 @@ def to_plan(tool, args, catalog, allowed):
         return {"entity_id": None, "why": "no tool call"}
     if tool == "not_a_command":
         return {"entity_id": None, "not_a_command": True, "why": str(args.get("reason") or "")[:200]}
+    if tool in LOG_TOOLS:                     # a log, not a device action: the ask path files it
+        return {"entity_id": None, "log": tool, "line": str(args.get("line") or "")[:200], "why": "a log"}
+    if tool not in ACTION:
+        return {"entity_id": None, "why": f"unknown tool {tool}"}
     action, vkey, _doms = ACTION[tool]
     eid, cands = resolve(str(args.get("device") or ""), catalog, allowed, tool)
     if not eid:
@@ -233,7 +243,7 @@ def example(user, tool, args, history=None):
     return {"messages": msgs, "tools": TOOLS}
 
 
-def build_dataset(things, n_per_device=40, seed=7, test_share=0.2):
+def build_dataset(things, n_per_device=40, seed=7, test_share=0.2, phrasebook=None):
     """things: [{"entity_id", "name"}] (the control list). -> {"train": [...], "test": [...], "counts": {...}}.
     Test examples use phrasings held out of training, and a share of devices whose names never appear in training,
     so the score says how the model does on new wording and new devices."""
@@ -270,10 +280,18 @@ def build_dataset(things, n_per_device=40, seed=7, test_share=0.2):
         (test if i % 5 == 4 else train).append(ex)
         if i % 5 != 4:
             train.append(example(q.capitalize() + "?", "not_a_command", {"reason": "not one device action"}))
+    n_log = 0
+    for i, pr in enumerate(phrasebook or []):          # sleep and workouts in the household's own words
+        tool = {"sleep": "log_sleep", "workout": "log_workout"}.get(pr.get("kind"))
+        ex = example(pr["said"], tool, {"line": pr["plain"]}) if tool else \
+            example(pr["said"], "not_a_command", {"reason": "not a log of sleep or a workout"})
+        (test if i % 5 == 4 else train).append(ex)
+        n_log += 1
     rnd.shuffle(train)
     rnd.shuffle(test)
     return {"train": train, "test": test,
-            "counts": {"train": len(train), "test": len(test), "devices": len(devices), "unseen_devices": len(unseen)}}
+            "counts": {"train": len(train), "test": len(test), "devices": len(devices), "unseen_devices": len(unseen),
+                       "phrasebook": n_log}}
 
 
 def jsonl(rows):

@@ -491,6 +491,8 @@ The answer comes back with `emotion`, the unstyled `plain` text, `persona`, and,
 
 **Facts are never styled.** The persona may add words, never change them: every number, every "not" and every "Say yes" must still be there, and it can't run long, or the plain answer is used. Safety questions are left word for word, and lists, tables and long answers are left as they are.
 
+**Training its own voice:** `tools/train_jeeves_style.ipynb` (Colab) trains a small style model (Qwen3-0.6B) on Home Mind's practice set (System › Persona › *download the practice set*). Gemini writes the persona's version of each made-up answer, and only versions that pass Home Mind's fact check are kept. The model is saved as a GGUF for Ollama on your GPU computer; set it as `persona_model`.
+
 **Hearing it:** the **Home Mind Voice** app (in this repository) speaks answers through Voicebox on another computer with the emotion as a delivery instruction ("speak gently, with quiet concern"), and through Piper when that computer is away. It asks `/api/persona/emotion` for the marker each answer got. See its DOCS.
 
 **Everywhere he speaks:** Ask-box and voice answers, Telegram replies, and the morning and evening briefs. A brief gets his opening and closing lines ("Good morning, Yitz." … "Do take it gently today." on a tired day), and the facts in between are left exactly as they are.
@@ -507,6 +509,8 @@ Log workouts in plain words by voice, chat or `POST /api/fitness/workout`: "squa
 Sleep goals: `sleep_hours` (a night) and `bedtime` (in bed by, e.g. `23:15`). The weekly review counts the nights that met each, the evening brief carries the bedtime goal, and a mostly-missed goal brings a suggestion. **Recent logs** on the Health tab lists the last 30 days of sleep and workouts. **Edit** replaces one (same day; the old one is archived) and **Delete** archives it.
 
 Sleep can be said the same way: "slept from 12 to 7am last night", "went to bed at 11:30 and woke up at 6:45", "slept 6.5 hours". It's filed on `body/sleep` and replaces the watch's number for that night (handy when the watch was off). Other wording works too ("crashed at 12, up at 7", "did 3 sets of 8 squats at 185", "went for a 3 mile run"). If Home Mind can't read a message that clearly mentions sleep or exercise, including one in another language, your model rewrites it into the plain form first. The reply shows what it was read as, and nothing is logged if the rewrite has a number you didn't say.
+
+**On the small local model:** the house-control training file (`/api/control_model/dataset`) now includes the phrasebook, teaching FunctionGemma two more tools, `log_sleep` and `log_workout`. After retraining in `tools/finetune_functiongemma.ipynb`, the control model is asked before a big one when a sleep or workout message isn't read by the built-in rules. Its line is checked the same way.
 
 ### The phrasebook
 Odd ways of saying sleep and workouts, each with the plain line Home Mind reads. It starts with a checked set and grows from four places: model readings of your messages, your corrections right after a log ("no, 6 hours", "that wasn't sleep"), cases you add on the Health tab, and new cases the overnight model writes (option `phrasebook_grow`). A written case is kept only if its line can be read, it has no number that wasn't said, and a second blind reading agrees; otherwise it waits for **Right / Wrong** on the Health tab.
@@ -784,6 +788,7 @@ note), 502 (a model failed) or 500.
 | POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review), `edit` (`kind`, `id`, `text`: what it should say), `delete` (`kind`, `id`) |
 | GET | `/api/persona` | read | the persona's settings, its emotions, examples, and instructions for a voice agent |
 | POST | `/api/persona` | write | any of `enabled`, `name`, `address` (name, sir, madam, none), `wit` (off, low, normal), `ssml`; with `person`, only `enabled`, `address` and `wit` for that person (`null` = back to the house's) |
+| GET | `/api/persona/corpus` | read | `n?`, `download?`: a made-up practice set (plain answers per emotion), the persona's instructions and examples, for training a style model |
 | GET | `/api/persona/emotion` | read | `text`: the emotion of something about to be spoken (the marker its answer got, else read from the words), for the Home Mind Voice app |
 | POST | `/api/persona/try` | write | `text`, `emotion`: the persona's version of a plain answer, and its SSML |
 | GET | `/api/phrasebook` | read | `status?`, `source?`, `limit?`: entries and counts |

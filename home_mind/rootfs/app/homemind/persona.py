@@ -396,6 +396,67 @@ class Persona:
                 "or slang. Keep every number, date, name and 'not' exactly as given; add no facts. If Home Mind's "
                 "answer has an 'emotion' field, speak in that emotion.")
 
+    CORPUS = {   # plain answers like Home Mind's, per emotion, for a style model's practice set ({n}, {m}: numbers)
+        "neutral": ["Done: {room} lights off.", "The {thing} is in the {place}.", "{room} is at {t} degrees.",
+                    "Your next appointment is on {day} at {time}.", "The wifi password is on the note in the {place}."],
+        "pleased": ["Logged: {h} hours of sleep {day} night.", "Protein today: {p} of {pt} g. Target met.",
+                    "Weight: {w} lb, down {d} lb this week; on track for {g} lb."],
+        "proud": ["Logged: squat 3×5 at {lift} lb — a new best.", "Logged: run {mi} miles in {min} min — a new best.",
+                  "{n} workouts this week, your goal met."],
+        "amused": ["The {thing} is in the {place}.", "The wifi password is on the note in the {place}.",
+                   "Trash goes out on {day}."],
+        "disapproving": ["The {thing} was last changed on {date}, {n} days ago.",
+                         "The {thing} was last cleaned on {date}, {n} days ago.", "In bed at {late} last night."],
+        "concerned": ["Logged: {low} hours of sleep {day} night.", "Readiness {r} today, the lowest this week.",
+                      "Protein: {p} of {pt} g, about {short} g short."],
+        "sympathetic": ["You have {n} meetings today, the first at {time}.", "Readiness {r} today.",
+                        "Rain from {time}, {pct}% chance."],
+        "apologetic": ["I don't have anything saved about the {thing}.", "I couldn't find a note about {topic}.",
+                       "No model answered, and nothing in memory matched."],
+        "corrected": ["Fixed: {h} hours of sleep {day} night.", "Fixed: squat 3×5 at {lift} lb.",
+                      "Removed that workout log."],
+        "alert": ["The {door} is not locked.", "The {door} is open.", "The {door} is unlocked and it is {time}."],
+        "relieved": ["Done: {door} locked.", "Done: {door} closed."],
+        "warm": ["All doors are locked and tomorrow's calendar is clear.", "Lights are low and the {door} is locked."],
+    }
+    FILL = {"room": ["kitchen", "living room", "bedroom", "office", "den", "porch"],
+            "thing": ["drill", "spare key", "passport", "tape measure", "furnace filter", "water filter", "smoke detector battery"],
+            "place": ["garage", "kitchen drawer", "hall closet", "basement", "top shelf of the office"],
+            "door": ["front door", "back door", "garage door", "side gate"],
+            "day": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+            "topic": ["the warranty", "the plumber's quote", "the car's last service"]}
+
+    def corpus(self, n=600, seed=7):
+        """Plain answers with an emotion each, for a teacher model to write the persona's versions of (the Colab
+        notebook tools/train_jeeves_style.ipynb). Made up, so no personal data leaves the house."""
+        import random
+        rnd = random.Random(seed)
+        keys = list(self.CORPUS)
+        out, seen = [], set()
+        for i in range(n * 3):
+            if len(out) >= n:
+                break
+            emo = keys[i % len(keys)]
+            tpl = rnd.choice(self.CORPUS[emo])
+            vals = {k: rnd.choice(v) for k, v in self.FILL.items()}
+            vals.update(t=rnd.randint(64, 76), time=f"{rnd.randint(7, 11)}:{rnd.choice(['00', '15', '30', '45'])} "
+                        f"{rnd.choice(['AM', 'PM'])}", h=rnd.choice([7, 7.5, 8, 8.25]), low=rnd.choice([3.5, 4, 4.5, 5]),
+                        p=rnd.randint(60, 140), pt=rnd.choice([120, 130, 140, 150]), short=rnd.randint(20, 60),
+                        w=round(rnd.uniform(150, 220), 1), d=rnd.choice([0.6, 0.8, 1.0, 1.2]),
+                        g=rnd.choice([160, 170, 175, 180]), lift=rnd.choice([135, 155, 185, 195, 205, 225]),
+                        mi=rnd.choice([2, 3, 3.1, 4, 5]), min=rnd.randint(18, 50), n=rnd.randint(3, 120),
+                        date=f"{rnd.choice(['March', 'June', 'August', 'October'])} {rnd.randint(1, 28)}",
+                        late=f"{rnd.choice(['12', '1'])}:{rnd.choice(['15', '30', '45'])} AM", r=rnd.randint(30, 85),
+                        pct=rnd.choice([60, 70, 80, 90]))
+            vals["g"] = int(vals["w"] - rnd.randint(5, 20))          # a goal below the current weight
+            plain = tpl.format(**vals)
+            plain = plain[0].upper() + plain[1:]
+            if (plain, emo) in seen:
+                continue
+            seen.add((plain, emo))
+            out.append({"plain": plain, "emotion": emo})
+        return out
+
     def examples(self):
         """Plain -> persona pairs with their emotion, for training a style model (and for the docs)."""
         cases = [

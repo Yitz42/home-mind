@@ -1053,6 +1053,31 @@ class Mind:
         near = pb is not None and pb.close(t) >= 0.34
         if not (is_sleep or (workout_cue(t) and not PLANS.search(t)) or other_lang or near):
             return None
+        cm = getattr(self, "CONTROL_MODEL", None)
+        up = getattr(getattr(self, "models", None), "up", None)
+        if cm and cm in getattr(getattr(self, "models", None), "models", {}) and (up is None or up(cm) is not False):
+            # the small local model, once trained on the phrasebook (log_sleep / log_workout): no big model needed
+            from . import localctl
+            from .phrasebook import new_numbers
+            try:
+                rc = await asyncio.wait_for(self.models.get(cm).call_tool([{"role": "user", "content": t}],
+                                                                          localctl.TOOLS, system=localctl.SYSTEM), 3)
+                tool, args = localctl.parse_call(rc)
+            except Exception:  # noqa: BLE001
+                tool, args = None, {}
+            line = str((args or {}).get("line") or "").strip()
+            if tool in localctl.LOG_TOOLS and line and not new_numbers(t, line):
+                r = sleep(line) if tool == "log_sleep" else workout(line)
+                if r:
+                    entry = None
+                    if pb is not None:
+                        try:
+                            entry = pb.add(said, line, "learned")["id"]
+                        except ValueError:
+                            pass
+                    r["read_by"] = cm
+                    r["answer"] = r["answer"].rstrip(".") + f" (read as: {line})."
+                    return await done("sleep" if tool == "log_sleep" else "workout", r, line, entry)
         chain = self._chain(model)
         if not chain:
             return None

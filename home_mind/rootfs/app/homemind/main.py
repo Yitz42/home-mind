@@ -221,6 +221,7 @@ class App:
             self.home.prefs = self.prefs
         self.engine = Engine(self.mind.store, self.ha, DATA)
         self.mind.FALLBACK = list(self.opts.get("fallback") or [])
+        self.mind.CONTROL_MODEL = self.opts.get("control_model") or None
         self.mind.ROUTER = self.opts.get("router", True) is not False
         self.mind.ROUTE_LOCAL = list(self.opts.get("router_local") or [])
         self.mind.ROUTE_CLOUD = list(self.opts.get("router_cloud") or [])
@@ -525,7 +526,7 @@ class App:
         tool, args = localctl.parse_call(r)
         plan = localctl.to_plan(tool, args, catalog, self.home.allowed)
         plan["by"] = name
-        if plan.get("not_a_command") or tool is None:
+        if plan.get("not_a_command") or plan.get("log") or tool is None:
             return {}
         if not plan.get("entity_id") and not plan.get("which"):
             return {}          # a name it couldn't place: let the general model try with the whole list
@@ -1622,6 +1623,19 @@ def build(app_state):
         return J({"settings": A.persona.set(b, person=person), "people": A.persona.people(),
                   "prompt": A.persona.prompt()})
 
+    @r.get("/api/persona/corpus")
+    async def persona_corpus(q):
+        """A practice set for training a style model: made-up plain answers per emotion, the persona's
+        instructions, examples, and the fact check's rules (for tools/train_jeeves_style.ipynb)."""
+        n = int(num(q.query.get("n"), "n", 600, 12, 5000))
+        body = {"persona": A.persona.settings()["name"], "prompt": A.persona.prompt(),
+                "style_system": A.persona.MODEL_SYSTEM, "examples": A.persona.examples(),
+                "items": A.persona.corpus(n)}
+        resp = J(body)
+        if q.query.get("download"):
+            resp.headers["Content-Disposition"] = 'attachment; filename="jeeves_corpus.json"'
+        return resp
+
     @r.get("/api/persona/emotion")
     async def persona_emotion(q):
         t = q.query.get("text") or ""
@@ -1888,7 +1902,7 @@ def build(app_state):
         from . import localctl
         if not A.home.catalog:
             await A.home.refresh()
-        d = localctl.build_dataset(A.home.controllable())
+        d = localctl.build_dataset(A.home.controllable(), phrasebook=A.phrasebook.export())
         part = q.query.get("part") or "train"
         if part not in ("train", "test"):
             return J({"error": "part must be train or test"}, status=400)

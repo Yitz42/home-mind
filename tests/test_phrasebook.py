@@ -199,7 +199,55 @@ def test_mind():
     check("'no, 6 hours' with nothing logged isn't a fix", (ask(m2, "no, 6 hours") or {}).get("fixed") is None)
 
 
-for fn in [test_starter, test_checks, test_match_and_similar, test_grow_and_eval, test_mind]:
+def test_functiongemma():
+    """The phrasebook trains the small local model: log_sleep / log_workout tools, examples in its dataset, and the
+    ask path uses its call (checked like any rewrite) before a big model."""
+    from homemind import localctl
+    st, pb = fresh()
+    names = {t["function"]["name"] for t in localctl.TOOLS}
+    check("log tools in the schema", {"log_sleep", "log_workout"} <= names and "not_a_command" in names)
+    d = localctl.build_dataset([{"entity_id": "light.den_lamp", "name": "Den lamp"}], n_per_device=5,
+                               phrasebook=pb.export())
+    rows = d["train"] + d["test"]
+    logs = [r for r in rows if r["messages"][-1]["tool_calls"][0]["function"]["name"] in localctl.LOG_TOOLS]
+    check("phrasebook pairs become examples", d["counts"]["phrasebook"] == len(pb.export()) and len(logs) > 30, d["counts"])
+    nones = [r for r in rows if r["messages"][-2]["content"] == "watched TV for 2 hours last night"]
+    check("a NONE pair teaches not_a_command", nones and
+          nones[0]["messages"][-1]["tool_calls"][0]["function"]["name"] == "not_a_command")
+    check("some pairs held out for the score", any(r["messages"][-1]["tool_calls"][0]["function"]["name"] in
+                                                  localctl.LOG_TOOLS for r in d["test"]))
+    plan = localctl.to_plan("log_sleep", {"line": "slept 6 hours"}, {}, set())
+    check("a log isn't a device action", plan.get("log") == "log_sleep" and plan["entity_id"] is None, plan)
+
+    m, st2, fm = make_mind()
+    raw = {"text": "<start_function_call>call:log_sleep{line:<escape>slept from 1 am to 6:20 am<escape>}<end_function_call>"}
+
+    class Ctl:
+        n = 0
+
+        async def call_tool(self, messages, tools, system=None, max_tokens=96):
+            Ctl.n += 1
+            return raw
+    models = m.models
+
+    class Both:
+        models = {"ctl": Ctl(), "m": fm}
+
+        def get(self, name):
+            return Ctl() if name == "ctl" else models.get(name)
+    m.models = Both()
+    m.CONTROL_MODEL = "ctl"
+    out = ask(m, "conked after the late game at 1, little one had me up at 6:20")
+    check("the local model's log call is used", out and out.get("sleep") and out["sleep"]["read_by"] == "ctl" and
+          out["sleep"]["hours"] == 5.33 and not fm.calls, out)
+    raw["text"] = "<start_function_call>call:log_sleep{line:<escape>slept from 1 am to 9 am<escape>}<end_function_call>"
+    fm.reads["dozed off at 1, kid got me at 6:40"] = "slept from 1 am to 6:40 am"
+    out = ask(m, "dozed off at 1, kid got me at 6:40")
+    check("its line with a number nobody said is refused; the big model reads it", out and
+          out["sleep"].get("read_by") == "m" and out["sleep"]["hours"] == 5.67, out)
+
+
+for fn in [test_starter, test_checks, test_match_and_similar, test_grow_and_eval, test_mind, test_functiongemma]:
     try:
         fn()
     except Exception as e:  # noqa: BLE001

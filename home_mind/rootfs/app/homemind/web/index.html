@@ -281,6 +281,7 @@
     <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px"><input id="ps_text" placeholder="a plain answer, e.g. The furnace filter was changed on March 3, 47 days ago." style="flex:1;min-width:200px" aria-label="Plain answer"><select id="ps_emo" aria-label="emotion"></select><button class="go" onclick="tryPersona()">Try</button></div>
     <div id="ps_out" style="margin-top:8px;font-size:14px"></div>
     <details style="margin-top:10px"><summary class="mute">Examples</summary><div id="ps_ex" style="font-size:13px;margin-top:6px"></div></details>
+    <div class="mute" style="font-size:12px;margin-top:8px">Training a style model: <a href="api/persona/corpus?n=600&download=1">download the practice set</a> for tools/train_jeeves_style.ipynb (made-up answers, nothing personal).</div>
     <details style="margin-top:6px"><summary class="mute">Instructions for your Home Assistant voice agent</summary><div class="mute" style="font-size:12px;margin:6px 0">Paste into the agent's instructions so its own words sound the same.</div><textarea id="ps_prompt" readonly rows="6" style="width:100%" aria-label="Agent instructions"></textarea></details>
   </div>
   <div class="card"><h2>Latest test results</h2><table id="latest"></table></div>

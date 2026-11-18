@@ -183,7 +183,22 @@ def test_telegram():
     check_("no persona: the plain answer", out == "The furnace filter was changed on March 3, 47 days ago.", out)
 
 
-for fn in [test_emotions, test_style, test_check, test_settings_and_markers, test_emotion_for, test_people_and_briefs,
+def test_notebook_in_step():
+    """The style-training notebook keeps only teacher versions that pass Home Mind's own check: same patterns."""
+    import json
+    from homemind import persona
+    nb = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools",
+                                     "train_jeeves_style.ipynb")))
+    src = "".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code").replace("\\\\", "\\")
+    check_("notebook NUM is Home Mind's", persona.NUM.pattern in src)
+    check_("notebook NEG is Home Mind's", persona.NEG.pattern in src)
+    check_("notebook keeps 'Say yes' and the length limit", "Say yes" in src and "limit * len(plain) + 60" in src)
+    c = fresh().corpus(120)
+    check_("the practice set covers every emotion", {x["emotion"] for x in c} == set(persona.EMOTIONS), c[:2])
+    check_("practice sentences never start lowercase", not any(x["plain"][0].islower() for x in c))
+
+
+for fn in [test_notebook_in_step, test_emotions, test_style, test_check, test_settings_and_markers, test_emotion_for, test_people_and_briefs,
            test_telegram]:
     try:
         fn()
