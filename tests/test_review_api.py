@@ -237,6 +237,7 @@ ROUTES = [
     ("GET", "/api/persona", []),
     ("POST", "/api/persona", ["enabled", "name", "address", "wit", "ssml"]),
     ("POST", "/api/persona/try", ["text", "emotion"]),
+    ("GET", "/api/persona/emotion", ["text"]),
     ("GET", "/api/phrasebook", ["status", "source", "limit"]),
     ("GET", "/api/phrasebook/export", []),
     ("POST", "/api/phrasebook/{op}", ["said", "plain", "id", "model", "n", "limit", "text"]),
@@ -436,6 +437,10 @@ def contracts(app, A):
     check("persona: a bad setting is a 400", s == 400, (s, d))
     s, d = call(app, "POST", "/api/persona/try", {"text": "The front door is not locked.", "emotion": "alert"})
     check("persona try", s == 200 and d["styled"] == "I regret to say the front door is not locked.", (s, d))
+    s, d = call(app, "GET", "/api/persona/emotion?text=I%27m+afraid+I+have+no+record")
+    check("persona emotion for spoken words", s == 200 and d["emotion"] == "apologetic", (s, d))
+    s, d = call(app, "GET", "/api/persona/emotion")
+    check("persona emotion without text: 400", s == 400, (s, d))
     s, d = call(app, "POST", "/api/persona/try", {"text": "x", "emotion": "furious"})
     check("persona try: unknown emotion is a 400", s == 400, (s, d))
     s, d = call(app, "POST", "/api/phrasebook/add", {"said": "zonked at 2, up at 9", "plain": "slept from 2 am to 9 am"})

@@ -1552,6 +1552,14 @@ def build(app_state):
         b = await read_body(q, optional=True, name=str, address=str, wit=str)
         return J({"settings": A.persona.set(b), "prompt": A.persona.prompt()})
 
+    @r.get("/api/persona/emotion")
+    async def persona_emotion(q):
+        t = q.query.get("text") or ""
+        if not t.strip():
+            raise ValueError("give text")
+        emo, how = A.persona.emotion_for(t[:2000])
+        return J({"emotion": emo, "from": how})
+
     @r.post("/api/persona/try")
     async def persona_try(q):
         from .persona import EMOTIONS

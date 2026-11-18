@@ -434,6 +434,8 @@ The answer comes back with `emotion`, the unstyled `plain` text, `persona`, and,
 
 **Facts are never styled.** The persona may add words, never change them: every number, every "not" and every "Say yes" must still be there, and it can't run long, or the plain answer is used. Safety questions are left word for word, and lists, tables and long answers are left as they are.
 
+**Hearing it:** the **Home Mind Voice** app (in this repository) speaks answers through Voicebox on another computer with the emotion as a delivery instruction ("speak gently, with quiet concern"), and through Piper when that computer is away. It asks `/api/persona/emotion` for the marker each answer got. See its DOCS.
+
 Settings are on the System page (name, how it addresses you, wit off/low/normal, on/off, SSML), with a **Try** box and the examples. Your Home Assistant voice agent writes some answers itself: paste the **instructions for your voice agent** from that card into the agent's instructions so it sounds the same.
 
 ## Fitness goals (0.28)
@@ -713,6 +715,7 @@ note), 502 (a model failed) or 500.
 | POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review) |
 | GET | `/api/persona` | read | the persona's settings, its emotions, examples, and instructions for a voice agent |
 | POST | `/api/persona` | write | any of `enabled`, `name`, `address` (name, sir, madam, none), `wit` (off, low, normal), `ssml` |
+| GET | `/api/persona/emotion` | read | `text`: the emotion of something about to be spoken (the marker its answer got, else read from the words), for the Home Mind Voice app |
 | POST | `/api/persona/try` | write | `text`, `emotion`: the persona's version of a plain answer, and its SSML |
 | GET | `/api/phrasebook` | read | `status?`, `source?`, `limit?`: entries and counts |
 | GET | `/api/phrasebook/export` | read | every active pair, for training |

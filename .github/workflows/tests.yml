@@ -86,5 +86,7 @@ jobs:
         run: python tests/test_phrasebook.py
       - name: Persona (Jeeves, emotion markers)
         run: python tests/test_persona.py
+      - name: Voice bridge (Voicebox, emotions, Piper fallback)
+        run: python tests/test_voice_bridge.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py

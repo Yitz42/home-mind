@@ -137,10 +137,48 @@ def pick_emotion(result, question="", tired=False, repeat=False, kind="ask", now
     return "neutral"
 
 
+TEXT_CUES = [     # the words that give an emotion away (the same list the voice bridge uses)
+    ("alert", r"\bSay yes\b|\bI regret to say\b|\b(?:is|are) (?:not locked|unlocked|left open)\b|\balarm\b.*\b(?:trigger|going off)"),
+    ("corrected", r"\b(?:quite right, my mistake|my mistake, quite right|my mistake)\b"),
+    ("proud", r"\bmy congratulations\b|\bwell done\b|\ba new best\b"),
+    ("apologetic", r"\bI'?m afraid\b|\bmy apologies\b|\bI'?m sorry\b"),
+    ("sympathetic", r"\btake it gently\b|\btake it easy\b"),
+    ("concerned", r"\bearly night\b|\blook after yourself\b"),
+    ("disapproving", r"\bif I may say so\b|\bone hesitates\b|\bsomewhat overdue\b"),
+    ("amused", r"\bI might add\b"),
+    ("pleased", r"\bmost satisfactory\b|\bvery satisfactory\b|\bmost gratifying\b"),
+    ("relieved", r"\bmost reassuring\b"),
+    ("warm", r"\bgood night\b|\benjoy the evening\b"),
+]
+_TEXT_CUES = [(e, re.compile(rx, re.I)) for e, rx in TEXT_CUES]
+
+
+def emotion_of_text(text):
+    for emo, rx in _TEXT_CUES:
+        if rx.search(text or ""):
+            return emo
+    return "neutral"
+
+
 class Persona:
     def __init__(self, store):
         self.store = store
         self._recent = {}
+
+    def _key(self, text):
+        return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()[:300]
+
+    def emotion_for(self, text):
+        """The emotion of something about to be spoken: the marker Home Mind gave that answer (the voice agent
+        may repeat it word for word, or quote part of it), else read from the words. For a voice bridge."""
+        k = self._key(text)
+        said = self.__dict__.setdefault("_said", {})
+        if k in said:
+            return said[k], "answer"
+        for ans, emo in reversed(list(said.items())):
+            if k and len(k) >= 20 and (k in ans or ans in k):
+                return emo, "answer"
+        return emotion_of_text(text), "words"
 
     def settings(self):
         s = dict(DEFAULT)
@@ -239,6 +277,10 @@ class Persona:
                                else False, kind=kind)
         styled, applied = self.style(result["answer"], emotion, who=who, voice=voice)
         result["emotion"] = emotion
+        said = self.__dict__.setdefault("_said", {})
+        said[self._key(styled if applied else result["answer"])] = emotion
+        if len(said) > 300:
+            said.pop(next(iter(said)))
         if applied:
             result["plain"] = result["answer"]
             result["answer"] = styled

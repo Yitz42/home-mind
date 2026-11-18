@@ -1,0 +1,46 @@
+name: Home Mind Voice
+version: "0.1.0"
+slug: home_mind_voice
+description: Jeeves's voice from Voicebox on another computer, with Home Mind's emotions, and Piper when it's away
+url: https://github.com/Yitz42/home-mind
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+hassio_api: true
+discovery:
+  - wyoming
+ports:
+  10200/tcp: null
+ports_description:
+  10200/tcp: Wyoming (Home Assistant reaches it on the internal network; leave empty)
+options:
+  voicebox_url: ""
+  voice: Jeeves
+  model: tts-1
+  language: en_GB
+  emotions: true
+  timeout_seconds: 10
+  retry_seconds: 60
+  speed: 1.0
+  fallback_host: core-piper
+  fallback_port: 10200
+  fallback_voice: ""
+  homemind_url: ""
+  homemind_token: ""
+schema:
+  voicebox_url: str?
+  voice: str
+  model: str
+  language: str
+  emotions: bool
+  timeout_seconds: float(1,60)
+  retry_seconds: int(5,3600)
+  speed: float(0.5,2)
+  fallback_host: str?
+  fallback_port: port
+  fallback_voice: str?
+  homemind_url: str?
+  homemind_token: password?

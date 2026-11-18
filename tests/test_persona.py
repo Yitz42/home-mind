@@ -113,7 +113,19 @@ def test_settings_and_markers():
     check_("every emotion has a description", all(v.get("when") and v.get("how") for v in EMOTIONS.values()))
 
 
-for fn in [test_emotions, test_style, test_check, test_settings_and_markers]:
+def test_emotion_for():
+    p = fresh()
+    r = p.apply({"answer": "Logged: 4 hours of sleep Monday night.", "sleep": {"hours": 4}}, "slept 4 hours")
+    check_("the spoken answer gets its own marker", p.emotion_for(r["answer"]) == ("concerned", "answer"),
+           p.emotion_for(r["answer"]))
+    check_("quoted by the voice agent, still found", p.emotion_for("Noted: 4 hours of sleep Monday night.")[0] ==
+           "concerned", p.emotion_for("Noted: 4 hours of sleep Monday night."))
+    check_("words Home Mind never said: read from the words",
+           p.emotion_for("Very well. My congratulations on the promotion.") == ("proud", "words"))
+    check_("nothing to go on: neutral", p.emotion_for("The kettle is on.") == ("neutral", "words"))
+
+
+for fn in [test_emotions, test_style, test_check, test_settings_and_markers, test_emotion_for]:
     try:
         fn()
     except Exception as e:  # noqa: BLE001
