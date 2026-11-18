@@ -28,6 +28,7 @@ Fitness goals, built on the scale, meal and watch data Home Mind already collect
   - New Ollama settings `num_gpu` (0 = on the CPU, leaving the GPU to Voicebox), `keep_alive`, `num_ctx` and `num_thread`, plus `connect_timeout` for any model.
   - New option `persona_model`: a model on that computer rewords answers in Jeeves's voice, with the same fact check, and the rules take over if it's slow, away or changes a fact.
   - The docs give a starting setup for an 8 GB GPU shared with Voicebox.
+- **Fixed: days ended at midnight UTC.** The image had no time zone data, so the time zone Supervisor passes was ignored. After 7 PM in New York a meal counted for tomorrow, and "last night" and the weekly review could be off by a day. The image now includes tzdata, Home Mind applies Home Assistant's own time zone at startup, and the Overview warns if it can't.
 - **Watch zeros aren't readings:** a readiness or sleep of 0 (watch off or not synced) shows as "–" and no longer makes a "tired day". Yesterday's fog rating no longer counts as today's.
 
 ## 0.27.0

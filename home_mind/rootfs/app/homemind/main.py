@@ -154,6 +154,7 @@ class App:
         return {"version": VERSION, "uptime_s": int(time.time() - self.started), **self.mind.store.stats(),
                 "packs": self.updater.installed(), "models": [m["name"] for m in self.models.list()],
                 "bridge": self.bridge, "in_home_assistant": bool(self.ha and self.ha.available),
+                "time": __import__("homemind.tz", fromlist=["status"]).status(),
                 "updates": self.updater.last and {k: v for k, v in self.updater.last.items() if k != "manifest"}}
 
     # ---- lifecycle --------------------------------------------------------------------------------------------
@@ -167,6 +168,17 @@ class App:
             except Exception as e:  # noqa: BLE001 - a missing model name: keyword search only
                 log.warning("embed_model: %s", e)
         self.ha = HA(self.models.session)
+        from . import tz
+        tz.apply(os.environ.get("TZ"))
+        if self.ha.available:
+            try:        # Home Assistant's own time zone wins: "today" and "last night" end when the house's day does
+                conf = await asyncio.wait_for(self.ha.get_json("config"), 10)
+                tz.apply((conf or {}).get("time_zone"))
+            except Exception as e:  # noqa: BLE001
+                log.warning("time zone from Home Assistant: %s", e)
+        st = tz.status()
+        (log.info if st["ok"] else log.warning)("time zone %s (UTC%s)%s", st["time_zone"], st["utc_offset"],
+                                                f": {st['problem']}" if st["problem"] else "")
         self.ha.quiet = quiet_window(self.opts)
         self.ha.cap = int(self.opts.get("notify_daily_cap") or 0)
         from .tokens import Tokens

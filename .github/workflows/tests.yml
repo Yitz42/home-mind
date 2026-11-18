@@ -90,5 +90,7 @@ jobs:
         run: python tests/test_voice_bridge.py
       - name: GPU computer as a model server (up/away, Ollama options, persona model)
         run: python tests/test_gpu_server.py
+      - name: The house's time zone
+        run: python tests/test_timezone.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py
