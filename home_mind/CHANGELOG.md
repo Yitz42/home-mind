@@ -28,6 +28,8 @@ Fitness goals, built on the scale, meal and watch data Home Mind already collect
   - New Ollama settings `num_gpu` (0 = on the CPU, leaving the GPU to Voicebox), `keep_alive`, `num_ctx` and `num_thread`, plus `connect_timeout` for any model.
   - New option `persona_model`: a model on that computer rewords answers in Jeeves's voice, with the same fact check, and the rules take over if it's slow, away or changes a fact.
   - The docs give a starting setup for an 8 GB GPU shared with Voicebox.
+- **Commands said in a room:** with the voice device's room known (Home Assistant areas), "lights off" means that room's lights and "turn off the light" means its only light. A named room or "all the lights" still wins, and anything unclear works across the house as before.
+- **The database's safety net:** a daily snapshot (the last 7 kept). At startup a damaged database is moved aside, the newest good snapshot is restored, and you're told from when.
 - **Training sets:**
   - **Jeeves style model:** `tools/train_jeeves_style.ipynb` trains Qwen3-0.6B. Gemini writes Jeeves's versions of a made-up practice set downloaded from the Persona card, only versions that pass Home Mind's own fact check are kept, and the model is saved as a GGUF for Ollama to use as `persona_model`.
   - **Phrasebook → FunctionGemma:** the house-control training file now includes the phrasebook, with two new tools, `log_sleep` and `log_workout`. Once retrained, the small local model reads odd sleep and workout wording before any big model, through the same checks.

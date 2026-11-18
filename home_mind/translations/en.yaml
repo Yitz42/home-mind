@@ -270,6 +270,9 @@ configuration:
   router_cloud:
     name: Cloud models (router)
     description: Models tried first for harder questions. Empty = the other fallback models.
+  db_snapshots:
+    name: Database snapshots to keep
+    description: One a day. If the database is ever damaged, Home Mind starts from the newest good one, tells you, and keeps the damaged file.
   away_alert_hours:
     name: Tell me when a model computer is away (hours)
     description: When a computer your models run on (e.g. the GPU laptop) hasn't answered for this long, one notification, and another when it's back. 0 = never.

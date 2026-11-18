@@ -107,6 +107,35 @@ class Home:
                 return {"kind": "reading"}
         return None
 
+    areas = {}                  # entity_id -> room (lower case), from Home Assistant's areas
+
+    AREAS_TEMPLATE = ("{% set ns = namespace(out=[]) %}{% for s in states %}{% set a = area_name(s.entity_id) %}"
+                      "{% if a %}{% set ns.out = ns.out + [[s.entity_id, a]] %}{% endif %}{% endfor %}"
+                      "{{ ns.out | tojson }}")
+
+    async def load_areas(self):
+        """Which room each entity is in (Home Assistant's areas), for "lights off" said in a room."""
+        import json as _json
+        txt = await self.ha.render(self.AREAS_TEMPLATE)
+        try:
+            pairs = _json.loads(txt) if txt else None
+        except ValueError:
+            pairs = None
+        if isinstance(pairs, list):
+            self.areas = {e: str(a).lower() for e, a in pairs if isinstance(e, str) and a}
+        return len(getattr(self, "areas", {}) or {})
+
+    async def area_of_device(self, device_id):
+        """The room a voice device (satellite) is in, by its device id; cached."""
+        if not device_id:
+            return None
+        cache = self.__dict__.setdefault("_dev_area", {})
+        if device_id not in cache:
+            safe = str(device_id).replace("'", "")
+            txt = await self.ha.render("{{ area_name('" + safe + "') or '' }}")
+            cache[device_id] = (txt or "").strip().lower() or None
+        return cache[device_id]
+
     async def refresh(self):
         states = await self.ha.states()
         if not states:

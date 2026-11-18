@@ -96,7 +96,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
-            "overnight_structure": False, "phrasebook_grow": True, "persona_model": "", "away_alert_hours": 3, "router": True, "router_local": [], "router_cloud": [],
+            "overnight_structure": False, "phrasebook_grow": True, "persona_model": "", "away_alert_hours": 3, "router": True, "router_local": [], "router_cloud": [], "db_snapshots": 7,
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -135,6 +135,8 @@ class App:
                             format="%(asctime)s %(levelname)s %(name)s: %(message)s")
         self.token = load_token()
         self.models = Models(self.opts.get("models"))
+        from . import dbguard
+        self.db_report = dbguard.guard(os.path.join(DATA, "mind.db"))   # a damaged database: the newest good snapshot
         self.mind = Mind(DATA, self.models)
         self.usage = Usage(self.mind.store, {m["name"]: (float(m["price_in"]), float(m["price_out"]))
                                              for m in (self.opts.get("models") or [])
@@ -155,6 +157,8 @@ class App:
                 "packs": self.updater.installed(), "models": [m["name"] for m in self.models.list()],
                 "bridge": self.bridge, "in_home_assistant": bool(self.ha and self.ha.available),
                 "time": __import__("homemind.tz", fromlist=["status"]).status(),
+                "database": dict(__import__("homemind.dbguard", fromlist=["status"]).status(self.mind.store.path),
+                                 restored=self.db_report and {k: v for k, v in self.db_report.items() if k != "told"}),
                 "updates": self.updater.last and {k: v for k, v in self.updater.last.items() if k != "manifest"}}
 
     # ---- lifecycle --------------------------------------------------------------------------------------------
@@ -414,7 +418,7 @@ class App:
             return {"answer": f"OK, I won't {p['verb']} the {p['name']}.", "cancelled": True}
         return None
 
-    async def do(self, text, model=None, source="api", conversation_id=None, deadline=None):
+    async def do(self, text, model=None, source="api", conversation_id=None, deadline=None, area=None):
         """A request in words ("dim the desk light to 30%") -> one checked action, planned by a model. A lock, alarm
         or garage door is never moved on words alone: with a conversation_id it asks, and a "yes" in the same
         conversation within PENDING_SECONDS does it (pending_reply). deadline (seconds; voice): planning that takes
@@ -428,6 +432,21 @@ class App:
         if not model and opts.get("rule_planner", True) is not False:
             # plain commands need no model at all: "kitchen light off", "den lamp to 40%", "lights off and lock up"
             from . import planner
+            room = self.room_for(text, area) if area else None
+            if room:
+                # said in a room without naming one: "lights off" means this room's lights, if that's clear
+                sub = {e: c for e, c in self.home.catalog.items() if (self.home.areas or {}).get(e) == room}
+                steps = planner.plan(text, sub, self.home.allowed) if sub else None
+                g = re.search(r"\bthe (light|lamp|fan|blinds?|shades?|curtains?)\b", text, re.I)
+                if sub and g and not (steps and all(s.get("entity_id") for s in steps)):
+                    # "the light" in a room with one light: that one, by its name
+                    dom = {"light": "light", "lamp": "light", "fan": "fan"}.get(g.group(1).lower(), "cover")
+                    one = [e for e in sub if e.split(".")[0] == dom]
+                    if len(one) == 1:
+                        named = text[:g.start()] + (sub[one[0]].get("name") or one[0]) + text[g.end():]
+                        steps = planner.plan(named, sub, self.home.allowed)
+                if steps and all(s.get("entity_id") for s in steps):
+                    return dict(await self._run_steps(steps, text, source, conversation_id, "rules"), room=room)
             steps = planner.plan(text, self.home.catalog, self.home.allowed)
             if steps:
                 return await self._run_steps(steps, text, source, conversation_id, "rules")
@@ -457,6 +476,18 @@ class App:
         if plan.get("actions"):
             return await self._run_steps(plan["actions"], text, source, conversation_id, model)
         return await self._run_plan(plan, text, source, conversation_id)
+
+    def room_for(self, text, area):
+        """The room to keep a command to: where it was said, unless the words name a room (or the whole house)."""
+        if not area or not getattr(self.home, "areas", None):
+            return None
+        rooms = set(self.home.areas.values())
+        t = " " + re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower()) + " "
+        if any(f" {r} " in t for r in rooms) or re.search(r"\b(?:all|every|everywhere|whole house|house|downstairs|"
+                                                         r"upstairs|outside)\b", t):
+            return None
+        a = area.lower()
+        return a if a in rooms else None
 
     def _said(self, plan):
         name = (self.home.catalog.get(plan.get("entity_id")) or {}).get("name") or plan.get("entity_id")
@@ -592,8 +623,28 @@ class App:
 
     async def _upkeep_step(self, last):
         now = time.time()
+        if now - last.get("snapshot", 0) > 3600:
+            last["snapshot"] = now
+            from . import dbguard
+            try:
+                st = self.mind.store
+                made = dbguard.snapshot(st.db, st.path, int(self.opts.get("db_snapshots", 7) or 7))
+                if made:
+                    log.info("database snapshot: %s", made)
+            except Exception as e:  # noqa: BLE001
+                log.warning("database snapshot: %s", e)
+        rep = getattr(self, "db_report", None)
+        if rep and self.ha.available and not rep.get("told"):
+            rep["told"] = True
+            await self.ha.notify("Home Mind: database restored", rep["message"], "home_mind_db")
         if self.ha.available and self.mind.home and now - last["home"] > 300:
             last["home"] = now
+            if now - last.get("areas", 0) > 1800:
+                last["areas"] = now
+                try:
+                    await self.home.load_areas()          # rooms, for "lights off" said in a room
+                except Exception as e:  # noqa: BLE001
+                    log.warning("areas: %s", e)
             try:
                 await self.home.refresh()
                 n = self.home.log_changes(first=last["home_first"])
@@ -1479,10 +1530,17 @@ def build(app_state):
 
     @r.post("/api/do")
     async def home_do(q):
-        b = model_ok(await read_body(q, text=str, source=str, conversation_id=str, deadline=float))
+        b = model_ok(await read_body(q, text=str, source=str, conversation_id=str, deadline=float, area=str,
+                                     device_id=str))
         deadline = b.get("deadline") or (A.mind.VOICE_SECONDS if b.get("voice") else None)
+        area = b.get("area") or None
+        if not area and b.get("device_id") and A.ha and A.ha.available:
+            try:
+                area = await asyncio.wait_for(A.home.area_of_device(b["device_id"]), 3)
+            except Exception:  # noqa: BLE001
+                area = None
         res = await A.do(b.get("text", ""), b.get("model"), b.get("source", "api"),
-                         conversation_id=b.get("conversation_id"), deadline=deadline)
+                         conversation_id=b.get("conversation_id"), deadline=deadline, area=area)
         return J(await styled_(res, b.get("text", ""), A.speaker_for(b)[0], bool(b.get("voice")), "do"))
 
     @r.get("/api/automations")

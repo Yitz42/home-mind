@@ -415,6 +415,12 @@ If Home Assistant runs on modest hardware, a 270M-parameter model trained on you
 
 House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
 
+## Commands said in a room (0.28)
+When a voice request says where it came from (the voice device's `device_id`, or `area`, sent to `/api/do`), Home Mind uses Home Assistant's areas: "lights off" said in the bedroom turns off the bedroom's lights, and "turn off the light" in the den turns off the den's only light, with no "which one?". If the words name a room ("kitchen lights off") or the whole house ("all the lights"), that wins. If the room has nothing that fits, the request works across the house as before. Rooms are read from Home Assistant every 30 minutes.
+
+## The database's safety net (0.28)
+Home Mind takes a snapshot of its database once a day (option `db_snapshots`, the last 7 kept, in its data folder under `snapshots/`). At startup it checks the database. If it's damaged (a power cut mid-write, a failing disk), the damaged file is moved aside and kept, and the newest good snapshot is put in its place. You get a notification and an Overview note saying from when, and that anything saved after that is missing. With no good snapshot it starts empty and keeps the damaged file. Home Assistant's own backups still cover everything.
+
 ## Choosing the model: the router (0.28)
 When a question doesn't name a model (the Ask box, Telegram, a voice agent that leaves it to Home Mind), the router picks the order:
 
@@ -572,6 +578,7 @@ you turn them on are listed after the tables.
 | `phrasebook_grow` | on | Each night, write new odd wordings for sleep and workouts; keep those a blind second reading agrees with |
 | `persona_model` | empty | a model that rewords answers in the persona's voice (checked like the rules); empty = rules only |
 | `away_alert_hours` | 3 | a notification when a model computer has been away this long, and when it's back; 0 = never |
+| `db_snapshots` | 7 | daily database snapshots to keep; a damaged database is restored from the newest good one |
 | `router` | on | with no model named, choose by the question: simple and private ones local first, harder ones to the cloud first |
 | `router_local` | empty | models on your computers (empty = the fallback models on your network) |
 | `router_cloud` | empty | models tried first for harder questions (empty = the other fallback models) |

@@ -133,6 +133,7 @@ options:
   router: true
   router_local: []
   router_cloud: []
+  db_snapshots: 7
 schema:
   models:
     - name: str
@@ -261,3 +262,4 @@ schema:
     - str
   router_cloud:
     - str
+  db_snapshots: int(1,60)?

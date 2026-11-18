@@ -124,7 +124,7 @@ def app(big=None, opts=None):
                                                                                          get=lambda n: models[n]))
     for n in ("YES", "NO", "PENDING_SECONDS"):
         setattr(A, n, getattr(M.App, n))
-    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan", "_run_steps", "_said"):
+    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan", "_run_steps", "_said", "room_for"):
         setattr(A, n, getattr(M.App, n).__get__(A))
     return A, ha, big
 
@@ -229,8 +229,39 @@ def odd():
         check(f"odd text {t[:20]!r} doesn't break the planner", ok)
 
 
+def rooms():
+    """Said in a room without naming one: that room's devices, when that's clear; a named room or 'all' wins."""
+    A, ha, big = app()
+    A.home.areas = {"light.kitchen": "kitchen", "light.kitchen_counter": "kitchen", "light.bedroom": "bedroom",
+                    "light.nightstand": "bedroom", "light.den_lamp": "den", "light.office_desk": "office",
+                    "light.hall": "hall", "light.porch": "porch"}
+    r = run(A, "lights off", area="Bedroom")
+    got = sorted(c[2]["entity_id"] for c in ha.calls)
+    check("'lights off' in the bedroom: the bedroom's lights", got == ["light.bedroom", "light.nightstand"] and
+          r.get("room") == "bedroom", (got, r))
+    ha.calls.clear()
+    r = run(A, "turn off the light", area="den")
+    check("'the light' in the den: the den lamp, no 'which one?'", [c[2]["entity_id"] for c in ha.calls] ==
+          ["light.den_lamp"], (ha.calls, r))
+    ha.calls.clear()
+    run(A, "kitchen lights off", area="bedroom")
+    check("a named room wins", sorted(c[2]["entity_id"] for c in ha.calls) == ["light.kitchen", "light.kitchen_counter"],
+          ha.calls)
+    ha.calls.clear()
+    run(A, "turn off all the lights", area="den")
+    check("'all the lights' is the whole house", len(ha.calls) == len(B.LIGHTS), len(ha.calls))
+    ha.calls.clear()
+    r = run(A, "turn off the light", area="garage")
+    check("a room with no such device: as before (it asks which)", r.get("which") and not ha.calls, r)
+    ha.calls.clear()
+    A.home.areas = {}
+    r = run(A, "lights off", area="bedroom")
+    check("rooms unknown: as before", len(ha.calls) == len(B.LIGHTS) and "room" not in r)
+
+
 single()
 multi()
+rooms()
 fallback()
 model_multi()
 bench()

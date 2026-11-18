@@ -697,6 +697,7 @@ async function load(t) {
 // first-run hints for the Overview: what still needs doing, each with where to do it (values escaped)
 function startSteps(s) {
   const out = [], models = (s.models || []).filter(m => m !== 'mock');   // mock is always there: it only copies notes
+  if (s.database && s.database.restored) out.push(`Database: ${esc(s.database.restored.message)}`);
   if (s.time && s.time.problem) out.push(`Time zone: ${esc(s.time.problem)}. Set it under Settings › System › General, then restart Home Mind.`);
   if (!models.length) out.push('No models are set up, so answers are the best matching note. Add one under Settings › Apps › Home Mind › Configuration › Models (see the Documentation tab), then check it on the <a onclick="document.querySelector(\'nav button[data-t=models]\').click()">Models</a> tab.');
   if (s.in_home_assistant === false) out.push('Not running inside Home Assistant: house watching, phone notifications and Home Assistant models (ha_ai_task, ha_conversation) are off.');

@@ -40,6 +40,18 @@ class HA:
                 raise RuntimeError(f"{path}: {r.status} {(await r.text())[:200]}")
             return await r.json()
 
+    async def render(self, template, timeout=20):
+        """A Home Assistant template rendered to text (POST /api/template), or None."""
+        if not self.token:
+            return None
+        try:
+            async with self.session.post(f"{SUPERVISOR}/core/api/template", json={"template": template},
+                                         headers={"Authorization": f"Bearer {self.token}"},
+                                         timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+                return await r.text() if r.status == 200 else None
+        except Exception:  # noqa: BLE001
+            return None
+
     async def state(self, entity_id):
         if not self.token:
             return None
