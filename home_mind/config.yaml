@@ -130,6 +130,9 @@ options:
   phrasebook_grow: true
   persona_model: ""
   away_alert_hours: 3
+  router: true
+  router_local: []
+  router_cloud: []
 schema:
   models:
     - name: str
@@ -253,3 +256,8 @@ schema:
   phrasebook_grow: bool?
   persona_model: str?
   away_alert_hours: float(0,168)?
+  router: bool?
+  router_local:
+    - str
+  router_cloud:
+    - str

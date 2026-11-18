@@ -261,6 +261,15 @@ configuration:
   overnight_structure:
     name: Overnight, read what the patterns missed
     description: The overnight model reads recent notes where the built-in patterns found no place, schedule, chore, details or who-is-who, and keeps only what it copies word for word from the note. Off until tests/compare_structure.py shows it helps your model and adds nothing wrong.
+  router:
+    name: Choose the model by the question
+    description: When no model is named (the Ask box, Telegram, a voice agent that leaves it to Home Mind), simple lookups go to a local model first, harder questions (why, compare, plan, summarise) to the cloud model first, and private ones (health, money, personal notes) local first. Off = such questions get the best matching note, as before.
+  router_local:
+    name: Local models (router)
+    description: Models on your own computers, tried first for simple and private questions. Empty = the fallback models that run on your network.
+  router_cloud:
+    name: Cloud models (router)
+    description: Models tried first for harder questions. Empty = the other fallback models.
   away_alert_hours:
     name: Tell me when a model computer is away (hours)
     description: When a computer your models run on (e.g. the GPU laptop) hasn't answered for this long, one notification, and another when it's back. 0 = never.

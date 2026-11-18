@@ -415,6 +415,17 @@ If Home Assistant runs on modest hardware, a 270M-parameter model trained on you
 
 House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
 
+## Choosing the model: the router (0.28)
+When a question doesn't name a model (the Ask box, Telegram, a voice agent that leaves it to Home Mind), the router picks the order:
+
+- **Simple lookups** ("where's the drill?") go to a **local** model first, such as the one on the GPU computer: quick, and nothing leaves the house.
+- **Harder questions** (why, compare, plan, summarise, explain; long or several parts) go to the **cloud** model first.
+- **Private questions** (health, body, food, money, passwords; or a personal or health note among the matches) go local first, whatever their difficulty.
+- A computer that's away goes to the back, so while the GPU laptop sleeps everything goes to the cloud model without waiting.
+- If a local model says it doesn't know although good notes were found, the next model gets one try. If that fails too, the local answer stands.
+
+Local and cloud come from `router_local` / `router_cloud`, or by default the `fallback` list split by where each model runs. The answer carries `route` (simple or complex, private, and whether it was escalated). A named model is never rerouted. With `router` off, a question with no model named gets the best matching note, as before 0.28.
+
 ## Data answers (0.28)
 Questions about your own numbers are answered from the numbers, not by a model reading notes and doing the arithmetic. Each question is matched to a measure and a period, the value is computed from what Home Mind saved, and the sentence is written from a template:
 
@@ -557,6 +568,9 @@ you turn them on are listed after the tables.
 | `phrasebook_grow` | on | Each night, write new odd wordings for sleep and workouts; keep those a blind second reading agrees with |
 | `persona_model` | empty | a model that rewords answers in the persona's voice (checked like the rules); empty = rules only |
 | `away_alert_hours` | 3 | a notification when a model computer has been away this long, and when it's back; 0 = never |
+| `router` | on | with no model named, choose by the question: simple and private ones local first, harder ones to the cloud first |
+| `router_local` | empty | models on your computers (empty = the fallback models on your network) |
+| `router_cloud` | empty | models tried first for harder questions (empty = the other fallback models) |
 | `learn_filing` | on | Learn where notes go |
 | `fade_days` | 60 | Fade unused notes after N days |
 | `events_keep_days` | 90 | Keep the detailed activity log for (days) |

@@ -592,8 +592,8 @@ def nothing_close(store, question, hits):
     return not hits or weak_match(store, question, hits)
 
 
-DONT_KNOW = re.compile(r"(don'?t know|do not know|not sure|no (?:record|note|information)|nothing in memory|"
-                       r"can'?t find|cannot find|doesn'?t say|does not say)", re.I)
+DONT_KNOW = re.compile(r"\b(don'?t know|do not know|not sure|no (?:record|note|information)|nothing in memory|"
+                       r"can'?t find|cannot find|doesn'?t say|does not say)\b", re.I)
 
 
 def sources_for(answer, hits, question):
@@ -1042,6 +1042,9 @@ class Mind:
         from .fitness import workout_cue, PLANS
         from .langs import guess
         t = said.strip()
+        if not model or model == "auto":     # nothing named (the Ask box): the router's first choice, local first
+            order, _ = self.routed("where is it", None)
+            model = (order or [None])[0]
         if not model or t.endswith("?") or re.match(r"^(?:what|where|when|who|which|why|how|remind|can|could|should)\b",
                                                      t, re.I) or len(t) > 300:
             return None
@@ -1084,6 +1087,46 @@ class Mind:
         r["read_by"] = chain[0]
         r["answer"] = r["answer"].rstrip(".") + f" (read as: {line})."
         return await done("sleep" if is_sleep else "workout", r, line, entry)
+
+    ROUTER = True               # option router: with no model named, pick by difficulty and privacy
+    ROUTE_LOCAL, ROUTE_CLOUD = [], []
+
+    def route_lists(self):
+        """(local, cloud) model names: the options router_local/router_cloud, else the fallback list split by where
+        each model runs (a computer on your network = local)."""
+        names = set(getattr(getattr(self, "models", None), "models", None) or {})
+        if not names:
+            return [], []
+        local = [m for m in self.ROUTE_LOCAL if m in names]
+        cloud = [m for m in self.ROUTE_CLOUD if m in names]
+        if not local and not cloud:
+            for m in self.FALLBACK:
+                if m not in names or m == "mock":
+                    continue
+                ep = self.models.get(m).endpoint() if hasattr(self.models.get(m), "endpoint") else None
+                (local if ep and not ep[0].endswith((".com", ".ai", ".io", ".net", ".org")) else cloud).append(m)
+        return local, cloud
+
+    def routed(self, question, hits=None, voice=False):
+        """The router's model order for a question (None when routing is off or there's nothing to route to)."""
+        if not self.ROUTER:
+            return None, None
+        local, cloud = self.route_lists()
+        if not local and not cloud:
+            return None, None
+        from .router import route
+        order, info = route(question, hits, local, cloud, voice)
+        return self._order(order), info
+
+    def _order(self, chain):
+        """Models that failed in the last few minutes, or whose computer is away, go last."""
+        chain = list(dict.fromkeys(chain))
+        down = getattr(self, "_down", {})
+        now = time.time()
+        up = getattr(self.models, "up", None)
+        asleep = {m for m in chain if up and up(m) is False}
+        ok = [m for m in chain if now - down.get(m, 0) > self.DOWN_SECONDS and m not in asleep]
+        return ok + [m for m in chain if m not in ok]
 
     def _chain(self, model):
         """The requested model, then the fallbacks that exist; models that failed in the last few minutes go last."""
@@ -1314,10 +1357,19 @@ class Mind:
             hits = [dict(h, body=privacy.mask_all(h.get("body") or ""), title=privacy.mask_all(h.get("title") or ""))
                     for h in hits]
         weak = bool(use_brain and (ctx or "").find(LOW_MATCH) >= 0)
+        route_info = None
+        if model in (None, "auto"):
+            chain, route_info = self.routed(question, hits, voice)
+            if chain:
+                model = chain[0]
+            elif model == "auto":
+                chain = self._chain(None)
+                model = chain[0] if chain else None
         if model is None:
             return {"answer": best_note(hits, voice) if hits else None, "hits": hits, "model": None, "weak": weak,
                     "sources": sources_for(hits[0]["body"], hits[:1], question) if hits else []}
-        chain = self._chain(model) if fallback else [model]
+        if route_info is None:
+            chain = self._chain(model) if fallback else [model]
         if not chain:
             chain = [model]
         sysmsg = system or (ANSWER_SYSTEM if use_brain else ALONE_SYSTEM)
@@ -1330,6 +1382,7 @@ class Mind:
             sysmsg += VOICE_SYSTEM
         content = answer_content(store, question, ctx, self.ORDER) if use_brain else question
         errors, r, used = [], None, None
+        escalated, kept = False, None
         self._down = getattr(self, "_down", {})
         plain = content
         base_sys = sysmsg
@@ -1352,12 +1405,23 @@ class Mind:
                 coro = self.models.get(m).chat(sysmsg, [{"role": "user", "content": content}])
                 r = await (asyncio.wait_for(coro, left) if left is not None else coro)
                 used = m
+                if route_info is not None and not escalated and i < len(chain) - 1 and \
+                        m in self.route_lists()[0] and DONT_KNOW.search(r.get("text") or "") and hits and not weak:
+                    # the local model didn't know although good notes were found: the next model gets one try
+                    escalated = True
+                    route_info["escalated"] = f"{m} didn't know"
+                    errors.append(f"{m}: said it didn't know; asked {chain[i + 1]}")
+                    kept = (r, m)
+                    r = None
+                    continue
                 break
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                 errors.append(f"{m}: {type(e).__name__} {e}"[:200])
                 self._down[m] = time.time()
                 if re.search(r"Cannot connect|ClientConnector|timed out", str(e)) and hasattr(self.models, "mark"):
                     self.models.mark(m, False)
+        if r is None and kept is not None:
+            r, used = kept                   # the next model failed too: the local answer stands
         if r is None:
             best = hits[0] if hits else None
             said = best_note(hits, voice)
@@ -1395,6 +1459,8 @@ class Mind:
             out["understood_as"] = question
         if used != model:
             out.update(asked_model=model, errors=errors, fallback=used)
+        if route_info is not None:
+            out["route"] = route_info            # why this model: simple/complex, private, escalated
         return out
 
     async def organize(self, text, model, store=None, source="organize"):

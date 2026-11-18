@@ -96,7 +96,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
-            "overnight_structure": False, "phrasebook_grow": True, "persona_model": "", "away_alert_hours": 3,
+            "overnight_structure": False, "phrasebook_grow": True, "persona_model": "", "away_alert_hours": 3, "router": True, "router_local": [], "router_cloud": [],
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -221,6 +221,9 @@ class App:
             self.home.prefs = self.prefs
         self.engine = Engine(self.mind.store, self.ha, DATA)
         self.mind.FALLBACK = list(self.opts.get("fallback") or [])
+        self.mind.ROUTER = self.opts.get("router", True) is not False
+        self.mind.ROUTE_LOCAL = list(self.opts.get("router_local") or [])
+        self.mind.ROUTE_CLOUD = list(self.opts.get("router_cloud") or [])
         self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
         self.mind.ORDER = "edges" if self.opts.get("answer_edges") else "default"
         self.mind.NOTES_FIRST = bool(self.opts.get("answer_notes_first"))

@@ -94,5 +94,7 @@ jobs:
         run: python tests/test_timezone.py
       - name: Data answers (computed, not guessed)
         run: python tests/test_datafacts.py
+      - name: The router (local, cloud, private, escalation)
+        run: python tests/test_router.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py
