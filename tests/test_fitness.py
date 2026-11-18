@@ -58,11 +58,13 @@ def meal(st, t, text, protein=None, cal=None):
 
 
 class Patterns:
-    def __init__(self, steps=None, sleep=None):
-        self.steps, self.sleep = steps or [], sleep or []
+    def __init__(self, steps=None, sleep=None, bed=None):
+        self.steps, self.sleep, self.bed = steps or [], sleep or [], bed or []
 
     def rows(self, days):
-        return [{"steps_prev": s, "sleep_h": h, "readiness": 75} for s, h in zip(self.steps, self.sleep)]
+        bed = self.bed or [None] * len(self.sleep)
+        return [{"day": f"2026-11-{9 + i:02d}", "steps_prev": s, "sleep_h": h, "readiness": 75, "bedtime": b}
+                for i, (s, h, b) in enumerate(zip(self.steps, self.sleep, bed))]
 
 
 class Pantry:
@@ -291,8 +293,66 @@ def test_mind_logging():
     del d
 
 
+def test_sleep_goals_and_logs():
+    st, clk = fresh()
+    pat = Patterns(steps=[8000] * 7, sleep=[6.0, 7.6, 5.5, 6.2, 8.0, 6.0, 5.8],
+                   bed=[23.5, 22.9, 24.6, 23.1, 22.75, 24.2, 25.0])
+    fi = Fitness(st, patterns=pat)
+    for bad in [{"bedtime": "11pm"}, {"bedtime": "25:00"}, {"sleep_hours": 15}]:
+        try:
+            fi.set_goals(bad)
+            check(f"bad sleep goal refused: {bad}", False)
+        except ValueError:
+            check(f"bad sleep goal refused: {bad}", True)
+    g = fi.set_goals({"sleep_hours": 7.5, "bedtime": "23:15"})
+    check("sleep goals set", g["sleep_hours"] == 7.5 and g["bedtime"] == "23:15", g)
+    check("bedtime after midnight counts as late", Fitness.bed_hours("00:30") == 24.5 and Fitness.bed_hours("23:15") == 23.25)
+    sl = fi.sleep_summary(7)
+    check("nights meeting the hours goal", sl["met"] == 2 and sl["nights"] == 7, sl)
+    check("nights in bed by the goal", sl["bed_met"] == 4, sl)
+    rv = fi.review()
+    check("review reports sleep against the goals", any("7.5 h or more on 2 of 7" in x and "in bed by 23:15 on 4 of 7" in x
+                                                        for x in rv), rv)
+    check("a wind-down suggestion when the goal is mostly missed", any(x["kind"] == "sleep" for x in fi.suggestions()))
+    check("evening brief carries the bedtime goal", any("in bed by 23:15 for 7.5 hours" in x for x in fi.evening_lines()))
+    # logs: list, edit (same night), delete; someone else's can't be touched
+    from homemind.sleeplog import log_sleep
+    clk.t = NOW - 12 * 3600
+    r = log_sleep(st, "slept from 12 to 7", clk.t)
+    logs = fi.logs("sleep")
+    check("sleep logs listed", logs and logs[0]["id"] == r["id"] and logs[0]["hours"] == 7.0, logs)
+    e = fi.edit_log("sleep", r["id"], "6.5 hours")
+    check("edited: the same night, new hours", e["hours"] == 6.5 and e["night"] == r["night"], e)
+    check("the old one archived", st.get(r["id"])["status"] == "archived")
+    w = fi.log("squats 3x5 at 185")
+    fi.edit_log("workout", w["id"], "squat 3x5 at 195 lb")
+    check("workout edited", fi.logs("workout")[0]["entries"][0]["weight_lb"] == 195)
+    fi.delete_log("workout", fi.logs("workout")[0]["id"])
+    check("workout deleted", fi.logs("workout") == [])
+    try:
+        fi.edit_log("sleep", e["id"], "nonsense words")
+        check("an unreadable edit is refused", False)
+    except ValueError:
+        check("an unreadable edit is refused", st.get(e["id"])["status"] == "active")
+    other = st.remember(text="Sleep: 9 hours", title="Sleep 9 h", shelf="body/sleep",
+                        meta={"sleep": 9, "scope": "personal", "owner": "dana"}, at=clk.t)
+    tok = VIEWER.set("yitz")
+    try:
+        fi.delete_log("sleep", other["id"])
+        check("someone else's log can't be deleted", False)
+    except ValueError:
+        check("someone else's log can't be deleted", True)
+    finally:
+        VIEWER.reset(tok)
+    try:
+        fi.delete_log("sleep", w["id"])
+        check("a workout id isn't a sleep log", False)
+    except ValueError:
+        check("a workout id isn't a sleep log", True)
+
+
 for fn in [test_parse, test_goals, test_trend_and_progress, test_tally_and_snacks, test_workouts, test_adjust,
-           test_floor, test_fast_loss, test_mind_logging]:
+           test_floor, test_fast_loss, test_mind_logging, test_sleep_goals_and_logs]:
     try:
         fn()
     except Exception as e:  # noqa: BLE001

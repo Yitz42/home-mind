@@ -476,9 +476,11 @@ The answer comes back with `emotion`, the unstyled `plain` text, `persona`, and,
 Settings are on the System page (name, how it addresses you, wit off/low/normal, on/off, SSML), with a **Try** box and the examples. Your Home Assistant voice agent writes some answers itself: paste the **instructions for your voice agent** from that card into the agent's instructions so it sounds the same.
 
 ## Fitness goals (0.28)
-Set goals on the Health tab (or `POST /api/fitness/goals` with any of `weight_target` (lb), `weight_by` (YYYY-MM-DD), `calories`, `protein_g`, `steps`, `workouts_per_week`, `body_fat_target`; `null` clears one). Progress uses the scale's weigh-ins (a 7-day average and a 28-day trend), the meals you log (protein and calorie estimates) and the watch's steps and sleep.
+Set goals on the Health tab (or `POST /api/fitness/goals` with any of `weight_target` (lb), `weight_by` (YYYY-MM-DD), `calories`, `protein_g`, `steps`, `workouts_per_week`, `body_fat_target`, `sleep_hours`, `bedtime` (HH:MM); `null` clears one). Progress uses the scale's weigh-ins (a 7-day average and a 28-day trend), the meals you log (protein and calorie estimates) and the watch's steps and sleep.
 
 Log workouts in plain words by voice, chat or `POST /api/fitness/workout`: "squats 3x8 at 185", "deadlift 1x5 @ 275, pull ups 3x10", "ran 3 miles in 28 minutes", "30 min yoga". Kilograms and kilometres are converted. The answer says last time and any new best.
+
+Sleep goals: `sleep_hours` (a night) and `bedtime` (in bed by, e.g. `23:15`). The weekly review counts the nights that met each, the evening brief carries the bedtime goal, and a mostly-missed goal brings a suggestion. **Recent logs** on the Health tab lists the last 30 days of sleep and workouts. **Edit** replaces one (same day; the old one is archived) and **Delete** archives it.
 
 Sleep can be said the same way: "slept from 12 to 7am last night", "went to bed at 11:30 and woke up at 6:45", "slept 6.5 hours". It's filed on `body/sleep` and replaces the watch's number for that night (handy when the watch was off). Other wording works too ("crashed at 12, up at 7", "did 3 sets of 8 squats at 185", "went for a 3 mile run"). If Home Mind can't read a message that clearly mentions sleep or exercise, including one in another language, your model rewrites it into the plain form first. The reply shows what it was read as, and nothing is logged if the rewrite has a number you didn't say.
 
@@ -750,7 +752,8 @@ note), 502 (a model failed) or 500.
 | GET | `/api/fitness` | read | goals, progress, today's protein and calories, recent workouts, bests, stalls, suggestions |
 | GET | `/api/fitness/review` | read | the week in review and suggested changes |
 | GET | `/api/fitness/workouts` | read | `days?`, `exercise?`: logged workouts with bests and stalled lifts |
-| POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review) |
+| GET | `/api/fitness/logs` | read | `kind` (sleep or workout), `days?`: recent logs to look at and fix |
+| POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review), `edit` (`kind`, `id`, `text`: what it should say), `delete` (`kind`, `id`) |
 | GET | `/api/persona` | read | the persona's settings, its emotions, examples, and instructions for a voice agent |
 | POST | `/api/persona` | write | any of `enabled`, `name`, `address` (name, sir, madam, none), `wit` (off, low, normal), `ssml` |
 | GET | `/api/persona/emotion` | read | `text`: the emotion of something about to be spoken (the marker its answer got, else read from the words), for the Home Mind Voice app |

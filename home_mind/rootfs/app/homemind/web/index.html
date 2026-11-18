@@ -239,6 +239,8 @@
           <label>Steps <input id="fg_steps" type="number" style="width:90px"></label>
           <label>Workouts/week <input id="fg_workouts_per_week" type="number" style="width:60px"></label>
           <label>Body fat % <input id="fg_body_fat_target" type="number" step="0.5" style="width:70px"></label>
+          <label>Sleep (h) <input id="fg_sleep_hours" type="number" step="0.25" style="width:70px"></label>
+          <label>In bed by <input id="fg_bedtime" type="time"></label>
           <button class="go" onclick="saveGoals()">Save</button></div>
         <div class="mute" id="ft_gmsg" style="font-size:12px;margin-top:6px">Leave a box empty for no goal. Protein left empty follows your weight (1.6 g/kg).</div>
       </div>
@@ -250,6 +252,9 @@
       <div class="mute" id="pb_msg" style="font-size:13px;margin-top:6px"></div>
       <div class="row" style="gap:8px;margin-top:8px"><button onclick="pbRun('grow')">Grow now</button><button onclick="pbRun('eval')">Test the model</button><a onclick="window._pbAll=!window._pbAll;loadPhrasebook()" style="align-self:center">Show entries</a></div>
       <div id="pb_list" style="margin-top:10px;font-size:13px"></div>
+    </div>
+    <div class="card wide"><div class="hrow"><h2>Recent logs</h2><span><a onclick="window._lk='sleep';loadLogs()">Sleep</a> · <a onclick="window._lk='workout';loadLogs()">Workouts</a></span></div>
+      <div id="lg_list" style="font-size:13px"></div><div class="mute" id="lg_msg" style="font-size:13px;margin-top:6px"></div>
     </div>
     <div class="card wide"><h2>Log a workout</h2>
       <div class="row"><input id="ft_w" placeholder="squats 3x8 at 185, ran 2 miles in 18 min" style="flex:1;min-width:0" aria-label="Workout"> <button class="go" onclick="logWorkout()">Log</button></div>
@@ -535,10 +540,10 @@ async function loadHealth() {
     return `<div style="display:flex;align-items:center;gap:10px;background:var(--card2);border-radius:12px;padding:10px 12px;flex-wrap:wrap"><span class="chip" style="color:${c}">${tg}</span><span style="flex:1;min-width:160px">${esc(f.label)}</span>
       <span class="mute" style="font-size:12px">${f.n_risk ?? 0} vs ${f.n_base ?? 0} days${f.diff != null ? ' · ' + (f.diff > 0 ? '+' : '') + nf(f.diff, 1) + ' fog' : ''}</span><span style="font-size:12px;color:${s[1]};min-width:70px;text-align:right">${f.hunch ? 'your hunch · ' : ''}${s[0]}</span></div>`; }).join('') + (all.length > 6 ? `<a onclick="window._hlAll=!window._hlAll;loadHealth()" style="padding:4px 2px">${showAll ? 'Show fewer' : 'Show all ' + all.length}</a>` : '');
   const e = p.experiment;
-  loadFitness(); loadPhrasebook();
+  loadFitness(); loadPhrasebook(); loadLogs();
   $('#hl_exp').innerHTML = e && e.factor ? `<b style="color:var(--ink)">${esc(e.change || e.factor)}</b><br>${esc(e.start)} to ${esc(e.end)}` : 'None running. One unlocks when a suspect holds up, like keeping the same bedtime within 30 minutes every night.';
 }
-const FG = ['weight_target', 'weight_by', 'calories', 'protein_g', 'steps', 'workouts_per_week', 'body_fat_target'];
+const FG = ['weight_target', 'weight_by', 'calories', 'protein_g', 'steps', 'workouts_per_week', 'body_fat_target', 'sleep_hours', 'bedtime'];
 async function loadFitness() {
   const f = await api('api/fitness');
   if (f.error) { $('#ft_lines').innerHTML = `<span class="bad">${esc(f.error)}</span>`; return; }
@@ -550,7 +555,7 @@ async function loadFitness() {
   $('#ft_recent').innerHTML = w.length ? w.map(x => `<div class="kv"><span>${esc(x.entry.exercise)}</span><span class="mute">${esc(new Date(x.t * 1000).toLocaleDateString())} · ${x.entry.sets ? x.entry.sets + '×' + x.entry.reps + (x.entry.weight_lb ? ' at ' + x.entry.weight_lb + ' lb' : '') : [x.entry.miles ? x.entry.miles + ' mi' : '', x.entry.minutes ? x.entry.minutes + ' min' : ''].filter(Boolean).join(' in ')}</span></div>`).join('') : '';
 }
 async function saveGoals() {
-  const b = {}; FG.forEach(k => { const v = $('#fg_' + k).value.trim(); b[k] = v === '' ? null : (k === 'weight_by' ? v : Number(v)); });
+  const b = {}; FG.forEach(k => { const v = $('#fg_' + k).value.trim(); b[k] = v === '' ? null : (k === 'weight_by' || k === 'bedtime' ? v : Number(v)); });
   const r = await api('api/fitness/goals', b);
   $('#ft_gmsg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : 'Saved.'; if (!r.error) loadFitness();
 }
@@ -560,6 +565,26 @@ async function logWorkout() {
   $('#ft_wmsg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : esc(r.answer); if (!r.error) { $('#ft_w').value = ''; loadFitness(); }
 }
 async function acceptSug(i) { const r = await api('api/fitness/accept', {index: i}); if (r.error) alert(r.error); loadFitness(); }
+async function loadLogs() {
+  const k = window._lk || 'sleep', r = await api('api/fitness/logs?days=30&kind=' + k);
+  if (r.error) { $('#lg_list').innerHTML = `<span class="bad">${esc(r.error)}</span>`; return; }
+  $('#lg_list').innerHTML = (r.logs || []).map(e => {
+    const what = k === 'sleep' ? `${e.hours != null ? esc(e.hours) + ' h' : esc(e.title)}${e.night ? ' <span class="mute">night to ' + esc(e.night) + '</span>' : ''}` : esc(e.text || e.title);
+    return `<div class="kv" id="lg_${+e.id}"><span>${what}<br><span class="mute">${esc(new Date(e.t * 1000).toLocaleString())}${e.said ? ' · “' + esc(e.said) + '”' : ''}</span></span><span><a onclick="editLog(${+e.id})">edit</a> · <a onclick="delLog(${+e.id})">delete</a></span></div>`;
+  }).join('') || `<span class="mute">No ${k === 'sleep' ? 'sleep' : 'workout'} logs in the last 30 days.</span>`;
+}
+function editLog(id) {
+  const k = window._lk || 'sleep', el = $('#lg_' + id);
+  el.innerHTML = `<input id="lg_t${id}" style="flex:1;min-width:0" placeholder="${k === 'sleep' ? 'slept 6.5 hours · slept from 12 to 7' : 'squat 3x5 at 185 lb, ran 2 miles'}" aria-label="What it should say"> <button class="go" onclick="saveLog(${id})">Save</button> <button onclick="loadLogs()">Cancel</button>`;
+}
+async function saveLog(id) {
+  const r = await api('api/fitness/edit', {kind: window._lk || 'sleep', id, text: $('#lg_t' + id).value});
+  $('#lg_msg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : esc(r.answer || 'Saved.'); loadLogs(); loadFitness();
+}
+async function delLog(id) {
+  const r = await api('api/fitness/delete', {kind: window._lk || 'sleep', id});
+  $('#lg_msg').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : 'Removed.'; loadLogs(); loadFitness();
+}
 async function loadPhrasebook() {
   const p = await api('api/phrasebook?limit=' + (window._pbAll ? 300 : 1)), q = await api('api/phrasebook?status=pending&limit=50');
   if (p.error) { $('#pb_stats').textContent = p.error; return; }

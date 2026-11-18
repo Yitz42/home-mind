@@ -1522,6 +1522,11 @@ def build(app_state):
     async def fitness_review(_):
         return J({"lines": A.fitness.review(), "suggestions": A.fitness.suggestions()})
 
+    @r.get("/api/fitness/logs")
+    async def fitness_logs(q):
+        days = int(num(q.query.get("days"), "days", 30, 1, 3650))
+        return J({"logs": A.fitness.logs(q.query.get("kind") or "", days)})
+
     @r.get("/api/fitness/workouts")
     async def fitness_workouts(q):
         try:
@@ -1548,6 +1553,13 @@ def build(app_state):
             meta = {"said_by": who, "scope": "personal", "owner": who} if who and b.get("scope") != "household" else {}
             return J(A.fitness.log(b.get("text") or "", when=b.get("at"),
                                    source="api", meta=meta))
+        if op in ("edit", "delete"):
+            b = await read_body(q, kind=str, id=float, text=str)
+            if b.get("id") is None:
+                raise ValueError("give id")
+            if op == "delete":
+                return J(A.fitness.delete_log(b.get("kind") or "", int(b["id"])))
+            return J(A.fitness.edit_log(b.get("kind") or "", int(b["id"]), b.get("text") or ""))
         if op == "accept":
             b = await read_body(q, index=float)
             sug = [s for s in A.fitness.suggestions() if s.get("set")]

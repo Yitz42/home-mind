@@ -27,6 +27,8 @@ GOALS = {
     "steps": (int, 500, 50000),              # a day
     "workouts_per_week": (int, 0, 14),
     "body_fat_target": (float, 3, 60),       # %
+    "sleep_hours": (float, 4, 12),           # a night
+    "bedtime": ("time", None, None),         # HH:MM, in bed by
 }
 PROTEIN_FOODS = [("Greek yogurt", 17), ("cottage cheese", 14), ("protein shake", 25), ("eggs", 12), ("tuna", 25),
                  ("chicken", 30), ("turkey", 25), ("jerky", 10), ("edamame", 11), ("tofu", 15), ("milk", 8),
@@ -260,6 +262,12 @@ class Fitness:
                 cur[k] = None
                 continue
             typ, lo, hi = GOALS[k]
+            if typ == "time":
+                m = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", str(v).strip())
+                if not m:
+                    raise ValueError(f"{k} must be a time like 23:00")
+                cur[k] = f"{int(m.group(1)):02d}:{m.group(2)}"
+                continue
             if typ is str:
                 try:
                     date.fromisoformat(str(v))
@@ -476,6 +484,61 @@ class Fitness:
         now = now or self.store.clock()
         return len({_day(w["t"]) for w in self.workouts(days, now) if w["t"] >= now - days * 86400})
 
+    # ---- the logs, to look at and fix --------------------------------------------------------------------------------
+    LOG_SHELVES = {"sleep": "body/sleep", "workout": "body/workouts"}
+
+    def logs(self, kind, days=30, now=None):
+        shelf = self.LOG_SHELVES.get(kind)
+        if not shelf:
+            raise ValueError("kind is sleep or workout")
+        now = now or self.store.clock()
+        from .speakers import visible
+        out = []
+        for r in self.store.db.execute("SELECT id, created, title, body, meta FROM items WHERE shelf=? AND status='active' "
+                                       "AND created >= ? ORDER BY created DESC", (shelf, now - days * 86400)):
+            m = json.loads(r["meta"] or "{}")
+            if not visible(m):
+                continue
+            e = {"id": r["id"], "t": r["created"], "title": r["title"]}
+            if kind == "sleep":
+                e["hours"] = m.get("sleep")
+                e["night"] = m.get("night")
+                e["said"] = (re.search(r"Said: (.*)$", r["body"] or "") or [None, None])[1]
+            else:
+                e["entries"] = m.get("workout") or []
+                e["text"] = "; ".join(describe(x) for x in e["entries"])
+            out.append(e)
+        return out
+
+    def _own(self, rid, kind):
+        row = self.store.db.execute("SELECT id, created, shelf, meta FROM items WHERE id=? AND status='active'",
+                                    (rid,)).fetchone()
+        from .speakers import visible
+        if not row or row["shelf"] != self.LOG_SHELVES.get(kind) or not visible(json.loads(row["meta"] or "{}")):
+            raise ValueError(f"no {kind} log {rid}")
+        return row
+
+    def edit_log(self, kind, rid, text):
+        """Replace a sleep or workout log with what it should say ('slept 6.5 hours', 'squat 3x5 at 185 lb'),
+        kept on the same day. The old one is archived, not deleted."""
+        row = self._own(rid, kind)
+        meta = {k: v for k, v in json.loads(row["meta"] or "{}").items() if k in ("said_by", "scope", "owner")}
+        if kind == "sleep":
+            from .sleeplog import log_sleep
+            t = text if re.search(r"\bslept\b", text, re.I) else f"slept {text}"
+            r = log_sleep(self.store, t, now=row["created"], meta=dict(meta, edited=rid))
+            if not r:
+                raise ValueError("couldn't read that as sleep (try 'slept 6.5 hours' or 'slept from 12 to 7')")
+        else:
+            r = self.log(text, when=row["created"], source="edit", meta=dict(meta, edited=rid))
+        self.store.set_status(rid, "archived")
+        return r
+
+    def delete_log(self, kind, rid):
+        self._own(rid, kind)
+        self.store.set_status(rid, "archived")
+        return {"removed": rid}
+
     # ---- the watch ---------------------------------------------------------------------------------------------------
     def watch(self, days=7):
         """Steps, sleep and readiness from the patterns table (the watch); steps are the day before each row."""
@@ -491,6 +554,37 @@ class Fitness:
         ready = [r["readiness"] for r in rows[-days:] if isinstance(r.get("readiness"), (int, float))]
         return {"steps": round(avg(steps)) if steps else None, "steps_days": len(steps),
                 "steps_hit": None, "sleep_h": avg(sleep), "readiness": avg(ready), "_steps": steps}
+
+    def nights(self, days=7):
+        """The last nights from the watch rows (said sleep already wins there): hours and time in bed."""
+        if not self.patterns:
+            return []
+        try:
+            rows = self.patterns.rows(days + 1)[-days:]
+        except Exception:  # noqa: BLE001
+            return []
+        return [{"day": r.get("day"), "sleep_h": r.get("sleep_h"), "bedtime": r.get("bedtime")} for r in rows]
+
+    @staticmethod
+    def bed_hours(hhmm):
+        """'23:00' -> 23.0, '00:30' -> 24.5 (hours after the evening's midnight, like the watch rows)."""
+        h, m = (int(x) for x in hhmm.split(":"))
+        v = h + m / 60
+        return v + 24 if v < 12 else v
+
+    def sleep_summary(self, days=7):
+        g = self.goals()
+        ns = self.nights(days)
+        hrs = [n["sleep_h"] for n in ns if isinstance(n.get("sleep_h"), (int, float)) and n["sleep_h"] > 0]
+        beds = [n["bedtime"] for n in ns if isinstance(n.get("bedtime"), (int, float))]
+        out = {"nights": len(hrs), "avg_h": round(statistics.mean(hrs), 1) if hrs else None}
+        if g.get("sleep_hours") and hrs:
+            out["met"] = sum(1 for x in hrs if x >= g["sleep_hours"] - 0.25)
+        if g.get("bedtime") and beds:
+            goal = self.bed_hours(g["bedtime"])
+            out["bed_nights"] = len(beds)
+            out["bed_met"] = sum(1 for b in beds if b <= goal + 0.25)
+        return out
 
     # ---- adjusting -------------------------------------------------------------------------------------------------
     def suggestions(self, now=None):
@@ -531,6 +625,15 @@ class Fitness:
             out.append({"kind": "lift", "exercise": s["exercise"],
                         "why": f"{s['exercise']} hasn't gone up since {s['since']}: try a lighter week (about 90%), then "
                                "build back, or change the reps (e.g. 5×5 instead of 3×8)"})
+        if g.get("sleep_hours") or g.get("bedtime"):
+            sl = self.sleep_summary(7)
+            if sl.get("nights", 0) >= 5 and g.get("sleep_hours") and sl.get("met", 99) <= sl["nights"] // 2:
+                why = (f"sleep reached {g['sleep_hours']:g} h on {sl['met']} of {sl['nights']} nights (average "
+                       f"{sl['avg_h']} h)")
+                if g.get("bedtime") and sl.get("bed_nights"):
+                    why += f", in bed by {g['bedtime']} on {sl['bed_met']} of {sl['bed_nights']}"
+                out.append({"kind": "sleep", "why": why + ": a wind-down reminder 30 minutes before bedtime usually "
+                                                          "helps more than a later alarm"})
         if g.get("steps"):
             wa = self.watch(7)
             st = wa.get("_steps") or []
@@ -572,6 +675,11 @@ class Fitness:
                 s += f" ({d['unestimated']} meal{'s' if d['unestimated'] != 1 else ''} not estimated yet)"
             out.append(s)
         g = p["goals"]
+        if g.get("sleep_hours") or g.get("bedtime"):
+            sl = self.sleep_summary(7)
+            if sl.get("avg_h"):
+                out.append(f"Sleep this week: {sl['avg_h']} h a night" + (
+                    f", goal {g['sleep_hours']:g} h met {sl['met']} of {sl['nights']}" if "met" in sl else ""))
         n = self.sessions(7, now)
         if g.get("workouts_per_week") or n:
             out.append(f"Workouts this week: {n}" + (f" of {g['workouts_per_week']}" if g.get("workouts_per_week") else ""))
@@ -591,6 +699,10 @@ class Fitness:
                 out.append(f"Protein: {d['protein_g']} of {d['protein_target']} g — target met")
         if d.get("calorie_target"):
             out.append(f"Calories: {d['calories']} of {d['calorie_target']}")
+        g = self.goals()
+        if g.get("bedtime"):
+            out.append(f"Bedtime goal: in bed by {g['bedtime']}" + (f" for {g['sleep_hours']:g} hours" if g.get("sleep_hours")
+                                                                    else ""))
         if datetime.fromtimestamp(now).weekday() == 6:          # Sunday: the week in review
             out += ["Week in review:"] + ["  " + x for x in self.review(now)]
         return out
@@ -628,7 +740,17 @@ class Fitness:
         wa = self.watch(7)
         if wa.get("steps"):
             out.append(f"Steps: {wa['steps']:,} a day" + (f" (goal {g['steps']:,})" if g.get("steps") else ""))
-        if wa.get("sleep_h"):
+        sl = self.sleep_summary(7)
+        if sl.get("avg_h"):
+            s_ = f"Sleep: {sl['avg_h']} h a night"
+            if g.get("sleep_hours") and "met" in sl:
+                s_ += f", {g['sleep_hours']:g} h or more on {sl['met']} of {sl['nights']} nights"
+            if g.get("bedtime") and sl.get("bed_nights"):
+                s_ += f"; in bed by {g['bedtime']} on {sl['bed_met']} of {sl['bed_nights']}"
+            if wa.get("readiness"):
+                s_ += f"; readiness {wa['readiness']:g}"
+            out.append(s_)
+        elif wa.get("sleep_h"):
             out.append(f"Sleep: {wa['sleep_h']} h a night" + (f", readiness {wa['readiness']:g}" if wa.get("readiness") else ""))
         sug = self.suggestions(now)
         if sug:
