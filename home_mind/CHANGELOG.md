@@ -28,6 +28,7 @@ Fitness goals, built on the scale, meal and watch data Home Mind already collect
   - New Ollama settings `num_gpu` (0 = on the CPU, leaving the GPU to Voicebox), `keep_alive`, `num_ctx` and `num_thread`, plus `connect_timeout` for any model.
   - New option `persona_model`: a model on that computer rewords answers in Jeeves's voice, with the same fact check, and the rules take over if it's slow, away or changes a fact.
   - The docs give a starting setup for an 8 GB GPU shared with Voicebox.
+- **An alert when a model computer is away:** if the GPU laptop (or any computer your models run on) hasn't answered for `away_alert_hours` (3 by default), you get one notification saying what's answering meanwhile, and another when it's back.
 - **Jeeves everywhere:** Telegram replies go through the persona, as Ask-box and voice answers do. The morning and evening briefs get his opening and closing lines ("Good morning, Yitz." … "Do take it gently today." on a tired day), with the facts in between unchanged.
 - **Per-person persona:** how Jeeves addresses each person, the wit and on/off can differ per person, while his name stays the house's. Use the **For** selector on the Persona card.
 - **Sleep goals:** target hours and a bedtime. The weekly review counts the nights that met them, the evening brief carries the bedtime, and a mostly-missed goal brings a wind-down suggestion.

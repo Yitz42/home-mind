@@ -129,6 +129,7 @@ options:
   overnight_structure: false
   phrasebook_grow: true
   persona_model: ""
+  away_alert_hours: 3
 schema:
   models:
     - name: str
@@ -251,3 +252,4 @@ schema:
   overnight_structure: bool
   phrasebook_grow: bool?
   persona_model: str?
+  away_alert_hours: float(0,168)?

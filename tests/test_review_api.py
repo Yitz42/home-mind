@@ -435,6 +435,19 @@ def contracts(app, A):
     check("accepting a suggestion that isn't there: 400", s == 400, (s, d))
     s, d = call(app, "POST", "/api/persona", {"address": "sir", "wit": "low"})
     check("persona settings over HTTP", s == 200 and d["settings"]["address"] == "sir", (s, d))
+    sent_n = []
+
+    async def note(title, msg, nid="x"):
+        sent_n.append((title, msg))
+    A.ha.notify, A.mind.FALLBACK = note, ["haiku"]
+    A.models.hosts["192.168.1.50:11434"] = {"up": False, "since": 1_000_000.0, "checked": 0}
+    out = asyncio.run(A.away_alert(now=1_000_000.0 + 4 * 3600))
+    check("away alert: one notification naming the fallback", out and sent_n and "192.168.1.50:11434" in sent_n[0][1]
+          and "haiku" in sent_n[0][1], sent_n)
+    A.models.hosts["192.168.1.50:11434"] = {"up": True, "since": 1_000_100.0, "checked": 0}
+    asyncio.run(A.away_alert(now=1_000_000.0 + 5 * 3600))
+    check("and one when it's back", len(sent_n) == 2 and "answering again" in sent_n[1][1], sent_n)
+    A.models.hosts.clear()
     s, d = call(app, "POST", "/api/persona", {"person": "dana", "address": "madam"})
     check("persona per person over HTTP", s == 200 and d["people"]["dana"]["address"] == "madam", (s, d))
     s, d = call(app, "POST", "/api/persona", {"person": "dana", "name": "Hudson"})

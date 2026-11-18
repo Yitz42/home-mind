@@ -86,6 +86,20 @@ async def part_a():
     await ms.probe_all()
     check("and the next check brings it back", ms.up("spare") is True)
 
+    # the away alert: once after `hours`, once when back, never repeated for the same absence
+    sent = {}
+    key = f"127.0.0.1:{down_port}"
+    since = ms.hosts[key]["since"]
+    check("not yet: away for less than the hours", ms.away_changes(sent, 3, now=since + 3600) == [])
+    ch = ms.away_changes(sent, 3, now=since + 4 * 3600)
+    check("away for 3 hours: one alert", ch == [("away", key, since)], ch)
+    check("not repeated", ms.away_changes(sent, 3, now=since + 9 * 3600) == [])
+    check("it knows which models run there", ms.on_host(key) == ["gpu"])
+    ms.hosts[key] = {"up": True, "since": since + 10 * 3600, "checked": 0}
+    check("back: one more", ms.away_changes(sent, 3) == [("back", key, since + 10 * 3600)] and sent == {})
+    check("and quiet after", ms.away_changes(sent, 3) == [])
+    ms.hosts[key] = {"up": False, "since": since + 11 * 3600, "checked": 0}
+
     # an answer: the asleep computer is skipped without waiting, the fallback answers
     from homemind.mind import Mind
     mind = Mind(tempfile.mkdtemp(), ms)

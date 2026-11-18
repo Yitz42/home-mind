@@ -343,8 +343,30 @@ class Models:
             await asyncio.sleep(self.WATCH_SECONDS)
             try:
                 await self.probe_all()
+                if self.on_probe is not None:
+                    await self.on_probe()
             except Exception as e:  # noqa: BLE001
                 log.warning("model watch: %s", e)
+
+    on_probe = None             # called after each round of checks (the away alert)
+
+    def away_changes(self, sent, hours, now=None):
+        """Which computers to tell about: ('away', key, since) once a computer has been away `hours`, ('back', key,
+        since) when one that was told about answers again. `sent` (key -> since) is kept by the caller."""
+        now = now or time.time()
+        out = []
+        for key, h in list(self.hosts.items()):
+            if not h["up"] and now - h["since"] >= hours * 3600 and sent.get(key) != h["since"]:
+                sent[key] = h["since"]
+                out.append(("away", key, h["since"]))
+            elif h["up"] and key in sent:
+                sent.pop(key)
+                out.append(("back", key, h["since"]))
+        return out
+
+    def on_host(self, key):
+        """The model names on one computer ('host:port')."""
+        return [m.name for m in self.models.values() if m.endpoint() and f"{m.endpoint()[0]}:{m.endpoint()[1]}" == key]
 
     def up(self, name):
         """True/False for a model whose computer is checked; None when it isn't (Home Assistant, cloud)."""

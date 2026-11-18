@@ -261,6 +261,9 @@ configuration:
   overnight_structure:
     name: Overnight, read what the patterns missed
     description: The overnight model reads recent notes where the built-in patterns found no place, schedule, chore, details or who-is-who, and keeps only what it copies word for word from the note. Off until tests/compare_structure.py shows it helps your model and adds nothing wrong.
+  away_alert_hours:
+    name: Tell me when a model computer is away (hours)
+    description: When a computer your models run on (e.g. the GPU laptop) hasn't answered for this long, one notification, and another when it's back. 0 = never.
   persona_model:
     name: Persona model
     description: A model that rewords answers in the persona's voice (a small one on a GPU computer, e.g. an Ollama qwen3:1.7b). Checked like the rules; slow (over 1.5 s spoken, 4 s written), asleep or a changed fact and the rules style it instead. Empty = rules only.

@@ -416,7 +416,7 @@ If Home Assistant runs on modest hardware, a 270M-parameter model trained on you
 House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
 
 ## A GPU computer as a model server (0.28)
-A newer computer with an NVIDIA GPU (for example a laptop left plugged in at home) can run local models for Home Mind through **Ollama**, next to **Voicebox** (see the Home Mind Voice app). Home Mind checks that computer every 30 seconds and skips its models while it's asleep, off or restarting, so answers go straight to the next model instead of waiting. The Models page shows each computer as **up** or **away**.
+A newer computer with an NVIDIA GPU (for example a laptop left plugged in at home) can run local models for Home Mind through **Ollama**, next to **Voicebox** (see the Home Mind Voice app). Home Mind checks that computer every 30 seconds and skips its models while it's asleep, off or restarting, so answers go straight to the next model instead of waiting. The Models page shows each computer as **up** or **away**, and if one is away longer than `away_alert_hours` (3 by default) you get a notification, and another when it's back.
 
 **On the computer (Windows):**
 1. Install Ollama (ollama.com).
@@ -547,6 +547,7 @@ you turn them on are listed after the tables.
 | `overnight_structure` | off | Overnight, read what the patterns missed |
 | `phrasebook_grow` | on | Each night, write new odd wordings for sleep and workouts; keep those a blind second reading agrees with |
 | `persona_model` | empty | a model that rewords answers in the persona's voice (checked like the rules); empty = rules only |
+| `away_alert_hours` | 3 | a notification when a model computer has been away this long, and when it's back; 0 = never |
 | `learn_filing` | on | Learn where notes go |
 | `fade_days` | 60 | Fade unused notes after N days |
 | `events_keep_days` | 90 | Keep the detailed activity log for (days) |

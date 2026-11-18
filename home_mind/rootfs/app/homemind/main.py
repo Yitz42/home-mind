@@ -96,7 +96,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
-            "overnight_structure": False, "phrasebook_grow": True, "persona_model": "",
+            "overnight_structure": False, "phrasebook_grow": True, "persona_model": "", "away_alert_hours": 3,
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -168,6 +168,7 @@ class App:
             except Exception as e:  # noqa: BLE001 - a missing model name: keyword search only
                 log.warning("embed_model: %s", e)
         self.ha = HA(self.models.session)
+        self.models.on_probe = self.away_alert
         from . import tz
         tz.apply(os.environ.get("TZ"))
         if self.ha.available:
@@ -850,6 +851,28 @@ class App:
         from .speakers import resolve
         home = {e: c.get("state") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
         return resolve(self.people(), device=device_id, home=home)
+
+    async def away_alert(self, now=None):
+        """A model computer away longer than away_alert_hours: one notification, and one when it's back."""
+        hours = float(self.opts.get("away_alert_hours", 3) or 0)
+        if hours <= 0 or not self.ha:
+            return []
+        sent = self.__dict__.setdefault("_away_sent", {})
+        out = self.models.away_changes(sent, hours, now)
+        for what, key, since in out:
+            mine = self.models.on_host(key)
+            names = ", ".join(mine) or key
+            if what == "away":
+                when = datetime.fromtimestamp(since).strftime("%a %I:%M %p").replace(" 0", " ")
+                others = [m for m in (self.mind.FALLBACK or []) if m not in mine]
+                msg = (f"The computer at {key} ({names}) hasn't answered since {when}. Answers are coming from "
+                       f"{', '.join(others) or 'the best matching note'} meanwhile; if it runs Voicebox, the house "
+                       "voice is Piper until it's back. It may be asleep, off, or stuck on an update.")
+                await self.ha.notify("Home Mind: a model computer is away", msg, "home_mind_away")
+            else:
+                await self.ha.notify("Home Mind: it's back", f"The computer at {key} ({names}) is answering again.",
+                                     "home_mind_away")
+        return out
 
     async def tired(self):
         """Is today a tired day (readiness, sleep, fog)? Cached 10 minutes; False when it can't be told quickly."""
