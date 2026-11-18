@@ -415,6 +415,27 @@ If Home Assistant runs on modest hardware, a 270M-parameter model trained on you
 
 House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
 
+## Persona: Jeeves (0.28)
+Answers from Home Mind (the Ask box, `/api/ask`, `/api/do`) come in a persona's voice, Jeeves by default: an English butler, composed, precise and quietly dry. Each answer gets an **emotion marker** from what actually happened:
+
+| Emotion | When |
+|---|---|
+| alert | locks, alarms, an unlocked or open door, anything that needs a "yes" |
+| corrected | right after "that's wrong" or "no, 6 hours" |
+| proud | a new best |
+| pleased / concerned | a good night's sleep / a short one |
+| sympathetic | a tired day (low readiness, little sleep, brain fog) |
+| amused | the same question again within 10 minutes |
+| disapproving | something changed or cleaned 30+ days ago |
+| apologetic | Home Mind doesn't know |
+| relieved, warm, neutral | a lock done; evenings; everything else |
+
+The answer comes back with `emotion`, the unstyled `plain` text, `persona`, and, with the `ssml` setting on, `ssml` (pace, pitch and a pause before the remark, for voices that read SSML).
+
+**Facts are never styled.** The persona may add words, never change them: every number, every "not" and every "Say yes" must still be there, and it can't run long, or the plain answer is used. Safety questions are left word for word, and lists, tables and long answers are left as they are.
+
+Settings are on the System page (name, how it addresses you, wit off/low/normal, on/off, SSML), with a **Try** box and the examples. Your Home Assistant voice agent writes some answers itself: paste the **instructions for your voice agent** from that card into the agent's instructions so it sounds the same.
+
 ## Fitness goals (0.28)
 Set goals on the Health tab (or `POST /api/fitness/goals` with any of `weight_target` (lb), `weight_by` (YYYY-MM-DD), `calories`, `protein_g`, `steps`, `workouts_per_week`, `body_fat_target`; `null` clears one). Progress uses the scale's weigh-ins (a 7-day average and a 28-day trend), the meals you log (protein and calorie estimates) and the watch's steps and sleep.
 
@@ -690,6 +711,9 @@ note), 502 (a model failed) or 500.
 | GET | `/api/fitness/review` | read | the week in review and suggested changes |
 | GET | `/api/fitness/workouts` | read | `days?`, `exercise?`: logged workouts with bests and stalled lifts |
 | POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review) |
+| GET | `/api/persona` | read | the persona's settings, its emotions, examples, and instructions for a voice agent |
+| POST | `/api/persona` | write | any of `enabled`, `name`, `address` (name, sir, madam, none), `wit` (off, low, normal), `ssml` |
+| POST | `/api/persona/try` | write | `text`, `emotion`: the persona's version of a plain answer, and its SSML |
 | GET | `/api/phrasebook` | read | `status?`, `source?`, `limit?`: entries and counts |
 | GET | `/api/phrasebook/export` | read | every active pair, for training |
 | POST | `/api/phrasebook/{op}` | write | `add` (`said`, `plain`), `approve`/`reject`/`remove` (`id`), `try` (`text`, `model?`), `grow` (`model?`, `n?`), `eval` (`model?`, `limit?`) |

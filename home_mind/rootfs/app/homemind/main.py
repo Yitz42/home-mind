@@ -25,6 +25,7 @@ from .overnight import ConvLog, Overnight
 from .pantry import Pantry
 from .fitness import Fitness
 from .phrasebook import Phrasebook
+from .persona import Persona
 from . import nutrition
 from .patterns import FACTOR, Patterns
 from .knowledge import Knowledge
@@ -253,6 +254,7 @@ class App:
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
         self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
         self.mind.patterns = self.patterns
+        self.persona = Persona(self.mind.store)
         self.phrasebook = Phrasebook(self.mind.store)
         self.mind.phrasebook = self.overnight.phrasebook = self.phrasebook
         self.overnight.grow_phrasebook = self.opts.get("phrasebook_grow", True) is not False
@@ -835,6 +837,27 @@ class App:
         home = {e: c.get("state") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
         return resolve(self.people(), device=device_id, home=home)
 
+    async def tired(self):
+        """Is today a tired day (readiness, sleep, fog)? Cached 10 minutes; False when it can't be told quickly."""
+        c = getattr(self, "_tired_cache", None)
+        if c and time.time() - c[0] < 600:
+            return c[1]
+        try:
+            t = bool((await asyncio.wait_for(self.pantry.today(), 3)).get("tired"))
+        except Exception:  # noqa: BLE001
+            t = False
+        self._tired_cache = (time.time(), t)
+        return t
+
+    async def styled(self, res, question="", who=None, voice=False, kind="ask"):
+        """The persona's voice and emotion marker on an answer (never on errors; facts checked, see persona.py)."""
+        try:
+            name = (who or "").strip().title() or None
+            return self.persona.apply(res, question, who=name, voice=voice, tired=await self.tired(), kind=kind)
+        except Exception as e:  # noqa: BLE001 - styling never costs an answer
+            log.warning("persona: %s", e)
+            return res
+
     def speaker_for(self, b):
         """From a request body: (viewer, how). viewer None = no speaker information given (sees everything) unless
         option unknown_caller is "guest"; "" = unknown; else a name."""
@@ -1274,7 +1297,7 @@ def build(app_state):
             # "yes" right after "Do you want me to open the garage door?" (asked by /api/do in this conversation)
             done = await A.pending_reply(b["conversation_id"], b["question"])
             if done is not None:
-                return J(dict(done, hits=[], model=None))
+                return J(await styled_(dict(done, hits=[], model=None), b["question"], who, bool(b.get("voice")), "do"))
         res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
                                expand=bool(b.get("expand")), voice=bool(b.get("voice")),
                                deadline=b.get("deadline"), fallback=b.get("fallback", True),
@@ -1282,7 +1305,7 @@ def build(app_state):
         if who is not None:
             res["speaker_how"] = how
         res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
-        return J(res)
+        return J(await styled_(res, b["question"], who, bool(b.get("voice"))))
 
     @r.post("/api/organize")
     async def organize(q):
@@ -1406,8 +1429,9 @@ def build(app_state):
     async def home_do(q):
         b = model_ok(await read_body(q, text=str, source=str, conversation_id=str, deadline=float))
         deadline = b.get("deadline") or (A.mind.VOICE_SECONDS if b.get("voice") else None)
-        return J(await A.do(b.get("text", ""), b.get("model"), b.get("source", "api"),
-                            conversation_id=b.get("conversation_id"), deadline=deadline))
+        res = await A.do(b.get("text", ""), b.get("model"), b.get("source", "api"),
+                         conversation_id=b.get("conversation_id"), deadline=deadline)
+        return J(await styled_(res, b.get("text", ""), A.speaker_for(b)[0], bool(b.get("voice")), "do"))
 
     @r.get("/api/automations")
     async def autos_list(_):
@@ -1511,6 +1535,33 @@ def build(app_state):
                 raise ValueError("no such suggestion (GET /api/fitness/review lists them)")
             return J({"goals": A.fitness.set_goals(sug[i]["set"]), "applied": sug[i]})
         return J({"error": f"unknown {op}"}, status=404)
+
+    async def styled_(res, *a):
+        """The persona on an answer, when there is one (an app without it answers plainly)."""
+        f = getattr(A, "styled", None)
+        return await f(res, *a) if f is not None and getattr(A, "persona", None) is not None else res
+
+    @r.get("/api/persona")
+    async def persona_get(_):
+        from .persona import EMOTIONS
+        return J({"settings": A.persona.settings(), "emotions": EMOTIONS, "prompt": A.persona.prompt(),
+                  "examples": A.persona.examples()})
+
+    @r.post("/api/persona")
+    async def persona_set(q):
+        b = await read_body(q, optional=True, name=str, address=str, wit=str)
+        return J({"settings": A.persona.set(b), "prompt": A.persona.prompt()})
+
+    @r.post("/api/persona/try")
+    async def persona_try(q):
+        from .persona import EMOTIONS
+        b = await read_body(q, text=str, emotion=str)
+        emo = b.get("emotion") or "neutral"
+        if emo not in EMOTIONS:
+            raise ValueError(f"emotion is one of {', '.join(EMOTIONS)}")
+        styled, applied = A.persona.style(b.get("text") or "", emo, who=None, voice=bool(b.get("voice")))
+        return J({"plain": b.get("text") or "", "emotion": emo, "styled": styled, "applied": applied,
+                  "ssml": A.persona.ssml(styled, emo)})
 
     @r.get("/api/phrasebook")
     async def phrasebook_get(q):

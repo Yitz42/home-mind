@@ -234,6 +234,9 @@ ROUTES = [
     ("GET", "/api/fitness/workouts", ["days", "exercise"]),
     ("POST", "/api/fitness/{op}", ["text", "at", "scope", "speaker", "index", "weight_target", "weight_by", "protein_g",
                                    "calories", "steps", "workouts_per_week", "body_fat_target"]),
+    ("GET", "/api/persona", []),
+    ("POST", "/api/persona", ["enabled", "name", "address", "wit", "ssml"]),
+    ("POST", "/api/persona/try", ["text", "emotion"]),
     ("GET", "/api/phrasebook", ["status", "source", "limit"]),
     ("GET", "/api/phrasebook/export", []),
     ("POST", "/api/phrasebook/{op}", ["said", "plain", "id", "model", "n", "limit", "text"]),
@@ -427,6 +430,14 @@ def contracts(app, A):
     check("fitness status", s == 200 and d["sessions_7d"] == 1 and d["goals"]["weight_target"] == 180, (s, d))
     s, d = call(app, "POST", "/api/fitness/accept", {"index": 0})
     check("accepting a suggestion that isn't there: 400", s == 400, (s, d))
+    s, d = call(app, "POST", "/api/persona", {"address": "sir", "wit": "low"})
+    check("persona settings over HTTP", s == 200 and d["settings"]["address"] == "sir", (s, d))
+    s, d = call(app, "POST", "/api/persona", {"enabled": "yes"})
+    check("persona: a bad setting is a 400", s == 400, (s, d))
+    s, d = call(app, "POST", "/api/persona/try", {"text": "The front door is not locked.", "emotion": "alert"})
+    check("persona try", s == 200 and d["styled"] == "I regret to say the front door is not locked.", (s, d))
+    s, d = call(app, "POST", "/api/persona/try", {"text": "x", "emotion": "furious"})
+    check("persona try: unknown emotion is a 400", s == 400, (s, d))
     s, d = call(app, "POST", "/api/phrasebook/add", {"said": "zonked at 2, up at 9", "plain": "slept from 2 am to 9 am"})
     check("phrasebook entry added over HTTP", s == 200 and d["kind"] == "sleep", (s, d))
     s, d = call(app, "POST", "/api/phrasebook/add", {"said": "zonked at 2", "plain": "slept from 2 am to 9 am"})
