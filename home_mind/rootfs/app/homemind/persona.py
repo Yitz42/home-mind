@@ -180,16 +180,48 @@ class Persona:
                 return emo, "answer"
         return emotion_of_text(text), "words"
 
-    def settings(self):
+    PER_PERSON = ("enabled", "address", "wit")      # the butler's name and SSML are the house's; these are each person's
+
+    def settings(self, who=None):
         s = dict(DEFAULT)
         s.update({k: v for k, v in (self.store.kv_get(KV) or {}).items() if k in DEFAULT})
+        if who:
+            own = (self.store.kv_get(KV + "_people") or {}).get(str(who).lower()) or {}
+            s.update({k: v for k, v in own.items() if k in self.PER_PERSON})
         return s
 
-    def set(self, new):
+    def people(self):
+        return self.store.kv_get(KV + "_people") or {}
+
+    def set(self, new, person=None):
         if not isinstance(new, dict):
             raise ValueError("settings must be an object")
+        if person:
+            p = str(person).strip().lower()
+            if not p or len(p) > 60:
+                raise ValueError("person is a name")
+            extra = set(new) - set(self.PER_PERSON)
+            if extra:
+                raise ValueError(f"per person only {', '.join(self.PER_PERSON)} can be set (not {', '.join(sorted(extra))})")
+            self._check(new)
+            allp = self.people()
+            own = {k: v for k, v in dict(allp.get(p) or {}, **new).items() if v is not None}
+            if own:
+                allp[p] = own
+            else:
+                allp.pop(p, None)
+            self.store.kv_set(KV + "_people", allp)
+            return self.settings(p)
         cur = self.settings()
+        self._check(new)
+        cur.update(new)
+        self.store.kv_set(KV, {k: v for k, v in cur.items() if k in DEFAULT})
+        return cur
+
+    def _check(self, new):
         for k, v in new.items():
+            if v is None and k in self.PER_PERSON:
+                continue                     # per person: back to the house's setting
             if k not in DEFAULT:
                 raise ValueError(f"unknown setting {k} (known: {', '.join(DEFAULT)})")
             if k in ("enabled", "ssml"):
@@ -199,13 +231,11 @@ class Persona:
                 v = str(v or "").strip()
                 if not 1 <= len(v) <= 40:
                     raise ValueError("name is 1-40 characters")
+                new[k] = v
             elif k == "address" and v not in ADDRESS:
                 raise ValueError(f"address is one of {', '.join(ADDRESS)}")
             elif k == "wit" and v not in WIT:
                 raise ValueError(f"wit is one of {', '.join(WIT)}")
-            cur[k] = v
-        self.store.kv_set(KV, cur)
-        return cur
 
     def repeat(self, who, question):
         """The same question from the same person within 10 minutes."""
@@ -224,7 +254,7 @@ class Persona:
     def style(self, plain, emotion="neutral", who=None, voice=False, key=None):
         """The answer in the persona's voice for this emotion. Returns (styled, applied); the plain answer when the
         persona is off, the answer is long or structured, or the check fails."""
-        s = self.settings()
+        s = self.settings(who)
         if not s["enabled"] or not plain or not plain.strip():
             return plain, False
         p = plain.strip()
@@ -260,6 +290,28 @@ class Persona:
             return plain, False
         return out, out != p
 
+    def frame(self, text, kind, who=None, tired=False, now=None):
+        """A brief in the persona's voice: his opening and closing lines around the facts, which stay as they are
+        (lists are never reworded). kind: morning or evening."""
+        s = self.settings(who)
+        if not s["enabled"] or not (text or "").strip():
+            return text
+        now = now or datetime.now()
+        name = who if s["address"] == "name" and who else {"sir": "sir", "madam": "madam"}.get(s["address"])
+        to = f", {name}" if name else ""
+        if kind == "morning":
+            opening = f"Good morning{to}."
+            if tired:
+                closing = "Do take it gently today."
+            elif now.weekday() >= 5:
+                closing = "Do enjoy the weekend."
+            else:
+                closing = _pick(["I trust the day goes smoothly.", "I shall keep an eye on things."], text)
+        else:
+            opening = f"Good evening{to}."
+            closing = f"Good night{to}." if s["wit"] != "off" else "Good night."
+        return f"{opening}\n{text.strip()}\n{closing}"
+
     def ssml(self, text, emotion="neutral"):
         """SSML for voices that read it: the emotion's pace and pitch, and a short pause before the closing remark."""
         rate, pitch = PROSODY.get(emotion, PROSODY["neutral"])
@@ -281,10 +333,10 @@ class Persona:
         """The answer reworded by a model (a small one on a GPU computer will do), or None when it's slow, off, or
         changed a fact; then the rules style it instead."""
         import asyncio
-        if not self.settings()["enabled"] or not self.styleable(plain):
+        if not self.settings(who)["enabled"] or not self.styleable(plain):
             return None
         shots = "\n".join(f"[{e['emotion']}] {e['plain']}\n=> {e['styled']}" for e in self.examples()[:8])
-        name = who if self.settings()["address"] == "name" and who else ""
+        name = who if self.settings(who)["address"] == "name" and who else ""
         system = self.prompt() + "\n\n" + self.MODEL_SYSTEM + ("\nThe person is " + name + "." if name else "") + \
             ("\nThis is spoken: one or two short sentences." if voice else "") + "\n\nExamples:\n" + shots
         try:
@@ -310,7 +362,7 @@ class Persona:
 
     def finish(self, result, emotion, voice=False, who=None, styled_by_model=None):
         """The styled answer (a model's when it passed the check, else the rules') and its markers."""
-        s = self.settings()
+        s = self.settings(who)
         if styled_by_model:
             styled, applied = styled_by_model, True
             result["styled_by"] = "model"

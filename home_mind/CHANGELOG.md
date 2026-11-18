@@ -28,6 +28,8 @@ Fitness goals, built on the scale, meal and watch data Home Mind already collect
   - New Ollama settings `num_gpu` (0 = on the CPU, leaving the GPU to Voicebox), `keep_alive`, `num_ctx` and `num_thread`, plus `connect_timeout` for any model.
   - New option `persona_model`: a model on that computer rewords answers in Jeeves's voice, with the same fact check, and the rules take over if it's slow, away or changes a fact.
   - The docs give a starting setup for an 8 GB GPU shared with Voicebox.
+- **Jeeves everywhere:** Telegram replies go through the persona, as Ask-box and voice answers do. The morning and evening briefs get his opening and closing lines ("Good morning, Yitz." … "Do take it gently today." on a tired day), with the facts in between unchanged.
+- **Per-person persona:** how Jeeves addresses each person, the wit and on/off can differ per person, while his name stays the house's. Use the **For** selector on the Persona card.
 - **Sleep goals:** target hours and a bedtime. The weekly review counts the nights that met them, the evening brief carries the bedtime, and a mostly-missed goal brings a wind-down suggestion.
 - **Recent logs on the Health tab:** the last 30 days of sleep and workouts, each with **Edit** (kept on the same day, the old one archived) and **Delete**. Before, a log could only be fixed right after it was made.
 - **Fixed: days ended at midnight UTC.** The image had no time zone data, so the time zone Supervisor passes was ignored. After 7 PM in New York a meal counted for tomorrow, and "last night" and the weekly review could be off by a day. The image now includes tzdata, Home Mind applies Home Assistant's own time zone at startup, and the Overview warns if it can't.

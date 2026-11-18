@@ -139,6 +139,9 @@ class Telegram:
             st.remember(text=note, source="telegram", meta=meta or None)
             return f"Saved: {note}"
         res = await self.app.mind.ask(text, None, conversation_id=f"telegram:{chat}", speaker=who or "")
+        styled = getattr(self.app, "styled", None)
+        if styled is not None and getattr(self.app, "persona", None) is not None:
+            res = await styled(res, text, who or None)          # the persona's voice, as in the Ask box
         return res.get("answer") or "I don't have anything on that."
 
     async def run_forever(self):

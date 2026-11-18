@@ -125,7 +125,66 @@ def test_emotion_for():
     check_("nothing to go on: neutral", p.emotion_for("The kettle is on.") == ("neutral", "words"))
 
 
-for fn in [test_emotions, test_style, test_check, test_settings_and_markers, test_emotion_for]:
+def test_people_and_briefs():
+    from datetime import datetime
+    p = fresh()
+    p.set({"address": "name", "wit": "normal"})
+    st = p.set({"address": "madam", "wit": "low"}, person="Dana")
+    check_("a person's own settings", st["address"] == "madam" and st["wit"] == "low" and st["name"] == "Jeeves", st)
+    check_("others keep the house's", p.settings("yitz")["address"] == "name" and p.settings()["wit"] == "normal")
+    for bad in [({"name": "Hudson"}, "dana"), ({"ssml": True}, "dana"), ({"wit": "max"}, "dana")]:
+        try:
+            p.set(*bad[:1], person=bad[1])
+            check_(f"per person refused: {bad[0]}", False)
+        except ValueError:
+            check_(f"per person refused: {bad[0]}", True)
+    s, _ = p.style("Logged: squat 3×5 — a new best.", "proud", who="Dana")
+    check_("styled with the person's address", "madam" in s, s)
+    p.set({"enabled": False}, person="Dana")
+    check_("off for one person only", p.style("Done: lights off.", "neutral", who="Dana")[1] is False and
+           p.style("Done: lights off.", "neutral", who="Yitz")[1] is True)
+    p.set({"enabled": None, "address": None, "wit": None}, person="Dana")
+    check_("cleared: back to the house's", "dana" not in p.people())
+    brief = "Weather: 49° sunny.\nWeigh-in: 167.1 lb."
+    out = p.frame(brief, "morning", "Yitz", now=datetime(2026, 11, 18, 7, 30))
+    check_("morning brief framed, facts untouched", out.startswith("Good morning, Yitz.\n") and brief in out, out)
+    out = p.frame(brief, "morning", "Yitz", tired=True, now=datetime(2026, 11, 18, 7, 30))
+    check_("a tired morning ends gently", out.endswith("Do take it gently today."), out)
+    out = p.frame(brief, "morning", None, now=datetime(2026, 11, 21, 7, 30))
+    check_("a weekend morning", out.startswith("Good morning.\n") and out.endswith("Do enjoy the weekend."), out)
+    check_("evening: good night", p.frame(brief, "evening", "Yitz").endswith("Good night, Yitz."))
+    p.set({"enabled": False})
+    check_("persona off: the brief as it was", p.frame(brief, "evening", "Yitz") == brief)
+
+
+def test_telegram():
+    """A Telegram question is answered through the persona, by name."""
+    import asyncio
+    from types import SimpleNamespace
+    from homemind.messaging import Telegram
+    p = fresh()
+    seen = {}
+
+    async def ask(text, model, **k):
+        return {"answer": "The furnace filter was changed on March 3, 47 days ago.", "hits": [1]}
+
+    async def styled(res, q, who=None):
+        seen["who"] = who
+        return p.apply(res, q, who=who)
+    app = SimpleNamespace(mind=SimpleNamespace(ask=ask, store=Store(tempfile.mktemp())), persona=p, styled=styled,
+                          scope_meta=lambda m, *a: m)
+    t = Telegram(app, "tok", ["123: Yitz"])
+    out = asyncio.run(t.handle({"chat": {"id": 123}, "text": "when was the furnace filter changed?"}))
+    check_("Telegram answers go through the persona", "47 days ago" in out and
+           ("if I may say so" in out or "hesitate" in out), out)
+    check_("as the person who asked", seen.get("who") == "Yitz", seen)
+    app.persona = None
+    out = asyncio.run(t.handle({"chat": {"id": 123}, "text": "when was the furnace filter changed?"}))
+    check_("no persona: the plain answer", out == "The furnace filter was changed on March 3, 47 days ago.", out)
+
+
+for fn in [test_emotions, test_style, test_check, test_settings_and_markers, test_emotion_for, test_people_and_briefs,
+           test_telegram]:
     try:
         fn()
     except Exception as e:  # noqa: BLE001

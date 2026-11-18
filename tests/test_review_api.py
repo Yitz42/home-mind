@@ -237,7 +237,7 @@ ROUTES = [
                                    "calories", "steps", "workouts_per_week", "body_fat_target", "sleep_hours", "bedtime",
                                    "kind", "id"]),
     ("GET", "/api/persona", []),
-    ("POST", "/api/persona", ["enabled", "name", "address", "wit", "ssml"]),
+    ("POST", "/api/persona", ["enabled", "name", "address", "wit", "ssml", "person"]),
     ("POST", "/api/persona/try", ["text", "emotion"]),
     ("GET", "/api/persona/emotion", ["text"]),
     ("GET", "/api/phrasebook", ["status", "source", "limit"]),
@@ -435,6 +435,10 @@ def contracts(app, A):
     check("accepting a suggestion that isn't there: 400", s == 400, (s, d))
     s, d = call(app, "POST", "/api/persona", {"address": "sir", "wit": "low"})
     check("persona settings over HTTP", s == 200 and d["settings"]["address"] == "sir", (s, d))
+    s, d = call(app, "POST", "/api/persona", {"person": "dana", "address": "madam"})
+    check("persona per person over HTTP", s == 200 and d["people"]["dana"]["address"] == "madam", (s, d))
+    s, d = call(app, "POST", "/api/persona", {"person": "dana", "name": "Hudson"})
+    check("persona: the name isn't per person", s == 400, (s, d))
     s, d = call(app, "POST", "/api/persona", {"enabled": "yes"})
     check("persona: a bad setting is a 400", s == 400, (s, d))
     s, d = call(app, "POST", "/api/persona/try", {"text": "The front door is not locked.", "emotion": "alert"})

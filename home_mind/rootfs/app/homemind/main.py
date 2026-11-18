@@ -267,6 +267,8 @@ class App:
         self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
         self.mind.patterns = self.patterns
         self.persona = Persona(self.mind.store)
+        for brief in (self.morning, self.evening):
+            brief.persona, brief.tired, brief.people = self.persona, self.tired, self.people
         self.phrasebook = Phrasebook(self.mind.store)
         self.mind.phrasebook = self.overnight.phrasebook = self.phrasebook
         self.overnight.grow_phrasebook = self.opts.get("phrasebook_grow", True) is not False
@@ -1577,13 +1579,20 @@ def build(app_state):
     @r.get("/api/persona")
     async def persona_get(_):
         from .persona import EMOTIONS
+        names = []
+        try:
+            names = sorted({(p.get("name") or "").lower() for p in A.people() if p.get("name")})
+        except Exception:  # noqa: BLE001
+            pass
         return J({"settings": A.persona.settings(), "emotions": EMOTIONS, "prompt": A.persona.prompt(),
-                  "examples": A.persona.examples()})
+                  "examples": A.persona.examples(), "people": A.persona.people(), "known_people": names})
 
     @r.post("/api/persona")
     async def persona_set(q):
-        b = await read_body(q, optional=True, name=str, address=str, wit=str)
-        return J({"settings": A.persona.set(b), "prompt": A.persona.prompt()})
+        b = await read_body(q, optional=True, name=str, address=str, wit=str, person=str)
+        person = b.pop("person", None)
+        return J({"settings": A.persona.set(b, person=person), "people": A.persona.people(),
+                  "prompt": A.persona.prompt()})
 
     @r.get("/api/persona/emotion")
     async def persona_emotion(q):

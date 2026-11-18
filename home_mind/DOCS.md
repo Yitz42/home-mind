@@ -473,6 +473,10 @@ The answer comes back with `emotion`, the unstyled `plain` text, `persona`, and,
 
 **Hearing it:** the **Home Mind Voice** app (in this repository) speaks answers through Voicebox on another computer with the emotion as a delivery instruction ("speak gently, with quiet concern"), and through Piper when that computer is away. It asks `/api/persona/emotion` for the marker each answer got. See its DOCS.
 
+**Everywhere he speaks:** Ask-box and voice answers, Telegram replies, and the morning and evening briefs. A brief gets his opening and closing lines ("Good morning, Yitz." … "Do take it gently today." on a tired day), and the facts in between are left exactly as they are.
+
+**Per person:** the butler's name and SSML are the house's, but how he addresses each person, the wit and on/off can be set per person (the **For** selector on the card, or `POST /api/persona` with `person`).
+
 Settings are on the System page (name, how it addresses you, wit off/low/normal, on/off, SSML), with a **Try** box and the examples. Your Home Assistant voice agent writes some answers itself: paste the **instructions for your voice agent** from that card into the agent's instructions so it sounds the same.
 
 ## Fitness goals (0.28)
@@ -755,7 +759,7 @@ note), 502 (a model failed) or 500.
 | GET | `/api/fitness/logs` | read | `kind` (sleep or workout), `days?`: recent logs to look at and fix |
 | POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review), `edit` (`kind`, `id`, `text`: what it should say), `delete` (`kind`, `id`) |
 | GET | `/api/persona` | read | the persona's settings, its emotions, examples, and instructions for a voice agent |
-| POST | `/api/persona` | write | any of `enabled`, `name`, `address` (name, sir, madam, none), `wit` (off, low, normal), `ssml` |
+| POST | `/api/persona` | write | any of `enabled`, `name`, `address` (name, sir, madam, none), `wit` (off, low, normal), `ssml`; with `person`, only `enabled`, `address` and `wit` for that person (`null` = back to the house's) |
 | GET | `/api/persona/emotion` | read | `text`: the emotion of something about to be spoken (the marker its answer got, else read from the words), for the Home Mind Voice app |
 | POST | `/api/persona/try` | write | `text`, `emotion`: the persona's version of a plain answer, and its SSML |
 | GET | `/api/phrasebook` | read | `status?`, `source?`, `limit?`: entries and counts |

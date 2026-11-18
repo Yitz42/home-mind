@@ -274,7 +274,7 @@
   <div class="row"><button class="go" onclick="go('tests')">Tests</button> <button class="go" onclick="go('models')">Models</button> <button class="go" onclick="go('updates')">Updates</button> <button class="go" onclick="go('worked')">Worked out</button></div>
   <div class="card"><div class="hrow"><h2>Persona</h2><label class="mute" style="font-size:13px"><input type="checkbox" id="ps_on" onchange="savePersona()"> On</label></div>
     <div class="mute" style="font-size:13px;margin-bottom:8px">Who answers, and how. Each answer gets an emotion from what happened (a new best is proud, an unlocked door is alert, a tired day is gentle) and the persona's manner for it. Facts are checked: a number or a "not" that would change means the plain answer is used.</div>
-    <div class="row" style="flex-wrap:wrap;gap:8px"><label>Name <input id="ps_name" style="width:110px" onchange="savePersona()"></label>
+    <div class="row" style="flex-wrap:wrap;gap:8px"><label>For <select id="ps_for" onchange="loadPersona()"><option value="">everyone</option></select></label><label id="ps_name_l">Name <input id="ps_name" style="width:110px" onchange="savePersona()"></label>
       <label>Calls you <select id="ps_address" onchange="savePersona()"><option value="name">by name</option><option value="sir">sir</option><option value="madam">madam</option><option value="none">nothing</option></select></label>
       <label>Wit <select id="ps_wit" onchange="savePersona()"><option value="off">off</option><option value="low">low</option><option value="normal">normal</option></select></label>
       <label class="mute"><input type="checkbox" id="ps_ssml" onchange="savePersona()"> SSML for voices that read it</label></div>
@@ -616,7 +616,11 @@ async function vote(feeling) {
 }
 async function loadPersona() {
   const p = await api('api/persona'); if (p.error) return;
-  const st = p.settings;
+  const sel = $('#ps_for'), who = sel.value;
+  const known = [...new Set([...(p.known_people || []), ...Object.keys(p.people || {})])];
+  if (sel.options.length !== known.length + 1) { sel.innerHTML = '<option value="">everyone</option>' + known.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join(''); sel.value = who; }
+  const st = Object.assign({}, p.settings, who ? (p.people || {})[who] || {} : {});
+  $('#ps_name_l').style.display = who ? 'none' : ''; $('#ps_ssml').parentElement.style.display = who ? 'none' : '';
   $('#ps_on').checked = st.enabled; $('#ps_ssml').checked = st.ssml; $('#ps_name').value = st.name;
   $('#ps_address').value = st.address; $('#ps_wit').value = st.wit;
   if (!$('#ps_emo').options.length) $('#ps_emo').innerHTML = Object.keys(p.emotions).map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('');
@@ -624,7 +628,10 @@ async function loadPersona() {
   $('#ps_prompt').value = p.prompt;
 }
 async function savePersona() {
-  const r = await api('api/persona', {enabled: $('#ps_on').checked, ssml: $('#ps_ssml').checked, name: $('#ps_name').value, address: $('#ps_address').value, wit: $('#ps_wit').value});
+  const who = $('#ps_for').value;
+  const body = who ? {person: who, enabled: $('#ps_on').checked, address: $('#ps_address').value, wit: $('#ps_wit').value}
+    : {enabled: $('#ps_on').checked, ssml: $('#ps_ssml').checked, name: $('#ps_name').value, address: $('#ps_address').value, wit: $('#ps_wit').value};
+  const r = await api('api/persona', body);
   $('#ps_out').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : 'Saved.'; if (!r.error) loadPersona();
 }
 async function tryPersona() {
