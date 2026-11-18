@@ -267,6 +267,8 @@ class App:
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
         self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
         self.mind.patterns = self.patterns
+        from .datafacts import DataFacts
+        self.mind.datafacts = DataFacts(self.mind.store, self.fitness, self.patterns)
         self.persona = Persona(self.mind.store)
         for brief in (self.morning, self.evening):
             brief.persona, brief.tired, brief.people = self.persona, self.tired, self.people

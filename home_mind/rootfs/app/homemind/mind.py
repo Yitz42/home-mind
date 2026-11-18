@@ -1295,6 +1295,11 @@ class Mind:
             logged = await self._log_said(said, model, voice, deadline, conversation_id)
             if logged:
                 return logged
+            df = getattr(self, "datafacts", None)
+            if df is not None:
+                d = df.answer(said)        # "average sleep this week?": computed, not guessed by a model
+                if d:
+                    return {"answer": d["answer"], "hits": [], "model": None, "data": d}
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS

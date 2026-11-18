@@ -415,6 +415,15 @@ If Home Assistant runs on modest hardware, a 270M-parameter model trained on you
 
 House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
 
+## Data answers (0.28)
+Questions about your own numbers are answered from the numbers, not by a model reading notes and doing the arithmetic. Each question is matched to a measure and a period, the value is computed from what Home Mind saved, and the sentence is written from a template:
+
+- **Measures:** sleep, bedtime, readiness, steps (from the watch rows, with sleep you've said taking priority), weight and body fat (weigh-ins), protein and calories (logged meals), workouts, a lift (last and best, by estimated 1-rep max), and distance.
+- **Periods:** last night, today, yesterday, this or last week (Monday to Sunday), this or last month, this year, a month by name ("in October"), and "the past N days/weeks/months". Without one, the last 7 days.
+- **Kinds of answer:** average, total, highest or lowest (with the day), latest, change from first to last, and against your goals where there is one.
+
+For example "what was my average sleep this week?", "how many workouts did I do in October?", "what's my best squat?" or "how much protein yesterday?". If there's no data for the period, it says so. Questions that aren't one measure over one period ("why am I tired?", "how can I sleep better?", "calories in an apple?") go to a model as before. A data answer comes back with `data` (the value, how many days it covers, the period) and `model: null`.
+
 ## A GPU computer as a model server (0.28)
 A newer computer with an NVIDIA GPU (for example a laptop left plugged in at home) can run local models for Home Mind through **Ollama**, next to **Voicebox** (see the Home Mind Voice app). Home Mind checks that computer every 30 seconds and skips its models while it's asleep, off or restarting, so answers go straight to the next model instead of waiting. The Models page shows each computer as **up** or **away**, and if one is away longer than `away_alert_hours` (3 by default) you get a notification, and another when it's back.
 

@@ -92,5 +92,7 @@ jobs:
         run: python tests/test_gpu_server.py
       - name: The house's time zone
         run: python tests/test_timezone.py
+      - name: Data answers (computed, not guessed)
+        run: python tests/test_datafacts.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py
