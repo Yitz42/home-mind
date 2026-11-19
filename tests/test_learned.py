@@ -302,7 +302,7 @@ def make_app(learned_rng):
     async def no_pending(*_a, **_k):
         return None
     a.pending_reply = no_pending
-    for n_ in ("do", "_run_plan", "plan_only", "_verb", "_run_steps", "_said", "room_for"):
+    for n_ in ("do", "_run_plan", "plan_only", "_verb", "_run_steps", "_said", "_summed", "room_for"):
         if hasattr(M.App, n_):
             setattr(a, n_, getattr(M.App, n_).__get__(a))
     return a, t_

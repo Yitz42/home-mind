@@ -43,6 +43,10 @@ from .version import VERSION
 DATA = os.environ.get("HOME_MIND_DATA", "/data")
 
 
+_NOUNS = {"light": "lights", "fan": "fans", "cover": "blinds", "switch": "switches", "lock": "locks",
+          "media_player": "speakers", "humidifier": "humidifiers", "climate": "heaters"}   # "6 lights off"
+
+
 def meal_time(when, now=None):
     """'8am', '8:30', '7:45 pm' or an ISO time -> a timestamp today (yesterday if that's still in the future);
     None for nothing or something unreadable."""
@@ -719,6 +723,23 @@ class App:
         a = area.lower()
         return a if a in rooms else None
 
+    def _summed(self, plans):
+        """What was done, short enough to say: three or more of a kind with the same action become one phrase
+        ("6 lights off"); one or two keep their names ("Desk Light off, kettle on")."""
+        groups = {}
+        for p in plans:
+            k = (p["entity_id"].split(".")[0], p.get("action"), p.get("value"))
+            groups.setdefault(k, []).append(p)
+        out = []
+        for (dom, _a, _v), ps in groups.items():
+            if len(ps) >= 3:
+                what = self._said(ps[0])[len((self.home.catalog.get(ps[0]["entity_id"]) or {}).get("name")
+                                             or ps[0]["entity_id"]):].strip()
+                out.append(f"{len(ps)} {_NOUNS.get(dom, dom.replace('_', ' ') + 's')} {what}")
+            else:
+                out.extend(self._said(p) for p in ps)
+        return ", ".join(out)
+
     def _said(self, plan):
         name = (self.home.catalog.get(plan.get("entity_id")) or {}).get("name") or plan.get("entity_id")
         a, v = plan.get("action"), plan.get("value")
@@ -736,6 +757,14 @@ class App:
             return {"steps": steps, "by": by, "which": ask["which"],
                     "answer": f"Which {ask.get('device') or 'one'}: " + ", ".join(ask["which"]) + "?"}
         steps = [dict(s, by=by) for s in steps if s.get("entity_id")]
+        # a light group ("Bedroom Lights") already covers its members: switch the group, not each member as well
+        covered = set()
+        for s in steps:
+            members = ((self.home.catalog.get(s["entity_id"]) or {}).get("attrs") or {}).get("entity_id")
+            if isinstance(members, list):
+                covered |= {(m, s.get("action"), s.get("value")) for m in members if m != s["entity_id"]}
+        if covered:
+            steps = [s for s in steps if (s["entity_id"], s.get("action"), s.get("value")) not in covered] or steps
         if len(steps) == 1:
             return await self._run_plan(steps[0], text, source, conversation_id, t0=t0)
         def need(s):
@@ -748,7 +777,7 @@ class App:
         # the ones needing a spoken yes wait for one yes together; phone-level ones (locks, garage doors, heaters)
         # each go through _run_plan, which sends a phone approval; the rest run now
         sens = [s for s in steps if need(s) == "confirm"]
-        results, said = [], []
+        results, said, ran = [], [], []
         batch = f"{time.time()}:{id(steps)}"         # one request: counts once against the actions-per-minute limit
         for s in steps:
             if s in sens:
@@ -757,9 +786,10 @@ class App:
             results.append(r)
             if r.get("done"):
                 said.append(self._said(s))
+                ran.append(s)
         errors = [r["error"] for r in results if r.get("error")]
         out = {"steps": steps, "by": by, "results": results, "done": [r["done"] for r in results if r.get("done")]}
-        answer = ("Done: " + ", ".join(said) + ".") if said else ""
+        answer = ("Done: " + self._summed(ran) + ".") if said else ""
         sent = [r for r in results if r.get("approval_sent")]
         if sent:
             out["approvals"] = [r["approval_id"] for r in sent]

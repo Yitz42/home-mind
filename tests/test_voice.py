@@ -97,9 +97,13 @@ ev = run(collect(V.converse(App(), {"text": "when do the bins go out?"}, ack_sec
 check("converse: fast answers aren't acknowledged; one event per sentence, then done",
       [e["type"] for e in ev] == ["delta", "delta", "done"] and not any(e.get("ack") for e in ev) and
       ev[-1]["answer"].startswith("The bins"), ev)
-ev = run(collect(V.converse(App(delay=0.3), {"text": "when do the bins go out?"}, ack_seconds=0.1)))
-check("converse: past the acknowledgement time, something is said first",
+ev = run(collect(V.converse(App(delay=0.3), {"text": "when do the bins go out?", "device_id": "sat1"},
+                            ack_seconds=0.1)))
+check("converse: on a voice device, past the acknowledgement time, something is said first",
       ev[0].get("ack") and ev[0]["text"] in V.ACKS and ev[-1]["acked"] == ev[0]["text"], ev)
+ev = run(collect(V.converse(App(delay=0.3), {"text": "when do the bins go out?"}, ack_seconds=0.1)))
+check("converse: typed in the app (no voice device), no acknowledgement runs into the answer",
+      not any(e.get("ack") for e in ev) and ev[0]["text"].startswith("The bins") and ev[-1]["acked"] is None, ev)
 
 
 class Broken(App):
