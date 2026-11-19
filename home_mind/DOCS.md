@@ -134,6 +134,20 @@ seconds the quick answer is said instead. A guest or another assistant never get
 (`/api/answer_pick`; totals at `/api/answer_picks`), so the new path is judged by you. Turn the whole thing off with
 `connected_answers: false`.
 
+## Talk: a conversation in the panel
+The **Talk** view (next to Today) is a conversation with Home Mind by voice or by typing. Tap the mic and speak (it
+uses the browser's own speech recognition: Chrome, Edge or Safari; if Home Assistant's frame blocks the microphone,
+open Home Mind in its own tab), or type. Answers to spoken turns are read out (*Speak answers*), and with *Keep
+listening* it listens again after each answer, as it always does when it's waiting on an answer.
+
+- **It keeps the thread.** Each person has one conversation, kept on the server (the last 100 turns), so it's the
+  same on the phone and the computer, and follow-ups like "and yesterday?" or "yes" are understood. *New conversation*
+  starts afresh. A guest's turns are never kept.
+- **Answers it expects come as buttons**: Yes / No when an action needs a yes, Good / Low / Rough for the check-in
+  (asked once a day here too), the devices for "Which one...?", the options of an "A or B?" question, and after a
+  connected answer, "What could I try?" and "Show me the numbers". You can always type your own answer instead.
+- House commands work as with the voice assistant; connected answers come with the quick one beside them.
+
 ## Who can reach Home Mind, and how much
 
 - **Telegram:** the chat must be on `telegram_chats`; in a group chat, the person writing must be listed too (their
@@ -1223,6 +1237,9 @@ note), 502 (a model failed) or 500.
 | POST | `/api/plain_voice` | admin | answers without the persona, for you (`on`) |
 | GET | `/api/trackers` | admin | your trackers, entries waiting for details, and whether they're paused |
 | POST | `/api/trackers` | admin | add a tracker (`name`, `kind?`, `cadence?`), stop one (`stop`), or add details (`confirm`, `details?`) |
+| GET | `/api/talk` | read | your conversation in the panel (`conversation_id`, `turns` with their choices) |
+| POST | `/api/talk` | write | one turn (`text`, `spoken`?): a command or a question, with `choices` and `expects` back |
+| POST | `/api/talk/new` | write | start a new conversation |
 | POST | `/api/answer_pick` | write | which was better, the connected answer or the quick one (`id`, `pick`: deep, quick, same) |
 | GET | `/api/answer_picks` | read | how the picks add up |
 | GET | `/api/issues` | read | known issues: general causes, your suspects, how often each symptom was mentioned |

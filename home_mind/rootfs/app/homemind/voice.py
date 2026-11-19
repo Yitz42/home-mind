@@ -83,6 +83,7 @@ async def turn(app, body, scope="admin"):
     if modes is not None:
         # who writes the answer, by model mode (private: the local model or the notes alone, never the cloud)
         b["model"] = modes.answer_model(None)
+        b["mode_model"] = True          # chosen by the mode, not by hand: connected answers still apply
         if modes.mode(None) == "private":
             b["fallback"] = False
     from .tokens import allows

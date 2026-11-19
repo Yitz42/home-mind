@@ -300,6 +300,8 @@ class App:
         self.symptoms = Symptoms(st9)
         self.known_issues = KnownIssues(st9)
         self.brief = Brief(self)
+        from .talk import Talk
+        self.talk = Talk(self)          # the panel's conversation: by voice or typing, with choices (talk.py)
         _forget_name = st9.on_forget_name
 
         def _forget_name_too(name):
@@ -1170,10 +1172,11 @@ class App:
         """A question for the connected path: why, lately, how am I, really, busy (connect.wants_deep), asked by
         someone who may see personal data (not a guest, not another assistant), with the option on."""
         from . import connect as CN
-        if other or who == "" or self.opts.get("connected_answers") is False or b.get("model") not in (None, "", "auto") or \
+        chosen = b.get("model") not in (None, "", "auto") and not b.get("mode_model")    # a model picked by hand
+        if other or who == "" or self.opts.get("connected_answers") is False or chosen or \
                 b.get("use_brain") is False or getattr(self, "brief", None) is None:
             return False
-        return CN.wants_deep(b.get("question") or "")
+        return bool(b.get("force_deep")) or CN.wants_deep(b.get("question") or "")
 
     def _deep_chain(self, who):
         name = self.opts.get("deep_model") or None
@@ -3886,6 +3889,26 @@ def build(app_state):
             return J({"confirmed": int(b["confirm"])})
         tid = tk.add_tracker(b.get("name"), VIEWER.get() or None, b.get("kind") or "scale", b.get("cadence") or "weekly")
         return J({"id": tid})
+
+    @r.get("/api/talk")
+    async def talk_get(_):
+        """This person's conversation in the panel: {"conversation_id", "turns": [{"who", "text", "choices"?}]}."""
+        from .speakers import VIEWER
+        return J(A.talk.thread(VIEWER.get()))
+
+    @r.post("/api/talk")
+    async def talk_post(q):
+        """One turn ({"text", "spoken"?}): a house command or a question, answered in this person's conversation,
+        with the answers it expects next as choices."""
+        from .speakers import VIEWER
+        b = await read_body(q, text=str)
+        return J(await A.talk.turn(b.get("text") or "", VIEWER.get(), q.get("scope", "admin"),
+                                   spoken=b.get("spoken") is True))
+
+    @r.post("/api/talk/new")
+    async def talk_new(_):
+        from .speakers import VIEWER
+        return J(A.talk.new(VIEWER.get()))
 
     @r.post("/api/answer_pick")
     async def answer_pick(q):

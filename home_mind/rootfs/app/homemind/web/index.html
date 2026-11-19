@@ -42,7 +42,24 @@
   .pill { display:inline-block; padding:2px 10px; border-radius:99px; background:var(--card2); border:1px solid var(--line); font-size:12px; margin:0 4px 4px 0; cursor:pointer }
   pre { white-space:pre-wrap; background:var(--bg); padding:10px; border-radius:10px; max-height:360px; overflow:auto; font-size:12px }
   .cmp { margin-top:10px; padding-top:8px; border-top:1px solid var(--line); white-space:normal; font-family:inherit }
-  .cmp details div { margin-top:6px; color:var(--mute) } .cmp button { margin-right:6px }
+  .cmp details div { margin-top:6px; color:var(--mute) } .cmp button { margin-right:6px; min-height:32px; padding:4px 12px; font-size:13px }
+  .talk { display:flex; flex-direction:column; min-height:60vh }
+  .thread { flex:1; display:flex; flex-direction:column; gap:10px; overflow:auto; max-height:62vh; padding:4px 2px 10px }
+  .msg { max-width:78%; padding:10px 14px; border-radius:16px; white-space:pre-wrap; line-height:1.5 }
+  .msg.you { align-self:flex-end; background:var(--acc); color:#fff; border-bottom-right-radius:6px }
+  .msg.hm { align-self:flex-start; background:var(--card2); border:1px solid var(--line); border-bottom-left-radius:6px }
+  .msg.flag { border-color:var(--bad); background:color-mix(in srgb, var(--bad) 14%, var(--card)) }
+  .msg .tag { display:block; font-size:11px; color:var(--mute); margin-top:6px }
+  .msg.wait { color:var(--mute) } .msg.wait::after { content:'…'; animation:blink 1s infinite } @keyframes blink { 50% { opacity:.2 } }
+  .choices { display:flex; flex-wrap:wrap; gap:8px; margin:6px 0 10px } .choices:empty { display:none }
+  .choices button { border:1px solid var(--acc); background:color-mix(in srgb, var(--acc) 14%, var(--card)); color:var(--ink); border-radius:99px; padding:8px 16px; font:inherit; font-weight:600; cursor:pointer; min-height:40px }
+  .choices button.soft { border-color:var(--line); background:var(--card2); font-weight:500 }
+  .say { display:flex; gap:8px; align-items:center }
+  #talk .ph label { display:inline-flex; align-items:center; gap:6px; margin-right:6px } #talk .ph label input { min-height:0; padding:0; margin:0; width:16px; height:16px }
+  button.soft { border:1px solid var(--line); background:var(--card2); color:var(--ink); border-radius:10px; padding:8px 14px; font:inherit; cursor:pointer; min-height:38px }
+  .mic { flex:none; width:48px; height:48px; border-radius:99px; border:0; background:var(--card2); color:var(--ink); display:flex; align-items:center; justify-content:center; cursor:pointer }
+  .mic.on { background:var(--bad); color:#fff; box-shadow:0 0 0 6px color-mix(in srgb, var(--bad) 25%, transparent) }
+  @media (max-width: 860px) { .msg { max-width:90% } .thread { max-height:none } }
   .hide { display:none !important } a { color:var(--acc-ink); cursor:pointer } .num { font-variant-numeric:tabular-nums }
   .seg { display:flex; gap:4px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:4px; margin-bottom:14px; max-width:420px }
   .seg button { flex:1; border:0; background:none; color:var(--mute); font:inherit; border-radius:10px; min-height:38px; cursor:pointer } .seg button.on { background:var(--acc); color:#fff; font-weight:600 }
@@ -169,6 +186,7 @@
   <div class="brand"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--acc-ink)"><path d="M3 11l9-7 9 7M5 10v10h14V10M9 15a3 3 0 0 1 6 0"/></svg>Home Mind</div>
   <div class="grp">DAILY</div>
   <button data-t="today" class="on"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8zM12 3v2M12 19v2M3 12h2M19 12h2"/></svg><span>Today</span></button>
+  <button data-t="talk"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Talk</span></button>
   <button data-t="pantry" style="--tint:var(--food)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 3v8a2 2 0 0 0 2 2v8M10 3v8M16 3c-2 2-2 6 0 8v10"/></svg><span>Food</span></button>
   <button data-t="health" style="--tint:var(--health)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span>Health</span></button>
   <div class="grp">BRAIN</div>
@@ -394,6 +412,18 @@
   <div class="card"><h2>Usual ranges</h2><table id="h_base"></table></div>
   </div>
 </section>
+<section id="talk" class="hide">
+  <div class="ph"><div><div class="sub">Talk or type. Follow-ups keep the thread.</div><h1>Talk</h1></div>
+    <div class="row" style="margin:0"><label class="mute"><input type="checkbox" id="tk_speak" checked> Speak answers</label>
+      <label class="mute"><input type="checkbox" id="tk_hands"> Keep listening</label>
+      <button class="soft" onclick="talkNew()">New conversation</button></div></div>
+  <div class="card talk"><div id="tk_thread" class="thread" aria-live="polite"></div>
+    <div id="tk_choices" class="choices"></div>
+    <div class="say"><button id="tk_mic" class="mic" onclick="talkMic()" aria-label="Talk"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      <input id="tk_in" placeholder="Type, or tap the mic and talk…" aria-label="Say something to Home Mind" style="flex:1;min-width:0" onkeydown="if (event.key === 'Enter') talkSend()">
+      <button class="go" onclick="talkSend()">Send</button></div>
+    <div id="tk_note" class="mute" style="font-size:12px;margin-top:6px"></div></div>
+</section>
 <section id="pantry" class="hide">
   <div class="ph"><div><div class="sub" style="color:var(--food-ink)" id="pa_sub">Food in the house</div><h1>Food</h1></div></div>
   <div class="card food"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
@@ -529,7 +559,7 @@ function showAnswer(sel, r, extra) {
   const lab = document.createElement('span'); lab.className = 'mute'; lab.textContent = 'Which was better? ';
   row.append(lab);
   for (const [k, t] of [['deep', 'This one'], ['quick', 'The quick one'], ['same', 'About the same']]) {
-    const b = document.createElement('button'); b.textContent = t;
+    const b = document.createElement('button'); b.textContent = t; b.className = 'soft';
     b.onclick = async () => { const x = await api('api/answer_pick', {id: r.compare_id, pick: k}); row.textContent = x.error || 'Thanks, noted.'; };
     row.append(b);
   }
@@ -688,8 +718,83 @@ async function loadMore() {
   $('#events').innerHTML = Array.isArray(ev) ? (ev.map(e => `<div class="li"><div class="main"><div class="t">${esc(e.type)} <span class="sub">· ${ago(e.ts)}</span></div><div class="sub">${esc(String(e.data ?? '').slice(0, 140))}</div></div></div>`).join('') || '<span class="mute">nothing yet: searches, answers and changes show here</span>') : `<span class="bad">${esc(ev.error)}</span>`;
 }
 
+// ---- Talk: a conversation by voice or typing, with the answers Home Mind expects as buttons (/api/talk) ----
+let TK_REC = null, TK_LISTENING = false;
+function talkBubble(t) {
+  const d = document.createElement('div'); d.className = 'msg ' + (t.who === 'you' ? 'you' : 'hm') + (t.red_flag ? ' flag' : '');
+  d.textContent = t.text || '';
+  if (t.deep) { const g = document.createElement('span'); g.className = 'tag'; g.textContent = 'Connected answer, from your own data'; d.append(g); }
+  if (t.compare_id && t.quick) {
+    const box = document.createElement('div'); box.className = 'cmp';
+    const det = document.createElement('details'); const sm = document.createElement('summary'); sm.textContent = 'The quick answer, for comparison';
+    const qa = document.createElement('div'); qa.textContent = t.quick.answer; det.append(sm, qa);
+    const row = document.createElement('div'); row.style.marginTop = '6px';
+    for (const [k, l] of [['deep', 'This one'], ['quick', 'The quick one'], ['same', 'Same']]) {
+      const b = document.createElement('button'); b.textContent = l; b.className = 'soft';
+      b.onclick = async () => { const x = await api('api/answer_pick', {id: t.compare_id, pick: k}); row.textContent = x.error || 'Thanks, noted.'; };
+      row.append(b);
+    }
+    box.append(det, row); d.append(box);
+  }
+  return d;
+}
+function talkChoices(list, expects) {
+  const c = $('#tk_choices'); c.innerHTML = '';
+  (list || []).forEach(l => { const b = document.createElement('button'); b.textContent = l; if (!expects) b.className = 'soft'; b.onclick = () => talkSend(l); c.append(b); });
+  if (expects === 'choice') $('#tk_in').placeholder = 'Tap an answer, or type your own…'; else $('#tk_in').placeholder = 'Type, or tap the mic and talk…';
+}
+function talkScroll() { const th = $('#tk_thread'); th.scrollTop = th.scrollHeight; }
+async function talkLoad() {
+  const r = await api('api/talk'); const th = $('#tk_thread'); th.innerHTML = '';
+  if (r.error) { th.textContent = r.error; return; }
+  if (r.guest) $('#tk_note').textContent = 'Talking as a guest: nothing personal, and nothing kept.';
+  (r.turns || []).forEach(t => th.append(talkBubble(t)));
+  if (!(r.turns || []).length) { const d = document.createElement('div'); d.className = 'msg hm'; d.textContent = 'Hi. Ask me anything, tell me how you are, or ask me to do something in the house.'; th.append(d); }
+  const last = (r.turns || []).slice(-1)[0];
+  talkChoices(last && last.who !== 'you' ? last.choices : ['How am I doing?', "What's on today?"], last && last.who !== 'you' ? last.expects : null);
+  if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+    $('#tk_mic').disabled = true; $('#tk_mic').title = 'Voice input isn\'t available in this browser';
+    $('#tk_note').textContent = "Voice input isn't available here (it needs Chrome, Edge or Safari, and microphone access). Typing works the same.";
+  }
+  talkScroll();
+}
+async function talkSend(text, spoken) {
+  const v = (text !== undefined ? text : $('#tk_in').value).trim(); if (!v) return;
+  $('#tk_in').value = ''; talkChoices([]);
+  const th = $('#tk_thread'); th.append(talkBubble({who: 'you', text: v}));
+  const w = document.createElement('div'); w.className = 'msg hm wait'; w.textContent = 'Thinking'; th.append(w); talkScroll();
+  const r = await api('api/talk', {text: v, spoken: !!spoken});
+  w.remove();
+  th.append(talkBubble(r.error ? {who: 'hm', text: r.error} : {who: 'hm', text: r.answer, deep: r.deep, red_flag: r.red_flag, quick: r.quick, compare_id: r.compare_id}));
+  talkChoices(r.choices, r.expects); talkScroll();
+  if (!r.error && spoken && $('#tk_speak').checked) talkSpeak(r.answer, () => { if ($('#tk_hands').checked || r.expects === 'choice') talkMic(true); });
+}
+function talkSpeak(text, then) {
+  if (!window.speechSynthesis) { if (then) then(); return; }
+  speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 1.02; u.onend = () => { if (then) then(); }; speechSynthesis.speak(u);
+}
+function talkMic(auto) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return;
+  if (TK_LISTENING && !auto) { TK_REC && TK_REC.stop(); return; }
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  TK_REC = new SR(); TK_REC.lang = navigator.language || 'en-US'; TK_REC.interimResults = true; TK_REC.continuous = false;
+  let final = '';
+  TK_REC.onstart = () => { TK_LISTENING = true; $('#tk_mic').classList.add('on'); $('#tk_note').textContent = 'Listening…'; };
+  TK_REC.onresult = e => { let interim = ''; for (const r of e.results) { if (r.isFinal) final = r[0].transcript; else interim += r[0].transcript; } $('#tk_in').value = final || interim; };
+  TK_REC.onerror = e => {
+    const n = $('#tk_note');
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      n.textContent = 'Microphone access was blocked here. Allow it for this page, or ';
+      const a = document.createElement('a'); a.textContent = 'open Home Mind in its own tab'; a.onclick = () => window.open(location.href, '_blank'); n.append(a, '.');
+    } else n.textContent = e.error === 'no-speech' ? "I didn't hear anything." : 'Voice input stopped: ' + e.error;
+  };
+  TK_REC.onend = () => { TK_LISTENING = false; $('#tk_mic').classList.remove('on'); if ($('#tk_note').textContent === 'Listening…') $('#tk_note').textContent = ''; const v = (final || '').trim(); if (v) talkSend(v, true); };
+  try { TK_REC.start(); } catch (e) { $('#tk_note').textContent = 'Voice input could not start: ' + e.message; }
+}
+async function talkNew() { await api('api/talk/new', {}); talkLoad(); }
 async function load(t) {
   if (t === 'today') loadToday();
+  if (t === 'talk') talkLoad();
   if (t === 'health') loadHealth();
   if (t === 'more') await loadMore();
   if (t === 'memory') { browse(''); recent(); review(); inbox(); docsList(); viewsList(); }

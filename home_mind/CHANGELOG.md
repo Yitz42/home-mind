@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **Talk** in the panel (`talk.py`): a conversation by voice (the browser's speech recognition, answers read out,
+  optional hands-free) or typing, one thread per person kept on the server, follow-ups understood, and the answers
+  Home Mind expects shown as buttons (Yes/No, the check-in, "Which one", "A or B?", follow-ups after a connected
+  answer), with a text box always there. Voice turns now get connected answers too.
 - **Connected answers** (`connect.py`): "why am I so gassy lately?", "how is my health looking?", "is my schedule
   really busy?" are answered from a brief code gathers (the issue and its general causes, labelled general, with the
   offline Wikipedia passage; every time you mentioned the symptom; readings against your usual; check-ins; new
