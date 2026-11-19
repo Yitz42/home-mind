@@ -223,7 +223,7 @@ def app(small, big=None, opts=None):
                               models=types.SimpleNamespace(models=models, get=lambda n: models[n]))
     for n in ("YES", "NO", "PENDING_SECONDS"):
         setattr(A, n, getattr(M.App, n))
-    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan", "_run_steps", "_said"):
+    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan", "_run_steps", "_said", "_summed"):
         setattr(A, n, getattr(M.App, n).__get__(A))
 
     async def ask_phone(plan, why=None, source="api"):        # 0.27: the phone approval request (main.ask_phone)

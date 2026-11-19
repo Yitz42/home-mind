@@ -15,6 +15,7 @@ uses plain SSML prosody instead.)
 """
 import hashlib
 import re
+import time
 from datetime import datetime
 from xml.sax.saxutils import escape
 
@@ -278,6 +279,9 @@ class Persona:
                                                                                         p, re.I) else CLOSERS.get(emotion)
             if opts and not (wit == "low" and emotion in ("amused", "disapproving")):
                 closer = _pick(opts, key)
+        if closer and (out.rstrip().endswith("?") or emotion in self.MOOD and self._closed_lately(who, emotion)):
+            closer = None       # not on a question back; a remark about how the person is doing (not about the news
+            #                     in this answer) at most once in CLOSER_GAP per person
         if closer:
             name = who if s["address"] == "name" and who else {"sir": "sir", "madam": "madam"}.get(s["address"])
             closer = re.sub(r"\{, who\}", f", {name}" if name else "", closer)
@@ -288,7 +292,16 @@ class Persona:
         ok, why = check(p, out)
         if not ok:
             return plain, False
+        if closer:
+            self.__dict__.setdefault("_closed", {})[(str(who or "").lower(), emotion)] = time.time()
         return out, out != p
+
+    MOOD = ("sympathetic", "concerned")     # remarks about the person's day, not this answer's news
+    CLOSER_GAP = 3 * 3600      # "Do take it gently today" once in a while is kind; on every answer it's a tic
+
+    def _closed_lately(self, who, emotion):
+        t = self.__dict__.get("_closed", {}).get((str(who or "").lower(), emotion))
+        return t is not None and time.time() - t < self.CLOSER_GAP
 
     def frame(self, text, kind, who=None, tired=False, now=None):
         """A brief in the persona's voice: his opening and closing lines around the facts, which stay as they are

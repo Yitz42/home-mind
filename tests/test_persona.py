@@ -206,5 +206,15 @@ for fn in [test_notebook_in_step, test_emotions, test_style, test_check, test_se
         import traceback
         traceback.print_exc()
         check_(f"{fn.__name__} raised {e!r}", False)
+# "Do take it gently today" on every answer is a tic: a remark about the person's day at most once in a while,
+# and never on a question back
+_P = fresh()
+if True:
+    a1, _ = _P.style("The kitchen light is on.", "sympathetic", who="dana")
+    a2, _ = _P.style("The porch light is off.", "sympathetic", who="dana")
+    a3, _ = _P.style("Which light do you mean?", "sympathetic", who="sam")
+    check_("a mood remark the first time", "gently" in a1, a1)
+    check_("... not again on the next answer", "gently" not in a2, a2)
+    check_("... and never on a question back", "gently" not in a3, a3)
 print(f"\n{len(FAILS)} failed" if FAILS else "\nall persona checks passed")
 sys.exit(1 if FAILS else 0)

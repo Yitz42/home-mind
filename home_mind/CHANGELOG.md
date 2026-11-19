@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.29.1
+Fixes from the first real conversation with the Home Mind voice agent:
+- **The check-in understood more answers:** right after "good, low or rough today?", a short reply with the word in it
+  counts ("I would say it's about goodish", "pretty much fine", "not too bad"). It was asking which device was meant.
+  Questions and long replies still don't count.
+- **No more "Do take it gently" on every answer:** a remark about how you're doing comes at most once every 3 hours per
+  person, and never on a question back. Remarks about the news in an answer (a new best) are unchanged.
+- **Short answers for many devices:** "turn off the lights" says "Done: 6 lights off." instead of naming every light;
+  one or two keep their names. A light group (Bedroom Lights) in the request is switched on its own, not alongside each
+  of its members.
+- **"Let me check." only on a voice device:** the acknowledgement fills silence on a speaker; typed in the app it ran into
+  the answer.
+
 ## 0.29.0
 The design's version 1 and the first phases after it (#30–#36), brought onto 0.28 in one piece. Where they met 0.27–0.28:
 - **Several actions in one request follow the safety ladder:** "lights off and lock up" turns the lights off now and

@@ -299,6 +299,16 @@ src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "home_
 check("tokens: a read/write token tied to no one is a guest",
       'if rec.get("person") or rec["scope"] != "admin":' in src and 'VIEWER.set(rec.get("person") or "")' in src)
 
+# the check-in, right after the question: everyday replies with extra words count; questions and long replies don't
+from homemind.day import parse as day_parse  # noqa: E402
+for said, want in (("I would say it's about goodish.", "good"), ("pretty much fine I guess", "good"),
+                   ("not too bad", "good"), ("not great honestly", "low"), ("kind of a rough one", "rough")):
+    check(f"check-in reply right after the question: {said!r} -> {want}", day_parse(said, expecting=True) == want,
+          day_parse(said, expecting=True))
+for said in ("what's the weather?", "turn the lights off", "is the garage closed?"):
+    check(f"not a check-in reply: {said!r}", day_parse(said, expecting=True) is None)
+check("not right after the question, 'about goodish' alone isn't taken as the day", day_parse("about goodish") is None)
+
 print()
 print("FAILED: " + ", ".join(FAILS) if FAILS else "all passed")
 sys.exit(1 if FAILS else 0)

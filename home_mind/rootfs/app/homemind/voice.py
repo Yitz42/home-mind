@@ -85,9 +85,12 @@ async def converse(app, body, scope="admin", ack_seconds=ACK_SECONDS):
     """The turn as events (an async generator), with the acknowledgement if it takes more than ack_seconds."""
     t0 = time.monotonic()
     work = asyncio.ensure_future(turn(app, body, scope))
-    done, _ = await asyncio.wait({work}, timeout=ack_seconds)
+    # only a voice device (a satellite) needs "One moment." to fill the silence; in the app's chat window the
+    # acknowledgement just runs into the answer ("Let me check. I don't have...")
+    spoken = bool(body.get("device_id"))
+    done, _ = await asyncio.wait({work}, timeout=ack_seconds) if spoken else (set(), None)
     acked = None
-    if not done:
+    if spoken and not done:
         acked = ACKS[int(t0 * 10) % len(ACKS)]
         yield {"type": "delta", "text": acked, "ack": True}
     try:

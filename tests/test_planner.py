@@ -124,7 +124,8 @@ def app(big=None, opts=None):
                                                                                          get=lambda n: models[n]))
     for n in ("YES", "NO", "PENDING_SECONDS"):
         setattr(A, n, getattr(M.App, n))
-    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan", "_run_steps", "_said", "room_for",
+    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan", "_run_steps", "_said", "_summed",
+              "room_for",
               "_verb"):
         setattr(A, n, getattr(M.App, n).__get__(A))
     A.phone_requests = []
@@ -184,6 +185,18 @@ def multi():
     r = run(A, "turn off all the lights but leave the hall light on")
     check("'but leave ... on' is respected", ha.calls and not any(c[2]["entity_id"] == "light.hall" for c in ha.calls))
     check("several results are summed up in words", "Done:" in r.get("answer", ""), r)
+    ha.calls.clear()
+    r = run(A, "turn off all the lights")
+    n = len([c for c in ha.calls if c[0] == "light"])
+    check("many of a kind: one short phrase, not every name", n >= 3 and f"Done: {n} lights off." == r["answer"],
+          r.get("answer"))
+    A.home.catalog["light.all"] = {"name": "All Lights", "domain": "light", "state": "on", "kind": "device",
+                                   "attrs": {"entity_id": [e for e in B.LIGHTS]}, "unit": ""}
+    ha.calls.clear()
+    asyncio.run(A._run_steps([{"entity_id": e, "action": "off"} for e in ["light.all"] + list(B.LIGHTS)],
+                             "lights off", "test", None, "rules"))
+    check("a light group covers its members: only the group is switched", [c[2]["entity_id"] for c in ha.calls] ==
+          ["light.all"], ha.calls)
 
 
 def fallback():

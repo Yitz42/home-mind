@@ -41,6 +41,29 @@ _DAYISH = re.compile(r"\b(?:day|today|morning|feel|feeling|i'?m|im|i am)\b", re.
 _BARE_OK = {"low", "meh", "rough", "awful", "terrible", "horrible", "crashing", "crashed", "wiped", "wrecked", "blah"}
 
 
+_LOOSE = re.compile(
+    r"\b(not (?:too |that |so )?bad|not (?:great|good|so good|too good)|so-so|so so|good|great|fine|okay|ok|alright|"
+    r"decent|low|meh|tired|rough|bad|awful|terrible|horrible|crashing|crashed|wiped|wrecked|blah|ugh+)(?:ish|-ish)?\b",
+    re.I)
+_LOOSE_MAP = dict(_MAP, **{"not bad": "good", "not too bad": "good", "not that bad": "good", "not so bad": "good",
+                           "not good": "low", "not so good": "low", "not too good": "low"})
+
+
+def _loose(t):
+    """Right after the question: a short reply with an answer word in it ("I would say it's about goodish",
+    "pretty much fine I guess", "not too bad"). The first word that fits decides; questions and long replies don't
+    count (they're about something else)."""
+    if "?" in t or len(re.findall(r"[A-Za-z']+", t)) > 12:
+        return None
+    m = _LOOSE.search(t)
+    if not m:
+        return None
+    w = re.sub(r"-?ish$", "", m.group(1).lower())
+    if w.startswith("ugh"):
+        return "rough"
+    return _LOOSE_MAP.get(w)
+
+
 def parse(text, expecting=False):
     """A check-in answer in a few words ("rough", "pretty good", "having a low day", "ugh"), or None. A bare
     everyday word ("ok", "fine", "good", "bad") only counts when the question was just asked (expecting); otherwise
@@ -48,7 +71,7 @@ def parse(text, expecting=False):
     t = (text or "").replace("’", "'")
     m = _ANSWER.match(t)
     if not m:
-        return None
+        return _loose(t) if expecting else None
     w = m.group(1).lower()
     if not expecting and not _DAYISH.search(t) and w not in _BARE_OK and not w.startswith("ugh"):
         return None
