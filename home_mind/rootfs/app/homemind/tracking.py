@@ -45,14 +45,35 @@ RATE_LOWERING = re.compile(r"\b(?:\w+olol|bisoprolol|metoprolol|propranolol|aten
 EVENT_KINDS = ("a cold or infection", "a trip", "a hard week", "a new medicine", "poor sleep", "a big event")
 LOG_RX = re.compile(r"^\s*(?:log|track)\s+([a-z][a-z' -]{1,30}?)(?:\s+(?:at\s+)?(\d{1,2}(?:\.\d)?))?\s*[.!]*$", re.I)
 WORD_NUM = re.compile(r"^\s*([a-z][a-z' -]{1,30}?)\s+(\d{1,2}(?:\.\d)?)\s*[.!]*$", re.I)
-MED_RX = re.compile(r"^\s*(?:i\s+)?(?:took|had|taken)\s+(?:my\s+|a\s+|an\s+|some\s+|the\s+)?([a-z][a-z-]{2,30})"
+MED_RX = re.compile(r"^\s*(?:(?:ok|so|yeah|um|well)[\s,]+)?(?:i\s+|i've\s+|ive\s+|i have\s+)?(?:just\s+|already\s+)?"
+                    r"(?:took|had|taken)\s+(?:my\s+|a\s+|an\s+|some\s+|the\s+)?"
+                    r"(?:(?:one|two|three|four|1|2|3|4|half an?|half)\s+)?(?:of\s+(?:my\s+)?)?"
+                    r"(?:morning\s+|evening\s+|night\s+|bedtime\s+)?([a-z][a-z-]{2,30})"
                     r"(?:\s+(\d+(?:\.\d+)?)\s*(mg|mcg|ml|g|units?|iu)?)?\b", re.I)
 NOT_MED = {"nap", "walk", "shower", "bath", "break", "rest", "look", "call", "photo", "picture", "bus", "train", "car",
-           "drink", "coffee", "tea", "breakfast", "lunch", "dinner", "snack", "meal", "run", "seat", "turn", "trip"}
-MEDISH = re.compile(r"(?:ol|in|ine|ide|pam|lam|one|ium|ate|fen|cin|mab|pril|sartan|statin|xetine|zole|mide|"
-                    r"profen|amol)$|^(?:pills?|tablets?|meds|medicine|medication|dose|tylenol|advil|aleve|motrin|"
-                    r"aspirin|vitamin\w*|magnesium|melatonin|iron|zinc|omega|insulin|inhaler|ventolin|antihistamine)$",
-                    re.I)
+           "drink", "coffee", "tea", "breakfast", "lunch", "dinner", "snack", "meal", "run", "seat", "turn", "trip",
+           "muffin", "protein", "caffeine", "migraine", "headache", "phone", "someone", "bin", "bins", "wine",
+           "chocolate", "cousin", "time", "chance", "day", "while", "minute", "moment", "second", "glass", "cup",
+           "bite", "sip", "bite", "pizza", "toast", "cake", "dog", "kids", "rubbish", "trash", "nothing", "everything",
+           "pain", "fever", "cold", "flu", "rough", "good", "bad", "great", "fine", "nice", "lovely", "long", "quick"}
+# a medicine by its shape (drug-name endings) or a common name; anything else needs an amount or an earlier log
+MEDISH = re.compile(r"(?:profen|amol|azole|prazole|statin|sartan|pril|olol|xetine|triptan|cillin|mycin|cycline|"
+                    r"dronate|lukast|tadine|zepam|zolam|afil|gliptin|formin|tidine|dipine|codone|morphone|azepine|"
+                    r"triptyline|pramine|semide|thiazide|oxacin|vudine|navir|parin|lamide|setron|zosin|sterone|"
+                    r"olone|asone|ethasone|nisone|mab|tinib)$|"
+                    r"^(?:pills?|tablets?|meds|medicine|medication|dose|tylenol|advil|aleve|motrin|aspirin|"
+                    r"acetaminophen|paracetamol|ibuprofen|naproxen|vitamin\w*|magnesium|melatonin|iron|zinc|omega|"
+                    r"insulin|inhaler|ventolin|antihistamine|benadryl|zyrtec|claritin|allegra|sudafed|tums|pepcid|"
+                    r"imodium|vyvanse|adderall|ritalin|concerta|wellbutrin|zoloft|lexapro|prozac|xanax|ativan|"
+                    r"klonopin|ldn|naltrexone|metformin|levothyroxine|synthroid|ozempic|wegovy|mounjaro|lithium|"
+                    r"gabapentin|lyrica|propranolol|ivabradine|midodrine|fludrocortisone|nurtec|ubrelvy|sumatriptan|"
+                    r"probiotic|probiotics|electrolytes|b12|d3|coq10|nac|quercetin|famotidine|loratadine|"
+                    r"cetirizine|fexofenadine|ketotifen|cromolyn|montelukast)$", re.I)
+# the same medicine under its other names: one name in the log, so the repeat guard sees a second dose
+SAME_MED = {"tylenol": "acetaminophen", "paracetamol": "acetaminophen", "panadol": "acetaminophen",
+            "advil": "ibuprofen", "motrin": "ibuprofen", "nurofen": "ibuprofen", "aleve": "naproxen",
+            "benadryl": "diphenhydramine", "zyrtec": "cetirizine", "claritin": "loratadine", "allegra": "fexofenadine",
+            "pepcid": "famotidine", "synthroid": "levothyroxine", "ldn": "naltrexone", "imodium": "loperamide"}
 NUDGE_IGNORED_MAX = 3
 NUDGE_IGNORE_SECONDS = 2 * 3600
 DEBOUNCE = 600
@@ -175,13 +196,24 @@ CREATE TABLE IF NOT EXISTS nudges (id INTEGER PRIMARY KEY, owner TEXT, goal TEXT
 
     # ---- the medicines log ------------------------------------------------------------------------------------------
     def med_said(self, text, owner=None):
-        m = MED_RX.match(text or "")
-        if not m or m.group(1).lower() in NOT_MED:
+        t = (text or "").replace("’", "'")
+        if "?" in t:
+            return None           # "had my meds?" is a question, never a dose
+        m = MED_RX.match(t)
+        if not m:
             return None
-        name, amount = m.group(1).lower(), " ".join(x for x in (m.group(2), m.group(3)) if x)
-        known = {r["name"] for r in self.store.db.execute("SELECT DISTINCT name FROM meds_log")}
-        if not (amount or name in known or MEDISH.search(name)):
-            return None           # "I took the dog out" isn't a medicine
+        said, amount = m.group(1).lower(), " ".join(x for x in (m.group(2), m.group(3)) if x)
+        kind = re.match(r"\s+(pills?|tablets?|meds|medicine|medication|inhaler|spray|drops)\b", t[m.end(1):], re.I)
+        if kind and not amount:
+            said = f"{said} {kind.group(1).lower()}"      # "my migraine pill", "my allergy meds": that's the name
+        elif said in NOT_MED:
+            return None
+        name = SAME_MED.get(said, said)
+        known = {r["name"] for r in self.store.db.execute("SELECT DISTINCT name FROM meds_log WHERE owner IS ? OR "
+                                                          "owner=?", (owner, owner))}
+        if not (kind and not amount or name in known or said in known or MEDISH.search(said)
+                or amount and re.search(r"\b(?:mg|mcg|iu|units?)\b", amount)):
+            return None           # "I took the dog out", "had a muffin 2" aren't medicines
         windows = self.store.kv_get("med_windows") or {}
         win = float(windows.get(name, MED_WINDOW_H)) * 3600
         prev = self.store.db.execute("SELECT ts FROM meds_log WHERE name=? AND (owner IS ? OR owner=?) AND ts>=? "
@@ -201,7 +233,7 @@ CREATE TABLE IF NOT EXISTS nudges (id INTEGER PRIMARY KEY, owner TEXT, goal TEXT
             self.store.kv_set("zones_blocked", {"by": name, "at": self.clock()})
         if prev:
             at = datetime.fromtimestamp(prev["ts"]).strftime("%-I:%M %p").lower()
-            return {"answer": f"You logged {name} at {at}.", "med": name, "repeat": True}
+            return {"answer": f"You logged {name} at {at}. I've logged this one too.", "med": name, "repeat": True}
         return {"answer": f"Logged {name}{' ' + amount if amount else ''}. {MEDS_NOTE}", "med": name}
 
     def set_window(self, name, hours):

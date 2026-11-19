@@ -279,6 +279,11 @@ class App:
         from .rooms import RoomModel, BackOff, Surprises
         self.rooms = RoomModel(self.home)
         self.backoff = BackOff(st9)
+        # wired here: the decision log and the engine were set up earlier (_start_decisions), before back-off existed
+        if getattr(self, "decisions", None) is not None:
+            self.decisions.on_override = lambda eid: self.backoff.mark(eid, "a person undid what Home Mind did")
+        if getattr(self, "engine", None) is not None:
+            self.engine.backoff = self.backoff
         self.surprises = Surprises(st9)
         # phase 12: things, and scenes drafted from a description
         from .things import Things, Scenes
@@ -1025,8 +1030,9 @@ class App:
                         await hook(flag, b["question"], None, b.get("conversation_id"), f"other:{oa['name']}")
                     except Exception:  # noqa: BLE001
                         log.exception("red flag via another assistant")
-                return {"answer": FE.OTHER_ANSWER, "hits": [], "model": None, "red_flag": flag.kind,
-                        "other": oa["name"]}
+                # the fixed reply itself is said: it holds nothing private, and "check Home Mind" helps nobody in a
+                # crisis or an emergency
+                return {"answer": flag.reply, "hits": [], "model": None, "red_flag": flag.kind, "other": oa["name"]}
             if FE.other_refuses(b["question"]):
                 return {"answer": FE.OTHER_ANSWER, "hits": [], "model": None, "other": oa["name"], "private": True}
             from .speakers import VIEWER as _VW
@@ -1034,7 +1040,8 @@ class App:
             b = dict(b, speaker="", front_end=f"other:{oa['name']}")
         who, how = self.speaker_for(b)
         from . import redflags, conversation as conv
-        fly = self.mind.store.kv_get("firefly") if FE.MONEY_Q.search(b["question"]) else None
+        urgent = redflags.check(b["question"])       # before every shortcut: "where's my wife, I have chest pain"
+        fly = self.mind.store.kv_get("firefly") if not urgent and FE.MONEY_Q.search(b["question"]) else None
         if fly is not None:
             owner = (self.opts.get("firefly_owner") or "").lower()
             if not owner or (who or "").lower() != owner:     # its owner only (firefly_owner)
@@ -1051,20 +1058,24 @@ class App:
                 names = [p["name"] for p in self.people()]
             except Exception:  # noqa: BLE001
                 names = []
-            if where_question(b["question"], names):
+            if not urgent and where_question(b["question"], names):
                 return {"answer": WHERE_ANSWER, "hits": [], "model": None, "where_refused": True}
-        if not redflags.check(b["question"]):
-            c = self.checkin_reply(b["question"], who or None) if hasattr(self, "checkin_reply") else None
-            if c:
-                return (dict(c, hits=[], model=None))
+        if not urgent:
             tk = getattr(self, "tracking", None)
             if tk is not None and allows(scope, "write"):
                 med = tk.med_said(b["question"], who or None)       # "took ibuprofen 400": the medicines log
                 if med:
+                    # "took my meds, feeling rough": the dose is logged, and the check-in in the same breath too
+                    c = self.checkin_reply(b["question"], who or None) if hasattr(self, "checkin_reply") else None
+                    if c:
+                        med = dict(med, answer=f"{med['answer']} {c['answer']}", checkin=c["checkin"])
                     return dict(med, hits=[], model=None, personal=True)
                 lg = tk.log_said(b["question"], who or None)        # "log headache", "fog 2": one word, timed
                 if lg:
                     return {"answer": lg, "hits": [], "model": None, "logged": True, "personal": True}
+            c = self.checkin_reply(b["question"], who or None) if hasattr(self, "checkin_reply") else None
+            if c:
+                return (dict(c, hits=[], model=None))
             if getattr(self, "decisions", None) is not None:
                 if conv.UNDO.match(b["question"]) and allows(scope, "admin"):
                     return (dict(await conv.undo(self, b.get("conversation_id"), "voice" if b.get("voice") else "ask"),
@@ -1212,7 +1223,12 @@ class App:
         is told for emergency, double dose and decline if the person chose that (option safety_contact)."""
         self.mind.store.log("red_flag", kind=flag.kind, speaker=speaker or "", source=source)
         target = (self.opts.get("safety_contact") or "").strip()
+        sent = self.__dict__.setdefault("_flag_sent", {})
+        key = (flag.kind, speaker or "")
+        if target and flag.notify and time.time() - sent.get(key, 0) < 6 * 3600:
+            return              # the contact was told about this in the last 6 hours: once is enough
         if target and flag.notify:
+            sent[key] = time.time()
             who = speaker or "Someone at home"
             what = {"emergency": "may need emergency help", "double_dose": "may have taken a double dose",
                     "decline": "described a big change in how they're managing"}[flag.kind]
@@ -1272,11 +1288,12 @@ class App:
         return None
 
     def alone(self, person):
-        """Is the person on their own? In their room when the room model knows it (rooms.py), else the house: the
-        only one home, from person entities; with none known, not alone (be careful)."""
+        """Is the person on their own? The house: the only one home, from person entities; with none known, not
+        alone (be careful). The room model (rooms.py) only ever makes it less alone (someone else heard in their room
+        lately): it hears voices, not the people who stay silent, so it can't say a room is empty."""
         rm = getattr(self, "rooms", None)
-        if rm is not None and rm.where(person):
-            return rm.alone(person)
+        if rm is not None and rm.where(person) and not rm.alone(person):
+            return False
         persons = {e: (c.get("state") or "") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
         if not persons:
             return False
@@ -1506,7 +1523,8 @@ class App:
         m = (getattr(self.models, "models", {}) or {}).get(name)
         cfg = getattr(m, "cfg", None) or {}
         st = self.mind.store
-        if not m or cfg.get("provider") != "anthropic" or not cfg.get("api_key"):
+        # models are configured with "type" (models.py); "provider" was never set, so the batch never ran
+        if not m or (cfg.get("type") or cfg.get("provider")) != "anthropic" or not cfg.get("api_key"):
             return None
         base = (cfg.get("url") or "https://api.anthropic.com").rstrip("/")
         hdr = {"x-api-key": cfg["api_key"], "anthropic-version": "2023-06-01"}
@@ -1516,6 +1534,10 @@ class App:
             async with self.models.session.get(f"{base}/v1/messages/batches/{pending['id']}", headers=hdr,
                                                timeout=aiohttp.ClientTimeout(total=30)) as r:
                 j = await r.json(content_type=None)
+            if j.get("type") == "error" or j.get("processing_status") in ("canceled", "expired") or \
+                    time.time() - (pending.get("at") or 0) > 3 * 86400:
+                st.kv_set("proposals_batch", None)      # gone or stuck: try again next night, never wait forever
+                return pending
             if j.get("processing_status") == "ended" and j.get("results_url"):
                 async with self.models.session.get(j["results_url"], headers=hdr,
                                                    timeout=aiohttp.ClientTimeout(total=60)) as r:
@@ -1536,6 +1558,11 @@ class App:
         req = self.proposals.batch(gate_failed, cfg.get("model") or "claude-opus-5-5")
         if not req:
             return None
+        import hashlib
+        sig = hashlib.sha256(json.dumps(req, sort_keys=True, default=str).encode()).hexdigest()
+        if st.kv_get("proposals_batch_sent") == sig:
+            return None             # the same proposals were drafted already: nothing new to pay for
+        st.kv_set("proposals_batch_sent", sig)
         async with self.models.session.post(f"{base}/v1/messages/batches", json=req, headers=hdr,
                                             timeout=aiohttp.ClientTimeout(total=60)) as r:
             j = await r.json(content_type=None)
@@ -2012,6 +2039,8 @@ class App:
             name = (who or "").strip().title() or None
             if not isinstance(res, dict) or not isinstance(res.get("answer"), str) or res.get("error"):
                 return res
+            if res.get("red_flag"):
+                return res          # a red flag's fixed words are said exactly: no persona, closer or emotion
             from . import frontends as FE
             from .mind import DONT_KNOW
             failed = bool(res.get("error")) or bool(DONT_KNOW.search(res.get("answer") or ""))
@@ -2046,8 +2075,10 @@ class App:
         """From a request body: (viewer, how). viewer None = no speaker information given (sees everything) unless
         option unknown_caller is "guest"; "" = unknown; else a name."""
         from .speakers import resolve, VIEWER
-        if VIEWER.get():            # a token tied to a person (#48): always that person, whatever the body says
-            return VIEWER.get(), "token"
+        if VIEWER.get() is not None:
+            # a token tied to a person (#48): always that person, whatever the body says; a guest token ("") stays a
+            # guest: it can't claim a speaker in the body
+            return VIEWER.get(), "token" if VIEWER.get() else "guest token"
         if b.get("speaker") is not None:
             return str(b["speaker"]).strip(), "given"
         clues = {k: b.get(k) for k in ("user", "user_id", "device_id", "area")}
@@ -2144,6 +2175,14 @@ class App:
 # ---- HTTP ------------------------------------------------------------------------------------------------------
 _KINDS = {str: "text", dict: "an object", list: "a list of text", float: "a number"}
 TAGS = (list, str)              # tags: a list, or "a, b" (store.clean_tags splits it)
+
+
+def as_who(b, field):
+    """Who a request acts as: a token's person always; a guest token ("") can't name anyone in the body; with no
+    token information (admin, the panel without a person) the body's field."""
+    from .speakers import VIEWER
+    v = VIEWER.get()
+    return v if v is not None else (b.get(field) or None)
 
 
 def check_types(b, types):
@@ -2336,7 +2375,9 @@ def build(app_state):
         if b.get("scope") in ("personal", "household"):
             meta["scope"] = b["scope"]
             if b["scope"] == "personal":
-                meta["owner"] = VIEWER.get() or b.get("owner") or A.speaker_for(b)[0] or ""
+                meta["owner"] = as_who(b, "owner") or A.speaker_for(b)[0] or ""
+                if not meta["owner"]:
+                    raise ValueError("a personal note needs an owner (a guest can't file one)")
         meta = A.scope_meta(meta, b.get("text", ""), A.speaker_for(b)[0])
         return J(st.remember(text=b.get("text", ""), title=b.get("title", ""), kind=b.get("kind", "note"),
                              shelf=b.get("shelf", "inbox"), tags=b.get("tags"), key=b.get("key"), meta=meta or None,
@@ -2459,7 +2500,8 @@ def build(app_state):
                 raise ValueError("scope is personal or household")
             m = dict(d["meta"], scope=b["scope"])
             if b["scope"] == "personal":
-                m["owner"] = VIEWER.get() or b.get("owner") or m.get("owner") or m.get("said_by") or ""
+                m["owner"] = as_who(b, "owner") if VIEWER.get() is not None else \
+                    (b.get("owner") or m.get("owner") or m.get("said_by") or "")
                 if not m["owner"]:
                     raise ValueError("a personal note needs an owner")
             with st.lock:
@@ -2688,7 +2730,7 @@ def build(app_state):
         """{"state": good|low|rough, "person"?}: the morning check-in from the panel or an app."""
         from .speakers import VIEWER
         b = await read_body(q, state=str, person=str)
-        person = VIEWER.get() or b.get("person") or None
+        person = as_who(b, "person")
         A.day.set(b.get("state") or "", person, how="panel")
         from .day import REPLIES
         return J({"checkin": b["state"], "answer": REPLIES[b["state"]], "budget": A.day.budget(person)})
@@ -3724,6 +3766,8 @@ def build(app_state):
         """Your medicines log (last 30 days). Nobody reviews this. No interaction checks."""
         from .speakers import VIEWER
         from .tracking import MEDS_NOTE
+        if VIEWER.get() == "":
+            return J({"log": [], "note": "The medicines log is private: a guest sees none of it."})
         return J({"log": A.tracking.meds(VIEWER.get() or None), "note": MEDS_NOTE})
 
     @r.post("/api/meds/window")
@@ -3733,12 +3777,12 @@ def build(app_state):
         A.tracking.set_window(b["name"], b["hours"])
         return J({"ok": True})
 
-    @r.get("/api/events")
+    @r.get("/api/significant")
     async def events_get(_):
         from .speakers import VIEWER
         return J({"week": A.tracking.week(), "events": A.tracking.events(VIEWER.get() or None)})
 
-    @r.post("/api/events")
+    @r.post("/api/significant")
     async def events_post(q):
         """This week's checklist: {"a trip": "yes", "a cold or infection": "no", ...}; unanswered stays unknown."""
         from .speakers import VIEWER
@@ -3793,11 +3837,13 @@ def build(app_state):
         """A written plan ({"question", "change", "kind": reduce_load|sleep_timing|meal_timing, "outcome"?, "pairs"?,
         "block_days"?, "washout_days"?}), checked, and put to consent: it starts 24 hours after a yes on a clear day."""
         from .speakers import VIEWER
+        from .experiments import DEFAULT_PAIRS
         b = await read_body(q, question=str, change=str, kind=str, outcome=str, pairs=float, block_days=float,
                             washout_days=float)
         plan = A.experiments.plan(b.get("question") or "", b.get("change") or "", b.get("kind") or "",
-                                  b.get("outcome") or "fog", b.get("pairs") or 4, b.get("block_days") or 7,
-                                  b.get("washout_days") if b.get("washout_days") is not None else 2)
+                                  b.get("outcome") or "fog", b.get("pairs") or DEFAULT_PAIRS, b.get("block_days") or 7,
+                                  b.get("washout_days") if b.get("washout_days") is not None else 2,
+                                  person=VIEWER.get() or None, underpowered_ok=b.get("underpowered_ok") is True)
         c = A.consent.propose("experiment_start", f"Experiment: {plan['change']}", plan, VIEWER.get() or None)
         return J({"plan": plan, "consent": c})
 

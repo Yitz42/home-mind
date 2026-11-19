@@ -136,8 +136,8 @@ earned trust, the same kind of request is done straight away, with no model call
 ## Other assistants, the plain voice, the four views, Firefly III
 
 - **Other assistants** (Alexa, Gemini, Siri, someone else's Assist; option `other_assistants`, "key: name") are
-  guests: lights and media only, never anything about health, money, where people are, rooms or things, and a safety
-  phrase is answered there with "Please check Home Mind." while the real reply goes to your phone. Anyone can turn
+  guests: lights and media only, never anything about health, money, where people are, rooms or things. A red flag
+  (chest pain, a crisis, a double dose) gets its fixed reply there too, since it holds nothing private. Anyone can turn
   them off for themselves (`/api/assistants`), guest mode turns them off, and what's asked through them never teaches
   Home Mind a learned template.
 - **One voice, three registers:** normal; quiet (a low day, or a room where Home Mind isn't sure who's there: no
@@ -182,7 +182,7 @@ review. Nothing it writes runs on its own.
 - **The medicines log:** "took ibuprofen 400mg" is logged with its time, and the reply says what it is: nobody
   reviews it and there are no interaction checks. Never dosing guidance. A second log of the same medicine within 4
   hours (or the window you set) is answered with the fact only: "You logged ibuprofen at 8:05 am."
-- **Significant events** (`/api/events`): a weekly checklist (a cold, a trip, a hard week, a new medicine, poor
+- **Significant events** (`/api/significant`): a weekly checklist (a cold, a trip, a hard week, a new medicine, poor
   sleep, a big event). Unanswered stays unknown. They can explain a change but never silence the worsening alarm.
 - **Nudges** (`/api/nudges`): only for a goal you wrote, with a trigger (a time, arriving or leaving a place after 10
   minutes, nothing logged by a time, a sensor), one message that says which goal it's for, once a day at most, quiet
@@ -224,7 +224,8 @@ switched on that way (`/api/consent`). Safety never waits for any of this.
 - **Deleted for good stays deleted**, even after restoring a snapshot or a backup made before you deleted it. Home
   Mind keeps fingerprints (keyed hashes, never the text) of what you deleted for good and of the names you purged, in
   the database and in a file beside it (`forget.jsonl`, keyed by `forget.key`), and applies them again at startup,
-  every night and after a rollback.
+  every night and after a rollback. Only notes from before the deletion come back to be deleted again: a note you
+  write afterwards that happens to share a number or a name is kept.
 - **One check of everything**, at startup and every night (`/api/check`): the database, the forget list, learned
   records pointing at something that's gone, the decision log, snapshots, the vault key, the last test restore. A
   problem is shown in Home Assistant's notifications.
@@ -375,11 +376,14 @@ cameras or microphones. Stricter settings apply at once; looser ones wait 24 hou
 
 **Red flags.** Some things are answered by fixed wording in code, before any note or model: chest pain, fainting,
 trouble breathing, signs of a stroke or a sudden severe headache (call 911); thoughts of suicide or self-harm (988);
-a double dose (Poison Control, 1-800-222-1222, and the pharmacist); a big decline such as being unable to get out of
-bed, eat or drink, or new confusion (your doctor within a day or two); dizziness or a racing heart on standing (noted
+a double dose or a child swallowing pills (Poison Control, 1-800-222-1222, and the pharmacist); a seizure, blue lips,
+sudden numbness or not being able to speak (911); a big decline such as being unable to get out of bed for days, eat or
+drink anything, or new confusion (your doctor within a day or two; one rough day is a crash, not this); dizziness or a racing heart on standing (noted
 for the doctor). These replies point to help and never give advice. They only answer someone describing what's
 happening, not a question like "what are the signs of a stroke?" or a denial like "no chest pain". If you set
-`safety_contact`, that person is told about emergencies, double doses and big declines.
+`safety_contact`, that person is told about emergencies, double doses and big declines, at most once in 6 hours for
+the same kind. Red flags are checked before every shortcut (money, "where is", the medicines log), and their words
+are said exactly as written, never restyled by the persona.
 
 **Phone notifications** come in three tiers. *Safety* always goes out at once, even in quiet hours, and isn't counted
 in the daily limit. *Important* (like an approval you just asked for) skips the daily limit. *Routine* waits for quiet
@@ -1043,7 +1047,8 @@ you turn them on are listed after the tables.
 | `email_password` | empty | Email password |
 | `email_folder` | `INBOX` | Email folder |
 | `email_senders` | empty | Email senders allowed |
-| `email_require_verified` | on | Only mail your mail server says passed its sender check (DKIM or SPF) is read |
+| `email_require_verified` | on | Only mail your mail server says passed its sender check (DKIM, SPF or DMARC for the sender's own domain) is read |
+| `email_authserv_id` | empty | Your mail server's name in Authentication-Results (e.g. `mx.google.com`); only that header is trusted, else the topmost |
 | `exertion_zones` | off | Live exertion zones from a fresh heart-rate sensor |
 | `exertion_threshold` | 0 | The exertion line in bpm from your clinician's plan (else resting + 15) |
 | `other_assistants` | empty | Other assistants as guest front ends, as "key: name" |
@@ -1187,8 +1192,8 @@ note), 502 (a model failed) or 500.
 | POST | `/api/trackers` | admin | add a tracker (`name`, `kind?`, `cadence?`), stop one (`stop`), or add details (`confirm`, `details?`) |
 | GET | `/api/meds` | admin | your medicines log (30 days); nobody reviews it, no interaction checks |
 | POST | `/api/meds/window` | admin | how long after a log a second one is answered "You logged that at..." (`name`, `hours`) |
-| GET | `/api/events` | admin | this week's checklist of significant events (unanswered is unknown) |
-| POST | `/api/events` | admin | answer it (`{"a trip": "yes", ...}`) |
+| GET | `/api/significant` | admin | this week's checklist of significant events (unanswered is unknown) |
+| POST | `/api/significant` | admin | answer it (`{"a trip": "yes", ...}`) |
 | GET | `/api/nudges` | admin | nudges, with how often each was ignored |
 | POST | `/api/nudges` | admin | add a nudge for a goal you wrote (`goal`, `trigger`, `message`) |
 | POST | `/api/travel` | admin | travel mode on or off (`on`) |

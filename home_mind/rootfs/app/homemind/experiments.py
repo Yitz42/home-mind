@@ -12,7 +12,10 @@ change your mind (consent.py), and fixed before it starts:
     (the starting value of open decision 9; a clinician's definition replaces it; days with no check-in are unknown);
   - the smallest effect it could detect, said before it starts.
 Adherence is logged each day ("did you do it today?", one tap). A new medicine ends the current A/B pair and is
-flagged. Travel mode pauses it. A B block with 2 or more crash episodes more than its A block stops the experiment.
+flagged. Travel mode pauses it. The safety stop is checked every day over every day so far (washouts, travel, broken
+pairs and the block still running included): 2 or more crash episodes more with the change than without (scaled to
+the same number of days), overall or in one pair, stops the experiment. A plan with fewer than 6 pairs is refused:
+its test could never reach p 0.05. The schedule moves to the Monday after the real start (consent can be late).
 
 The analysis is exact: every way the A/B order inside the pairs could have fallen is tried, and the share at least
 as far from zero as what happened is the p-value. Results are said plainly, with the smallest detectable effect next
@@ -51,6 +54,20 @@ def crash_starts(days):
         else:                       # unknown: not counted either way, and it breaks a run of calm days
             calm = 0
     return out
+
+
+def day_state(v, person=None):
+    """One day's check-in record ({key: {"state", ...}}) -> the person's state: their own answer if they gave one,
+    else the most careful answer anyone gave. "?" keys only mark that the question was asked: never a state."""
+    if not v:
+        return None
+    from .day import STATES
+    own = (v.get(re.sub(r"\s+", "_", person.strip().lower())) or v.get(person) or {}) if person else {}
+    if own.get("state") in STATES:
+        return own["state"]
+    given = [x.get("state") for k, x in v.items() if not str(k).startswith("?") and isinstance(x, dict)
+             and x.get("state") in STATES]
+    return max(given, key=STATES.index) if given else None
 
 
 def next_monday(today):
@@ -104,8 +121,9 @@ class Experiments:
         return self.store.kv_get(self.KV)
 
     def plan(self, question, change, kind, outcome="fog", pairs=DEFAULT_PAIRS, block_days=MIN_BLOCK, washout_days=2,
-             crash_definition=None):
-        """A written plan, checked. Not started: it goes to consent first."""
+             crash_definition=None, person=None, underpowered_ok=False):
+        """A written plan, checked. Not started: it goes to consent first. A plan whose test can't reach p 0.05 (fewer
+        than 6 pairs) is refused unless underpowered_ok: it could only ever say "no clear difference"."""
         if kind not in KINDS:
             raise ValueError("an experiment can only reduce load, or change sleep timing or meal timing")
         if FORBIDDEN.search(f"{question} {change}"):
@@ -117,6 +135,9 @@ class Experiments:
             raise ValueError(f"at least {MIN_PAIRS} A/B pairs of at least {MIN_BLOCK} days each")
         if not 0 <= washout_days < block_days - 3:
             raise ValueError("the washout must leave at least 4 days of each block to count")
+        if 2 / 2 ** pairs > 0.05 and not underpowered_ok:
+            raise ValueError(f"with {pairs} pairs the test can never show a difference (its smallest p is "
+                             f"{2 / 2 ** pairs:.3f}); use at least {DEFAULT_PAIRS} pairs")
         sd = self._spread(outcome)
         start = next_monday(date.fromtimestamp(self.clock()))
         return {"question": question.strip(), "change": change.strip(), "kind": kind, "outcome": outcome,
@@ -133,7 +154,7 @@ class Experiments:
                 "power_note": None if 2 / 2 ** pairs <= 0.05 else
                 f"with {pairs} pairs the test can't show a difference at the usual 5% line (its smallest p is "
                 f"{2 / 2 ** pairs:.3f}); 6 pairs can",
-                "planned": self.clock()}
+                "planned": self.clock(), "person": person}
 
     def _spread(self, outcome):
         if self.patterns is None or outcome == "crash_episodes":
@@ -147,6 +168,16 @@ class Experiments:
         if self.current() and not self.current().get("ended"):
             return {"error": "one experiment at a time"}
         e = dict(plan, started=self.clock(), adherence={}, broken_pairs=[], flags=[])
+        # the schedule starts the Monday after the actual start (consent can come days after the plan): the blocks
+        # move with it, keeping their drawn A/B order, so no day before the start is ever analysed
+        planned = date.fromisoformat(plan["start"])
+        start = next_monday(date.fromtimestamp(self.clock()))
+        if start > planned:
+            shift = start - planned
+            e["start"] = start.isoformat()
+            e["blocks"] = [dict(b, start=(date.fromisoformat(b["start"]) + shift).isoformat(),
+                                end=(date.fromisoformat(b["end"]) + shift).isoformat()) for b in plan["blocks"]]
+            plan = e
         self.store.kv_set(self.KV, e)
         self.store.remember(text=f"Experiment planned: {plan['change']} (blocks of {plan['block_days']} days, "
                                  f"{plan['pairs']} A/B pairs, outcome {plan['outcome']}, from {plan['start']}).",
@@ -183,8 +214,9 @@ class Experiments:
         rows = {r["day"]: r for r in (self.patterns.rows(200) if self.patterns is not None else [])}
         states = dict(self.store.kv_get("experiment_days") or {})    # kept here: the check-in keeps only 2 weeks
         if self.day is not None:
+            person = (self.current() or {}).get("person")
             for d, v in self.day._all().items():
-                st = (v.get("_") or next(iter(v.values()), {}) if v else {}).get("state")
+                st = day_state(v, person)
                 if st:
                     states[d] = st
         return rows, states
@@ -212,18 +244,35 @@ class Experiments:
                     vals.append(v)
             done = en <= today
             n_crash = sum(1 for d in counted if d.isoformat() in crashes)
+            # for safety every day counts: the washout, travel days and a block still running
+            all_days = [s + timedelta(days=i) for i in range((en - s).days + 1)]
+            n_crash_all = sum(1 for d in all_days if d <= today and d.isoformat() in crashes)
             adh = [e["adherence"].get(d.isoformat()) for d in counted if d.isoformat() in e["adherence"]]
-            blocks.append(dict(b, done=done, days=len(counted), crashes=n_crash,
+            blocks.append(dict(b, done=done, days=len(counted), crashes=n_crash, crashes_all=n_crash_all,
+                               started=s <= today,
                                mean=round(statistics.mean(vals), 2) if vals else None,
                                adherence=round(sum(adh) / len(adh), 2) if adh else None))
         diffs, safety = [], None
+        # the safety stop, checked every day: crash episodes with the change against without, over every block so far
+        # (washouts, broken pairs and a block still running included). The A blocks not yet reached are not counted
+        # as zero against it: B is compared with the A days actually lived, scaled to the same number of days.
+        b_days = sum(min((today - date.fromisoformat(x["start"])).days + 1, e["block_days"])
+                     for x in blocks if x["arm"] == "B" and x["started"])
+        a_days = sum(min((today - date.fromisoformat(x["start"])).days + 1, e["block_days"])
+                     for x in blocks if x["arm"] == "A" and x["started"])
+        b_cr = sum(x["crashes_all"] for x in blocks if x["arm"] == "B")
+        a_cr = sum(x["crashes_all"] for x in blocks if x["arm"] == "A")
+        a_scaled = a_cr * (b_days / a_days) if a_days else 0
+        if b_days and b_cr - a_scaled >= CRASH_STOP:
+            safety = (f"{b_cr} crash episodes in {b_days} days with the change against {a_cr} in {a_days} days "
+                      f"without")
         for p in range(e["pairs"]):
             pb = {x["arm"]: x for x in blocks if x["pair"] == p}
+            if len(pb) == 2 and pb["B"]["crashes_all"] - pb["A"]["crashes_all"] >= CRASH_STOP and not safety:
+                safety = f"pair {p + 1}: {pb['B']['crashes_all']} crash episodes with the change against " \
+                         f"{pb['A']['crashes_all']} without"
             if len(pb) < 2 or not (pb["A"]["done"] and pb["B"]["done"]) or p in e["broken_pairs"]:
                 continue
-            if pb["B"]["crashes"] - pb["A"]["crashes"] >= CRASH_STOP:
-                safety = f"pair {p + 1}: {pb['B']['crashes']} crash episodes with the change against " \
-                         f"{pb['A']['crashes']} without"
             if e["outcome"] == "crash_episodes":
                 diffs.append(pb["B"]["crashes"] - pb["A"]["crashes"])
             elif pb["A"]["mean"] is not None and pb["B"]["mean"] is not None:
@@ -266,7 +315,7 @@ class Experiments:
         if self.day is not None:          # keep every day's check-in for the whole experiment
             kept = dict(self.store.kv_get("experiment_days") or {})
             for d, v in self.day._all().items():
-                st = (v.get("_") or next(iter(v.values()), {}) if v else {}).get("state")
+                st = day_state(v, e.get("person"))
                 if st:
                     kept[d] = st
             self.store.kv_set("experiment_days", kept)

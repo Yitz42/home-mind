@@ -6,9 +6,12 @@ not on a question about the topic ("what are the signs of a stroke?") or a denia
 
   emergency    chest pain or pressure, fainting, can't breathe / breathless at rest, one-sided weakness or a
                drooping face or slurred speech, the worst or a sudden severe headache -> emergency services now
-  crisis       wanting to die, to kill or hurt oneself -> 988 (call or text, US), or emergency services
+  crisis       wanting to die, to kill or hurt oneself, and the passive ways it is said ("I wish I wasn't here",
+               "I want it all to end", "nobody would miss me", "I don't want to wake up") -> 988 (call or text,
+               US), or emergency services
   double_dose  took a double dose, too many pills, the same medicine twice -> Poison Control and the pharmacist
-  decline      bedbound / can't get out of bed, can't eat or drink, new confusion -> the doctor in a day or two
+  decline      bedbound, can't get out of bed for days (one bad day is a crash, not this), can't eat or drink
+               anything, can't keep food down, new confusion -> the doctor in a day or two
   orthostatic  dizzy or a racing heart on standing up -> note it for the doctor
 
 Each reply is short enough for a speaker. Which kinds also tell the safety contact is the person's choice (option
@@ -43,7 +46,17 @@ _ASKING = re.compile(r"^\s*(?:what|how|why|when|which|who|is|are|does|do|can|cou
 PATTERNS = [
     ("crisis", re.compile(r"\b(?:kill(?:ing)? (?:my ?self|me)|end (?:my|it all)|(?:want|going|plan(?:ning)?) to die|suicid\w*|"
                           r"don't want to (?:live|be alive|be here)|hurt(?:ing)? my ?self|self[- ]harm\w*|"
-                          r"better off (?:dead|without me))", re.I)),
+                          r"better off (?:dead|without me)|"
+                          r"wish (?:i|i'd) (?:wasn't|was not|weren't|were not|hadn't been|had never been|never been) "
+                          r"(?:alive|born|(?:here|around)(?=\s*(?:any ?more|at all|now)?\s*[.!?]*\s*$))|"
+                          r"want (?:it all|everything|this|the pain|my life) to (?:end|stop|be over)|"
+                          r"(?:(?:don't|do not|wouldn't|would not) (?:ever )?want to|wouldn't mind if i (?:didn't|don't)) "
+                          r"wake up(?=\s*(?:again|ever|any ?more)|\s*[.!?]*\s*$)|"
+                          r"(?:hope|wish) i (?:don't|didn't|never) wake up|"
+                          r"(?:no ?one|nobody|no-one) would (?:miss|notice|care about) me|"
+                          r"(?:no|not any) (?:reason|point) (?:to|in) (?:live|living|going on|being here)|"
+                          r"can't (?:go on|do this) any ?more|"
+                          r"(?:cutting|cut|burning|burn) my ?self)", re.I)),
     ("emergency", re.compile(r"\b(?:chest (?:pain|pressure|tightness|hurts?)(?! (?:medicine|meds|pills|relief|cream|tablets))|pain in (?:my|his|her) chest|"
                              r"(?:fainted|passed out|blacked out|collapsed|unconscious|won't wake up|not breathing)|"
                              r"(?:can't|cannot|can not|hard to|struggling to) breathe|short(?:ness)? of breath|"
@@ -51,16 +64,37 @@ PATTERNS = [
                              r"(?:one side|left side|right side) (?:of (?:my|his|her) )?(?:body |face )?"
                              r"(?:is )?(?:weak|numb|drooping|droops?)|face (?:is )?drooping|slurred? speech|"
                              r"(?:can't|cannot) (?:lift|move) (?:my|his|her) (?:left|right) (?:arm|leg)|"
-                             r"worst headache|sudden (?:severe|terrible|bad|splitting) headache|thunderclap headache)",
+                             r"worst headache|sudden (?:severe|terrible|bad|splitting) headache|thunderclap headache|"
+                             r"(?:having|had|has|is having) (?:a )?(?:seizure|fit|convulsions?)|seizing|convulsing|"
+                             r"lips (?:are |look |have gone |went |turning |turned )?(?:blue|grey|gray|purple)|"
+                             r"turning (?:blue|grey|gray)|"
+                             r"face (?:is |went |has gone |feels |suddenly )*(?:numb|drooping|droopy)|"
+                             r"(?:left|right|one) (?:arm|leg|hand|side)(?: of (?:my|his|her) (?:body|face))? "
+                             r"(?:is |went |has gone |feels |suddenly )*(?:numb|weak|dead)|"
+                             r"(?:arm|leg|face|side) (?:is |went |has gone )?sudden(?:ly)? (?:numb|weak)|"
+                             r"sudden(?:ly)? (?:numb|weak)\w*|"
+                             r"(?:can't|cannot|can not|couldn't) (?:speak|talk|get (?:my|the|his|her) words out)|"
+                             r"(?:keeps? |is |am |i'm )(?:fainting|passing out|blacking out)|"
+                             r"unresponsive|"
+                             r"bleeding (?:heavily|a lot|badly|won't stop|that won't stop)|"
+                             r"(?:throat|tongue) (?:is )?(?:closing|swelling)|anaphyla\w*)",
                              re.I)),
     ("double_dose", re.compile(r"\b(?:double dose|doubled? (?:up )?(?:on )?my (?:dose|meds|pills|medicine|medication|tablets)|doubled up|took (?:it|them|my \w+(?: \w+)?|the \w+) twice|"
                                r"(?:took|taken|swallowed) (?:too many|too much|extra) (?:pills?|tablets?|meds?|"
-                               r"medicines?|medication|doses?)|(?:took|taken) (?:two|2) doses|overdosed?)", re.I)),
-    ("decline", re.compile(r"\b(?:bed ?bound|can't get out of bed|cannot get out of bed|couldn't get out of bed|"
-                           r"(?:can't|cannot|couldn't|haven't been able to) (?:eat|drink|keep (?:food|anything|water) down)|"
+                               r"medicines?|medication|doses?)|(?:took|taken) (?:two|2) doses|overdosed?|"
+                               r"(?:took|taken|had) (?:an? )?extra (?:dose|pill|tablet)|"
+                               r"(?:son|daughter|kid|child|baby|toddler|boy|girl|grandson|granddaughter)\b[^.?!]{0,30}?"
+                               r"\b(?:swallowed|ate|eaten|took|taken|got into|chewed)\b[^.?!]{0,25}?"
+                               r"\b(?:pills?|tablets?|meds|medicines?|medication|vitamins?|gummies|capsules?))", re.I)),
+    ("decline", re.compile(r"\b(?:bed ?bound|"
+                           r"(?:can't|cannot|couldn't|haven't been able to) get out of bed (?:for|in|since) "
+                           r"(?:\d+|two|three|four|five|several|a few|days|a week|over)|"
+                           r"(?:haven't|have not|hasn't) (?:been able to )?(?:got|gotten|get) out of bed (?:for|in|since)|"
+                           r"(?:can't|cannot|couldn't|haven't been able to) (?:eat|drink) (?:anything|at all|for|since)|"
+                           r"(?:can't|cannot|couldn't) keep (?:food|anything|water|fluids) down|"
                            r"(?:haven't|have not|hasn't) (?:eaten|drunk|had anything to (?:eat|drink))"
                            r" (?:or (?:drunk|eaten) )?(?:anything )?(?:in|for|since)|"
-                           r"(?:new|getting|so|really) confus\w*|(?:don't|doesn't) know where (?:i am|he is|she is)|"
+                           r"new confusion|(?:getting|suddenly|newly) confused|(?:don't|doesn't) know where (?:i am|he is|she is)|"
                            r"confused about where)", re.I)),
     ("orthostatic", re.compile(r"\b(?:dizzy|light[- ]?headed|faint|heart (?:races|racing|pounds|pounding)|"
                                r"racing heart)\b[^.?!]*\b(?:stand(?:ing)? up|stand|get(?:ting)? up|sit(?:ting)? up)\b|"

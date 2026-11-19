@@ -30,6 +30,7 @@ log = logging.getLogger("homemind.modes")
 
 MODES = ("cloud", "balanced", "private")
 PROMOTE_N, PROMOTE_WORDINGS, PROMOTE_RATE = 20, 10, 0.95
+EARN_LO = 0.90          # the lower end of the replay's interval needed to earn a kind (not the point estimate)
 DEMOTE_FAILS, DEMOTE_WINDOW = 2, 20
 WARM_SECONDS, PING_EVERY = 90, 30
 DIAL = 0.55              # default confidence line
@@ -273,7 +274,9 @@ class Modes:
             prop.pop(kind)
             self.store.kv_set(self.PROPOSED, prop)
             return {"kind": kind, "earned": False, "replay": g}
-        if g["rate"] is None or g["rate"] < PROMOTE_RATE:
+        if not (g["verdict"] == "pass" or (g["rate"] or 0) >= PROMOTE_RATE and (g.get("lo") or 0) >= EARN_LO):
+            # a point estimate alone is not enough: the lower end of its interval must clear EARN_LO too (about 25
+            # replayed cases, all right); until then it stays proposed
             return {"kind": kind, "earned": False, "replay": g}
         earned = set(self.store.kv_get(self.EARNED) or [])
         earned.add(kind)

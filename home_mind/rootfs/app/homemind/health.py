@@ -9,8 +9,8 @@
 
 Before this, such questions went to a model with whatever notes the search found (a fog reading, the scale's BMR),
 and the answer described the wrong data. The readings are the daily rows patterns.py saves from the watch (Steady:
-readiness, sleep, HRV, resting heart rate, overnight low) plus the morning check-in. "Usual" is the median of the 28
-days before, shown only with at least 5 of them.
+readiness, sleep, HRV, resting heart rate, overnight low) plus the morning check-in. "Usual" is the middle half
+(25th to 75th percentile) of the 28 days before, said as its median, and only with at least 14 of them.
 
 Descriptive only: higher, lower or about usual, never good or bad, and no advice (red flags stay in redflags.py).
 Personal: an unknown voice gets no numbers, and a recognised one gets them only alone (App.private_by_voice).
@@ -45,7 +45,8 @@ LABEL = {"readiness": ("readiness", ""), "recovery": ("recovery", "%"), "sleep_h
          "night_low_hr": ("overnight low heart rate", " bpm")}
 SUMMARY = ("readiness", "sleep_h", "hrv", "resting_hr")
 LIVE_MAX_AGE = 30 * 60
-NEAR = 0.07           # within 7% of usual: "about usual"
+NEAR_MIN = 0.02       # "about usual" is never narrower than 2% either side of the median
+USUAL_MIN_DAYS = 14
 
 
 def _hm(h):
@@ -89,16 +90,24 @@ class Health:
             return []
 
     def _usual(self, rows, k, before):
+        """(median, low, high) of the 28 days before: "usual" is the middle half of your own days (the 25th to the
+        75th percentile), so a reading that swings a lot (HRV, sleep) isn't called higher or lower most days, and a
+        steady one (resting heart rate) is. At least 14 days first."""
         vals = [r[k] for r in rows if r.get("day", "") < before and r.get(k) is not None][-28:]
-        return statistics.median(vals) if len(vals) >= 5 else None
+        if len(vals) < USUAL_MIN_DAYS:
+            return None
+        q = statistics.quantiles(vals, n=4, method="inclusive")
+        med = statistics.median(vals)
+        lo, hi = min(q[0], med * (1 - NEAR_MIN)), max(q[2], med * (1 + NEAR_MIN))
+        return med, lo, hi
 
     def _vs(self, k, v, usual):
-        if usual is None or not usual:
+        if not usual or not usual[0]:
             return _fmt(k, v)
-        d = (v - usual) / usual
-        if abs(d) < NEAR:
+        med, lo, hi = usual
+        if lo <= v <= hi:
             return f"{_fmt(k, v)} (about usual)"
-        return f"{_fmt(k, v)} ({'higher' if d > 0 else 'lower'} than usual, {_fmt(k, usual)})"
+        return f"{_fmt(k, v)} ({'higher' if v > hi else 'lower'} than usual, {_fmt(k, med)})"
 
     def _latest(self, rows):
         """Today's row, or the latest with readings, and how to say which day it is."""

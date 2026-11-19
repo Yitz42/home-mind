@@ -28,12 +28,16 @@ from .approval import Access, ApprovalNeeded, PHONE, CONFIRM, OPEN, level as cod
 
 MUST_FLAG = [("I have chest pain", "emergency"), ("my dad fainted", "emergency"), ("I can't breathe", "emergency"),
              ("her face is drooping", "emergency"), ("I took a double dose of my meds", "double_dose"),
-             ("I want to die", "crisis"), ("I can't get out of bed", "decline"),
+             ("I want to die", "crisis"), ("I haven't been able to get out of bed for three days", "decline"),
+             ("I wish I wasn't here anymore", "crisis"), ("nobody would miss me", "crisis"),
+             ("she's having a seizure", "emergency"), ("his lips are blue", "emergency"),
+             ("my son swallowed my pills", "double_dose"),
              ("I haven't eaten or drunk anything in two days", "decline"),
              ("I get dizzy when I stand up", "orthostatic")]
 MUST_NOT = ["no chest pain today", "I didn't faint", "what are the signs of a stroke?", "double the recipe",
             "remind me to buy chest pain medicine", "turn on the lights", "I took my pills",
-            "remember dad fainted in 2019"]
+            "remember dad fainted in 2019", "I can't get out of bed today", "I can't drink milk",
+            "I'm so confused by this app", "I don't want to wake up early tomorrow", "my leg is weak after the walk"]
 
 
 class _FakeHA:

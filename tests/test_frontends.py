@@ -97,8 +97,9 @@ async def ask_phone(plan, why=None, source="api"):
     return {"plan": plan, "approval_sent": True}
 A.ask_phone = ask_phone
 r = run(A.answer({"question": "I took a double dose of my pills", "front_end": "alexa"}))
-check("other: a red flag isn't answered on its speaker; the real reply goes out through Home Mind",
-      r["answer"] == FE.OTHER_ANSWER and flags and flags[-1] == ("double_dose", "other:Alexa"), (r, flags))
+check("other: a red flag's fixed reply is said on that speaker too (it holds nothing private), and logged",
+      "Poison Control" in r["answer"] and r.get("red_flag") == "double_dose" and flags
+      and flags[-1] == ("double_dose", "other:Alexa"), (r, flags))
 r = run(A.answer({"question": "how did I sleep last night?", "front_end": "alexa"}))
 check("other: health is never answered there", r["answer"] == FE.OTHER_ANSWER and not asked, r)
 try:

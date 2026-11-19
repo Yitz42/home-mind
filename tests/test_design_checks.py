@@ -249,8 +249,9 @@ check("9 clinical: the zones notice is neutral", TR.Zones(st, {"exertion_zones":
       "Rest when you can" in open(TR.__file__).read())
 check("9 clinical: health answers describe, never judge", all(w not in open(HL.__file__).read().split('"""')[2]
                                                                for w in ("You should", "great job", "worrying")))
-check("9 clinical: red flags are checked before the medicines log", src.index("if not redflags.check(b[\"question\"])")
-      < src.index("tk.med_said(b[\"question\"]"))
+check("9 clinical: red flags are checked before the medicines log, Firefly and where-questions",
+      src.index("urgent = redflags.check(b[\"question\"])") < src.index("fly = self.mind.store.kv_get(\"firefly\")")
+      < src.index("where_question(b[\"question\"], names)") < src.index("tk.med_said(b[\"question\"]"))
 
 # ---- 10 failure modes --------------------------------------------------------------------------------------------
 st = store()

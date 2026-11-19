@@ -67,8 +67,15 @@ async def replay(log, planner, limit=200, ids=None, since=None, timeout=30, conc
     for c, plan, err, ms in results:
         rep["ms"].append(ms)
         if err:
+            # a planner that fails or times out on a case is wrong on it: counted, never left out (leaving it out
+            # would score a planner that fails on the hard cases higher)
             rep["errors"] += 1
             rep["disagree"].append({"id": c["id"], "request": c["request"], "error": err})
+            if c["kind"] == "match":
+                rep["match"] += 1
+            elif c["kind"] != "device":
+                rep["override"] += 1
+                rep["repeats"] += 1
             continue
         if c["kind"] == "device":
             rep["device"] += 1

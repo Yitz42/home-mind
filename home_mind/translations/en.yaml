@@ -213,6 +213,9 @@ configuration:
   email_require_verified:
     name: Only verified email
     description: Read mail only when your mail server says it passed its sender check (DKIM or SPF for the sender's domain). A From line alone can be forged. Turn off only if your server doesn't add Authentication-Results.
+  email_authserv_id:
+    name: Your mail server's name in Authentication-Results
+    description: The name your mail server puts first in its Authentication-Results header (for example mx.google.com). Only that header is trusted; left empty, the topmost one is.
   exertion_zones:
     name: Live exertion zones
     description: Off by default. When on, a fresh heart-rate reading above the line puts you in the upper zone; on a low day one neutral notice at most ("Heart's up. Rest when you can."), none on a rough day. Switches itself off if a beta-blocker or ivabradine is logged. Heart rate misses mental and emotional effort.

@@ -559,6 +559,9 @@ class Store:
             while cur and cur.get("supersedes"):
                 cur = self._row(self.db.execute("SELECT * FROM items WHERE id=?", (cur["supersedes"],)).fetchone())
                 if cur:
+                    from .speakers import visible
+                    if not visible(cur.get("meta")):
+                        break           # an earlier version this viewer may not see: the history stops there
                     chain.append({"id": cur["id"], "title": cur["title"], "body": cur["body"], "created": cur["created"]})
             later = self.db.execute("SELECT id FROM items WHERE supersedes=?", (item_id,)).fetchone()
             r["history"] = chain
@@ -580,8 +583,15 @@ class Store:
         return int(item_id)
 
     def active_by_key(self, key):
-        return self._row(self.db.execute(
-            "SELECT * FROM items WHERE key=? AND status IN ('active','faded') ORDER BY id DESC LIMIT 1", (key,)).fetchone())
+        """The newest active note with this key that the current viewer may see. Another person's personal note
+        with the same key is never found, so it is never shown, nor replaced by someone else's note."""
+        from .speakers import visible
+        for r in self.db.execute("SELECT * FROM items WHERE key=? AND status IN ('active','faded') ORDER BY id DESC "
+                                 "LIMIT 20", (key,)):
+            d = self._row(r)
+            if visible(d.get("meta")):
+                return d
+        return None
 
     def as_of(self, key, when, by="valid"):
         """Two times per fact (design step 9), read through one function. Every version of a keyed fact has when it
@@ -867,8 +877,11 @@ class Store:
             if not ids:
                 return {"deleted": 0}
             # a sealed note's row holds the masked copy: its values are in the sealed text (#66)
-            rows = [self._row(r) for r in self.db.execute(f"SELECT * FROM items WHERE id IN ({','.join('?' * len(ids))})",
-                                                          list(ids)).fetchall()]
+            raw = self.db.execute(f"SELECT * FROM items WHERE id IN ({','.join('?' * len(ids))})", list(ids)).fetchall()
+            rows = [self._row(r) for r in raw]
+            for row, r in zip(rows, raw):       # the sealed text as stored: what a restored copy holds too
+                if "secret" in r.keys() and r["secret"] and isinstance(row, dict):
+                    row["_sealed"] = r["secret"]
             # the note's values, to find them in logs: codes, serials, passwords (a digit or a symbol, 4+ long), and
             # what follows a secret word; not years or plain words, so unrelated log rows stay
             from .privacy import RIGHT_AFTER, WORD_AFTER
