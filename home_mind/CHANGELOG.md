@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- **Rooms and conflicts** (design phase 11): device access by room and group with the most restrictive winning, and
+  personal spaces only their person can open up; a room model kept in memory only (who was heard where, which rooms
+  have movement) that decides "on your own"; "where is <person>?" is never answered; Home Mind's automations back off
+  a device for 3 hours after a person undoes it; one surprises and gaps queue (`/api/surprises`); settling what
+  several people want from one device.
 - **Channels and household rules** (design phase 10): Telegram groups answer only listed people; email is read only
   when the mail server vouched for the sender (`email_require_verified`); limits per channel (Telegram, email, MCP);
   nothing from email or documents becomes a learned answer; guest mode (`/api/guest`); a monthly spend cap on cloud

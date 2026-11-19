@@ -353,6 +353,12 @@ class DecisionLog:
                     ov = {"at": now, "by": by, "to": json.loads(_summary(new_state)), "after": round(now - d["ts"], 1)}
                     self.db.execute("UPDATE decisions SET override=? WHERE id=?", (json.dumps(ov), did))
                     self._profile(d["entity_id"], override=True)
+                    cb = getattr(self, "on_override", None)       # rooms.BackOff: Home Mind leaves it alone a while
+                    if cb is not None:
+                        try:
+                            cb(d["entity_id"])
+                        except Exception:  # noqa: BLE001
+                            pass
                     w.pop(did, None)
             if not w:
                 self.watch.pop(entity_id, None)

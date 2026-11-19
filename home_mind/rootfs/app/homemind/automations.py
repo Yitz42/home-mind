@@ -1052,6 +1052,15 @@ class Engine:
         ents = data.get("entity_id")
         ents = [e.strip() for e in ents.split(",")] if isinstance(ents, str) else list(ents or []) \
             if isinstance(ents, (list, tuple)) else []
+        bo = getattr(self, "backoff", None)
+        if bo is not None and ents:
+            kept = [e for e in ents if not bo.active(e)]
+            if not kept:
+                steps.append(f"backed off: {', '.join(ents)} changed by hand lately")
+                return None
+            if len(kept) < len(ents):
+                data["entity_id"] = kept
+                ents = kept
         before = {e: (self.states.get(e) or {}).get("state") for e in ents}
         if getattr(self.ha, "user_token", "") and not rv:
             # the limited Home Assistant user (option ha_user_token) for device calls; your own automations count as
