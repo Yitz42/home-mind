@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- **Things and scenes** (design phase 12): things as an item type with typed links (about, in, part of, belongs to)
+  from Home Assistant's devices or your yes; look-alikes proposed for merging; renamed devices keep their thing;
+  "where's the drill?" follows the links; links filtered by who's asking. Scenes drafted from a description (never
+  heaters, heating, locks, doors or covers), previewed for 10 minutes and undone unless kept (`/api/things`,
+  `/api/scenes`).
 - **Rooms and conflicts** (design phase 11): device access by room and group with the most restrictive winning, and
   personal spaces only their person can open up; a room model kept in memory only (who was heard where, which rooms
   have movement) that decides "on your own"; "where is <person>?" is never answered; Home Mind's automations back off

@@ -275,6 +275,11 @@ class App:
         self.rooms = RoomModel(self.home)
         self.backoff = BackOff(st9)
         self.surprises = Surprises(st9)
+        # phase 12: things, and scenes drafted from a description
+        from .things import Things, Scenes
+        self.things = Things(st9)
+        self.mind.things = self.things
+        self.scenes = Scenes(self)
         self.mind.tiebreak = self.tiebreak
         from .day import Day
         self.day = Day(self.mind.store)
@@ -1314,6 +1319,30 @@ class App:
         await self.ha.call("automation", "turn_on", {"entity_id": eid}, approved=True)
         return {"on": eid}
 
+    async def _upkeep12(self, now, last):
+        """Phase 12: things from Home Assistant's devices (hourly), notes linked to things (10 min), scene previews
+        nobody kept put back (every pass)."""
+        th = getattr(self, "things", None)
+        if th is None:
+            return
+        try:
+            await self.scenes.undo_due()
+        except Exception:  # noqa: BLE001
+            log.exception("scene previews")
+        if now - last.get("things_dev", 0) > 3600 and self.home.catalog:
+            last["things_dev"] = now
+            try:
+                devs = {d["entity_id"] for d in self.home.controllable()}
+                th.from_devices({e: c for e, c in self.home.catalog.items() if e in devs})
+            except Exception:  # noqa: BLE001
+                log.exception("things from devices")
+        if now - last.get("things_link", 0) > 600:
+            last["things_link"] = now
+            try:
+                th.link_notes()
+            except Exception:  # noqa: BLE001
+                log.exception("things links")
+
     async def _upkeep11(self, now, last):
         """Phase 11: the surprises queue from the decision log, corrections and asks, every 10 minutes."""
         sp = getattr(self, "surprises", None)
@@ -1362,6 +1391,7 @@ class App:
         await self._upkeep9(now, last)
         await self._upkeep10(now, last)
         await self._upkeep11(now, last)
+        await self._upkeep12(now, last)
         rep = getattr(self, "db_report", None)
         if rep and self.ha.available and not rep.get("told"):
             rep["told"] = True
@@ -3364,6 +3394,76 @@ def build(app_state):
             return J({"error": f"that's {owner}'s space"}, 403)
         A.home.access.set_space(room, (b.get("person") or "").strip())
         return J(A.home.access.spaces())
+
+    @r.get("/api/things")
+    async def things_list(_):
+        """Things Home Mind keeps track of, things noticed in notes waiting for a yes, and look-alikes to merge."""
+        th = A.things
+        return J({"things": th.all(), "noticed": th.noticed()[:30], "duplicates": th.duplicates()})
+
+    @r.get("/api/things/{id}")
+    async def thing_get(q):
+        """One thing with its links (only to notes you may see) and where it is."""
+        from .speakers import VIEWER
+        tid = num(q.match_info["id"], "id", 0, 1, 1e12)
+        t = A.things.get(tid)
+        if not t:
+            return J({"error": "no such thing"}, 404)
+        return J(dict(t, links=A.things.links(tid, viewer=VIEWER.get()), where=A.things.where(tid, VIEWER.get())))
+
+    @r.post("/api/things")
+    async def thing_add(q):
+        """Say yes to a thing ({"name"}), say no to one noticed ({"name", "dismiss": true}), merge look-alikes
+        ({"keep", "merge"}), or link two ({"a", "b", "relation": about|in|part_of|belongs_to})."""
+        b = await read_body(q, name=str, relation=str)
+        th = A.things
+        if b.get("merge") is not None:
+            return J(th.merge(int(b["keep"]), int(b["merge"])))
+        if b.get("relation"):
+            th.link(int(b["a"]), int(b["b"]), b["relation"])
+            return J({"ok": True})
+        if not (b.get("name") or "").strip():
+            raise ValueError("give a name")
+        if b.get("dismiss"):
+            th.dismiss(b["name"])
+            return J({"dismissed": b["name"]})
+        tid = th.create(b["name"])
+        th.link_notes()
+        return J(th.get(tid))
+
+    @r.get("/api/scenes")
+    async def scenes_list(_):
+        """Kept scenes, previews running, and how each scene has done (edits; still kept after a week)."""
+        sc = A.scenes
+        return J({"scenes": sc.saved(), "previews": {k: v["until"] for k, v in sc.previews.items()},
+                  "scores": sc.scores()})
+
+    @r.post("/api/scenes/draft")
+    async def scene_draft(q):
+        """{"text": "make the living room cozy", "room"?, "preview"?: true}: a drafted scene (never heaters, locks,
+        doors or covers); with preview, run for 10 minutes and undone unless kept."""
+        b = await read_body(q, text=str, room=str)
+        if not (b.get("text") or "").strip():
+            raise ValueError("describe the scene")
+        sc = await A.scenes.draft(b["text"], b.get("room"))
+        if b.get("preview") and sc["steps"]:
+            sc["preview"] = await A.scenes.preview(sc)
+        return J(sc)
+
+    @r.post("/api/scenes/{name}")
+    async def scene_do(q):
+        """{"do": "keep"} a preview (optionally with edited "steps"), {"do": "run"} a kept scene, or {"do": "remove"}."""
+        b = await read_body(q, do=str)
+        name = q.match_info["name"]
+        what = b.get("do")
+        if what == "keep":
+            return J(A.scenes.keep(name, b.get("steps") if isinstance(b.get("steps"), list) else None))
+        if what == "run":
+            return J(await A.scenes.run(name))
+        if what == "remove":
+            A.scenes.remove(name)
+            return J({"removed": name})
+        raise ValueError("do is keep, run or remove")
 
     @r.get("/api/guest")
     async def guest_get(_):
