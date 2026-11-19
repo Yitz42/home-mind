@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- **Connected answers** (`connect.py`): "why am I so gassy lately?", "how is my health looking?", "is my schedule
+  really busy?" are answered from a brief code gathers (the issue and its general causes, labelled general, with the
+  offline Wikipedia passage; every time you mentioned the symptom; readings against your usual; check-ins; new
+  medicines; the foods that matter for it; the calendar load; your own pattern once there's enough data), connected by
+  a model (`deep_model`) that may only use numbers from the brief. Symptoms you mention in any request are logged.
+  Known issues and your or your doctor's suspects (`/api/issues`). The quick answer comes beside it in the panel with a
+  tap to say which was better (`compare_answers`, `/api/answer_pick`).
 - **Review fixes** (ten expert panels, `claude/review-2026-11-panels.md`): red flags are checked before every shortcut
   (money, "where is", the medicines log), said word for word (never restyled by the persona) and on other assistants
   too, and catch passive crisis phrasing, seizures, blue lips, sudden numbness and a child swallowing pills, with

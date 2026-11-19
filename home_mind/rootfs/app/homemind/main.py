@@ -295,6 +295,18 @@ class App:
         self.tracking = Tracking(st9, None, folder=DATA)
         self.zones = Zones(st9, self.opts, None, folder=DATA)
         self.ha.travelling = self.tracking.travelling
+        # connected answers: the symptom log, your own known issues, the brief (connect.py)
+        from .connect import Symptoms, KnownIssues, Brief
+        self.symptoms = Symptoms(st9)
+        self.known_issues = KnownIssues(st9)
+        self.brief = Brief(self)
+        _forget_name = st9.on_forget_name
+
+        def _forget_name_too(name):
+            if _forget_name:
+                _forget_name(name)
+            self.symptoms.purge_owner(name)
+        st9.on_forget_name = _forget_name_too
         # phase 14: experiments and proposals
         from .experiments import Experiments
         from .proposals import Proposals
@@ -1041,6 +1053,13 @@ class App:
         who, how = self.speaker_for(b)
         from . import redflags, conversation as conv
         urgent = redflags.check(b["question"])       # before every shortcut: "where's my wife, I have chest pain"
+        sy = getattr(self, "symptoms", None)
+        if sy is not None and who != "" and not oa and allows(scope, "write"):
+            try:        # "why am I so gassy lately?" also says: gassy, today (connect.py's symptom log)
+                ki = getattr(self, "known_issues", None)
+                sy.mention(b["question"], who or None, ki.of(who or None) if ki is not None else None)
+            except Exception:  # noqa: BLE001 - a log line is never a reason to fail an answer
+                log.exception("symptom log")
         fly = self.mind.store.kv_get("firefly") if not urgent and FE.MONEY_Q.search(b["question"]) else None
         if fly is not None:
             owner = (self.opts.get("firefly_owner") or "").lower()
@@ -1097,6 +1116,9 @@ class App:
                          expand=bool(b.get("expand")), voice=bool(b.get("voice")),
                          deadline=(b.get("deadline") or self.HANDOFF_LATE) if phone else b.get("deadline"),
                          fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who)
+        dk = getattr(self, "deep_ok", None)
+        if not urgent and dk is not None and dk(b, who, oa):
+            ask = self.deep_answer(b, who, ask)      # why / lately / how am I: the brief, connected (connect.py)
         if phone:
             # past HANDOFF_SECONDS by voice: say so, and send the whole answer to the person's phone when it's ready
             # (design step 19); without a phone the voice deadline and its best-note fallback stand as before
@@ -1132,7 +1154,7 @@ class App:
                 log.exception("measure")
         if b.get("voice") and who and not res.get("red_flag") and hasattr(self, "private_by_voice"):
             res = await self.private_by_voice(res, who)
-        if b.get("voice") and not res.get("red_flag") and getattr(self, "day", None) is not None:
+        if b.get("voice") and not res.get("red_flag") and not res.get("deep") and getattr(self, "day", None) is not None:
             from .day import QUESTION, DAY_STARTS
             # the check-in starts when the person first speaks, never as an alarm: once, after what they asked
             if self.day.get(who or None) == "unknown" and datetime.now().hour >= DAY_STARTS and \
@@ -1141,6 +1163,108 @@ class App:
                 res["checkin_asked"] = True
         res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
         return await self._style(res, b["question"], who, bool(b.get("voice")))
+
+    DEEP_VOICE_SECONDS = 6.0
+
+    def deep_ok(self, b, who, other=None):
+        """A question for the connected path: why, lately, how am I, really, busy (connect.wants_deep), asked by
+        someone who may see personal data (not a guest, not another assistant), with the option on."""
+        from . import connect as CN
+        if other or who == "" or self.opts.get("connected_answers") is False or b.get("model") not in (None, "", "auto") or \
+                b.get("use_brain") is False or getattr(self, "brief", None) is None:
+            return False
+        return CN.wants_deep(b.get("question") or "")
+
+    def _deep_chain(self, who):
+        name = self.opts.get("deep_model") or None
+        chain = self.mind._chain(name)
+        md = getattr(self, "modes", None)
+        try:
+            private = md is not None and md.mode(who or None) == "private"
+        except Exception:  # noqa: BLE001
+            private = False
+        if private:     # private mode: nothing leaves the house
+            local, _ = self.mind.route_lists()
+            chain = [m for m in chain if m in local]
+        return chain[:2]
+
+    async def deep_answer(self, b, who, quick):
+        """The connected answer: the brief (code), a model to connect it, every number checked against the brief.
+        quick is the usual path's coroutine: it runs alongside for the side-by-side, and answers if this can't."""
+        from . import connect as CN
+        q, voice = b["question"], bool(b.get("voice"))
+        compare = self.opts.get("compare_answers", True) is not False and not voice and b.get("compare", True) is not False
+        qt = asyncio.ensure_future(quick) if compare else None      # side by side: both at once
+
+        async def deep():
+            facts = self.brief.build(q, who or None)
+            st = self.mind.store
+            try:
+                hits, _p, ctx = await self.mind.context_for(st, q, k=12, voice=voice)
+            except Exception:  # noqa: BLE001
+                hits, ctx = [], ""
+            content = f"QUESTION: {q}\n\nBRIEF (their own data, gathered by code):\n{facts['text']}\n\n" \
+                      f"NOTES AND OTHER SOURCES:\n{ctx or '(none)'}"
+            system = CN.DEEP_SYSTEM + (CN.VOICE_DEEP if voice else "")
+            for m in self._deep_chain(who):
+                try:
+                    r = await self.models.get(m).chat(system, [{"role": "user", "content": content}],
+                                                      max_tokens=500 if not voice else 200, temperature=0.2)
+                    text = (r.get("text") or "").strip()
+                    bad = CN.numbers_ok(text, facts["text"] + "\n" + (ctx or ""), q)
+                    if bad:     # once more, told which numbers aren't in the brief
+                        r = await self.models.get(m).chat(system, [
+                            {"role": "user", "content": content}, {"role": "assistant", "content": text},
+                            {"role": "user", "content": f"These numbers aren't in the brief: {', '.join(bad)}. "
+                                                        "Answer again using only numbers from the brief."}],
+                            max_tokens=500 if not voice else 200, temperature=0)
+                        text = (r.get("text") or "").strip()
+                        if CN.numbers_ok(text, facts["text"] + "\n" + (ctx or ""), q):
+                            log.info("deep answer from %s used numbers not in the brief: quick path instead", m)
+                            continue
+                    if text:
+                        return {"answer": text, "hits": hits, "model": m, "deep": True, "personal": True,
+                                "issues": facts.get("issues"), "sources": facts.get("sources") or []}
+                except Exception as e:  # noqa: BLE001 - the next model, then the quick path
+                    log.warning("deep answer with %s: %s", m, e)
+            return None
+
+        try:
+            res = await (asyncio.wait_for(deep(), self.DEEP_VOICE_SECONDS) if voice else deep())
+        except asyncio.TimeoutError:
+            res = None
+        if res is None:
+            return await (qt if qt is not None else quick)
+        if compare:
+            try:
+                quick_res = await asyncio.wait_for(asyncio.shield(qt), 20)
+            except Exception:  # noqa: BLE001
+                quick_res = None
+            if quick_res and quick_res.get("answer"):
+                import secrets as _s
+                cid = _s.token_hex(6)
+                picks = list(self.mind.store.kv_get("answer_picks") or [])[-199:]
+                picks.append({"id": cid, "at": time.time(), "deep_model": res.get("model"),
+                              "quick_model": quick_res.get("model"), "issues": res.get("issues") or [], "pick": None})
+                self.mind.store.kv_set("answer_picks", picks)
+                res = dict(res, quick={"answer": quick_res["answer"], "model": quick_res.get("model")}, compare_id=cid)
+        else:
+            quick.close()           # never started
+        return res
+
+    def answer_pick(self, cid, pick):
+        """Which was better, the connected answer or the quick one ("deep", "quick", "same")."""
+        if pick not in ("deep", "quick", "same"):
+            raise ValueError("pick is deep, quick or same")
+        picks = list(self.mind.store.kv_get("answer_picks") or [])
+        for p in picks:
+            if p["id"] == cid:
+                p["pick"], p["picked"] = pick, time.time()
+                self.mind.store.kv_set("answer_picks", picks)
+                done = [x for x in picks if x.get("pick")]
+                return {"ok": True, "so_far": {k: sum(1 for x in done if x["pick"] == k)
+                                               for k in ("deep", "quick", "same")}}
+        raise KeyError(f"no answer {cid}")
 
     async def _style(self, res, *a):
         """The persona (Jeeves) on an answer, when there is one; an app without it answers plainly."""
@@ -2304,6 +2428,8 @@ def build(app_state):
             return web.json_response({"error": f"missing {msg}" if re.fullmatch(r"\w+", msg) else msg}, status=400)
         except (ValueError, OverflowError) as e:        # bad input (OverflowError: a number too big for SQLite)
             return web.json_response({"error": str(e)}, status=400)
+        except PermissionError as e:                    # allowed in general, not this (a guest changing personal data)
+            return web.json_response({"error": str(e)}, status=403)
         except ModelError as e:                         # the model behind it failed: not this server's bug
             return web.json_response({"error": str(e)}, status=502)
         except Exception as e:  # noqa: BLE001
@@ -3760,6 +3886,57 @@ def build(app_state):
             return J({"confirmed": int(b["confirm"])})
         tid = tk.add_tracker(b.get("name"), VIEWER.get() or None, b.get("kind") or "scale", b.get("cadence") or "weekly")
         return J({"id": tid})
+
+    @r.post("/api/answer_pick")
+    async def answer_pick(q):
+        """{"id", "pick": deep|quick|same}: which was better, the connected answer or the quick one."""
+        b = await read_body(q, id=str, pick=str)
+        return J(A.answer_pick(b.get("id") or "", b.get("pick") or ""))
+
+    @r.get("/api/answer_picks")
+    async def answer_picks(_):
+        picks = [p for p in (A.mind.store.kv_get("answer_picks") or []) if p.get("pick")]
+        return J({"picked": len(picks), **{k: sum(1 for p in picks if p["pick"] == k) for k in ("deep", "quick", "same")},
+                  "recent": picks[-20:]})
+
+    @r.get("/api/issues")
+    async def issues_get(_):
+        """Known issues: the built-in ones (with their general causes) and your own, with how often each symptom
+        was mentioned in the last 30 and 90 days."""
+        from .speakers import VIEWER
+        from . import connect as CN
+        if VIEWER.get() == "":
+            return J({"issues": [], "note": "Private: a guest sees none of it."})
+        who = VIEWER.get() or None
+        mine = A.known_issues.of(who)
+        now = time.time()
+        out = []
+        for k in list(CN.ISSUES) + [x for x in mine if x not in CN.ISSUES]:
+            it = CN.ISSUES.get(k, {})
+            d90 = A.symptoms.days(k, who, since=now - 90 * 86400)
+            d30 = {d: n for d, n in d90.items() if d >= date.fromtimestamp(now - 30 * 86400).isoformat()}
+            out.append({"key": k, "name": it.get("name") or k, "general": it.get("general"),
+                        "suspects": (mine.get(k) or {}).get("suspects") or [], "yours": k in mine,
+                        "days_30": len(d30), "days_90": len(d90)})
+        return J({"issues": out})
+
+    @r.post("/api/issues")
+    async def issues_post(q):
+        """{"name", "words"?, "suspects"?: [...], "source"?: you|doctor}: add an issue, or suspects to one."""
+        from .speakers import VIEWER
+        if VIEWER.get() == "":
+            raise PermissionError("a guest can't add issues")
+        b = await read_body(q, name=str, words=str, suspects=list, source=str)
+        return J(A.known_issues.add(VIEWER.get() or None, b.get("name") or "", b.get("words"),
+                                    b.get("suspects") or [], b.get("source") or "you"))
+
+    @r.delete("/api/issues/{name}")
+    async def issues_delete(q):
+        from .speakers import VIEWER
+        if VIEWER.get() == "":
+            raise PermissionError("a guest can't change issues")
+        A.known_issues.remove(VIEWER.get() or None, q.match_info["name"])
+        return J({"ok": True})
 
     @r.get("/api/meds")
     async def meds_get(_):

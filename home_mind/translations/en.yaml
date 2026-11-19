@@ -234,6 +234,15 @@ configuration:
   firefly_owner:
     name: Whose money it is
     description: The person (from the people option) who may hear the Firefly III totals. Empty = nobody by voice.
+  connected_answers:
+    name: Connected answers
+    description: Questions like "why am I so gassy lately?", "how is my health looking?" or "is my week really busy?" are answered from a brief of your own data (readings against your usual, check-ins, symptoms you mentioned, new medicines, meals, the calendar) plus the general causes, connected by a model. Every number is checked against the brief.
+  deep_model:
+    name: Model for connected answers
+    description: The model that connects the brief (a stronger one helps, e.g. a Sonnet model). Empty uses the usual chain. Private mode always stays on local models.
+  compare_answers:
+    name: Show the quick answer too
+    description: Connected answers come with the quick answer beside them in the panel, and a tap says which was better, so you can judge the new path.
   proposals_model:
     name: Model for gap proposals
     description: An Anthropic model from your models list (for example Opus) asked through the Batch API, on nights when a gate failed or a gap is waiting, to draft the cheapest fix for something Home Mind keeps failing at. It sees only the schema and made-up data. Empty = proposals list the record and app fixes only.

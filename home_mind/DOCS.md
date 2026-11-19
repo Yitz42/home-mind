@@ -104,6 +104,36 @@ earned trust, the same kind of request is done straight away, with no model call
 - **You have the last word:** `/api/learned` shows what's been learned and why; drop a template, or put it back on
   trial, with `/api/learned/{id}`.
 
+## Connected answers: why, lately, how am I, really
+Questions that need several things weighed together ("why am I feeling so gassy lately?", "how is my health
+looking?", "is my schedule really busy?", "why have I been so tired this week?") don't go to the quick path, which
+reads back the few notes that share the question's words. Code first gathers a **brief** of your own data:
+
+- **The issue** it's about: gas and bloating, stomach upset, headaches, crashes and fatigue, brain fog, sleep trouble,
+  dizziness, or one you add (`/api/issues`). Each comes with its **general causes**, always said as general ("commonly
+  ..."), the offline Wikipedia passage when Wikipedia is downloaded, **when to see a doctor**, and the suspects you or
+  your doctor named (`{"name": "gas", "suspects": ["dairy"], "source": "doctor"}`).
+- **Every time you mentioned that symptom.** Anything you say counts, not only what you log: "why am I so gassy?"
+  also notes gas, today. It's kept per person (the word and the time, never the sentence), shown in `/api/issues`, and
+  removed with "forget everything about" that person.
+- **What changed against your usual**: sleep, HRV, resting heart rate, readiness, steps and stress the day before,
+  late meals and late caffeine, compared with the middle half of your previous 28 days.
+- **Check-ins, new medicines or supplements** (first logged in the window), **the foods known to matter** for that
+  issue in the meals you logged (beans and lentils, onion and garlic, dairy, wheat, fizzy drinks, sweeteners...),
+  against the 4 weeks before, and the **calendar load** today and this week against your usual day.
+- **Your own pattern**, once there are 30 days and 5 days with that symptom: each suspect at its lag, said as counts
+  ("mentioned on 4 of 6 days with a late meal the night before, against 3 of 24 other days"). A link worth testing,
+  never a cause.
+
+A model then connects it (`deep_model`, else the usual chain; in private mode, local models only). It may only use
+numbers that are in the brief: code checks every number, asks once more if one isn't there, and gives the quick answer
+if it still isn't. By voice it answers in two or three sentences and offers the details, and if it takes more than 6
+seconds the quick answer is said instead. A guest or another assistant never gets this path, since it's all personal.
+
+**Side by side** (`compare_answers`, on): in the panel the quick answer comes with it, and a tap says which was better
+(`/api/answer_pick`; totals at `/api/answer_picks`), so the new path is judged by you. Turn the whole thing off with
+`connected_answers: false`.
+
 ## Who can reach Home Mind, and how much
 
 - **Telegram:** the chat must be on `telegram_chats`; in a group chat, the person writing must be listed too (their
@@ -1055,6 +1085,9 @@ you turn them on are listed after the tables.
 | `firefly_url` | empty | Firefly III, read-only: this month's totals for its owner |
 | `firefly_token` | empty | Firefly III personal access token |
 | `firefly_owner` | empty | The person who may hear the Firefly III totals |
+| `connected_answers` | on | "Why", "lately", "how am I", "really", "busy" questions answered from a brief of your own data, connected by a model |
+| `deep_model` | empty | The model that connects the brief (a stronger one helps); empty uses the usual chain |
+| `compare_answers` | on | Connected answers come with the quick answer beside them in the panel, and a tap to say which was better |
 | `proposals_model` | empty | An Anthropic model asked (Batch API) to draft fixes for gaps; sees the schema and made-up data only |
 | `travel_away_entity` | empty | What travel mode switches on (else input_boolean.away) |
 | `monthly_spend_cap` | 0 (none) | Cloud models rest for the month once their spend reaches this many dollars |
@@ -1190,6 +1223,11 @@ note), 502 (a model failed) or 500.
 | POST | `/api/plain_voice` | admin | answers without the persona, for you (`on`) |
 | GET | `/api/trackers` | admin | your trackers, entries waiting for details, and whether they're paused |
 | POST | `/api/trackers` | admin | add a tracker (`name`, `kind?`, `cadence?`), stop one (`stop`), or add details (`confirm`, `details?`) |
+| POST | `/api/answer_pick` | write | which was better, the connected answer or the quick one (`id`, `pick`: deep, quick, same) |
+| GET | `/api/answer_picks` | read | how the picks add up |
+| GET | `/api/issues` | read | known issues: general causes, your suspects, how often each symptom was mentioned |
+| POST | `/api/issues` | write | add an issue or suspects (`name`, `words`?, `suspects`?, `source`: you or doctor) |
+| DELETE | `/api/issues/{name}` | write | remove one of your issues |
 | GET | `/api/meds` | admin | your medicines log (30 days); nobody reviews it, no interaction checks |
 | POST | `/api/meds/window` | admin | how long after a log a second one is answered "You logged that at..." (`name`, `hours`) |
 | GET | `/api/significant` | admin | this week's checklist of significant events (unanswered is unknown) |

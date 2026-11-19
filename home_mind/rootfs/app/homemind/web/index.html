@@ -41,6 +41,8 @@
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px } .mute { color:var(--mute) } .ok { color:var(--ok) } .bad { color:var(--bad) }
   .pill { display:inline-block; padding:2px 10px; border-radius:99px; background:var(--card2); border:1px solid var(--line); font-size:12px; margin:0 4px 4px 0; cursor:pointer }
   pre { white-space:pre-wrap; background:var(--bg); padding:10px; border-radius:10px; max-height:360px; overflow:auto; font-size:12px }
+  .cmp { margin-top:10px; padding-top:8px; border-top:1px solid var(--line); white-space:normal; font-family:inherit }
+  .cmp details div { margin-top:6px; color:var(--mute) } .cmp button { margin-right:6px }
   .hide { display:none !important } a { color:var(--acc-ink); cursor:pointer } .num { font-variant-numeric:tabular-nums }
   .seg { display:flex; gap:4px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:4px; margin-bottom:14px; max-width:420px }
   .seg button { flex:1; border:0; background:none; color:var(--mute); font:inherit; border-radius:10px; min-height:38px; cursor:pointer } .seg button.on { background:var(--acc); color:#fff; font-weight:600 }
@@ -515,7 +517,24 @@ async function loadToday() {
   $('#nav_review').textContent = t.review; $('#nav_review').classList.toggle('hide', !t.review);
 }
 async function rateFog(n) { await api('api/patterns/answer', {action: 'HM_FOG_' + n}); loadToday(); }
-async function todayAsk() { const q = $('#td_q').value.trim(); if (!q) return; $('#td_ans').classList.remove('hide'); $('#td_ans').textContent = '…'; const r = await api('api/ask', {question: q}); $('#td_ans').textContent = r.error || r.answer; if (r.sleep || r.workout) { $('#td_q').value = ''; loadToday(); } }
+async function todayAsk() { const q = $('#td_q').value.trim(); if (!q) return; $('#td_ans').classList.remove('hide'); $('#td_ans').textContent = '…'; const r = await api('api/ask', {question: q}); showAnswer('#td_ans', r); if (r.sleep || r.workout) { $('#td_q').value = ''; loadToday(); } }
+// a connected answer with the quick one beside it: a tap says which was better (/api/answer_pick)
+function showAnswer(sel, r, extra) {
+  const el = $(sel); el.textContent = r.error || ((r.answer || '') + (extra || ''));
+  if (r.error || !r.quick || !r.compare_id) return;
+  const box = document.createElement('div'); box.className = 'cmp';
+  const q = document.createElement('details'); const sm = document.createElement('summary'); sm.textContent = 'The quick answer, for comparison';
+  const qa = document.createElement('div'); qa.textContent = r.quick.answer; q.append(sm, qa);
+  const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '6px';
+  const lab = document.createElement('span'); lab.className = 'mute'; lab.textContent = 'Which was better? ';
+  row.append(lab);
+  for (const [k, t] of [['deep', 'This one'], ['quick', 'The quick one'], ['same', 'About the same']]) {
+    const b = document.createElement('button'); b.textContent = t;
+    b.onclick = async () => { const x = await api('api/answer_pick', {id: r.compare_id, pick: k}); row.textContent = x.error || 'Thanks, noted.'; };
+    row.append(b);
+  }
+  box.append(q, row); el.append(box);
+}
 $('#td_q').addEventListener('keydown', e => e.key === 'Enter' && todayAsk());
 const TAGS = {sleep: ['SLEEP', 'var(--acc-ink)'], bed: ['SLEEP', 'var(--acc-ink)'], wake: ['SLEEP', 'var(--acc-ink)'], nap: ['SLEEP', 'var(--acc-ink)'], step: ['PACING', 'var(--food-ink)'], away: ['PACING', 'var(--food-ink)'], stress: ['STRESS', 'var(--bad)'], calm: ['STRESS', 'var(--bad)'],
   room: ['ROOM', 'var(--house-ink)'], pm: ['ROOM', 'var(--house-ink)'], voc: ['ROOM', 'var(--house-ink)'], aqi: ['ROOM', 'var(--house-ink)'], daylight: ['WEATHER', 'var(--house-ink)'], pressure: ['WEATHER', 'var(--house-ink)'], temp: ['WEATHER', 'var(--house-ink)'],
@@ -948,7 +967,7 @@ async function runs() {
 }
 async function showRun(id) { const r = await api('api/runs/' + id); $('#runcard').classList.remove('hide'); $('#runid').textContent = id; $('#run').textContent = JSON.stringify({summary: r.summary, config: r.config, seed: r.seed, wrong: r.details.filter(d => !d.correct)}, null, 1); }
 async function checkModels() { const rs = await api('api/models/check', {}); rs.forEach(r => { const el = document.getElementById('chk_' + r.name); if (el) el.innerHTML = r.ok ? `<span class="ok">ok</span> <span class="mute">${esc(r.ms)} ms</span>` : `<span class="bad">${esc(r.error)}</span>`; }); }
-async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); $('#a_out').textContent = r.error || (r.answer + '\n\n— ' + (r.ms || '') + ' ms; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ') +
+async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); showAnswer('#a_out', r, '\n\n— ' + (r.ms || '') + ' ms' + (r.deep ? ' (connected answer, ' + r.model + ')' : '') + '; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ') +
   ((r.errors || []).length ? '\n\nModel errors:\n' + r.errors.join('\n') + (r.model == null ? '\nCheck the model under Settings › Apps › Home Mind › Configuration (Models › Check all shows why).' : '') : '')); }
 async function checkUpd() { $('#upd').textContent = '…'; const r = await api('api/updates'); delete r.manifest; $('#upd').textContent = JSON.stringify(r, null, 1); }
 async function applyUpd() { $('#upd').textContent = '…'; $('#upd').textContent = JSON.stringify(await api('api/updates/apply', {}), null, 1); }
