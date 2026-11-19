@@ -296,7 +296,20 @@ class LearnedAnswers(Learned):
         from .mind import find
         cs = self.cases.all() if self.cases is not None else []
         if not cs:
-            return 1.0
+            # no corrections to replay yet: replay the candidates' own wordings instead. A template whose note the
+            # notes search no longer finds first for its own question doesn't pass (check 5: never ungated)
+            cands = [r for r in self.all() if r["status"] == "trusted" or r["id"] in include]
+            if not cands:
+                return 1.0
+            ok = n = 0
+            for r in cands:
+                for ex in r["examples"][-3:]:
+                    hits = find(self.store, ex, 5, touch=False)
+                    top = next((h for h in hits if not h.get("newer")), None)
+                    n += 1
+                    ok += bool(top and (top["id"] == r["item_id"] or
+                                        (r.get("item_key") and top.get("key") == r["item_key"])))
+            return ok / n if n else 1.0
         k = 0
         for c in cs:
             m = await self.match(c["question"], statuses=("trusted", "provisional"))

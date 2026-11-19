@@ -257,7 +257,12 @@ class App:
         from .outbox import Outbox
         st9 = self.mind.store
         self.forget = ForgetList(st9, DATA)
-        st9.on_forget = lambda rows, vals: self.forget.record_notes(rows, vals)
+        def _forgotten(rows, vals):
+            from .upkeep import scrub
+            self.forget.record_notes(rows, vals)
+            scrub(st9, [r["id"] for r in rows if "id" in r.keys()] if rows and hasattr(rows[0], "keys") else
+                  [r.get("id") for r in rows or []], vals)
+        st9.on_forget = _forgotten
         st9.on_forget_name = self.forget.record_name
         self.ha.outbox = Outbox(st9)
         self.learned_history = LearnedHistory(st9)
@@ -3761,6 +3766,9 @@ def build(app_state):
         out = A.tracking.set_travel(on)
         ent = A.opts.get("travel_away_entity") or ("input_boolean.away" if "input_boolean.away" in
                                                    (A.home.catalog or {}) else None)
+        if ent and ent.split(".")[0] not in ("input_boolean", "switch"):
+            out["away_error"] = "travel_away_entity must be an input_boolean or a switch"
+            ent = None
         if ent:
             try:
                 await A.ha.call(ent.split(".")[0], "turn_on" if on else "turn_off", {"entity_id": ent}, approved=True)

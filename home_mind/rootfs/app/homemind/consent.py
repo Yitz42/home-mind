@@ -129,8 +129,13 @@ class Consent:
                     res = await f(c["payload"]) if f else {"error": "no longer known"}
                     self._set(c["id"], status="done", done=now, note=None if not (res or {}).get("error")
                               else str(res["error"])[:200])
-                except Exception as e:  # noqa: BLE001
-                    self._set(c["id"], status="done", done=now, note=f"failed: {e}"[:200])
+                except Exception as e:  # noqa: BLE001 - Home Assistant down: still agreed, tried again next time
+                    tries = int((c.get("note") or "").split("tries: ")[-1].split(")")[0] or 0) \
+                        if "tries: " in (c.get("note") or "") else 0
+                    if tries + 1 >= 60:
+                        self._set(c["id"], status="done", done=now, note=f"failed after 60 tries: {e}"[:200])
+                    else:
+                        self._set(c["id"], note=f"not yet: {e} (tries: {tries + 1})"[:200])
                     res = {"error": str(e)}
                 out.append({"id": c["id"], "kind": c["kind"], "result": res})
         return out
