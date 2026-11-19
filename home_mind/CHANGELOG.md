@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.27.0
+- **House commands without a model.** Plain commands are read directly, instantly and on any hardware (option `rule_planner`, on). Examples: "kitchen light off", "den lamp to 40%", "dim the den lamp a bit", "close all the blinds", "movie night". A name that fits several devices gets "which one?". Anything uncertain (questions, schedules, "everything off", vague requests) still goes to the models.
+- **Several actions in one request:** "lights off and lock up", "kitchen light off, porch light on, then run goodnight", "all the lights off but leave the hall on". The ordinary actions run at once. Locks, alarms and garage doors among them wait for one "yes" together. The general model can also plan several actions (`{"actions": [...]}`).
+- **One request counts once** against the 20-actions-a-minute safety limit, so "lights off" in a house with 12 lights no longer trips it.
+- **Name matching** (rules and local model): every word you say must be in the name. An exact name wins over longer ones ("kitchen light" vs "kitchen counter lights"), several equally good names get "which one?", and a partial match is no longer offered as a guess.
+- **Control accuracy test** (`tests/control_bench.py`, in CI): a sample house with overlapping names and 139 labelled requests. 40 of them were written after the rules were tuned and are kept out of tuning. Rules: 100% on the tuned set, 90% right on the held-out set, never a wrong action. `--llama URL` scores a local model on the same requests.
+- **Control model app 0.1.1:** no watchdog while it waits for the model file. Before, Home Assistant restarted it over and over until the file was copied in.
+
 ## 0.26.0
 - **A small local model for house control.** For Home Assistant on modest hardware (an old laptop), a 270M-parameter FunctionGemma fine-tuned on your own devices can turn "dim the den lamp to 30" into an action on the CPU, without a cloud model.
   - `GET /api/control_model/dataset?part=train|test` writes training data from your control list. Add `&paraphrase=1` to have your normal model add more varied wording, kept only when the device name and numbers survive.

@@ -62,6 +62,10 @@ jobs:
         run: python tests/test_bugs.py
       - name: Local control model (training data, parsing, wiring)
         run: python tests/test_localctl.py
+      - name: Plain commands without a model, several actions per request
+        run: python tests/test_planner.py
+      - name: Control accuracy (rule planner; floors)
+        run: python tests/control_bench.py
       - name: Expert review checks
         run: for f in tests/test_review_*.py; do echo "== $f"; python "$f" || exit 1; done
       - name: Extraction bench scoring

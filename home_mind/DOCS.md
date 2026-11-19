@@ -396,7 +396,15 @@ Assistant doesn't have.
 - Uploads (photos, documents, imports) can be up to 32 MB per request; one photo up to 12 MB.
 - Read-only SQL shows each person household notes and their own personal notes; values are capped at 1 MB and results at 500 rows.
 
-## A small local model for house control (0.33)
+## House commands: rules first, then models (0.27)
+
+`/api/do` (and voice through it) reads plain commands itself, with no model: "kitchen light off", "den lamp to 40%", "dim the den lamp a bit", "make the porch light blue", "close all the blinds", "movie night", "lights off and lock up", "turn off all the lights but leave the hall on". Several actions in one request run together. Locks, alarms and garage doors among them wait for one "yes". If a name fits several devices ("turn off the light"), it asks which one and does nothing.
+
+Anything it can't read with certainty goes to the models as before: questions, schedules ("in an hour", "at 10pm"), "turn everything off", and anything vague. That means the local control model if `control_model` is set, then your general model, which can now also plan several actions. Turn the rules off with `rule_planner: false`.
+
+`tests/control_bench.py` scores this on a sample house with overlapping names: 99 labelled requests plus 40 held-out ones written after the rules were tuned. On the held-out ones it was right 90% of the time with no wrong actions; the misses were left to a model. Run `python tests/control_bench.py --llama http://HOST:8081/v1` to score your trained local model on the same requests.
+
+## A small local model for house control (0.26)
 
 If Home Assistant runs on modest hardware, a 270M-parameter model trained on your own devices can handle "turn the den lamp to 40%" on the CPU, without a cloud model.
 
@@ -422,6 +430,7 @@ you turn them on are listed after the tables.
 | `embed_model` | empty | Embedding model (search by meaning) |
 | `rerank_model` | empty | Re-ranking model |
 | `control_model` | empty | Local control model |
+| `rule_planner` | on | Plain commands without a model |
 | `answer_edges` | off | Repeat the best note before the question |
 | `answer_notes_first` | off | Name the notes before answering |
 | `use_preferences` | on | Use learned settings |

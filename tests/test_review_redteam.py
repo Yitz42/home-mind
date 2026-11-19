@@ -127,12 +127,14 @@ def hostile_model_do():
         A = types.SimpleNamespace(home=h, pending_reply=_no_pending, pending={}, models=types.SimpleNamespace(
             models={"evil": 1}, get=lambda n, e=eid: HostileModel(json.dumps({"entity_id": e, "action": "on"}))))
         A._run_plan = M.App._run_plan.__get__(A)
+        A.opts = {"rule_planner": False}          # this is about what a hostile model's plan can do
         r = asyncio.run(M.App.do(A, "dim the hall light"))
         check(f"/api/do: a model's plan to run {eid} needs the person's yes", "error" in r and not ha.calls, (r, ha.calls))
     for eid in ("script.goodnight", "scene.movie", "switch.kettle"):
         A = types.SimpleNamespace(home=h, pending_reply=_no_pending, pending={}, models=types.SimpleNamespace(
             models={"evil": 1}, get=lambda n, e=eid: HostileModel(json.dumps({"entity_id": e, "action": "on"}))))
         A._run_plan = M.App._run_plan.__get__(A)
+        A.opts = {"rule_planner": False}
         r = asyncio.run(M.App.do(A, "go"))
         check(f"/api/do: {eid} still runs", "done" in r and "error" not in r, r)
     r = asyncio.run(h.act("script.open_garage", "run", confirm=True))

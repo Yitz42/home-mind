@@ -119,37 +119,37 @@ def _words(s):
     return [w for w in re.findall(r"[a-z0-9]+", (s or "").lower()) if w not in ("the", "a", "my", "our", "in", "of")]
 
 
+def _sing(w):
+    return w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+
+
 def resolve(device, catalog, allowed, tool=None):
     """The device the person named -> (entity_id, candidates). A unique best match on the control list, of a domain the
     tool can act on; several equally good -> (None, [their names]) so Home Mind can ask which one."""
-    want = set(_words(device))
-    want |= {w[:-1] for w in want if w.endswith("s") and len(w) > 3}
+    want = {_sing(w) for w in _words(device)}
     if not want:
         return None, []
     doms = ACTION.get(tool, (None, None, None))[2]
-    scored = []
+    full = []                       # (extra words in the name, entity): names that hold every word the person said
     for eid, c in catalog.items():
         if not allowed(eid):
             continue
         dom = eid.split(".")[0]
         if doms and dom not in doms:
             continue
-        name = set(_words(c.get("name"))) | set(_words(eid.split(".", 1)[1].replace("_", " ")))
-        hit = want & name
-        if not hit:
-            continue
-        # every word the person said should be in the name; extra words in the name cost a little
-        score = len(hit) / len(want) - 0.01 * len(name - want)
-        scored.append((score, eid))
-    if not scored:
-        return None, []
-    scored.sort(reverse=True)
-    best = [e for s, e in scored if s >= scored[0][0] - 1e-9]
-    if scored[0][0] < 0.5:
-        return None, [catalog[e].get("name", e) for _, e in scored[:3]]
-    if len(best) > 1:
-        return None, [catalog[e].get("name", e) for e in best[:4]]
-    return best[0], []
+        name = {_sing(w) for w in _words(c.get("name"))}
+        obj = {_sing(w) for w in _words(eid.split(".", 1)[1].replace("_", " "))}
+        if want <= name or want <= obj:
+            full.append((len(name - want), eid))
+    if not full:
+        return None, []             # a partial match ("the pod bay doors" ~ "garage door") is not a guess worth asking about
+    full.sort()
+    exact = [e for x, e in full if x == 0]
+    if len(exact) == 1:
+        return exact[0], []         # "kitchen light" when there is also a "kitchen counter lights"
+    if len(full) == 1:
+        return full[0][1], []       # "desk lamp" -> the only name that has it: "Office Desk Lamp"
+    return None, [catalog[e].get("name", e) for _, e in full[:4]]
 
 
 def to_plan(tool, args, catalog, allowed):
