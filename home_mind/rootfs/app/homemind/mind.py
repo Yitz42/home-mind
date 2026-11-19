@@ -1380,10 +1380,27 @@ class Mind:
                 if VIEWER.get() == "":
                     said = mask_all(said)       # a list read to someone the house doesn't know: no codes (#78)
                 return {"answer": said, "hits": [], "model": None, "view": name}
+        audit = None
         if store is self.store:
             logged = await self._log_said(said, model, voice, deadline, conversation_id)
             if logged:
                 return logged
+            la = getattr(self, "learned_answers", None)
+            if la is not None:
+                from .speakers import VIEWER
+                try:
+                    m = await la.reflex(said, VIEWER.get(), getattr(self, "tiebreak", None))
+                except Exception:  # noqa: BLE001 - a learned answer is a shortcut, never a reason to fail
+                    m = None
+                if m and not m.get("audit"):
+                    it = m["item"]
+                    hit = {"id": it["id"], "title": it["title"], "body": it["body"], "shelf": it.get("shelf")}
+                    store.log("ask", None, question=question, model=None, ids=[it["id"]], answer=m["answer"][:500],
+                              sources=[it["id"]], reflex=m["record"]["id"])
+                    return {"answer": m["answer"], "hits": [hit], "model": None, "sources": [hit],
+                            "reflex": {"id": m["record"]["id"], "version": m["record"]["version"],
+                                       "tiebreak": bool(m.get("tiebreak"))}}
+                audit = m if m and m.get("audit") else None
             hl = getattr(self, "health", None)
             if hl is not None:
                 from .speakers import VIEWER
@@ -1493,6 +1510,13 @@ class Mind:
         byid = {h["id"]: h for h in hits}
         sources = (sources_for(" ".join(f"#{i}" for i in named if i in byid), hits, question)
                    if any(i in byid for i in named) and not DONT_KNOW.search(text) else sources_for(text, hits, question))
+        if audit is not None:
+            # 1 in 20 learned answers is asked of the model instead: did it answer from the same note?
+            try:
+                ok = any(x.get("id") == audit["item"]["id"] for x in sources)
+                self.learned_answers.evidence(audit["record"], ok, "" if ok else "an audit answered from another note")
+            except Exception:  # noqa: BLE001
+                pass
         if conversation_id and conversation_id in convs:
             convs[conversation_id].update(src=sources, q=question, a=text)
             self._save_conversations(store)

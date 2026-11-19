@@ -104,6 +104,23 @@ earned trust, the same kind of request is done straight away, with no model call
 - **You have the last word:** `/api/learned` shows what's been learned and why; drop a template, or put it back on
   trial, with `/api/learned/{id}`.
 
+## What Home Mind learns from your questions
+
+The same way, for questions. When a model answers from exactly one note, the match wasn't weak, and nobody said
+"that's wrong" in the next 15 minutes, the question, the note and the answer become an *answer template*. It starts in
+shadow and earns trust like a house template. Once trusted, the same question is answered straight away with no model.
+
+- **Never stale.** A learned answer is said only while its note is the very version it came from. Change the note
+  and the next answer comes from a model again (and is learned afresh).
+- **Never for secrets.** A sealed note (codes, passwords) always goes through the model and its masking. A personal
+  note is said only to its owner. A question with a number or a "not" in it is never answered this way, and every
+  number in a learned answer must be in its note.
+- **Checked like everything else.** About 1 in 20 is asked of the model instead and judged against it; a "that's
+  wrong" after a learned answer counts against it; promotions happen at night, only if replaying your corrections
+  doesn't get worse. House templates and answers take turns, one kind of change a night.
+- **Too close to call:** when two trusted answers (or house templates) fit almost equally, a small local model may
+  pick between them, if it is awake. `/api/learned/answers` shows how often that was needed (the aim is under 10%).
+
 With an embedding model set (`embed_model`), wordings are also compared by meaning, but meaning alone never makes a
 reflex.
 
@@ -1005,6 +1022,7 @@ note), 502 (a model failed) or 500.
 | GET | `/api/as_of` | read | a keyed fact at a time (`key`, `at`: seconds or ISO date, `by`: valid or recorded) |
 | POST | `/api/today/checkin` | write | today's check-in (`state`: good, low or rough; `person?`) |
 | GET | `/api/learned` | admin | what Home Mind has learned about house requests: each template, its status and evidence (`status?`) |
+| GET | `/api/learned/answers` | admin | what Home Mind has learned about answering questions: each answer, its note, status and evidence, and how often the tie-break was needed (`status?`) |
 | GET | `/api/learned/match` | admin | which template some words would match, and whether it would act (`q`); never acts |
 | POST | `/api/learned/{id}` | admin | your say on a template (`status`: dropped, or shadow to put it back on trial) |
 | GET | `/api/modes` | admin | model mode, confidence line, which local models are awake, kinds earned and proposed |

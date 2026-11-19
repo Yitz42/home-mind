@@ -247,6 +247,12 @@ class App:
         em = self.opts.get("embed_model") or ""
         self.learned = Learned(self.mind.store, self.home, embed=(
             (lambda texts: self.models.get(em).embed(texts)) if em else None))
+        from .learned_answers import LearnedAnswers
+        from .cases import Cases
+        self.learned_answers = LearnedAnswers(self.mind.store, cases=Cases(self.mind.store), embed=(
+            (lambda texts: self.models.get(em).embed(texts)) if em else None))
+        self.mind.learned_answers = self.learned_answers
+        self.mind.tiebreak = self.tiebreak
         from .day import Day
         self.day = Day(self.mind.store)
         self.ha.day = self.day           # the day's ask budget and rough-day quiet (ha.push)
@@ -567,7 +573,7 @@ class App:
                 return res
         lr = getattr(self, "learned", None)
         if lr is not None and not model:
-            m = await lr.reflex(text)
+            m = await lr.reflex(text, self.tiebreak if hasattr(self, "tiebreak") else None)
             if m and not m.get("audit"):
                 # a trusted template: no model call (it still goes through every check in _run_plan / Home.act)
                 plan = dict(m["plan"], confidence=m["sim"])
@@ -678,6 +684,18 @@ class App:
             m.record_pair((res.get("done") or {}).get("decision_id"), plan, other)
         getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
         return res
+
+    async def tiebreak(self, text, answers):
+        """Step 12: two learned answers too close to call. The small local model picks one (0 or 1), or None. Only
+        when it is warm, so the voice never waits on a sleeping laptop."""
+        from .learned_answers import tie_prompt, tie_pick
+        modes = getattr(self, "modes", None)
+        name = (modes.local_planner() or modes.local_chat()) if modes is not None else None
+        if not name or (modes is not None and not modes.is_warm(name)):
+            return None
+        r = await asyncio.wait_for(self.models.get(name).chat("", [{"role": "user", "content": tie_prompt(text, answers)}],
+                                                             max_tokens=4, temperature=0), 2.0)
+        return tie_pick((r or {}).get("text"))
 
     async def plan_only(self, text, model=None, reflex=True, include=()):
         """What do() would plan for these words, without acting (replay), in the order do() uses: the rules (option
@@ -1244,20 +1262,27 @@ class App:
             except Exception:  # noqa: BLE001
                 log.exception("worsening")
         lr = getattr(self, "learned", None)
+        la = getattr(self, "learned_answers", None)
         if lr is not None and getattr(self, "decisions", None) is not None and now - last.get("learn", 0) > 600:
-            last["learn"] = now          # every 10 minutes: settled house requests -> evidence and shadow templates
-            try:
-                got = lr.learn_from(self.decisions)
-                if got["created"] or got["evidence"]:
-                    log.info("learned: %s", got)
-            except Exception:  # noqa: BLE001
-                log.exception("learned")
+            last["learn"] = now          # every 10 minutes: settled requests -> evidence and shadow templates
+            for name, rec in (("learned", lr), ("learned answers", la)):
+                if rec is None:
+                    continue
+                try:
+                    got = rec.learn_from(self.decisions)
+                    if got["created"] or got["evidence"]:
+                        log.info("%s: %s", name, got)
+                except Exception:  # noqa: BLE001
+                    log.exception(name)
         if lr is not None and getattr(self, "measure", None) is not None and \
                 datetime.now().hour == 3 and now - last.get("learned_night", 0) > 20 * 3600:
             last["learned_night"] = now  # the nightly gate: promotions checked by replay
+            # one kind of record change a night (design step 26): house templates and answers take turns
+            answers_night = la is not None and datetime.now().toordinal() % 2 == 1
             try:
-                r = await lr.nightly(self.decisions, self._learned_score)
-                log.info("learned, nightly: %s", {k: v for k, v in r.items() if k != "waiting"})
+                r = await (la.nightly() if answers_night else lr.nightly(self.decisions, self._learned_score))
+                log.info("learned (%s), nightly: %s", "answers" if answers_night else "house",
+                         {k: v for k, v in r.items() if k != "waiting"})
             except Exception:  # noqa: BLE001
                 log.exception("learned nightly")
         mo = getattr(self, "modes", None)
@@ -2307,10 +2332,18 @@ def build(app_state):
         if b.get("status") not in ("dropped", "shadow"):
             raise ValueError("status is dropped or shadow")
         rid = num(q.match_info["id"], "id", 0, 1, 1e12)
-        if not A.learned.get(rid):
+        rec = next((x for x in (A.learned, getattr(A, "learned_answers", None)) if x is not None and x.get(rid)), None)
+        if rec is None:
             raise ValueError("no such template")
-        A.learned.set_status(rid, b["status"], "set by a person")
-        return J(A.learned.describe(A.learned.get(rid)))
+        rec.set_status(rid, b["status"], "set by a person")
+        return J(rec.describe(rec.get(rid)))
+
+    @r.get("/api/learned/answers")
+    async def learned_answers_list(q):
+        """What Home Mind has learned about answering questions: each answer, its note, status and evidence, and how
+        often the small-model tie-break was needed (the design's line: under 10%)."""
+        la = A.learned_answers
+        return J({"answers": [la.describe(x) for x in la.all(q.query.get("status"))], "tiebreak": la.tiebreak_rate()})
 
     @r.get("/api/modes")
     async def modes_get(_):
