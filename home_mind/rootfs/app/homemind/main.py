@@ -280,10 +280,18 @@ class App:
         self.things = Things(st9)
         self.mind.things = self.things
         self.scenes = Scenes(self)
+        # phase 13: trackers, the medicines log, events, nudges, exertion zones, travel mode
+        from .tracking import Tracking, Zones
+        self.tracking = Tracking(st9, None, folder=DATA)
+        self.zones = Zones(st9, self.opts, None, folder=DATA)
+        self.ha.travelling = self.tracking.travelling
         self.mind.tiebreak = self.tiebreak
         from .day import Day
         self.day = Day(self.mind.store)
         self.consent.day = self.day             # a clear day reads the check-in (consent.py)
+        self.tracking.day = self.zones.day = self.day
+        self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
+            lambda d: self.on_nudge_action(d.get("action")))
         self.ha.day = self.day           # the day's ask budget and rough-day quiet (ha.push)
         from .day import AskBatch
         self.ha.batcher = AskBatch(self.mind.store)      # routine notices wait for the morning check-in
@@ -996,6 +1004,14 @@ class App:
             c = self.checkin_reply(b["question"], who or None) if hasattr(self, "checkin_reply") else None
             if c:
                 return (dict(c, hits=[], model=None))
+            tk = getattr(self, "tracking", None)
+            if tk is not None and allows(scope, "write"):
+                med = tk.med_said(b["question"], who or None)       # "took ibuprofen 400": the medicines log
+                if med:
+                    return dict(med, hits=[], model=None, personal=True)
+                lg = tk.log_said(b["question"], who or None)        # "log headache", "fog 2": one word, timed
+                if lg:
+                    return {"answer": lg, "hits": [], "model": None, "logged": True, "personal": True}
             if getattr(self, "decisions", None) is not None:
                 if conv.UNDO.match(b["question"]) and allows(scope, "admin"):
                     return (dict(await conv.undo(self, b.get("conversation_id"), "voice" if b.get("voice") else "ask"),
@@ -1343,6 +1359,65 @@ class App:
             except Exception:  # noqa: BLE001
                 log.exception("things links")
 
+    async def on_nudge_action(self, action):
+        import re as _re
+        m = _re.fullmatch(r"HM_NUDGE_DONE_(\d+)", str(action or ""))
+        if m and getattr(self, "tracking", None) is not None:
+            self.tracking.nudge_done(int(m.group(1)))
+            return {"done": int(m.group(1))}
+        return None
+
+    async def _upkeep13(self, now, last):
+        """Phase 13: trackers and the weekly events checklist as routine asks, nudges, and exertion zones."""
+        tk = getattr(self, "tracking", None)
+        if tk is None or not self.ha.available:
+            return
+        if now - last.get("trackers", 0) > 300:
+            last["trackers"] = now
+            try:
+                people = [p["name"] for p in self.people()] or [None]
+                for who in people:
+                    phone = self.phone_of(who) if who else await self.morning._phone()
+                    if not phone:
+                        continue
+                    for t in tk.due(who):
+                        await self.ha.push(phone, {"title": "Home Mind", "message": t["question"] + " (one word or a "
+                                                   "number is plenty)"}, tier="routine", batch=True)
+                        tk.asked(t["id"])
+                    wk = tk.week()
+                    if datetime.now().weekday() == 6 and self.mind.store.kv_get(f"events_asked:{who}") != wk \
+                            and not tk.paused(who):
+                        self.mind.store.kv_set(f"events_asked:{who}", wk)
+                        await self.ha.push(phone, {"title": "Home Mind: this week", "message":
+                                                   "Any of these this week: a cold, a trip, a hard week, a new "
+                                                   "medicine, poor sleep, a big event? (Unanswered stays unknown.)"},
+                                           tier="routine", batch=True)
+                for n in tk.nudges_due({"states": {e: c.get("state") for e, c in (self.home.catalog or {}).items()}}):
+                    phone = self.phone_of(n["owner"]) if n["owner"] else await self.morning._phone()
+                    if phone:
+                        await self.ha.push(phone, {"title": "Home Mind", "message": tk.nudge_message(n), "data": {
+                            "actions": [{"action": f"HM_NUDGE_DONE_{n['id']}", "title": "Done"}]}}, tier="routine")
+                        tk.sent(n["id"])
+            except Exception:  # noqa: BLE001
+                log.exception("trackers and nudges")
+        z = getattr(self, "zones", None)
+        if z is not None and z.on() and now - last.get("zones", 0) > 5:
+            last["zones"] = now
+            try:
+                live = await self.mind.health.live_heart_rate() if getattr(self.mind, "health", None) else None
+                rows = self.patterns.rows(14) if getattr(self, "patterns", None) else []
+                resting = next((r.get("resting_hr") for r in reversed(rows) if r.get("resting_hr")), None)
+                if live:
+                    ch = z.reading(live[0], now - live[2] * 60, resting)
+                    if ch == "above":
+                        msg = z.notice()
+                        if msg:
+                            phone = await self.morning._phone()
+                            if phone:
+                                await self.ha.push(phone, {"title": "Home Mind", "message": msg}, tier="routine")
+            except Exception:  # noqa: BLE001
+                log.exception("exertion zones")
+
     async def _upkeep11(self, now, last):
         """Phase 11: the surprises queue from the decision log, corrections and asks, every 10 minutes."""
         sp = getattr(self, "surprises", None)
@@ -1392,6 +1467,7 @@ class App:
         await self._upkeep10(now, last)
         await self._upkeep11(now, last)
         await self._upkeep12(now, last)
+        await self._upkeep13(now, last)
         rep = getattr(self, "db_report", None)
         if rep and self.ha.available and not rep.get("told"):
             rep["told"] = True
@@ -3464,6 +3540,97 @@ def build(app_state):
             A.scenes.remove(name)
             return J({"removed": name})
         raise ValueError("do is keep, run or remove")
+
+    @r.get("/api/trackers")
+    async def trackers_get(_):
+        """Your trackers (at most 3), entries waiting for details on a good day, and whether they're paused."""
+        from .speakers import VIEWER
+        who = VIEWER.get() or None
+        tk = A.tracking
+        return J({"trackers": [dict(t, entries=tk.entries(t["id"])) for t in tk.trackers(who)],
+                  "to_confirm": tk.to_confirm(who), "paused": tk.paused(who)})
+
+    @r.post("/api/trackers")
+    async def trackers_add(q):
+        """{"name", "kind"?: scale|yesno|word, "cadence"?: weekly|daily} or {"stop": id} or {"confirm": entry id,
+        "details"?}."""
+        from .speakers import VIEWER
+        b = await read_body(q, name=str, kind=str, cadence=str, details=str)
+        tk = A.tracking
+        if b.get("stop") is not None:
+            tk.stop_tracker(int(b["stop"]))
+            return J({"stopped": int(b["stop"])})
+        if b.get("confirm") is not None:
+            tk.confirm(int(b["confirm"]), b.get("details"))
+            return J({"confirmed": int(b["confirm"])})
+        tid = tk.add_tracker(b.get("name"), VIEWER.get() or None, b.get("kind") or "scale", b.get("cadence") or "weekly")
+        return J({"id": tid})
+
+    @r.get("/api/meds")
+    async def meds_get(_):
+        """Your medicines log (last 30 days). Nobody reviews this. No interaction checks."""
+        from .speakers import VIEWER
+        from .tracking import MEDS_NOTE
+        return J({"log": A.tracking.meds(VIEWER.get() or None), "note": MEDS_NOTE})
+
+    @r.post("/api/meds/window")
+    async def meds_window(q):
+        """{"name", "hours"}: how long after a log a second one gets "You logged that at ..."."""
+        b = await read_body(q, name=str, hours=float)
+        A.tracking.set_window(b["name"], b["hours"])
+        return J({"ok": True})
+
+    @r.get("/api/events")
+    async def events_get(_):
+        from .speakers import VIEWER
+        return J({"week": A.tracking.week(), "events": A.tracking.events(VIEWER.get() or None)})
+
+    @r.post("/api/events")
+    async def events_post(q):
+        """This week's checklist: {"a trip": "yes", "a cold or infection": "no", ...}; unanswered stays unknown."""
+        from .speakers import VIEWER
+        b = await read_body(q)
+        return J({"events": A.tracking.events_answer(VIEWER.get() or None, b)})
+
+    @r.get("/api/nudges")
+    async def nudges_get(_):
+        return J({"nudges": A.tracking.nudges(active=False)})
+
+    @r.post("/api/nudges")
+    async def nudges_add(q):
+        """{"goal", "trigger": {"type": time|arrive|leave|nothing_logged_by|sensor_on, ...}, "message"}."""
+        from .speakers import VIEWER
+        b = await read_body(q, goal=str, trigger=dict, message=str)
+        return J({"id": A.tracking.add_nudge(b.get("goal"), b.get("trigger"), b.get("message") or "",
+                                            VIEWER.get() or None)})
+
+    @r.post("/api/travel")
+    async def travel_post(q):
+        """{"on": true}: routine asks, trackers, nudges and experiments pause; the house goes to away where it has an
+        away switch."""
+        b = await read_body(q)
+        on = bool(b.get("on"))
+        out = A.tracking.set_travel(on)
+        ent = A.opts.get("travel_away_entity") or ("input_boolean.away" if "input_boolean.away" in
+                                                   (A.home.catalog or {}) else None)
+        if ent:
+            try:
+                await A.ha.call(ent.split(".")[0], "turn_on" if on else "turn_off", {"entity_id": ent}, approved=True)
+                out["away"] = ent
+            except Exception as e:  # noqa: BLE001
+                out["away_error"] = str(e)
+        return J(out)
+
+    @r.get("/api/zones")
+    async def zones_get(_):
+        z = A.zones
+        return J({"on": z.on(), "why_off": z.why_off(), "zone": z.zone})
+
+    @r.post("/api/zones/mute")
+    async def zones_mute(_):
+        """"Not today": no exertion notice for the rest of the day."""
+        A.zones.mute_today()
+        return J({"muted": True})
 
     @r.get("/api/guest")
     async def guest_get(_):

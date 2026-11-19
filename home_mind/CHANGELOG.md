@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **Trackers and nudges** (design phase 13, step 28): up to 3 trackers in the ask cap with one-word logs; a medicines
+  log (tracking only, "You logged that at..." inside its window); a weekly significant-events checklist (unknown,
+  never none); nudges for your own goals that stop after 3 ignored; live exertion zones, off by default, with the
+  clinical safeguards; travel mode.
 - **Things and scenes** (design phase 12): things as an item type with typed links (about, in, part of, belongs to)
   from Home Assistant's devices or your yes; look-alikes proposed for merging; renamed devices keep their thing;
   "where's the drill?" follows the links; links filtered by who's asking. Scenes drafted from a description (never
