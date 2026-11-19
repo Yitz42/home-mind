@@ -105,6 +105,9 @@ options:
   exertion_threshold: 0
   travel_away_entity: ""
   proposals_model: ""
+  connected_answers: true
+  deep_model: ""
+  compare_answers: true
   other_assistants: []
   firefly_url: ""
   firefly_token: ""
@@ -266,6 +269,9 @@ schema:
   exertion_threshold: int(0,200)?
   travel_away_entity: str?
   proposals_model: str?
+  connected_answers: bool?
+  deep_model: str?
+  compare_answers: bool?
   other_assistants:
     - str?
   firefly_url: str?
