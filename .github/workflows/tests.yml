@@ -66,6 +66,20 @@ jobs:
         run: python tests/test_planner.py
       - name: Control accuracy (rule planner; floors)
         run: python tests/control_bench.py
+      - name: Decision log, outcomes, replay (design phase 1)
+        run: python tests/test_decisions.py
+      - name: Safety layer (phase 2)
+        run: python tests/test_safety.py
+      - name: The conversation (phase 3)
+        run: python tests/test_conversation.py
+      - name: Measurement (phase 4)
+        run: python tests/test_measure.py
+      - name: Voice assistant (phase 5)
+        run: python tests/test_voice.py
+      - name: Model modes, confidence, now board (phase 6)
+        run: python tests/test_deliberate.py
+      - name: Learned house requests (phase 7)
+        run: python tests/test_learned.py
       - name: Expert review checks
         run: for f in tests/test_review_*.py; do echo "== $f"; python "$f" || exit 1; done
       - name: Extraction bench scoring
