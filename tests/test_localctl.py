@@ -225,6 +225,10 @@ def app(small, big=None, opts=None):
         setattr(A, n, getattr(M.App, n))
     for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan"):
         setattr(A, n, getattr(M.App, n).__get__(A))
+
+    async def ask_phone(plan, why=None, source="api"):        # 0.27: the phone approval request (main.ask_phone)
+        return {"plan": plan, "approval_sent": True}
+    A.ask_phone = ask_phone
     return A, ha
 
 
@@ -244,7 +248,7 @@ def wiring():
           small.seen[-1][2] == L.SYSTEM)
     ha.calls.clear()
     r = asyncio.run(A.do("open the garage", conversation_id="c1"))
-    check("a garage door planned by the small model still needs a yes", r.get("confirm_needed") and not ha.calls, r)
+    check("a garage door planned by the small model still needs the phone", r.get("approval_sent") and not ha.calls, r)
     r = asyncio.run(A.do("turn off the lights"))
     check("several matches: it asks which one, does nothing", r.get("which") and "Which one" in r["answer"] and
           not ha.calls, r)

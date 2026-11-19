@@ -108,6 +108,11 @@ class HostileModel:
         return {"text": self.reply, "ms": 1}
 
 
+async def _phone_request(plan, why=None, source="api"):
+    """main.ask_phone stand-in (0.27): a phone approval request goes out, nothing moves."""
+    return {"plan": plan, "approval_sent": True}
+
+
 def hostile_model_do():
     """/api/do asks a model which control fits: scripts and scenes are on the default control list, and running
     "script.open_garage" (or a scene that unlocks, or a garage relay) went through with no one's yes."""
@@ -127,16 +132,19 @@ def hostile_model_do():
         A = types.SimpleNamespace(home=h, pending_reply=_no_pending, pending={}, models=types.SimpleNamespace(
             models={"evil": 1}, get=lambda n, e=eid: HostileModel(json.dumps({"entity_id": e, "action": "on"}))))
         A._run_plan = M.App._run_plan.__get__(A)
+        A.ask_phone = _phone_request
         r = asyncio.run(M.App.do(A, "dim the hall light"))
-        check(f"/api/do: a model's plan to run {eid} needs the person's yes", "error" in r and not ha.calls, (r, ha.calls))
+        check(f"/api/do: a model's plan to run {eid} needs the person's approval", ("error" in r or r.get("approval_sent"))
+              and not ha.calls, (r, ha.calls))
     for eid in ("script.goodnight", "scene.movie", "switch.kettle"):
         A = types.SimpleNamespace(home=h, pending_reply=_no_pending, pending={}, models=types.SimpleNamespace(
             models={"evil": 1}, get=lambda n, e=eid: HostileModel(json.dumps({"entity_id": e, "action": "on"}))))
         A._run_plan = M.App._run_plan.__get__(A)
+        A.ask_phone = _phone_request
         r = asyncio.run(M.App.do(A, "go"))
         check(f"/api/do: {eid} still runs", "done" in r and "error" not in r, r)
-    r = asyncio.run(h.act("script.open_garage", "run", confirm=True))
-    check("with the person's yes it runs", ha.calls and ha.calls[-1][2]["entity_id"] == "script.open_garage", ha.calls)
+    r = asyncio.run(h.act("script.open_garage", "run", approved=True))
+    check("with the person's approval it runs", ha.calls and ha.calls[-1][2]["entity_id"] == "script.open_garage", ha.calls)
 
 
 def hostile_model_draft():

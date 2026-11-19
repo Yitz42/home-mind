@@ -140,6 +140,13 @@ class FakeHA:
         self.calls.append((dom, svc, data))
         return 200
 
+    async def push(self, target, data, tier="routine", now=False):
+        self.__dict__.setdefault("pushed", []).append((target, data, tier, now))
+        return "sent"
+
+    async def notify(self, title, message, nid="home_mind"):
+        self.__dict__.setdefault("notes", []).append(message)
+
 
 class Planner:
     """A model that turns a request into a fixed plan (or takes too long)."""
@@ -180,74 +187,109 @@ def app(delay=0):
 
         async def ask(self, q, model=None, speaker=None, **k):
             return {"hits": [], "answer": "searched: " + q}
+    from homemind.approval import Approvals
     A = types.SimpleNamespace(on_start=None, on_stop=None, token="main-token", tokens=T.Tokens(st), mind=Mind_(),
-                              opts={}, home=h, views=Views(st), models=types.SimpleNamespace(
+                              opts={"approval_phone": "notify.mobile_app_test"}, home=h, views=Views(st),
+                              ha=ha, approvals=Approvals(), models=types.SimpleNamespace(
                                   models={"haiku": planner}, get=lambda n: planner))
     for n in ("YES", "NO", "PENDING_SECONDS"):
         setattr(A, n, getattr(M.App, n))
-    for n in ("do", "pending_reply", "has_pending", "speaker_for", "local_plan", "_run_plan"):
+    for n in ("do", "pending_reply", "has_pending", "speaker_for", "local_plan", "_run_plan", "ask_phone",
+              "on_approval", "_verb", "act_checked"):
         setattr(A, n, getattr(M.App, n).__get__(A))
     A.people = lambda: []
     return A, ha, M.build(A)
 
 
 def confirm_by_voice():
+    """0.27 (design phase 2): locks and garage doors need a fresh approval on the phone, never a spoken yes. The
+    spoken-yes flow stays for actions a person set to "ask me first" (and heating within normal limits)."""
     A, ha, web_app = app()
     do = lambda text, cid="sat-1", path="/api/do": call(web_app, "POST", path, {"text": text, "conversation_id": cid},
                                                         "main-token")[1]
+    approve = lambda r, verdict="APPROVE": asyncio.run(A.on_approval(f"HM_{verdict}_{r.get('approval_id')}"))
+
     r = do("open the garage")
-    check("voice: 'open the garage' asks for a yes instead of failing", r.get("confirm_needed") and not ha.calls
-          and "Garage Door" in r.get("answer", "") and "yes" in r["answer"].lower(), r)
+    check("phone: 'open the garage' sends a phone approval, nothing moves", r.get("approval_sent") and not ha.calls
+          and "Garage Door" in r.get("answer", "") and "phone" in r["answer"].lower(), r)
+    p = ha.pushed[-1]
+    check("phone: the request is time-bound and important, with Approve behind Face ID",
+          p[2] == "important" and p[3] is True and p[1]["data"]["actions"][0]["authenticationRequired"] is True, p)
+    y = do("yes")
+    check("phone: a spoken 'yes' does not open it", not ha.calls and not y.get("confirmed"), (y, ha.calls))
+    approve(r)
+    check("phone: Approve on the phone opens it", ha.calls == [("cover", "open_cover", {"entity_id": "cover.garage_door"})],
+          ha.calls)
+    approve(r)
+    check("phone: the same approval twice does nothing more", len(ha.calls) == 1, ha.calls)
+
+    ha.calls.clear()
+    r = do("unlock the front door")
+    approve(r, "DENY")
+    approve(r)
+    check("phone: Deny drops it, and a later Approve does nothing", not ha.calls, ha.calls)
+    r = do("unlock the front door")
+    A.approvals.pending[r["approval_id"]]["t"] -= 121
+    approve(r)
+    check("phone: an approval after 2 minutes does nothing", not ha.calls, ha.calls)
+    check("phone: a made-up approval id does nothing", asyncio.run(A.on_approval("HM_APPROVE_000000000000"))
+          == {"expired": True} and not ha.calls)
+    A.opts["approval_phone"] = ""
+    A.morning = types.SimpleNamespace(_phone=lambda: asyncio.sleep(0, result=None))
+    r = do("unlock the front door")
+    check("phone: no phone set up: a clear reason, nothing moved", "error" in r and not ha.calls and
+          "phone" in r.get("answer", ""), r)
+    A.opts["approval_phone"] = "notify.mobile_app_test"
+
+    # the spoken yes: for a light the person set to "ask me first"
+    h = A.home
+    h.set_ladder("light.desk", "ask")
+    r = do("turn on the desk lamp")
+    check("voice: 'ask me first' asks for a yes instead of acting", r.get("confirm_needed") and not ha.calls
+          and "Desk Lamp" in r.get("answer", "") and "yes" in r["answer"].lower(), r)
     r = do("yes")
-    check("voice: 'yes' in the same conversation opens it", r.get("confirmed") and
-          ha.calls == [("cover", "open_cover", {"entity_id": "cover.garage_door"})], (r, ha.calls))
+    check("voice: 'yes' in the same conversation does it", r.get("confirmed") and
+          ha.calls == [("light", "turn_on", {"entity_id": "light.desk"})], (r, ha.calls))
     r = do("yes")
     check("voice: a second 'yes' does nothing more", len(ha.calls) == 1 and not r.get("confirmed"), (r, ha.calls))
 
     ha.calls.clear()
-    do("unlock the front door")
+    do("turn on the desk lamp")
     r = do("no")
-    check("voice: 'no' drops the pending unlock", r.get("cancelled") and not ha.calls and "won't" in r["answer"], r)
+    check("voice: 'no' drops it", r.get("cancelled") and not ha.calls and "won't" in r["answer"], r)
     check("voice: and a later 'yes' does nothing", not do("yes").get("confirmed") and not ha.calls)
 
-    do("unlock the front door")
-    r = do("turn on the desk lamp")
-    check("voice: anything else drops the pending unlock and is done as asked",
-          ha.calls == [("light", "turn_on", {"entity_id": "light.desk"})], ha.calls)
-    do("yes")
-    check("voice: so a yes after it unlocks nothing", all(c[0] != "lock" for c in ha.calls), ha.calls)
-
-    ha.calls.clear()
-    do("unlock the front door", cid="sat-2")
+    do("turn on the desk lamp", cid="sat-2")
     r = do("yes", cid="sat-1")
-    check("voice: a yes from another conversation doesn't unlock", not ha.calls and not r.get("confirmed"), r)
+    check("voice: a yes from another conversation does nothing", not ha.calls and not r.get("confirmed"), r)
     r = do("yes, but wait", cid="sat-2")
     check("voice: 'yes, but wait' is not a yes", not ha.calls, (r, ha.calls))
 
-    do("unlock the front door", cid="sat-3")
+    do("turn on the desk lamp", cid="sat-3")
     A._pending["sat-3"]["t"] -= 31
     r = do("yes", cid="sat-3")
     check("voice: a yes after 30 seconds does nothing and says so", not ha.calls and r.get("expired")
           and "again" in r.get("answer", ""), r)
 
     # the yes often comes back as a question to /api/ask (the conversation agent sends what was said)
-    do("open the garage", cid="sat-4")
+    do("turn on the desk lamp", cid="sat-4")
     s, r = call(web_app, "POST", "/api/ask", {"question": "Yes please", "conversation_id": "sat-4"}, "main-token")
     check("voice: 'yes' sent to /api/ask in that conversation does the pending action",
-          s == 200 and r.get("confirmed") and ha.calls[-1][1] == "open_cover", (s, r, ha.calls))
+          s == 200 and r.get("confirmed") and ha.calls[-1][1] == "turn_on", (s, r, ha.calls))
     s, r = call(web_app, "POST", "/api/ask", {"question": "where are the keys", "conversation_id": "sat-4"},
                 "main-token")
     check("voice: /api/ask without anything pending answers as before", r.get("answer") == "searched: where are the keys",
           r)
     tok = A.tokens.make("kitchen", "read")["token"]
-    do("unlock the front door", cid="sat-5")
+    do("turn on the desk lamp", cid="sat-5")
     n = len(ha.calls)
     s, r = call(web_app, "POST", "/api/ask", {"question": "yes", "conversation_id": "sat-5"}, tok)
-    check("voice: a read-only token's 'yes' can't unlock (house control is admin)", len(ha.calls) == n, (r, ha.calls))
+    check("voice: a read-only token's 'yes' does nothing (house control is admin)", len(ha.calls) == n, (r, ha.calls))
 
-    r = do("open the garage", cid=None)
+    r = do("turn on the desk lamp", cid=None)
     check("voice: no conversation_id: a clear spoken reason, nothing moved", "error" in r and len(ha.calls) == n and
           "yes" in r.get("answer", ""), r)
+    h.set_ladder("light.desk", "do")
 
 
 def slow_model():

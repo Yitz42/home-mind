@@ -95,6 +95,10 @@ options:
   paperless_token: ""
   rerank_model: ""
   control_model: ""
+  approval_phone: ""
+  safety_contact: ""
+  ha_user_token: ""
+  ha_url: ""
   markdown_folder: ""
   markdown_minutes: 10
   compare_models: []
@@ -197,6 +201,10 @@ schema:
   paperless_token: password?
   rerank_model: str?
   control_model: str?
+  approval_phone: str?
+  safety_contact: str?
+  ha_user_token: password?
+  ha_url: str?
   markdown_folder: str?
   markdown_minutes: int(1,1440)?
   compare_models:

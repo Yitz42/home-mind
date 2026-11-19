@@ -16,6 +16,7 @@ from .comfort import Comfort
 from .control import Control, quiet_window
 from .body import Body
 from .home import Home, plan_action
+from .approval import Approvals
 from .automations import Engine
 from .journal import Journal
 from .calendars import Calendars
@@ -165,6 +166,8 @@ class App:
             except Exception as e:  # noqa: BLE001 - a missing model name: keyword search only
                 log.warning("embed_model: %s", e)
         self.ha = HA(self.models.session)
+        self.ha.user_token = (self.opts.get("ha_user_token") or "").strip()
+        self.ha.user_url = (self.opts.get("ha_url") or "").strip() or "http://homeassistant:8123"
         self.ha.quiet = quiet_window(self.opts)
         self.ha.cap = int(self.opts.get("notify_daily_cap") or 0)
         from .tokens import Tokens
@@ -206,6 +209,11 @@ class App:
             self.home.prefs = self.prefs
         self.engine = Engine(self.mind.store, self.ha, DATA)
         self._start_decisions()
+        self.approvals = Approvals()
+        self.home.on_tell = self.tell_after
+        self.mind.on_red_flag = self.on_red_flag
+        self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
+            lambda d: self.on_approval(d.get("action")))
         self.mind.FALLBACK = list(self.opts.get("fallback") or [])
         self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
         self.mind.ORDER = "edges" if self.opts.get("answer_edges") else "default"
@@ -309,17 +317,20 @@ class App:
         except Exception:  # noqa: BLE001 - without the log the house still works
             log.exception("decision log not started")
             self.decisions = None
-            return
-        self.home.decisions = self.decisions
         self.home.call_service = self._call_service
         self.home.live = lambda e: self.engine.states.get(e) if getattr(self.engine, "_ws", None) else None
+        if self.decisions is None:
+            return
+        self.home.decisions = self.decisions
         self.engine.decisions = self.decisions
         self.engine.state_listeners.append(self.decisions.on_state)
 
     async def _call_service(self, domain, service, data):
         """Service calls for the decision log: over the websocket when it is connected (its answer always carries
         the call's context id), else REST (whose answer carries it when a state changed)."""
-        if getattr(self.engine, "_ws", None):
+        from .ha import guard
+        guard(domain, service, data, approved=True)      # Home.act's checks (and any phone approval) have passed
+        if getattr(self.engine, "_ws", None) and not self.ha.user_token:
             try:
                 res = await self.engine.ws_call({"type": "call_service", "domain": domain, "service": service,
                                                  "service_data": data})
@@ -328,7 +339,7 @@ class App:
                     return 400, None, None          # Home Assistant refused it (act() reports the failure)
             else:
                 return 200, ((res or {}).get("context") or {}).get("id"), None
-        return await self.ha.call_ctx(domain, service, data)
+        return await self.ha.call_ctx(domain, service, data, approved=True)
 
     async def _state_for_check(self, eid):
         s = self.engine.states.get(eid) if getattr(self.engine, "_ws", None) else None
@@ -417,6 +428,16 @@ class App:
         r = await self.pending_reply(conversation_id, text)
         if r is not None:
             return r
+        from . import redflags
+        flag = redflags.check(text)
+        if flag:
+            hook = getattr(self, "on_red_flag", None)
+            if hook:
+                try:
+                    await hook(flag, text, None, conversation_id, source)
+                except Exception:  # noqa: BLE001
+                    log.exception("red flag notice")
+            return {"answer": flag.reply, "red_flag": flag.kind}
         t0 = time.monotonic()
         if not self.home.catalog:
             await self.home.refresh()
@@ -492,10 +513,15 @@ class App:
         if not plan.get("entity_id"):
             return {"error": "nothing on the control list fits", "plan": plan}
         eid = plan["entity_id"]
-        if eid in self.home.catalog and self.home.allowed(eid) and self.home.sensitive(eid):
+        need = self.home.level(eid, plan.get("action"), plan.get("value"))[0] \
+            if eid in self.home.catalog and self.home.allowed(eid) and hasattr(self.home, "level") else "open"
+        if need == "phone":
+            return await self.ask_phone(plan, why, source)
+        if need == "confirm":
             name = self.home.catalog[eid].get("name") or eid
             a = (plan.get("action") or "").lower()
-            verb = {"on": "open", "off": "close", "toggle": "open or close"}.get(a, a or "change")
+            verb = self._verb(plan) if hasattr(self, "_verb") else \
+                {"on": "open", "off": "close", "toggle": "open or close"}.get(a, a or "change")
             if conversation_id:
                 pend = self.__dict__.setdefault("_pending", {})
                 for k in [k for k, v in pend.items() if time.time() - v["t"] > 10 * self.PENDING_SECONDS]:
@@ -524,6 +550,94 @@ class App:
                               "state_class": "measurement", "shelves": s["shelves"], "faded": s["faded"],
                               "versions": s["versions"], "by_kind": s["by_kind"]})
 
+    def _verb(self, plan):
+        a = (plan.get("action") or "").lower()
+        eid = plan.get("entity_id") or ""
+        if eid.split(".")[0] in ("cover",):
+            return {"on": "open", "off": "close", "toggle": "open or close"}.get(a, a or "change")
+        return {"on": "turn on", "off": "turn off"}.get(a, a or "change")
+
+    async def ask_phone(self, plan, why=None, source="api"):
+        """The riskiest actions (locks, garage doors, alarms, heaters): an approval request to the owner's phone.
+        Approve there (Face ID or the passcode) within 2 minutes and it is done; nothing else can do it."""
+        eid = plan["entity_id"]
+        name = (self.home.catalog.get(eid) or {}).get("name") or eid
+        verb = self._verb(plan)
+        target = (self.opts.get("approval_phone") or "").strip() or await self.morning._phone()
+        if not target:
+            self.home._log_decision(eid, plan.get("action"), plan.get("value"), source, why, status="refused",
+                                    reason="needs phone approval and no phone is set up")
+            return {"plan": plan, "error": "phone approval needed and no phone is set up (option approval_phone)",
+                    "answer": f"I need an OK on your phone before I {verb} the {name}, and I can't reach a phone. "
+                              "Please use the Home Assistant app."}
+        aid = self.approvals.new(plan, why, source, name, verb)
+        who = (why or {}).get("person") or source
+        await self.ha.push(target, Approvals.message(aid, name, verb, who), tier="important", now=True)
+        self.home._log_decision(eid, plan.get("action"), plan.get("value"), source, why, status="awaiting",
+                                reason=f"phone approval {aid} sent to {target}")
+        return {"plan": plan, "approval_sent": True, "approval_id": aid,
+                "answer": f"I've sent a request to your phone. Approve it there and I'll {verb} the {name}."}
+
+    async def on_approval(self, action):
+        """An answer from the phone (mobile_app_notification_action): HM_APPROVE_<id> does it, HM_DENY_<id> drops it.
+        An unknown, used or expired id does nothing."""
+        m = re.fullmatch(r"HM_(APPROVE|DENY)_([0-9a-f]{12})", str(action or ""))
+        if not m:
+            return None
+        p = self.approvals.take(m.group(2))
+        if not p:
+            return {"expired": True}
+        plan = p["plan"]
+        if m.group(1) == "DENY":
+            self.home._log_decision(plan["entity_id"], plan.get("action"), plan.get("value"), p["source"], p["why"],
+                                    status="refused", reason="denied on the phone")
+            return {"denied": True}
+        try:
+            done = await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"), p["source"],
+                                       why=dict(p["why"] or {}, channel=(p["why"] or {}).get("channel") or p["source"]),
+                                       approved=True)
+        except (ValueError, PermissionError) as e:
+            await self.ha.notify("Home Mind", f"I couldn't {p['verb']} the {p['name']}: {e}", "home_mind_approval")
+            return {"error": str(e)}
+        await self.ha.notify("Home Mind", f"Done: {p['verb']} the {p['name']}.", "home_mind_approval")
+        return {"done": done}
+
+    async def act_checked(self, entity_id, action, value=None, source="api", confirm=False, why=None):
+        """For callers that name the device themselves (/api/home/act, MCP mind_control): an action that needs the
+        phone sends the request instead of failing."""
+        from .approval import ApprovalNeeded, PHONE
+        try:
+            return await self.home.act(entity_id, action, value, source, confirm=confirm, why=why)
+        except ApprovalNeeded as e:
+            if e.level != PHONE:
+                raise
+            eid = entity_id if entity_id in self.home.catalog else (self.home.matching(entity_id, 1) or [entity_id])[0]
+            return await self.ask_phone({"entity_id": eid, "action": action, "value": value}, why, source)
+
+    async def on_red_flag(self, flag, text, speaker=None, conversation_id=None, source="ask"):
+        """A red flag was answered: logged (an event, with its kind only, never the words), and the safety contact
+        is told for emergency, double dose and decline if the person chose that (option safety_contact)."""
+        self.mind.store.log("red_flag", kind=flag.kind, speaker=speaker or "", source=source)
+        target = (self.opts.get("safety_contact") or "").strip()
+        if target and flag.notify:
+            who = speaker or "Someone at home"
+            what = {"emergency": "may need emergency help", "double_dose": "may have taken a double dose",
+                    "decline": "described a big change in how they're managing"}[flag.kind]
+            await self.ha.push(target, {"title": "Home Mind: please check in", "message": f"{who} {what}. "
+                                        "Home Mind told them where to get help. Please check on them."}, tier="safety")
+
+    async def tell_after(self, r):
+        """"Tell me after": a short notice once it's done."""
+        target = (self.opts.get("approval_phone") or "").strip() or await self.morning._phone()
+        did = {"turn_on": "turned on", "turn_off": "turned off", "toggle": "switched", "open_cover": "opened",
+               "close_cover": "closed", "set_percentage": "set the speed of", "set_humidity": "set the humidity of",
+               "lock": "locked", "unlock": "unlocked"}.get(r["service"].split(".")[1], "changed")
+        msg = f"I {did} the {r['name']}."
+        if target:
+            await self.ha.push(target, {"title": "Home Mind", "message": msg}, tier="routine")
+        else:
+            await self.ha.notify("Home Mind", msg, "home_mind_tell")
+
     async def test_done(self, run):
         if run["status"] != "done":
             return
@@ -550,6 +664,12 @@ class App:
 
     async def _upkeep_step(self, last):
         now = time.time()
+        if now - last.setdefault("safety", now - 86400 + 300) > 86400:
+            last["safety"] = now          # the daily safety suite: first 5 minutes after start, then every day
+            from . import safety
+            res = await safety.run_and_report(self)
+            log.info("safety suite: %s (%d passed, %d failed)", "pass" if res["ok"] else "FAIL", res["passed"],
+                     len(res["failed"]))
         if getattr(self, "decisions", None) is not None:
             try:
                 await self.decisions.sweep(self._state_for_check)      # outcomes that are due (every 20 s)
@@ -1397,8 +1517,8 @@ def build(app_state):
         if not A.home.catalog:
             await A.home.refresh()
         try:
-            return J(await A.home.act(b["entity_id"], b["action"], b.get("value"), b.get("source", "api"),
-                                      confirm=b.get("confirm") is True))
+            return J(await A.act_checked(b["entity_id"], b["action"], b.get("value"), b.get("source", "api"),
+                                         confirm=b.get("confirm") is True))
         except (ValueError, PermissionError) as e:
             return J({"error": str(e)}, status=400)
 
@@ -1431,6 +1551,53 @@ def build(app_state):
         if A.decisions is None or not b.get("name"):
             return J({"error": "needs a name, and the decision log running"}, status=400)
         return J({"name": b["name"], "cases": A.decisions.freeze(b["name"])})
+
+    @r.get("/api/safety")
+    async def safety_get(_):
+        """The last daily safety suite: pass/fail and each check."""
+        return J(getattr(A, "safety_result", None) or {"ok": None, "note": "not run yet (it runs 5 minutes after start)"})
+
+    @r.post("/api/safety/run")
+    async def safety_run(_):
+        from . import safety
+        return J(await safety.run_and_report(A))
+
+    @r.get("/api/access")
+    async def access_get(_):
+        """Device access (none/read/act) and the ladder (ask/tell/do) for every device Home Mind knows, hidden ones
+        included, with changes waiting their 24 hours."""
+        if not A.home.catalog:
+            await A.home.refresh()
+        table, lad = A.home.access.table(), A.home.ladder()
+        out = []
+        for e in sorted(set(A.home.catalog) | set(A.home.hidden)):
+            row = {"entity_id": e, "access": A.home.access_of(e), "level": A.home.level(e)[0],
+                   "ladder": A.home.rung(e)}
+            if (table.get(e) or {}).get("pending"):
+                row["pending"] = {"to": table[e]["pending"], "at": table[e]["effective_at"]}
+            if e in lad:
+                row["ladder_set"] = lad[e]
+            out.append(row)
+        return J({"devices": out})
+
+    @r.post("/api/access")
+    async def access_set(q):
+        """{"entity_id", "access": none|read|act} and/or {"ladder": ask|tell|do}. Stricter access applies now,
+        looser access in 24 hours; every change is announced."""
+        b = await read_body(q, entity_id=str, access=str, ladder=str)
+        eid = (b.get("entity_id") or "").strip()
+        if not re.fullmatch(r"[a-z_]+\.[a-z0-9_]+", eid):
+            raise ValueError("give an entity_id like lock.front_door")
+        out = {"entity_id": eid}
+        if b.get("access"):
+            ch = A.home.access.set(eid, b["access"], by="admin")
+            out["access"] = ch
+            await A.ha.notify("Home Mind: device access changed",
+                              f"{eid}: {ch['from'] or 'default'} → {ch['to']} ({ch['when']}).", "home_mind_access")
+        if b.get("ladder"):
+            out["ladder"] = A.home.set_ladder(eid, b["ladder"])
+        await A.home.refresh()
+        return J(out)
 
     @r.post("/api/replay")
     async def replay_run(q):
@@ -1469,6 +1636,8 @@ def build(app_state):
                 return J(await A.engine.takeover(ids))
             if op == "release":
                 return J(await A.engine.release(ids or sorted(A.engine.owned)))
+            if op == "take_back":
+                return J(await A.engine.take_back(ids or None))
             if op == "run":
                 return J(await A.engine.run_now(b["id"], b.get("trigger")))
             if op == "retire":

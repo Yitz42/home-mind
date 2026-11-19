@@ -132,6 +132,18 @@ configuration:
   control_model:
     name: Local control model
     description: A small function-calling model trained on your house (see "A small local model for house control" in the docs). House requests go to it first; anything it can't place goes to your normal model. Empty = off.
+  approval_phone:
+    name: Phone for approvals
+    description: The phone that approves locks, garage doors, alarms and heaters (for example notify.mobile_app_my_phone). Approve needs Face ID or the passcode on iPhone. Empty = the first phone with the Home Assistant app.
+  safety_contact:
+    name: Safety contact
+    description: Someone to tell when you describe an emergency, a double dose or a big decline (a notify service, for example notify.mobile_app_partner). Only if you want that. Empty = no one is told.
+  ha_user_token:
+    name: Home Assistant user token (limited)
+    description: A long-lived token from a non-admin Home Assistant user made for Home Mind. Device control and readings then use that user instead of the add-on's admin access (automation set-up still uses the admin access). Empty = admin access, as before.
+  ha_url:
+    name: Home Assistant address for that token
+    description: Where Home Mind reaches Home Assistant with the limited token. Empty = http://homeassistant:8123.
   markdown_folder:
     name: Markdown folder (two-way sync)
     description: Every note as a Markdown file, one folder per shelf (for example /share/home-mind/notes). Edit a file to change the note, add a file to add a note, delete one to archive it. Empty = off.

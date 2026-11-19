@@ -78,6 +78,9 @@ class Home:
         self.seen = {}             # entity_id -> (value, time filed)
         self.actions = []
         self.model = store.kv_get("house_model") or {}    # habits, baselines, counts (house.learn, nightly)
+        from .approval import Access
+        self.access = Access(store)          # none / read / act per device (approval.py)
+        self.hidden = set()                  # devices set to none: left out of the catalog
         self.odd = {}              # entity_id -> unusual readings in a row
         self.notices = []          # (title, message) for the phone: very few (house.NOTIFY), sent by the main loop
         self.noticed = {}          # entity_id -> date last noticed (one a day each)
@@ -122,8 +125,43 @@ class Home:
             cat[s["entity_id"]] = dict(k, name=name, domain=s["entity_id"].split(".")[0], state=s["state"],
                                        unit=a.get("unit_of_measurement") or "", attrs=a,
                                        ctx=s.get("context") or {})
+        self.access.baseline(cat)            # the first time: what's here keeps what it had
         self.catalog = cat
-        return len(cat)
+        hidden = {e for e in cat if self.access_of(e) == "none"}
+        self.catalog = {e: c for e, c in cat.items() if e not in hidden}
+        self.hidden = hidden
+        return len(self.catalog)
+
+    def risky(self, eid):
+        """A device that starts at access none when it shows up: locks, alarms, valves, garage doors, heating,
+        cameras, microphones, heaters and ovens."""
+        from .approval import RISKY_DOMAINS, heater
+        c = self.catalog.get(eid) or {}
+        return eid.split(".")[0] in RISKY_DOMAINS or self.sensitive(eid) or heater(eid, c.get("name") or "")
+
+    def access_of(self, eid):
+        return self.access.effective(eid, self.allowed(eid), self.risky(eid))
+
+    def ladder(self):
+        return dict(self.store.kv_get("ladder") or {})
+
+    def set_ladder(self, eid, rung):
+        from .approval import LADDER
+        if rung not in LADDER:
+            raise ValueError(f"rung is one of {', '.join(LADDER)}")
+        lad = self.ladder()
+        lad[eid] = rung
+        self.store.kv_set("ladder", lad)
+        return self.rung(eid)
+
+    def level(self, eid, action=None, value=None):
+        from .approval import required
+        return required(self, eid, action, value, self.ladder())
+
+    def rung(self, eid, action=None, value=None):
+        """What the person sees: ask me first / tell me after / just do it."""
+        from .approval import level as code_level, ladder_of
+        return ladder_of(code_level(self, eid, action, value), self.ladder().get(eid))
 
     def describe(self, eid, state=None, attrs=None):
         c = self.catalog[eid]
@@ -440,15 +478,17 @@ class Home:
 
     def controllable(self):
         return [{"entity_id": e, "name": c["name"], "state": c["state"]} for e, c in sorted(self.catalog.items())
-                if self.allowed(e)]
+                if self.allowed(e) and self.access_of(e) == "act"]
 
-    async def act(self, entity_id, action, value=None, source="api", confirm=False, why=None):
+    async def act(self, entity_id, action, value=None, source="api", confirm=False, why=None, approved=False):
         """action: on, off, toggle, brightness (1-100), color (name), speed (fan %), humidity (%), run; covers also
         open, close; locks lock, unlock. Locks, alarms and garage doors need confirm=True.
         why: how the decision was made, for the decision log (request, person, route, model, latency_ms,
-        conversation_id, confidence). Every call is logged there, refusals included."""
+        conversation_id, confidence). Every call is logged there, refusals included.
+        approved: a fresh phone approval for this very action (Approvals, through the add-on); confirm: the person
+        said yes. What each action needs is approval.level(); a missing yes raises ApprovalNeeded."""
         try:
-            r = await self._act(entity_id, action, value, source, confirm)
+            r = await self._act(entity_id, action, value, source, confirm, approved)
         except (ValueError, PermissionError) as e:
             self._log_decision(entity_id, action, value, source, why, status="refused", reason=str(e))
             raise
@@ -460,6 +500,11 @@ class Home:
         states = r.pop("_states", None)
         self._log_decision(r["entity_id"], action, value, source, why, status="done", service=r["service"],
                            data=r["data"], context_id=r.get("context_id"), states=states, prior=r.pop("_prior", None))
+        if r.pop("_tell", False) and getattr(self, "on_tell", None):
+            try:
+                await self.on_tell(r)                 # "tell me after": a short notice
+            except Exception:  # noqa: BLE001
+                log.exception("tell after")
         return r
 
     def state_now(self, eid):
@@ -489,10 +534,12 @@ class Home:
         caller = getattr(self, "call_service", None)
         if caller is not None:
             return await caller(domain, service, data)
+        if hasattr(self.ha, "call_ctx"):
+            return await self.ha.call_ctx(domain, service, data, approved=True)    # every check above has passed
         status = await self.ha.call(domain, service, data)
         return status, None, None
 
-    async def _act(self, entity_id, action, value=None, source="api", confirm=False):
+    async def _act(self, entity_id, action, value=None, source="api", confirm=False, approved=False):
         if entity_id not in self.catalog:
             m = self.matching(entity_id, 1)
             if not m:
@@ -500,8 +547,14 @@ class Home:
             entity_id = m[0]
         if not self.allowed(entity_id):
             raise PermissionError(f"{entity_id} is not on the control list (option home_controls)")
-        if self.sensitive(entity_id) and confirm is not True:
-            raise PermissionError(f"{entity_id} is a lock or door: it needs the person's confirmation (confirm: true)")
+        if self.access_of(entity_id) != "act":
+            raise PermissionError(f"{entity_id} is set to {self.access_of(entity_id)} access: Home Mind may not move it")
+        from .approval import ApprovalNeeded, PHONE, CONFIRM
+        need, tell = self.level(entity_id, action, value)
+        if need == PHONE and approved is not True:
+            raise ApprovalNeeded(PHONE, f"{entity_id} needs a fresh approval on the owner's phone")
+        if need == CONFIRM and confirm is not True and approved is not True:
+            raise ApprovalNeeded(CONFIRM, f"{entity_id} needs the person's yes first (confirm: true)")
         if (self.catalog[entity_id].get("state") or "") in ("unavailable", "unknown"):
             raise ValueError(f"{entity_id} is {self.catalog[entity_id]['state']} in Home Assistant")
         gate = await self.ha.state(GATE)
@@ -569,7 +622,7 @@ class Home:
                             tags=["home", "action", dom], source="home",
                             meta={"entity_id": entity_id, "service": ".".join(svc), "data": data, "status": status})
         return {"entity_id": entity_id, "name": name, "service": ".".join(svc), "data": data, "status": status,
-                "context_id": ctx, "_states": changed, "_prior": before}
+                "context_id": ctx, "_states": changed, "_prior": before, "_tell": tell}
 
 
 DO_SYSTEM = ("You turn a request into one smart-home action. Reply with JSON only: "

@@ -7,9 +7,14 @@ How it works
   - Taking one over turns the Home Assistant copy off and gives it the label "Run by Home Mind". Home Mind never
     runs an automation whose Home Assistant copy is on, so the two never both act.
   - The breaking point: Home Mind updates sensor.home_mind_heartbeat every minute. The "Home Mind watchdog"
-    automation (kept in Home Assistant) turns every labelled automation back on if the heartbeat stops for 10
-    minutes, so if Home Mind is stopped or removed, Home Assistant takes over again by itself. When Home Mind is back
-    it takes them over again.
+    automation (kept in Home Assistant; Home Mind installs and updates it) turns every labelled automation back on
+    after 3 missed heartbeats, so if Home Mind is stopped or removed, Home Assistant takes over by itself.
+  - Each automation has one owner at a time: whichever side has it switched on. Home Mind checks before every run,
+    and never takes one back by itself: when it finds Home Assistant running some (the watchdog, or a person
+    switching one on), it says so and waits for a person to hand them back (take_back).
+  - Before each run of a clock trigger, Home Mind writes when it fired to disk. After a stop, a time it missed is
+    caught up once, only if it is under CATCH_UP_SECONDS late and the automation is safe to repeat (lights, media,
+    fans, scenes, helpers, notifications: nothing that opens, locks, heats or runs a script).
   - Templates are rendered by Home Assistant itself (its /api/template), so every template function works exactly
     as it does there.
   - Every run is filed in memory (home/automations), and each automation's description is kept as a note, so the
@@ -43,6 +48,68 @@ CONDITIONS = {"state", "numeric_state", "time", "template", "trigger", "and", "o
 ACTIONS = {"action", "service", "choose", "if", "delay", "repeat", "variables", "wait_for_trigger", "stop", "event"}
 KEEP_IN_HA = {"automation.home_mind_comfort_driver", "automation.home_mind_comfort_voice",
               "automation.home_mind_watchdog"}
+CATCH_UP_SECONDS = 1800
+WATCHDOG_ID = "home_mind_watchdog"
+WATCHDOG = {
+    "alias": "Home Mind watchdog",
+    "description": "Installed by Home Mind. When Home Mind misses 3 heartbeats, Home Assistant runs Home Mind's everyday "
+                   "automations again. Home Mind won't take them back by itself: hand them back from Home Mind.",
+    "mode": "single",
+    "triggers": [{"trigger": "template", "for": "00:01:00",
+                  "value_template": "{% set hb = as_datetime(states('sensor.home_mind_heartbeat'), none) %}"
+                                    "{{ hb is none or (now() - hb).total_seconds() > 150 }}"}],
+    "conditions": [],
+    "actions": [
+        {"action": "automation.turn_on", "target": {"label_id": LABEL}},
+        {"action": "persistent_notification.create",
+         "data": {"notification_id": "home_mind_watchdog", "title": "Home Mind stopped",
+                  "message": "Home Mind missed 3 heartbeats, so Home Assistant is running its everyday automations "
+                             "again. When Home Mind is back, use its \"Take automations back\" button to hand them "
+                             "back."}},
+    ],
+}
+SAFE_DOMAINS = {"light", "fan", "media_player", "humidifier", "input_boolean", "input_number", "input_select",
+                "input_text", "input_datetime", "notify", "persistent_notification", "tts", "todo", "switch", "scene"}
+
+
+def safe_to_repeat(cfg):
+    """An automation whose catch-up can't hurt: only lights, media, fans, scenes, helpers and notifications (no
+    lock, cover, climate, valve, script, event, and nothing named like an opener or a heater)."""
+    from .home import OPENS_RUN, OPENS_SWITCH
+    from .approval import HEATER
+
+    def ok_service(a):
+        svc = a.get("action") or a.get("service") or ""
+        if "{{" in svc or "." not in svc:
+            return False
+        dom = svc.split(".")[0]
+        if dom not in SAFE_DOMAINS:
+            return False
+        target = json.dumps([a.get("target"), a.get("data"), a.get("entity_id")], default=str)
+        return not (OPENS_RUN.search(target) or OPENS_SWITCH.search(target) or HEATER.search(target))
+
+    def walk(acts):
+        for a in _on(acts):
+            if not isinstance(a, dict):
+                return False
+            if "choose" in a:
+                if not all(walk(o.get("sequence")) for o in _list(a["choose"])) or not walk(a.get("default")):
+                    return False
+            elif "if" in a:
+                if not walk(a.get("then")) or not walk(a.get("else")):
+                    return False
+            elif "repeat" in a:
+                if not walk((a["repeat"] or {}).get("sequence")):
+                    return False
+            elif any(k in a for k in ("variables", "delay", "stop", "condition", "wait_for_trigger")):
+                continue
+            elif "action" in a or "service" in a:
+                if not ok_service(a):
+                    return False
+            else:
+                return False
+        return True
+    return walk((cfg or {}).get("actions") or (cfg or {}).get("action"))
 
 
 def _list(x):
@@ -173,11 +240,16 @@ class Engine:
         self.tz = None
         self.log = []           # recent runs
         self.dry = False
+        self.last_fired = {}    # automation -> when a clock trigger last fired it (written before the run)
+        self.held_by_ha = []    # owned automations Home Assistant is running now: wait for a person
+        self.down_since = None  # the last tick saved before a stop: catch up from here
         try:
             with open(self.path) as f:
                 d = json.load(f)
             self.owned = set(d.get("owned", []))
-        except (OSError, ValueError):
+            self.last_fired = {k: float(v) for k, v in (d.get("last_fired") or {}).items()}
+            self.down_since = float(d["last_tick"]) if d.get("last_tick") else None
+        except (OSError, ValueError, TypeError):
             pass
 
     # ---- Home Assistant plumbing -------------------------------------------------------------------------------
@@ -216,7 +288,9 @@ class Engine:
 
     def save(self):
         with open(self.path + ".tmp", "w") as f:
-            json.dump({"owned": sorted(self.owned)}, f)
+            json.dump({"owned": sorted(self.owned), "last_fired": self.last_fired, "last_tick": self.last_tick}, f)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(self.path + ".tmp", self.path)
 
     async def load(self):
@@ -357,7 +431,9 @@ class Engine:
                 raise RuntimeError(f"websocket auth: {ok}")
             self._ws = ws
             await self.load()
+            await self.ensure_watchdog()
             await self.reclaim()
+            self.catch_up()
             self._msg_id += 1
             await ws.send_json({"id": self._msg_id, "type": "subscribe_events", "event_type": "state_changed"})
             for et in set(self.event_handlers) | self._event_types():   # other events (tapped notifications, triggers)
@@ -388,15 +464,59 @@ class Engine:
                 ticker.cancel()
 
     async def reclaim(self):
-        """After a restart (or the watchdog handing things back to Home Assistant), take the owned ones back."""
-        for eid in list(self.owned):
-            a = self.autos.get(eid)
-            if not a:
-                continue
-            if a["ha_state"] == "on":
-                await self._post("services/automation/turn_off", {"entity_id": eid, "stop_actions": False})
-                a["ha_state"] = "off"
-                log.info("took %s back from Home Assistant", eid)
+        """After a restart: owned automations that Home Assistant is running now (the watchdog handed them over, or a
+        person switched one on) stay with Home Assistant until a person hands them back (take_back). Never both."""
+        held = sorted(e for e in self.owned if (self.autos.get(e) or {}).get("ha_state") == "on")
+        new = [e for e in held if e not in self.held_by_ha]
+        self.held_by_ha = held
+        if new:
+            names = ", ".join((self.autos.get(e) or {}).get("name") or e for e in held)
+            log.info("Home Assistant is running %d of my automations: %s", len(held), names)
+            try:
+                await self.ha.notify("Home Mind is back",
+                                     f"Home Assistant is running {len(held)} of Home Mind's automations ({names}). "
+                                     "They stay there until you hand them back: use Home Mind's \"Take automations "
+                                     "back\" button.", "home_mind_watchdog")
+            except Exception:  # noqa: BLE001
+                pass
+        return held
+
+    async def take_back(self, ids=None):
+        """A person handing automations back to Home Mind (all that Home Assistant holds, or these)."""
+        ids = [e for e in (ids or self.held_by_ha) if e in self.owned]
+        r = await self.takeover(ids)
+        self.held_by_ha = [e for e in self.held_by_ha if e not in r["taken_over"]]
+        return r
+
+    async def ensure_watchdog(self):
+        """Install the watchdog automation in Home Assistant, or bring an older one up to date."""
+        cur = self.autos.get("automation." + WATCHDOG_ID)
+        try:
+            if cur is None:
+                await self._post(f"config/automation/config/{WATCHDOG_ID}", dict(WATCHDOG, id=WATCHDOG_ID))
+                return "installed"
+            have = {k: (cur.get("config") or {}).get(k) for k in ("triggers", "actions")}
+            if cur.get("id") and have != {k: WATCHDOG[k] for k in ("triggers", "actions")}:
+                await self._post(f"config/automation/config/{cur['id']}", dict(WATCHDOG, id=cur["id"]))
+                return "updated"
+            return "current"
+        except Exception as e:  # noqa: BLE001 - without it Home Assistant just won't take over by itself
+            log.warning("watchdog: %s", e)
+            return f"error: {e}"
+
+    def catch_up(self, now=None):
+        """Clock triggers missed while Home Mind was stopped: once each, if under CATCH_UP_SECONDS late and safe to
+        repeat, and not already fired (last_fired). Returns the automations fired."""
+        now = now or time.time()
+        since, self.down_since = self.down_since, None
+        if not since or now - since < 10:
+            return []
+        start = max(since, now - CATCH_UP_SECONDS)
+        fired = []
+        self._tick(start, now, catchup=fired)
+        if fired:
+            log.info("caught up %s", ", ".join(fired))
+        return fired
 
     # ---- triggers -------------------------------------------------------------------------------------------------
     def _triggers(self, eid):
@@ -634,6 +754,12 @@ class Engine:
             if now - last > 600:
                 last = now - 600      # don't replay a long gap
             self._tick(last, now)
+            if now - self.__dict__.get("_saved_at", 0) >= 60:
+                self._saved_at = now
+                try:
+                    self.save()       # the last tick on disk: after a stop, catch_up() starts from it
+                except OSError:
+                    log.exception("saving the clock")
             if now - self.__dict__.get("_tpl_at", 0) >= 60:
                 self._tpl_at = now
                 await self._templates()
@@ -654,7 +780,7 @@ class Engine:
             out.append(p + timedelta(seconds=sign * _secs(str(off).lstrip("-+") if isinstance(off, str) else off)))
         return out
 
-    def _tick(self, last, now):
+    def _tick(self, last, now, catchup=None):
         """Fire the clock triggers due in (last, now]: time, time_pattern and sun."""
         # sun.sun's next_rising moves to tomorrow at sunrise: keep the one just passed, so it can still fire
         sa = ((self.states.get("sun.sun") or {}).get("attributes") or {})
@@ -670,16 +796,17 @@ class Engine:
                         for p in self._time_points(t, day):
                             if last < p.timestamp() <= now:
                                 self.fire(auto, {"platform": "time", "id": t.get("id", str(i)), "idx": i,
-                                                 "now": p.isoformat()})
+                                                 "now": p.isoformat()}, catchup)
                 elif kind == "time_pattern":
                     for p in self._pattern_hits(t, last, now)[:1]:
                         self.fire(auto, {"platform": "time_pattern", "id": t.get("id", str(i)), "idx": i,
-                                         "now": p.isoformat()})
+                                         "now": p.isoformat()}, catchup)
                 elif kind == "sun":
                     for p in self._sun_points(t):
                         if last < p.timestamp() <= now:
                             self.fire(auto, {"platform": "sun", "id": t.get("id", str(i)), "idx": i,
-                                             "event": t.get("event"), "offset": t.get("offset", 0)})
+                                             "event": t.get("event"), "offset": t.get("offset", 0),
+                                             "now": p.isoformat()}, catchup)
 
 
     # ---- creating (suggested and requested automations) -------------------------------------------------------------
@@ -709,10 +836,31 @@ class Engine:
         return {"entity_id": eid, "id": aid, "enabled": bool(enable and eid)}
 
     # ---- running ----------------------------------------------------------------------------------------------------
-    def fire(self, auto, trig):
+    def fire(self, auto, trig, catchup=None):
         a = self.autos.get(auto)
         if not a or auto not in self.owned or a["ha_state"] == "on":
             return          # Home Assistant is running it (watchdog handed it back): never both
+        at = trig.get("now")
+        if at:
+            try:
+                ts = datetime.fromisoformat(str(at)).timestamp()
+            except ValueError:
+                ts = None
+            if ts is not None:
+                if ts <= self.last_fired.get(auto, 0):
+                    return      # this time already fired (before a restart)
+                if catchup is not None:
+                    if not safe_to_repeat(a.get("config")):
+                        return
+                    trig = dict(trig, catch_up=True)
+                    catchup.append(auto)
+                self.last_fired[auto] = ts
+                try:
+                    self.save()  # on disk before acting: a restart now can't run it twice
+                except OSError:
+                    log.exception("saving last fired")
+        elif catchup is not None:
+            return          # only clock times are caught up
         mode = (a["config"] or {}).get("mode", "single")
         cur = self.running.get(auto)
         if mode == "single" and cur and not cur.done():
@@ -905,7 +1053,15 @@ class Engine:
         ents = [e.strip() for e in ents.split(",")] if isinstance(ents, str) else list(ents or []) \
             if isinstance(ents, (list, tuple)) else []
         before = {e: (self.states.get(e) or {}).get("state") for e in ents}
-        r = await self._post(path, data)
+        if getattr(self.ha, "user_token", "") and not rv:
+            # the limited Home Assistant user (option ha_user_token) for device calls; your own automations count as
+            # approved (you wrote them in Home Assistant)
+            status, _, states = await self.ha.call_ctx(dom, name, data, approved=True)
+            if isinstance(status, int) and status >= 400:
+                raise RuntimeError(f"{path}: {status}")
+            r = states or []
+        else:
+            r = await self._post(path, data)
         self._log_call(svc, data, r, before)
         if rv:
             v[rv] = (r or {}).get("service_response", r) if isinstance(r, dict) else r

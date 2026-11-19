@@ -163,11 +163,16 @@ async def main():
     change("device_tracker.yitzs_iphone", state="not_home", attributes={"latitude": 9, "longitude": 9})
     change("device_tracker.yitzs_iphone", state="Near Home", attributes={"latitude": 5, "longitude": 5}); await settle()
     check("10 HA runs it again (watchdog): the engine stays quiet", CALLS == [], CALLS)
-    # 11. reclaim after a restart: owned ones that HA turned back on are turned off again
-    await eng.reclaim()
-    check("11 reclaim turns the Home Assistant copy off again",
-          CALLS == [("services/automation/turn_off", {"entity_id": "automation.arrival", "stop_actions": False})]
+    # 11. after a restart, owned ones Home Assistant is running stay there (0.27: only a person hands them back)
+    held = await eng.reclaim()
+    check("11 reclaim leaves the Home Assistant copy on and says so",
+          CALLS == [] and held == ["automation.arrival"] and eng.autos["automation.arrival"]["ha_state"] == "on", CALLS)
+    eng._label = lambda eid, add: asyncio.sleep(0)
+    await eng.take_back()
+    check("11 a person taking it back turns the Home Assistant copy off",
+          ("services/automation/turn_off", {"entity_id": "automation.arrival", "stop_actions": False}) in CALLS
           and eng.autos["automation.arrival"]["ha_state"] == "off", CALLS)
+    CALLS.clear()
     CALLS.clear()
     # 12. hand back: a running automation is stopped and Home Assistant's copy turned on
     eng.fire("automation.learn", {"platform": "state", "id": "0"}); await settle()

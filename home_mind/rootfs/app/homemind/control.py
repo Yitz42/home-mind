@@ -136,6 +136,8 @@ ACTIONS = {
     "tests": {"label": "Run brain tests", "icon": "mdi:test-tube", "run": _tests},
     "release_automations": {"label": "Hand automations back to Home Assistant", "icon": "mdi:hand-back-left",
                             "run": _release},
+    "take_back_automations": {"label": "Take automations back", "icon": "mdi:hand-back-right",
+                              "run": lambda A: A.engine.take_back()},
 }
 
 
