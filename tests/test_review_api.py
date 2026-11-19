@@ -165,6 +165,7 @@ ROUTES = [
     ("POST", "/api/today/checkin", ["state", "person"]),
     ("GET", "/api/learned", ["status"]),
     ("GET", "/api/learned/match", ["q"]),
+    ("GET", "/api/learned/answers", ["status"]),
     ("POST", "/api/learned/{id}", ["status"]),
     ("GET", "/api/modes", []),
     ("POST", "/api/modes", ["mode", "person"]),

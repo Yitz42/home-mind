@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- **Learned answers** (design phase 8). A question a model answered well from one note (cited, not weak, not
+  corrected within 15 minutes) becomes an answer template; once trusted it is answered with no model call, only while
+  its note is unchanged, never for sealed notes, never with a number or "not" in the question, personal notes only to
+  their owner. 1 in 20 audited; a "that's wrong" counts against it; promotions at night, gated by replaying your
+  corrections; house and answer promotions take turns (one kind of change a night). `/api/learned/answers`.
+- **Tie-break** (step 12): when two trusted templates or answers fit almost equally, the small local model (only if
+  awake) picks one; how often is counted.
 - **Health questions are answered from your watch's readings.** "How's my health looking today?" now gives today's
   readiness, sleep, HRV and resting heart rate, each against your usual (the median of the 28 days before), plus fog
   and your check-in. Before, it went to a model with whatever notes the search found (a fog reading, the scale's

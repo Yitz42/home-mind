@@ -180,7 +180,8 @@ class Learned:
         scored.sort(key=lambda x: -x[0])
         sim, r = scored[0]
         # the margin is over the best template that would do something else (not another wording of the same)
-        others = [s for s, x in scored[1:] if (x["entity_id"], x["action"]) != (r["entity_id"], r["action"])]
+        rivals = [(s, x) for s, x in scored[1:] if (x["entity_id"], x["action"]) != (r["entity_id"], r["action"])]
+        others = [s for s, _x in rivals]
         margin = sim - (others[0] if others else 0.0)
         name = ((self.home.catalog.get(r["entity_id"]) or {}).get("name") if self.home is not None else "") or ""
         # named = every word of the device's name is in the request: "the lamp" could be another lamp
@@ -189,17 +190,50 @@ class Learned:
         named = bool(nw) and nw <= tw
         plan = {"entity_id": r["entity_id"], "action": r["action"], "value": nums[0] if r["slot"] == "n" else None,
                 "by": "reflex", "records": [{"id": r["id"], "version": r["version"], "status": r["status"]}]}
-        return {"record": r, "sim": round(sim, 3), "margin": round(margin, 3), "plan": plan, "named": named}
+        return {"record": r, "sim": round(sim, 3), "margin": round(margin, 3), "plan": plan, "named": named,
+                "runner_up": rivals[0][1] if rivals else None, "runner_sim": rivals[0][0] if rivals else 0.0}
 
-    async def reflex(self, text):
+    async def reflex(self, text, tiebreak=None):
         """A plan to act on without a model, or None. Trusted, the device named, a close match with a clear margin;
-        about 1 in 20 is held back as an audit (the caller plans it the usual way and reports back)."""
+        about 1 in 20 is held back as an audit (the caller plans it the usual way and reports back). Too close to
+        call between two trusted templates: tiebreak(text, [said, said]) -> 0, 1 or None may pick (step 12)."""
         m = await self.match(text)
-        if not m or not m["named"] or m["sim"] < REFLEX_SIM or m["margin"] < REFLEX_MARGIN:
+        if not m or not m["named"] or m["sim"] < REFLEX_SIM:
             return None
+        self._tie_count("seen")
+        if m["margin"] < REFLEX_MARGIN:
+            ru = m.get("runner_up")
+            if tiebreak is None or ru is None or m["runner_sim"] < REFLEX_SIM:
+                return None
+            self._tie_count("asked")
+            try:
+                pick = await tiebreak(text, [self.said(m["record"]), self.said(ru)])
+            except Exception:  # noqa: BLE001
+                pick = None
+            if pick not in (0, 1):
+                return None
+            if pick == 1:
+                base, nums, _neg = shape(text)
+                m = dict(m, record=ru, plan={"entity_id": ru["entity_id"], "action": ru["action"],
+                                             "value": nums[0] if ru["slot"] == "n" and nums else None, "by": "reflex",
+                                             "records": [{"id": ru["id"], "version": ru["version"],
+                                                          "status": ru["status"]}]})
+            m = dict(m, tiebreak=True)
         if self.rng.random() < AUDIT_RATE:
             return dict(m, audit=True)
         return m
+
+    def said(self, r):
+        name = ((self.home.catalog.get(r["entity_id"]) or {}).get("name") if self.home is not None else None) \
+            or r["entity_id"]
+        return f"{r['action']} the {name}" + (" to a number" if r["slot"] == "n" else "")
+
+    TIE_KEY = "learned_tiebreak_house"
+
+    def _tie_count(self, k):
+        c = dict(self.store.kv_get(self.TIE_KEY) or {})
+        c[k] = int(c.get(k, 0)) + 1
+        self.store.kv_set(self.TIE_KEY, c)
 
     # ---- writing -----------------------------------------------------------------------------------------------
     def _new(self, entity_id, action, slot, example, source):
