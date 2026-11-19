@@ -5,7 +5,9 @@
   admin  everything: the main token is admin, and so are tokens made with that scope
 
 A token can also be tied to a person (option people): what it asks is answered as that person (personal notes, #48),
-and what it files is theirs. Only a hash of each token is kept; the token itself is shown once, when it is made.
+and what it files is theirs. A read or write token tied to no one is answered as a guest (household notes only); an
+admin token sees everything, like the main token. Tokens expire (90 days by default; days=0 for never) and are
+renewed by making a new one. Only a hash of each token is kept; the token itself is shown once, when it is made.
 """
 import hashlib
 import re
@@ -17,7 +19,12 @@ ADMIN_PATHS = [r"^/api/tokens", r"^/api/item/\d+/purge$", r"^/api/purge_about$",
                r"^/api/house/suggestion/[^/]+/create$", r"^/api/updates/apply$", r"^/api/backup", r"^/api/restore",
                r"^/api/import", r"^/api/control/", r"^/api/export", r"^/api/vault/key$", r"^/api/compare/run$",
                r"^/api/control_model/", r"^/api/email/check$", r"^/api/home/act$", r"^/api/do$",
-               r"^/api/controls/"]   # house control (and the Home tab's controls): admin, as mind_control/mind_do
+               r"^/api/controls/",   # house control (and the Home tab's controls): admin, as mind_control/mind_do
+               r"^/api/decisions", r"^/api/replay$",   # the decision log holds everyone's requests: admin only
+               r"^/api/access", r"^/api/safety/run$",   # who may move what, and the safety suite
+               r"^/api/converse$",   # a voice turn can act on the house, like /api/do
+               r"^/api/learned", r"^/api/modes", r"^/api/calibration$", r"^/api/now/propose$", r"^/api/worsening$",
+               r"^/api/scorecard", r"^/api/labels", r"^/api/shadow", r"^/api/burden", r"^/api/timing"]   # measuring
 READ_POSTS = [r"^/api/ask$", r"^/api/recall$", r"^/api/search$", r"^/api/lookup$", r"^/api/models/check$", r"^/api/sql$"]
 MCP_READ = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_tasks", "mind_ask",
             "mind_models", "mind_test_results", "mind_trend", "mind_home", "mind_automations", "mind_status",
@@ -66,14 +73,24 @@ class Tokens:
     def _all(self):
         return self.store.kv_get("tokens") or []
 
-    def make(self, name, scope="read", person=None):
+    DAYS = 90
+
+    def make(self, name, scope="read", person=None, days=None):
+        days = self.DAYS if days is None else days
+        try:
+            days = float(days)
+        except (TypeError, ValueError):
+            raise ValueError("days should be a number (0 = never expires)") from None
+        if not 0 <= days <= 3650:
+            raise ValueError("days is from 0 (never expires) to 3650")
         if scope not in SCOPES:
             raise ValueError(f"scope is one of {', '.join(SCOPES)}")
         if not (name or "").strip():
             raise ValueError("give the token a name (which client uses it)")
         tok = "hm_" + secrets.token_urlsafe(32)
         rec = {"id": secrets.token_hex(4), "name": name.strip(), "scope": scope, "person": person or None,
-               "hash": _hash(tok), "created": time.time(), "last_used": None}
+               "hash": _hash(tok), "created": time.time(), "last_used": None,
+               "expires": time.time() + days * 86400 if days else None}
         self.store.kv_set("tokens", self._all() + [rec])
         return dict({k: v for k, v in rec.items() if k != "hash"}, token=tok)
 
@@ -95,6 +112,8 @@ class Tokens:
         rs = self._all()
         for r in rs:
             if secrets.compare_digest(r["hash"], h):
+                if r.get("expires") and time.time() > r["expires"]:
+                    return None             # expired: make a new one
                 if not r.get("last_used") or time.time() - r["last_used"] > 300:
                     r["last_used"] = time.time()
                     self.store.kv_set("tokens", rs)

@@ -56,6 +56,230 @@ Models can switch things only when all of these hold:
 
 `/api/home/act`, `/api/do` and the MCP tools `mind_control` / `mind_do` need an admin token.
 
+## Home Mind as your voice assistant
+
+The Home Mind Bridge integration (version 0.3.0, installed by the app) adds a conversation agent called Home Mind.
+To use it: Settings › Voice assistants › your assistant › Conversation agent: **Home Mind**, and turn on **Prefer
+handling commands locally**. Then:
+- Home Assistant's own commands (lights, timers, shopping list) are handled by Home Assistant first, as fast as ever.
+- Everything else goes to Home Mind. House commands go through its planner and checks; questions, "remember…",
+  "undo", "why…" and the check-in go to the brain.
+- If an answer takes more than 1.5 seconds, you hear a short "One moment." first. The answer is then streamed a
+  sentence at a time, so speech starts before the whole answer is ready.
+- Past 6 seconds the answer goes to your phone (if Home Mind knows it), and private answers follow the "who may hear
+  it" rules.
+- When Home Mind asks you something ("Say yes to go ahead", "good, low or rough?"), it keeps listening for the
+  answer.
+- It knows who's speaking from the signed-in user and the satellite you spoke to.
+
+**A Claude link per person.** The plain Claude link uses the app's main access and sees everything. For someone's
+own Claude, call the `home_mind_bridge.person_link` action with their name (and `scope`: read, write, or admin to
+also control the house). A notification shows a link ending `?token=hm_…`, once. That Claude then answers as that
+person: their notes and the household's, not anyone else's. Links expire after 90 days unless `days` is 0; revoke
+them under Access tokens.
+
+**Routine notices wait for the morning.** Notices like an unusual reading are held and come with the next morning
+summary ("While you were away: …"), as many as the day allows (none on a rough day). Anything held longer than a day
+expires.
+
+## What Home Mind learns from your house requests
+
+Every house request that worked, and that nobody undid, teaches Home Mind a *template*: one device, one action, and
+where a number goes ("dim the desk lamp to {n}"), with the different ways you've said it. Once a template has
+earned trust, the same kind of request is done straight away, with no model call: a reflex, in milliseconds.
+
+- **Shadow first.** A new template never acts. Every house request is checked against it as if it had: did it predict
+  what was done, and did that stand? That's its evidence.
+- **Trust is earned, never assumed.** It starts sceptical (as if it had been wrong 3 times out of 4), rises only on
+  outcomes that were checked (never on silence), and is judged by the low end of its likely range, so a few lucky
+  matches are never enough: it takes about 45 checked outcomes in a row (a month or two for something used daily). Evidence fades by half every 90 days without use.
+- **Promotion is checked at night.** At 3 am, templates whose evidence clears the bar are tried: the scorecard's
+  house requests are replayed with and without them, and if the score drops they go back to shadow.
+- **Reflexes stay inside the lines.** A template is only made from requests that went through every check, only for
+  things that need no yes (never locks, doors, alarms, valves or heating), and a reflex still goes through the same
+  checks as any action. It needs the device named in full ("the lamp" could be another lamp), a close match, and a clear margin over any other template. A
+  request with "not" or "don't" in it is never a reflex.
+- **It keeps being checked.** About 1 in 20 reflexes is planned the usual way instead, and the template is judged
+  against that. Two failures in its last 20 put it back on trial. A template for a device that's gone is retired.
+- **You have the last word:** `/api/learned` shows what's been learned and why; drop a template, or put it back on
+  trial, with `/api/learned/{id}`.
+
+With an embedding model set (`embed_model`), wordings are also compared by meaning, but meaning alone never makes a
+reflex.
+
+## Which model, how sure, and what's going on now
+
+**Model modes** (option `model_mode`, or per person with `/api/modes`):
+- **cloud:** the cloud model (Haiku) plans house requests and writes answers.
+- **balanced** (default): your local control model plans every house request first. If it's a kind of request it has
+  *earned*, its plan is used; otherwise the cloud model decides and the local plan is kept beside it as a
+  comparison. A kind (like `light.on`) is proposed once the local model has been right at least 95% of the time over
+  20 requests in 10 different wordings, never for locks, doors, alarms, valves or heating. It only takes over when
+  you say yes (`/api/modes/accept`), and only if a replay of those requests passes. Two failures in its last 20
+  hand that kind back to the cloud.
+- **private:** nothing leaves the house. House requests use the local model; answers use your local chat model
+  (`local_model`) or your notes alone. If the home computer is asleep, Home Mind says so instead of using the cloud.
+
+The local models are pinged every 30 seconds in the background and only used when awake, so a sleeping laptop never
+makes you wait.
+
+**Confidence.** Every house plan gets a score from how clearly the words name the device, whether the action matches
+what you said, any "don't" or "not", and how that kind of request has gone before. Below the line
+(`confidence_dial`), a local plan goes to the cloud model, and if it's still unsure Home Mind asks: "Just to check:
+turn on the desk lamp? Say yes to go ahead." `/api/calibration` shows how often each level of confidence was right
+and suggests a line.
+
+**The now board.** A short list of what's true right now: how each person's day is going, who is home (each person
+sees only their own), what Home Mind did in the last 15 minutes, approvals it's waiting for. Every answer's brief
+starts with it, and entries expire by themselves. A model can only propose notes like "waiting on Anna's answer" or
+"unsure which lamp"; they are checked and expire within a day. On about one day in seven per person the board is left
+out, so its value can be measured.
+
+**Worsening: see your doctor.** Each morning Home Mind looks at the trend of rough days and brain fog against your
+own baseline (the 60 days before the last two weeks), with a fixed rule that gives about one false alarm a year. If
+both the trend and the last two weeks are clearly worse, it says once, calmly: "This has been worse for two weeks. It
+may be worth booking your doctor." It needs 30 days of check-ins first and then waits 30 days before it could say it
+again. Logged events like a cold never silence it. Sudden changes are the red flags' job, the same day.
+
+## Measuring: is it getting better?
+
+Truth is what actually happened and your labels, never another model's opinion. Everything here is for you or
+whoever looks after Home Mind; none of it is spoken or shown on Today.
+
+- **Scorecard**, three sections, each with its own pass bar, never averaged into one number:
+  - **House:** a frozen set of your real requests (v1, made once there are 20) replayed through today's planner
+    (it never acts). Scored against what worked, what someone undid, and your labels.
+  - **Memory:** your own corrections ("that's wrong" + the right value), asked again of your real memory.
+  - **Safety:** the daily safety check.
+  Each shows a 90% interval. A section passes only when the whole interval is above its bar, and is "unclear" (any
+  change waits) when the interval straddles the bar or there are under 20 cases. House is also split by front end.
+- **Weekly replay** of the v1 set, with a notification if the house section is clearly worse than its first run, or
+  has fallen three weeks in a row.
+- **Shadow baseline:** about 1 in 10 house requests (option `shadow_rate`) is also planned by the other model
+  (Haiku if your local model planned it, your local model if Haiku did), in the background, never acting. Each pair
+  is judged by what actually happened: a win, a tie or a loss, with an interval, and the cost per correct answer for
+  models whose prices you set.
+- **Labelling, about 15 minutes a week** (`/api/labels/queue`): uncertain decisions, ones you undid, refusals and
+  mismatches first, then a few at random. About 1 in 10 is one you labelled before, to check you'd say the same
+  (agreement and kappa). Once there are 30 labels, `/api/labels/gold` sets aside a gold set that comes back every
+  quarter. A label decides over the outcome; labelled decisions are kept past the 180-day limit.
+- **Burden per day:** notifications and asks, corrections and redos (an action you undid, or the same request again
+  within 10 minutes), beside how often Home Mind said it couldn't do something.
+- **Response time:** the 95th percentile by front end (voice target 2.5 s), and how often an answer came from the
+  fallback model. Send `front_end` with `/api/ask` to name yours.
+
+## The conversation: check-in, undo, why and privacy
+
+**How's today?** Once a day Home Mind asks "good, low or rough?": by voice, the first time you speak to it that day
+(at the end of its answer, never as an alarm), and on the morning notification as three buttons. Answer with a word
+("rough", "pretty good", "having a low day"), a tap, or the panel. If you don't answer, the day is *unknown*: treated
+gently, never recorded as rough. What it changes:
+- **Asks in a day.** Routine notifications and reminders: about 4 on a good day, 1 on a low day, none on a rough day,
+  1 when unknown. Past that they expire quietly. On a rough day every device stays quiet except safety and things you
+  just asked for (like an approval). Rough: "Taking it easy today. Nothing needs you."
+- **Energy left** on Today: today's readiness score, held down on a low (50), rough (20) or unknown (60) day.
+
+**Undo.** "Undo", "undo that", "put it back" puts back the last thing you asked for in the last 10 minutes, as it was
+(brightness and speed too). Say it again to step back one more. It goes through the same checks: undoing an unlock
+still needs your phone.
+
+**Why.** "Why did you turn on the hall light?" answers in one sentence from the decision log: who asked and how, or
+which automation, and when. To anyone but the person who asked, someone else's request is "a household rule".
+Questions like "why is the humidity high?" still go to the brain.
+
+**Help me do it.** "Help me…" or "walk me through…" gives the steps one at a time, and Home Mind does nothing for
+you.
+
+**Who may hear it.** By voice, an answer drawn from your personal notes is spoken only when you were recognised and
+you're the only one home. Otherwise Home Mind says you have a private note and sends it to your phone (set `notify`
+for each person under `people`).
+
+**Slow answers.** By voice, an answer that isn't ready after 6 seconds goes to your phone instead ("That's taking a
+moment. I'll send it to your phone."), if Home Mind knows your phone.
+
+**Two times per fact.** Every version of a fact keeps when it became true and when Home Mind learned it.
+`/api/as_of` answers "what was the code on the 3rd?" (`by=valid`) and "what did you think on Tuesday?"
+(`by=recorded`).
+
+**Who is asking.** The panel answers as the person signed in to Home Assistant, if they're in `people` or have a
+person entity. A read or write token that isn't tied to a person is treated as a guest (household notes only); make a
+token per person for Claude or other apps. Tokens expire after 90 days unless made with `days: 0`.
+
+## Safety: approvals, red flags and the daily check
+
+**Who has to say yes.** Every action has an approval level, set in code; nothing a model or a learned record says can
+lower it:
+- **Just done:** lights, media, fans, switches, scenes.
+- **A spoken yes:** heating within normal limits. Home Mind asks, and a "yes" in the same conversation within 30
+  seconds does it.
+- **Your phone:** locks, alarms, valves, garage doors and gates, scripts and switches that open the house, heaters
+  and ovens, and temperatures outside 16–27 °C (61–80 °F). Home Mind sends an approval to your phone (option
+  `approval_phone`). Approve needs Face ID or your passcode on iPhone; on Android, the phone has to be unlocked.
+  Each request works once and expires after 2 minutes. A spoken yes is not enough for these.
+
+For each device you can ask for more care than that, never less: **ask me first**, **tell me after** (done, then a
+short notice), or **just do it** (`POST /api/access` with `ladder`).
+
+**What Home Mind may see.** Each device is set to *none* (Home Mind can't see or touch it; it isn't in the house list
+or the model's context), *read* or *act*. Devices it already knew keep what they had (act if on the control list,
+else read). Devices that show up later start at *none* if they are locks, alarms, valves, garage doors, heating,
+cameras or microphones. Stricter settings apply at once; looser ones wait 24 hours, and every change is announced.
+
+**Red flags.** Some things are answered by fixed wording in code, before any note or model: chest pain, fainting,
+trouble breathing, signs of a stroke or a sudden severe headache (call 911); thoughts of suicide or self-harm (988);
+a double dose (Poison Control, 1-800-222-1222, and the pharmacist); a big decline such as being unable to get out of
+bed, eat or drink, or new confusion (your doctor within a day or two); dizziness or a racing heart on standing (noted
+for the doctor). These replies point to help and never give advice. They only answer someone describing what's
+happening, not a question like "what are the signs of a stroke?" or a denial like "no chest pain". If you set
+`safety_contact`, that person is told about emergencies, double doses and big declines.
+
+**Phone notifications** come in three tiers. *Safety* always goes out at once, even in quiet hours, and isn't counted
+in the daily limit. *Important* (like an approval you just asked for) skips the daily limit. *Routine* waits for quiet
+hours to end and stops at the daily limit.
+
+**Automations, if Home Mind stops.** Home Mind installs a "Home Mind watchdog" automation in Home Assistant. If Home
+Mind misses 3 heartbeats (about 3 minutes), Home Assistant runs Home Mind's everyday automations again. When Home Mind
+is back it doesn't take them back by itself: it tells you, and you hand them back with the **Take automations back**
+button. Before each timed run Home Mind writes it to disk, so a restart never runs it twice. A time it missed while
+stopped is caught up once, only if it is under 30 minutes late and the automation is safe to repeat (lights, media,
+fans, scenes, helpers and notifications; nothing that opens, locks, heats or runs a script).
+
+**A limited Home Assistant user.** By default Home Mind uses the add-on's admin access. To limit it, make a
+non-admin user in Home Assistant (Settings › People › Users, "Can only log in from the local network" off, not an
+administrator), log in as that user, create a long-lived token under its profile, and put it in `ha_user_token`.
+Device control and readings then use that user. Setting up automations (taking them over, the watchdog, labels)
+still needs the admin access. Whatever the token, lock, alarm and valve calls are refused at the last step unless
+they came through the approval checks.
+
+**The daily safety check** runs 5 minutes after start and then every day. It checks the red-flag replies, every
+approval level, that a lock can't be moved without the phone, the service guard, device access, that an unknown
+voice can't read a personal note, and that nothing reading email or documents can act. It uses a throwaway memory and
+a pretend Home Assistant, and only reads your real house list. The result is `sensor.home_mind_safety_suite` (pass or
+fail); a failure also shows as a notification. Details: `GET /api/safety`.
+
+## The decision log
+
+Every action Home Mind takes, and every one it refuses, is written to a decision log (`log.db`, next to the main
+database): who asked and how (voice, Telegram, Claude, the panel, an automation), the words, which model planned it
+and how long that took, the Home Assistant service call, and its context ID.
+
+Each action also records what should happen (the light on, the fan at 40%, the door locked) and by when. Home Mind
+then checks:
+- **Match, mismatch or unknown.** Changes are read from Home Assistant's event stream as they happen; anything still
+  waiting when its time is up is read directly. An unavailable device is *unknown*, never a failure. Scripts and
+  scenes can't be checked and are logged as *unchecked*.
+- **Who did it.** From the context ID: Home Mind's own call, a person in Home Assistant, an automation, or the device
+  itself.
+- **Overrides.** A person or a device undoing a matched action within 10 minutes. Changes in the first 3 minutes
+  after Home Mind starts, and a device's first report after coming back from unavailable, don't count.
+- **Device profiles.** How often each device's outcomes matched and how long it usually takes. A slow device gets
+  longer to respond before it is checked; one whose outcomes are mostly unknown is marked not trusted for learning.
+
+Decisions older than 180 days are dropped unless they are kept as test cases. `/api/replay` runs logged requests
+back through the planner (it never acts) and reports how often it still agrees with what worked, and whether it
+would repeat something a person undid. `/api/decisions/freeze` keeps a set of cases under a name, so a later replay
+can be compared with it. The log holds everyone's requests, so it needs an admin token.
+
 ## Controls in Home Assistant
 
 The bridge adds a **Home Mind** device (Settings › Devices & services › Home Mind Bridge) whose entities control
@@ -66,7 +290,7 @@ the app from any dashboard, automation or voice command:
 | switches | Bedroom comfort brain, Watch the house, Overnight learning, Morning summary, Brain-fog check-ins, Install new packs automatically, Repeat the best note before the question, Name the notes before answering, Quiet hours for phone notifications, Ask about old facts in the morning |
 | numbers | Voice time limit (s), Fade unused notes after (days), Brain tests every (hours), Phone notifications a day, Keep the detailed activity log for (days), Ask about facts older than (days) |
 | times | Morning summary time, Overnight learning time, Quiet hours start, Quiet hours end |
-| buttons | Run overnight learning now, Send the morning summary, Sync calendars, Check models, Install pack updates, Run a comfort cycle, Refresh the daily record, Run brain tests, Hand automations back to Home Assistant |
+| buttons | Run overnight learning now, Send the morning summary, Sync calendars, Check models, Install pack updates, Run a comfort cycle, Refresh the daily record, Run brain tests, Hand automations back to Home Assistant, Take automations back |
 | sensors | Memory items, Conversation turns to learn from, Last overnight run, Facts filed last night, Automations run by Home Mind, Model calls today, Model tokens today, Model cost today (priced models), Phone notifications waiting, Version |
 
 A change made from Home Assistant is kept across restarts. If you later change the same option on the
@@ -541,6 +765,14 @@ you turn them on are listed after the tables.
 | `rerank_model` | empty | Re-ranking model |
 | `control_model` | empty | Local control model |
 | `rule_planner` | on | Plain commands without a model |
+| `model_mode` | balanced | cloud, balanced (the local model for kinds it has earned) or private (nothing leaves the house) |
+| `confidence_dial` | 0.55 | Below this confidence, a local plan goes to the cloud model, else Home Mind asks before acting |
+| `local_model` | empty | A local chat model for answers in private mode; empty = notes alone |
+| `shadow_rate` | 0.1 | Share of house requests also planned by a second model in the background (never acts), to compare them; 0 = off |
+| `approval_phone` | empty | The phone that approves locks, garage doors, alarms and heaters (`notify.mobile_app_...`); empty = the first phone with the Home Assistant app |
+| `safety_contact` | empty | Someone told when you describe an emergency, a double dose or a big decline (a notify service); empty = no one |
+| `ha_user_token` | empty | A long-lived token from a non-admin Home Assistant user, for device control and readings; empty = the add-on's admin access |
+| `ha_url` | empty | Where Home Mind reaches Home Assistant with that token; empty = `http://homeassistant:8123` |
 | `answer_edges` | off | Repeat the best note before the question |
 | `answer_notes_first` | off | Name the notes before answering |
 | `use_preferences` | on | Use learned settings |
@@ -769,6 +1001,37 @@ note), 502 (a model failed) or 500.
 | GET | `/api/home` | read | the house as Home Mind sees it (watched things, control list) |
 | POST | `/api/home/act` | admin | switch one thing (`entity_id`, `action`, `value?`, `confirm?`) |
 | POST | `/api/do` | admin | do what a sentence asks (`text`); never confirms locks |
+| POST | `/api/converse` | admin | one voice turn for the bridge's conversation agent (`text`, `conversation_id?`, `user_id?`, `device_id?`); streams events with `Accept: application/x-ndjson` |
+| GET | `/api/as_of` | read | a keyed fact at a time (`key`, `at`: seconds or ISO date, `by`: valid or recorded) |
+| POST | `/api/today/checkin` | write | today's check-in (`state`: good, low or rough; `person?`) |
+| GET | `/api/learned` | admin | what Home Mind has learned about house requests: each template, its status and evidence (`status?`) |
+| GET | `/api/learned/match` | admin | which template some words would match, and whether it would act (`q`); never acts |
+| POST | `/api/learned/{id}` | admin | your say on a template (`status`: dropped, or shadow to put it back on trial) |
+| GET | `/api/modes` | admin | model mode, confidence line, which local models are awake, kinds earned and proposed |
+| POST | `/api/modes` | admin | set the mode (`mode`: cloud, balanced or private; `person?`) |
+| POST | `/api/modes/accept` | admin | say yes to a proposed kind (`kind`, like `light.on`); it is replayed through the local model first |
+| GET | `/api/calibration` | admin | confidence against what happened: bins, ECE, suggested line |
+| GET | `/api/now` | read | the now board for the viewer |
+| POST | `/api/now/propose` | admin | a model's proposed board entry (`kind`: waiting_on, unsure_which, doing or note; `value`; `ttl?`; `owner?`), checked before writing |
+| GET | `/api/worsening` | admin | the worsening alarm's numbers against your baseline |
+| GET | `/api/scorecard` | admin | the last scorecard (house, memory, safety; never averaged) and the trend against v1 |
+| POST | `/api/scorecard/run` | admin | run the scorecard now (`set?`, default v1; replays, never acts) |
+| GET | `/api/labels/queue` | admin | this week's labelling queue (`size`, default 30) |
+| POST | `/api/labels` | admin | label a decision (`decision_id`, `label`: right, wrong or unsure; `correct?`: what would have been right) |
+| GET | `/api/labels/agreement` | admin | how often repeat labels agree with the first, with kappa |
+| POST | `/api/labels/gold` | admin | make the gold set of 30 labelled cases |
+| GET | `/api/shadow` | admin | the shadow baseline: wins, ties and losses by outcome, and cost per correct answer (`days`) |
+| GET | `/api/burden` | admin | asks, corrections and redos per day, with abstains (`days`) |
+| GET | `/api/timing` | admin | 95th-percentile response time and fallback rate by front end (`days`) |
+| GET | `/api/safety` | read | the last daily safety suite: pass or fail, and each check |
+| POST | `/api/safety/run` | admin | run the safety suite now |
+| GET | `/api/access` | admin | every device's access (none, read, act), approval level and ladder rung, with changes waiting |
+| POST | `/api/access` | admin | set a device's access (`entity_id`, `access`: stricter now, looser in 24 hours) and/or its ladder rung (`ladder`: ask, tell, do) |
+| GET | `/api/decisions` | admin | the decision log, newest first (`limit`, `entity_id`, `status`) |
+| GET | `/api/decisions/stats` | admin | expected versus seen per entity and action (`days`) |
+| GET | `/api/decisions/profile` | admin | one device's outcome profile (`entity_id`) |
+| POST | `/api/decisions/freeze` | admin | keep the current test cases under a name (`name`) |
+| POST | `/api/replay` | admin | replay logged requests through the planner without acting (`model?`, `limit?`, `frozen?`) |
 | GET | `/api/controls` | read | the Home tab: devices with their map spots, presets, comfort, weather, routines, plugs |
 | POST | `/api/controls/{op}` | admin | `act` (`entity`, `service`, `data`; allow-listed per domain, values clamped), `scene` (`name`), `routine` (`entity`, `on`) |
 | GET | `/api/today` | read | the Today page: readiness, fog, food to eat first, protein so far, the bedroom, what was learned |
@@ -821,7 +1084,7 @@ note), 502 (a model failed) or 500.
 | GET | `/api/vault` | read | whether secrets are encrypted (vault state) |
 | GET | `/api/vault/key` | admin | the key that opens sealed secrets |
 | GET | `/api/tokens` | admin | access tokens |
-| POST | `/api/tokens` | admin | make a token (`name`, `scope`, `person?`); shown once |
+| POST | `/api/tokens` | admin | make a token (`name`, `scope`, `person?`, `days?`: expires after, default 90, 0 = never); shown once |
 | DELETE | `/api/tokens/{tid}` | admin | revoke a token |
 | GET | `/api/control` | read | the switches, numbers, times and buttons the bridge shows |
 | POST | `/api/control/set` | admin | change one (`key`, `value`) |

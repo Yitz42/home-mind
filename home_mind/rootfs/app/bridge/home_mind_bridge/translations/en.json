@@ -84,6 +84,24 @@
           "description": "What to send."
         }
       }
+    },
+    "person_link": {
+      "name": "Make a person's Claude link",
+      "description": "Make a link for one person's Claude that answers as them (their notes, not anyone else's). Shown once as a notification.",
+      "fields": {
+        "person": {
+          "name": "Person",
+          "description": "Their name as Home Mind knows them."
+        },
+        "scope": {
+          "name": "Scope",
+          "description": "read, write (remember things) or admin (also control the house)."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Until it expires; 0 = never."
+        }
+      }
     }
   }
 }

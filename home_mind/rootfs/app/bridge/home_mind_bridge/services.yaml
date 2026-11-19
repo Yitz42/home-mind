@@ -12,6 +12,11 @@ recall:
     shelf: {selector: {text: {}}}
     limit: {default: 5, selector: {number: {min: 1, max: 25}}}
 show_link: {}
+person_link:
+  fields:
+    person: {required: true, example: Dana, selector: {text: {}}}
+    scope: {default: write, selector: {select: {options: [read, write, admin]}}}
+    days: {default: 90, selector: {number: {min: 0, max: 3650}}}
 call:
   fields:
     path: {required: true, example: "/api/pantry/add", selector: {text: {}}}

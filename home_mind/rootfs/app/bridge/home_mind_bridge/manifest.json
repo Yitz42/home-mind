@@ -3,12 +3,12 @@
   "name": "Home Mind Bridge",
   "codeowners": ["@Yitz42"],
   "config_flow": true,
-  "dependencies": ["webhook", "http"],
+  "dependencies": ["webhook", "http", "conversation"],
   "after_dependencies": ["cloud"],
   "documentation": "https://github.com/Yitz42/home-mind",
   "integration_type": "service",
   "iot_class": "local_push",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

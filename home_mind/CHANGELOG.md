@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.29.0
+The design's version 1 and the first phases after it (#30–#36), brought onto 0.28 in one piece. Where they met 0.27–0.28:
+- **Several actions in one request follow the safety ladder:** "lights off and lock up" turns the lights off now and
+  sends each lock to your phone for approval (a spoken yes no longer covers locks and garage doors); devices you set to
+  "ask me first" still wait for one spoken yes together. Several actions planned by the cloud model work the same way.
+- **Order for house requests:** the rules (no model) first, then a trusted learned template, then planning by model
+  mode. Every route goes through the same checks, and every action is logged with its Home Assistant context ID.
+- **Jeeves styles every answer** from the shared answer path, so the voice agent and the Ask box sound the same.
+- **Replay and the nightly gate** plan the way do() does, rules included.
+
+- **Decision log** (phase 1, #30). Every action taken or refused is logged with how it was decided and its Home Assistant context ID. Outcomes are checked (match, mismatch, unknown) and overrides spotted; devices get outcome profiles. Logged requests can be replayed through the planner. See "The decision log" in the docs.
+- **Approvals** (phase 2). Locks, alarms, valves, garage doors, openers, heaters, ovens and extreme temperatures need a fresh approval on your phone (Face ID or the passcode); a spoken yes is no longer enough for them. Heating within normal limits needs a spoken yes. Per device you can choose ask me first, tell me after or just do it, never below what the code requires.
+- **Device access.** Each device is none, read or act. New locks, alarms, valves, garage doors, heating, cameras and microphones start hidden. Loosening waits 24 hours; every change is announced.
+- **Red flags.** Emergencies, crisis, a double dose, a big decline and dizziness on standing get fixed replies in code before any model, pointing to help. Option `safety_contact` tells someone if you choose.
+- **Notification tiers.** Safety always goes out; important skips the daily limit; routine as before.
+- **Automations if Home Mind stops.** Home Mind installs the watchdog: after 3 missed heartbeats Home Assistant runs them. Home Mind no longer takes them back by itself; use "Take automations back". Missed times are caught up once if under 30 minutes late and safe to repeat; a restart never runs a time twice.
+- **A limited Home Assistant user** (option `ha_user_token`) for control and readings, and a guard that refuses lock, alarm and valve calls that didn't pass the approval checks.
+- **Daily safety suite**: `sensor.home_mind_safety_suite`, `GET /api/safety`.
+- **The check-in** (phase 3). Good, low or rough, once a day: asked by voice the first time you speak, as three buttons on the morning notification, or on the panel. It sets the day's routine asks (good ~4, low 1, rough 0, unknown 1) and holds down energy left on Today. A rough day keeps every device quiet except safety and what you just asked for.
+- **Undo, why, help me.** "Undo" puts back the last thing you asked for in the last 10 minutes, exactly as it was; again steps back further. "Why did you…" answers in one sentence from the decision log. "Help me…" walks you through without doing it.
+- **Private answers by voice** are spoken only when you're the only one home; otherwise they go to your phone (`notify` per person under `people`). Slow voice answers go to your phone after 6 seconds.
+- **Two times per fact:** `/api/as_of` answers what was true then, or what Home Mind believed then.
+- **Who is asking.** The panel answers as the signed-in Home Assistant person. **Read and write tokens not tied to a person are now guests** (household notes only): make one per person for Claude or other apps. Tokens expire after 90 days unless made with `days: 0`; tokens made before keep working.
+- **Measuring** (phase 4). A scorecard in three sections, never averaged: house (a frozen v1 set of your real requests replayed through today's planner), memory (your corrections) and safety (the daily check), each with a 90% interval and a pass, fail or unclear verdict. The v1 set is replayed weekly, with a notification if it gets worse. A shadow baseline (option `shadow_rate`, default 1 in 10) has the other model plan in the background, never acting, scored win/tie/loss by what happened, with cost per correct answer. A weekly labelling queue (about 15 minutes, with repeats for agreement and a gold set of 30 every quarter), burden per day, and response times by front end. All admin-only API; nothing is shown on Today.
+- **Home Mind as a voice assistant** (phase 5). The bridge (0.3.0) adds a Home Mind conversation agent: Home Assistant's own commands first ("Prefer handling commands locally"), then Home Mind, with "One moment." after 1.5 s and the answer streamed a sentence at a time. New `/api/converse`. A Claude link per person (`home_mind_bridge.person_link`, `?token=` on the link). Routine notices are held for the morning summary.
+- **Model modes, confidence, the now board, the worsening alarm** (phase 6, after v1). Option `model_mode`: cloud, balanced (default) or private. **In balanced mode the local control model now earns each kind of request** (95% right over 20 requests in 10 wordings, your yes, a passing replay) before it acts alone; until then the cloud model decides and the local plan is kept as a comparison. Set `model_mode: private` for the old local-only behaviour. Every house plan gets a confidence; below `confidence_dial` Home Mind asks the cloud model or asks you. The now board (who's home, the day, what was just done, waiting approvals) leads every answer's brief. A trend alarm on rough days and fog (about one false alarm a year) says once, calmly, when to see the doctor. `local_model` answers in private mode.
+- **Learned house requests** (phase 7). Requests that worked become templates (one device, one action, where the number goes). They start in shadow, earn trust only from checked outcomes (sceptical prior, judged on the low end of the interval, fading), are promoted at night only if a replay of the scorecard doesn't get worse, and then act as reflexes without a model call. Never for anything that needs a yes; 1 in 20 is audited; two failures put a template back on trial. `/api/learned`.
+
 ## 0.28.0
 Fitness goals, built on the scale, meal and watch data Home Mind already collects.
 - **Goals as numbers:** target weight (and a date), calories, protein (or automatic from body weight, 1.6 g/kg), steps, workouts a week and body fat. Set them on the Health tab, with `POST /api/fitness/goals` or the `mind_fitness` tool. Calorie goals below 1,200 are refused.

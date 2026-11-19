@@ -94,14 +94,17 @@ async def controls():
     check("garage door won't move without confirm", isinstance(e, PermissionError) and not h.ha.calls, e)
     e = await err(h.act("lock.front_door", "unlock"))
     check("lock won't unlock without confirm", isinstance(e, PermissionError) and not h.ha.calls, e)
-    await h.act("cover.garage_door", "open", confirm=True)
-    check("confirmed garage open uses cover.open_cover", h.ha.calls[-1][:2] == ("cover", "open_cover"), h.ha.calls)
-    await h.act("lock.front_door", "lock", confirm=True)
-    check("confirmed lock uses lock.lock", h.ha.calls[-1][:2] == ("lock", "lock"), h.ha.calls)
+    # 0.27: a spoken yes isn't enough for these any more: they need a fresh approval on the phone
+    e = await err(h.act("cover.garage_door", "open", confirm=True))
+    check("a spoken yes can't open the garage (phone approval)", isinstance(e, PermissionError) and not h.ha.calls, e)
+    await h.act("cover.garage_door", "open", approved=True)
+    check("approved garage open uses cover.open_cover", h.ha.calls[-1][:2] == ("cover", "open_cover"), h.ha.calls)
+    await h.act("lock.front_door", "lock", approved=True)
+    check("approved lock uses lock.lock", h.ha.calls[-1][:2] == ("lock", "lock"), h.ha.calls)
     await h.act("cover.blinds", "off")
     check("blinds 'off' closes them (cover has no turn_off)", h.ha.calls[-1][:2] == ("cover", "close_cover"),
           h.ha.calls)
-    e = await err(h.act("lock.front_door", "on", confirm=True))
+    e = await err(h.act("lock.front_door", "on", approved=True))
     check("lock.turn_on (no such service) is refused", isinstance(e, ValueError), e)
 
     # the planner (/api/do) never confirms: a model can't open the garage

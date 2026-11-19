@@ -16,6 +16,7 @@ from .comfort import Comfort
 from .control import Control, quiet_window
 from .body import Body
 from .home import Home, plan_action
+from .approval import Approvals
 from .automations import Engine
 from .journal import Journal
 from .calendars import Calendars
@@ -143,6 +144,8 @@ class App:
                                              if m.get("price_in") is not None and m.get("price_out") is not None})
         models_mod.USAGE = self.usage.record
         self.updater = Updater(self.mind.store, self.opts.get("update_url"))
+        self.decisions = None       # the decision log (decisions.py), started with the house in setup
+        self.measure = None         # scorecard, shadow, labelling, burden (measure.py), started with the log
         self.mcp = MCP(self)
         self.ha = None
         self.comfort = None
@@ -184,6 +187,8 @@ class App:
         st = tz.status()
         (log.info if st["ok"] else log.warning)("time zone %s (UTC%s)%s", st["time_zone"], st["utc_offset"],
                                                 f": {st['problem']}" if st["problem"] else "")
+        self.ha.user_token = (self.opts.get("ha_user_token") or "").strip()
+        self.ha.user_url = (self.opts.get("ha_url") or "").strip() or "http://homeassistant:8123"
         self.ha.quiet = quiet_window(self.opts)
         self.ha.cap = int(self.opts.get("notify_daily_cap") or 0)
         from .tokens import Tokens
@@ -224,6 +229,31 @@ class App:
         if self.opts.get("use_preferences", True) is not False:
             self.home.prefs = self.prefs
         self.engine = Engine(self.mind.store, self.ha, DATA)
+        self._start_decisions()
+        self.approvals = Approvals()
+        from .modes import Modes, Warm
+        from .nowboard import NowBoard
+        from .worsening import Worsening
+        self.warm = Warm(self.models)
+        self.modes = Modes(self, self.mind.store, self.warm)
+        self.board = NowBoard(self.mind.store)
+        self.mind.board = self.board
+        self.worsening = Worsening(self.mind.store)
+        from .learned import Learned
+        em = self.opts.get("embed_model") or ""
+        self.learned = Learned(self.mind.store, self.home, embed=(
+            (lambda texts: self.models.get(em).embed(texts)) if em else None))
+        from .day import Day
+        self.day = Day(self.mind.store)
+        self.ha.day = self.day           # the day's ask budget and rough-day quiet (ha.push)
+        from .day import AskBatch
+        self.ha.batcher = AskBatch(self.mind.store)      # routine notices wait for the morning check-in
+        self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
+            lambda d: self.on_day_tap(d.get("action")))
+        self.home.on_tell = self.tell_after
+        self.mind.on_red_flag = self.on_red_flag
+        self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
+            lambda d: self.on_approval(d.get("action")))
         self.mind.FALLBACK = list(self.opts.get("fallback") or [])
         self.mind.CONTROL_MODEL = self.opts.get("control_model") or None
         self.mind.ROUTER = self.opts.get("router", True) is not False
@@ -256,6 +286,8 @@ class App:
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False
+        self.morning.day = getattr(self, "day", None)
+        self.morning.batch = getattr(self.ha, "batcher", None)
         self.morning.checkin_on = self.opts.get("checkin_old_facts", True) is not False
         self.morning.checkin_days = int(self.opts.get("checkin_after_days") or 180)
         self.evening = Evening(self.mind.store, self.ha, self.opts.get("evening_time") or "21:00",
@@ -321,6 +353,9 @@ class App:
             self.tasks.append(asyncio.create_task(self.telegram.run_forever()))      # #52
         if self.ha.available:
             self.tasks.append(asyncio.create_task(self.engine.run_forever()))
+        if getattr(self, "warm", None) is not None:
+            self.tasks.append(asyncio.create_task(self.warm.run_forever(
+                lambda: [self.modes.local_planner(), self.modes.local_chat()])))
         log.info("Home Mind %s up on port %s (bridge: %s)", VERSION, PORT, self.bridge)
 
     async def on_stop(self, _app):
@@ -332,6 +367,47 @@ class App:
             # seconds after SIGTERM (config.yaml timeout), so the whole shutdown has to fit inside it.
             await asyncio.wait(live, timeout=TASKS_GRACE)
         await self.models.stop()
+
+    def _start_decisions(self):
+        """The decision log (decisions.py, its own file log.db): every action, refused ones too, with what should
+        happen; outcomes are checked from the engine's event stream and by the upkeep loop's sweep."""
+        from .decisions import DecisionLog
+        try:
+            self.decisions = DecisionLog(os.path.join(DATA, "log.db"))
+        except Exception:  # noqa: BLE001 - without the log the house still works
+            log.exception("decision log not started")
+            self.decisions = None
+        self.home.call_service = self._call_service
+        self.home.live = lambda e: self.engine.states.get(e) if getattr(self.engine, "_ws", None) else None
+        if self.decisions is None:
+            return
+        self.home.decisions = self.decisions
+        self.engine.decisions = self.decisions
+        self.ha.on_push = lambda tier: self.decisions.count("asks") if tier != "safety" else None
+        from .measure import Measure
+        rate = self.opts.get("shadow_rate")
+        self.measure = Measure(self, rate=0.1 if rate in (None, "") else rate)
+        self.engine.state_listeners.append(self.decisions.on_state)
+
+    async def _call_service(self, domain, service, data):
+        """Service calls for the decision log: over the websocket when it is connected (its answer always carries
+        the call's context id), else REST (whose answer carries it when a state changed)."""
+        from .ha import guard
+        guard(domain, service, data, approved=True)      # Home.act's checks (and any phone approval) have passed
+        if getattr(self.engine, "_ws", None) and not self.ha.user_token:
+            try:
+                res = await self.engine.ws_call({"type": "call_service", "domain": domain, "service": service,
+                                                 "service_data": data})
+            except RuntimeError as e:
+                if "not connected" not in str(e):
+                    return 400, None, None          # Home Assistant refused it (act() reports the failure)
+            else:
+                return 200, ((res or {}).get("context") or {}).get("id"), None
+        return await self.ha.call_ctx(domain, service, data, approved=True)
+
+    async def _state_for_check(self, eid):
+        s = self.engine.states.get(eid) if getattr(self.engine, "_ws", None) else None
+        return s if s is not None else await self.ha.state(eid)
 
     def _fix_kg_backfill(self):
         """0.8.x filed the scale's early kilogram readings with 'lb'. Rewrite them once, converted."""
@@ -374,6 +450,8 @@ class App:
         if n:
             log.info("marked %d older notes as secret", n)
 
+    HANDOFF_SECONDS = 6          # by voice, an answer not ready by then goes to the person's phone instead
+    HANDOFF_LATE = 60            # ... and is given this long to finish
     # a lock, alarm or garage door asked for in words waits for a spoken "yes" in the same conversation for this long
     PENDING_SECONDS = 30
     YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|confirm(?:ed)?|do it|go ahead|please do|affirmative)\b"
@@ -398,12 +476,14 @@ class App:
             return None
         if self.YES.match(said):
             plans = p.get("plans") or [p["plan"]]
+            whys = p.get("whys") or [p.get("why")] * len(plans)
             done, errs = [], []
             batch = f"yes:{time.time()}"
-            for plan in plans:
+            for plan, why in zip(plans, whys):
                 try:
                     done.append(await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"),
-                                                    p["source"], confirm=True, batch=batch))
+                                                    p["source"], confirm=True, batch=batch,
+                                                    why=dict(why or {}, confirmed=True)))
                 except (ValueError, PermissionError) as e:
                     errs.append(str(e))
             if errs and not done:
@@ -426,6 +506,31 @@ class App:
         r = await self.pending_reply(conversation_id, text)
         if r is not None:
             return r
+        from . import redflags
+        flag = redflags.check(text)
+        if flag:
+            hook = getattr(self, "on_red_flag", None)
+            if hook:
+                try:
+                    await hook(flag, text, None, conversation_id, source)
+                except Exception:  # noqa: BLE001
+                    log.exception("red flag notice")
+            return {"answer": flag.reply, "red_flag": flag.kind}
+        c = self.checkin_reply(text) if hasattr(self, "checkin_reply") else None
+        if c:
+            return c
+        from . import conversation as conv
+        if conv.UNDO.match(text or "") and getattr(self, "decisions", None) is not None:
+            return await conv.undo(self, conversation_id, source)
+        if getattr(self, "decisions", None) is not None:
+            w = conv.why(self, text)
+            if w:
+                return w
+        task = conv.help_request(text)
+        if task and getattr(self, "mind", None) is not None:
+            r = await self.mind.ask(conv.HELP_PROMPT + task, voice=bool(deadline))
+            return dict(r, help=True)
+        t0 = time.monotonic()
         if not self.home.catalog:
             await self.home.refresh()
         opts = getattr(self, "opts", None) or {}
@@ -446,10 +551,34 @@ class App:
                         named = text[:g.start()] + (sub[one[0]].get("name") or one[0]) + text[g.end():]
                         steps = planner.plan(named, sub, self.home.allowed)
                 if steps and all(s.get("entity_id") for s in steps):
-                    return dict(await self._run_steps(steps, text, source, conversation_id, "rules"), room=room)
+                    res = dict(await self._run_steps(steps, text, source, conversation_id, "rules", t0=t0), room=room)
+                    getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+                    return res
             steps = planner.plan(text, self.home.catalog, self.home.allowed)
             if steps:
-                return await self._run_steps(steps, text, source, conversation_id, "rules")
+                res = await self._run_steps(steps, text, source, conversation_id, "rules", t0=t0)
+                getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+                return res
+        lr = getattr(self, "learned", None)
+        if lr is not None and not model:
+            m = await lr.reflex(text)
+            if m and not m.get("audit"):
+                # a trusted template: no model call (it still goes through every check in _run_plan / Home.act)
+                plan = dict(m["plan"], confidence=m["sim"])
+                res = await self._run_plan(plan, text, source, conversation_id, t0=t0)
+                getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+                return res
+            if m and m.get("audit"):
+                # about 1 in 20: planned the usual way instead, and the template is judged against it
+                plan = await self.plan_only(text, reflex=False)
+                from .replay import same_action
+                ok = bool(plan.get("entity_id")) and same_action(plan, m["plan"])
+                lr.evidence(m["record"], ok, "" if ok else "an audit disagreed")
+                res = await self._run_plan(dict(plan, audit_of=m["record"]["id"]), text, source, conversation_id, t0=t0)
+                getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+                return res
+        if getattr(self, "modes", None) is not None and not model:
+            return await self._do_by_mode(text, source, conversation_id, deadline, t0)
         names = [n for n in self.models.models if n != "mock"]
         local = opts.get("control_model") or ""
         things = self.home.controllable()
@@ -462,7 +591,9 @@ class App:
                     return {"plan": r, "answer": "Which one: " + ", ".join(r["which"]) + "?", "which": r["which"]}
                 if r.get("answer"):
                     return r
-                return await self._run_plan(plan, text, source, conversation_id)
+                res = await self._run_plan(plan, text, source, conversation_id, t0=t0)
+                getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+                return res
             names = [n for n in names if n != local]          # not a command for it: the general model decides
         model = model or ("haiku" if "haiku" in names else names[0] if names else None)
         if not model:
@@ -473,9 +604,108 @@ class App:
         except asyncio.TimeoutError:
             return {"error": "the model took too long; nothing was done",
                     "answer": "Sorry, that took too long, so I didn't do anything."}
+        plan.setdefault("by", model)
         if plan.get("actions"):
-            return await self._run_steps(plan["actions"], text, source, conversation_id, model)
-        return await self._run_plan(plan, text, source, conversation_id)
+            res = await self._run_steps(plan["actions"], text, source, conversation_id, model, t0=t0)
+        else:
+            res = await self._run_plan(plan, text, source, conversation_id, t0=t0)
+        getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+        return res
+
+    async def _do_by_mode(self, text, source, conversation_id, deadline, t0):
+        """Planning by model mode (modes.py): the local model for the kinds it has earned, the cloud model for the
+        rest (the local plan kept beside it as a comparison), private = local only. Then confidence: below the line,
+        the cloud model gets a say, else Home Mind asks back."""
+        from .modes import confidence, kind_of
+        modes = self.modes
+        mode = modes.mode(None)
+        local, cloud = modes.local_planner(), modes.cloud()
+        local_ok = bool(local) and modes.is_warm(local)
+        if mode == "private" and not local_ok:
+            return {"error": "private mode, and the local model isn't awake",
+                    "answer": "In private mode I only use the computer at home, and it's asleep right now, so I "
+                              "didn't do anything."}
+
+        async def by_cloud():
+            coro = plan_action(self.models.get(cloud), text, self.home.controllable())
+            p = await (asyncio.wait_for(coro, deadline) if deadline else coro)
+            p.setdefault("by", cloud)
+            return p
+        lp = {}
+        if local_ok and mode != "cloud":
+            lp = await self.local_plan(local, text, deadline)
+            if lp:
+                modes.warm.saw(local) if modes.warm else None
+            if lp.get("which"):
+                return {"plan": lp, "answer": "Which one: " + ", ".join(lp["which"]) + "?", "which": lp["which"]}
+            if lp.get("answer"):
+                return lp
+        try:
+            if lp.get("entity_id") and (mode == "private" or not cloud or modes.earned(kind_of(lp))):
+                plan, other = lp, None
+            elif cloud and mode != "private":
+                plan, other = await by_cloud(), (lp if lp.get("entity_id") else None)
+            else:
+                return {"error": "nothing on the control list fits", "plan": lp}
+            if plan.get("actions"):
+                # the cloud model planned several actions ("lights off and lock up"): each one goes through
+                # _run_plan's checks and the safety ladder, as the rules' several actions do
+                res = await self._run_steps(plan["actions"], text, source, conversation_id, plan.get("by"), t0=t0)
+                getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+                return res
+            conf, why = confidence(self.home, text, plan, getattr(self, "decisions", None))
+            if plan.get("entity_id") and conf < modes.dial() and plan.get("by") == local and cloud and \
+                    mode != "private":
+                other, plan = plan, await by_cloud()        # unsure on the local model: the cloud model decides
+                conf, why = confidence(self.home, text, plan, getattr(self, "decisions", None))
+        except asyncio.TimeoutError:
+            return {"error": "the model took too long; nothing was done",
+                    "answer": "Sorry, that took too long, so I didn't do anything."}
+        plan["confidence"] = conf
+        if plan.get("entity_id") and conf < modes.dial():
+            plan["unsure"], plan["unsure_why"] = True, why
+        if other is not None:
+            plan["compared"] = True
+        res = await self._run_plan(plan, text, source, conversation_id, t0=t0)
+        m = getattr(self, "measure", None)
+        if other is not None and m is not None:
+            m.record_pair((res.get("done") or {}).get("decision_id"), plan, other)
+        getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+        return res
+
+    async def plan_only(self, text, model=None, reflex=True, include=()):
+        """What do() would plan for these words, without acting (replay), in the order do() uses: the rules (option
+        rule_planner), a trusted template (and, for the nightly gate, provisional ones in `include`), then the local
+        control model when set, then the general model."""
+        if not self.home.catalog:
+            await self.home.refresh()
+        opts = getattr(self, "opts", None) or {}
+        if not model and opts.get("rule_planner", True) is not False:
+            from . import planner
+            steps = planner.plan(text, self.home.catalog, self.home.allowed)
+            if steps:
+                steps = [dict(s, by="rules") for s in steps]
+                return steps[0] if len(steps) == 1 else {"actions": steps, "by": "rules"}
+        lr = getattr(self, "learned", None)
+        if lr is not None and reflex and not model:
+            from .learned import REFLEX_SIM, REFLEX_MARGIN
+            m = await lr.match(text, statuses=("trusted", "provisional"))
+            if m and m["named"] and m["sim"] >= REFLEX_SIM and m["margin"] >= REFLEX_MARGIN and \
+                    (m["record"]["status"] == "trusted" or m["record"]["id"] in include):
+                return m["plan"]
+        names = [n for n in self.models.models if n != "mock"]
+        local = opts.get("control_model") or ""
+        if local and local in self.models.models and not model:
+            r = await self.local_plan(local, text)
+            if r.get("entity_id") or r.get("which") or r.get("answer"):
+                return r
+            names = [n for n in names if n != local]
+        model = model or ("haiku" if "haiku" in names else names[0] if names else None)
+        if not model:
+            raise RuntimeError("no model connected")
+        plan = await plan_action(self.models.get(model), text, self.home.controllable())
+        plan.setdefault("by", model)
+        return plan
 
     def room_for(self, text, area):
         """The room to keep a command to: where it was said, unless the words name a room (or the whole house)."""
@@ -498,7 +728,7 @@ class App:
             what = f"{v}%" if a in ("brightness", "speed", "humidity") and v is not None else f"{a} {v}".strip()
         return f"{name} {what}"
 
-    async def _run_steps(self, steps, text, source, conversation_id, by):
+    async def _run_steps(self, steps, text, source, conversation_id, by, t0=None):
         """Several actions from one request ("lights off and lock up"). A "which one?" anywhere asks first and does
         nothing. The ordinary ones run; locks, alarms and garage doors among them wait for one yes together."""
         ask = next((s for s in steps if s.get("which")), None)
@@ -507,21 +737,35 @@ class App:
                     "answer": f"Which {ask.get('device') or 'one'}: " + ", ".join(ask["which"]) + "?"}
         steps = [dict(s, by=by) for s in steps if s.get("entity_id")]
         if len(steps) == 1:
-            return await self._run_plan(steps[0], text, source, conversation_id)
-        sens = [s for s in steps if s["entity_id"] in self.home.catalog and self.home.allowed(s["entity_id"])
-                and self.home.sensitive(s["entity_id"])]
+            return await self._run_plan(steps[0], text, source, conversation_id, t0=t0)
+        def need(s):
+            eid = s["entity_id"]
+            if not (eid in self.home.catalog and self.home.allowed(eid)):
+                return "open"
+            if hasattr(self.home, "level"):          # the safety ladder: phone > confirm (a spoken yes) > open
+                return self.home.level(eid, s.get("action"), s.get("value"))[0]
+            return "confirm" if self.home.sensitive(eid) else "open"
+        # the ones needing a spoken yes wait for one yes together; phone-level ones (locks, garage doors, heaters)
+        # each go through _run_plan, which sends a phone approval; the rest run now
+        sens = [s for s in steps if need(s) == "confirm"]
         results, said = [], []
         batch = f"{time.time()}:{id(steps)}"         # one request: counts once against the actions-per-minute limit
         for s in steps:
             if s in sens:
                 continue
-            r = await self._run_plan(s, text, source, conversation_id, batch)
+            r = await self._run_plan(s, text, source, conversation_id, batch=batch, t0=t0)
             results.append(r)
             if r.get("done"):
                 said.append(self._said(s))
         errors = [r["error"] for r in results if r.get("error")]
         out = {"steps": steps, "by": by, "results": results, "done": [r["done"] for r in results if r.get("done")]}
         answer = ("Done: " + ", ".join(said) + ".") if said else ""
+        sent = [r for r in results if r.get("approval_sent")]
+        if sent:
+            out["approvals"] = [r["approval_id"] for r in sent]
+            names = [(self.home.catalog.get(r["plan"]["entity_id"]) or {}).get("name") or r["plan"]["entity_id"]
+                     for r in sent]
+            answer += (" " if answer else "") + f"I've sent a request to your phone for the {', '.join(names)}."
         if errors:
             out["error"] = "; ".join(errors)
             answer += (" " if answer else "") + f"{len(errors)} didn't work."
@@ -532,7 +776,9 @@ class App:
             if conversation_id:
                 pend = self.__dict__.setdefault("_pending", {})
                 pend[conversation_id] = {"plans": sens, "plan": sens[0], "t": time.time(), "source": source,
-                                         "name": ", ".join(names), "verb": " and ".join(verbs)}
+                                         "name": ", ".join(names), "verb": " and ".join(verbs),
+                                         "whys": [decision_why(getattr(self, "opts", None), s, text, source,
+                                                               conversation_id, t0) for s in sens]}
                 out["confirm_needed"] = True
                 answer += (" " if answer else "") + f"Do you want me to {what}? Say yes to go ahead."
             else:
@@ -541,6 +787,42 @@ class App:
                 answer += (" " if answer else "") + f"I need a yes before I {what}, and I can't take one here."
         out["answer"] = answer.strip()
         return out
+
+    async def _learned_score(self, include):
+        """The house scorecard's rate with trusted templates, plus the provisional ones in `include`: the nightly
+        gate's replay. Model plans are shared between the two runs, so they cost one call per request."""
+        from . import replay as R
+        m = self.measure
+        ids = m.ensure_v1()
+        if not ids:
+            return None
+        cache = self.__dict__.setdefault("_score_cache", {})
+
+        from .learned import REFLEX_SIM, REFLEX_MARGIN
+
+        async def planner(text):
+            mm = await self.learned.match(text, statuses=("trusted", "provisional"))
+            if mm and mm["named"] and mm["sim"] >= REFLEX_SIM and mm["margin"] >= REFLEX_MARGIN and \
+                    (mm["record"]["status"] == "trusted" or mm["record"]["id"] in include):
+                return mm["plan"]
+            if text not in cache:
+                cache[text] = await self.plan_only(text, reflex=False)
+            return cache[text]
+        cs = [c for c in m.cases(ids=ids) if c["kind"] != "device"]
+        rep = await R.replay(self.decisions, planner, cases=cs)
+        n = rep["match"] + rep["override"]
+        if include == () and len(cache) > 500:
+            cache.clear()
+        return (rep["agree"] + rep["override"] - rep["repeats"]) / n if n else None
+
+    async def shadow_plan(self, text, model):
+        """A plan from one named model, for the shadow baseline (measure.py). Never acts."""
+        local = (getattr(self, "opts", None) or {}).get("control_model") or ""
+        if model == local:
+            r = await self.local_plan(local, text)
+            return {k: r.get(k) for k in ("entity_id", "action", "value")} if r else {}
+        plan = await plan_action(self.models.get(model), text, self.home.controllable())
+        return {k: plan.get(k) for k in ("entity_id", "action", "value")}
 
     async def local_plan(self, name, text, deadline=None):
         """The small local control model (option control_model; localctl): one tool call -> a plan, a "which one?",
@@ -563,32 +845,129 @@ class App:
             return {}          # a name it couldn't place: let the general model try with the whole list
         return plan
 
-    async def _run_plan(self, plan, text, source, conversation_id, batch=None):
+    async def _run_plan(self, plan, text, source, conversation_id, batch=None, t0=None):
         """The checks every planned action goes through, whichever model planned it."""
+        why = decision_why(getattr(self, "opts", None), plan, text, source, conversation_id, t0)
         if not plan.get("entity_id"):
             return {"error": "nothing on the control list fits", "plan": plan}
         eid = plan["entity_id"]
-        if eid in self.home.catalog and self.home.allowed(eid) and self.home.sensitive(eid):
+        need = self.home.level(eid, plan.get("action"), plan.get("value"))[0] \
+            if eid in self.home.catalog and self.home.allowed(eid) and hasattr(self.home, "level") else "open"
+        if need == "open" and plan.get("unsure") and eid in self.home.catalog:
+            need = "confirm"            # low confidence (modes.confidence): ask back before acting
+        if need == "phone":
+            return await self.ask_phone(plan, why, source)
+        if need == "confirm":
             name = self.home.catalog[eid].get("name") or eid
             a = (plan.get("action") or "").lower()
-            verb = {"on": "open", "off": "close", "toggle": "open or close"}.get(a, a or "change")
+            verb = self._verb(plan) if hasattr(self, "_verb") else \
+                {"on": "open", "off": "close", "toggle": "open or close"}.get(a, a or "change")
             if conversation_id:
                 pend = self.__dict__.setdefault("_pending", {})
                 for k in [k for k, v in pend.items() if time.time() - v["t"] > 10 * self.PENDING_SECONDS]:
                     pend.pop(k)
                 pend[conversation_id] = {
-                    "plan": plan, "t": time.time(), "source": source, "name": name, "verb": verb}
+                    "plan": plan, "t": time.time(), "source": source, "name": name, "verb": verb, "why": why}
                 return {"plan": plan, "confirm_needed": True,
-                        "answer": f"Do you want me to {verb} the {name}? Say yes to go ahead."}
+                        "answer": (f"Just to check: {verb} the {name}? Say yes to go ahead." if plan.get("unsure")
+                                   else f"Do you want me to {verb} the {name}? Say yes to go ahead.")}
+            if hasattr(self.home, "_log_decision"):
+                self.home._log_decision(eid, plan.get("action"), plan.get("value"), source, why, status="refused",
+                                        reason="needs a yes and there is no conversation to take one")
             return {"plan": plan, "error": f"{eid} is a lock or door: it needs the person's yes, and this request has "
                                            "no conversation_id to take one (or use mind_control with confirm: true)",
                     "answer": f"I need a yes before I {verb} the {name}, and I can't take one here. "
                               "Please use the Home Assistant app for that."}
         try:
             return {"plan": plan, "done": await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"),
-                                                              source, batch=batch)}
+                                                              source, batch=batch, why=why)}
         except (ValueError, PermissionError) as e:
             return {"plan": plan, "error": str(e)}
+
+    async def answer(self, b, scope="admin"):
+        """self question (or a remark) answered: check-in, undo and why first, a "yes" to a pending action, then the
+        brain; by voice, privacy, the 6-second handoff and the check-in question. Shared by /api/ask and the voice
+        agent (/api/converse). b: the request body ({"question", "conversation_id", "voice", "user"...})."""
+        from .tokens import allows
+        t_ask = time.monotonic()
+        if not (b.get("question") or "").strip():
+            raise ValueError("give a question")
+        who, how = self.speaker_for(b)
+        from . import redflags, conversation as conv
+        if not redflags.check(b["question"]):
+            c = self.checkin_reply(b["question"], who or None) if hasattr(self, "checkin_reply") else None
+            if c:
+                return (dict(c, hits=[], model=None))
+            if getattr(self, "decisions", None) is not None:
+                if conv.UNDO.match(b["question"]) and allows(scope, "admin"):
+                    return (dict(await conv.undo(self, b.get("conversation_id"), "voice" if b.get("voice") else "ask"),
+                                  hits=[], model=None))
+                w = conv.why(self, b["question"], who)
+                if w:
+                    return (dict(w, hits=[], model=None))
+            task = conv.help_request(b["question"])
+            if task:
+                b["question"] = conv.HELP_PROMPT + task
+        if self.has_pending(b.get("conversation_id")) and allows(scope, "admin"):
+            # "yes" right after "Do you want me to open the garage door?" (asked by /api/do in this conversation)
+            done = await self.pending_reply(b["conversation_id"], b["question"])
+            if done is not None:
+                return await self._style(dict(done, hits=[], model=None), b["question"], who, bool(b.get("voice")),
+                                         "do")
+        phone = self.phone_of(who) if b.get("voice") and who and hasattr(self, "phone_of") else None
+        ask = self.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
+                         expand=bool(b.get("expand")), voice=bool(b.get("voice")),
+                         deadline=(b.get("deadline") or self.HANDOFF_LATE) if phone else b.get("deadline"),
+                         fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who)
+        if phone:
+            # past HANDOFF_SECONDS by voice: say so, and send the whole answer to the person's phone when it's ready
+            # (design step 19); without a phone the voice deadline and its best-note fallback stand as before
+            task = asyncio.ensure_future(ask)
+            done, _ = await asyncio.wait({task}, timeout=self.HANDOFF_SECONDS)
+            if not done:
+                async def finish():
+                    try:
+                        r = await task
+                        await self.ha.push(phone, {"title": "Home Mind", "message": r.get("answer") or
+                                                "Sorry, I couldn't find an answer."}, tier="important", now=True)
+                    except Exception:  # noqa: BLE001
+                        log.exception("voice handoff")
+                key = f"handoff-{id(task)}"
+                self._bg[key] = asyncio.ensure_future(finish())
+                self._bg[key].add_done_callback(lambda _t, k=key: self._bg.pop(k, None))
+                return ({"answer": "That's taking a moment. I'll send it to your phone.", "handoff": phone,
+                          "hits": [], "model": None})
+            res = task.result()
+        else:
+            res = await ask
+        if who is not None:
+            res["speaker_how"] = how
+        if getattr(self, "decisions", None) is not None:
+            try:
+                fe = b.get("front_end") or ("voice" if b.get("voice") else "api")
+                self.decisions.count("requests")
+                self.decisions.timing("ask", (time.monotonic() - t_ask) * 1000, fe, res.get("model"),
+                                   bool(res.get("fallback")) or res.get("model") in (self.mind.FALLBACK or []))
+                if not res.get("answer") or res.get("weak"):
+                    self.decisions.count("abstains")
+            except Exception:  # noqa: BLE001
+                log.exception("measure")
+        if b.get("voice") and who and not res.get("red_flag") and hasattr(self, "private_by_voice"):
+            res = await self.private_by_voice(res, who)
+        if b.get("voice") and not res.get("red_flag") and getattr(self, "day", None) is not None:
+            from .day import QUESTION, DAY_STARTS
+            # the check-in starts when the person first speaks, never as an alarm: once, after what they asked
+            if self.day.get(who or None) == "unknown" and datetime.now().hour >= DAY_STARTS and \
+                    not self.day.asked(who or None):
+                res["answer"] = f"{(res.get('answer') or '').rstrip()} {QUESTION}".strip()
+                res["checkin_asked"] = True
+        res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
+        return await self._style(res, b["question"], who, bool(b.get("voice")))
+
+    async def _style(self, res, *a):
+        """The persona (Jeeves) on an answer, when there is one; an app without it answers plainly."""
+        f = getattr(self, "styled", None)
+        return await f(res, *a) if f is not None and getattr(self, "persona", None) is not None else res
 
     async def push_counts(self):
         s = self.mind.store.stats()
@@ -596,6 +975,174 @@ class App:
                              {"friendly_name": "Home Mind items", "icon": "mdi:brain", "unit_of_measurement": "items",
                               "state_class": "measurement", "shelves": s["shelves"], "faded": s["faded"],
                               "versions": s["versions"], "by_kind": s["by_kind"]})
+
+    def _verb(self, plan):
+        a = (plan.get("action") or "").lower()
+        eid = plan.get("entity_id") or ""
+        if eid.split(".")[0] in ("cover",):
+            return {"on": "open", "off": "close", "toggle": "open or close"}.get(a, a or "change")
+        return {"on": "turn on", "off": "turn off"}.get(a, a or "change")
+
+    async def ask_phone(self, plan, why=None, source="api"):
+        """The riskiest actions (locks, garage doors, alarms, heaters): an approval request to the owner's phone.
+        Approve there (Face ID or the passcode) within 2 minutes and it is done; nothing else can do it."""
+        eid = plan["entity_id"]
+        name = (self.home.catalog.get(eid) or {}).get("name") or eid
+        verb = self._verb(plan)
+        target = (self.opts.get("approval_phone") or "").strip() or await self.morning._phone()
+        if not target:
+            self.home._log_decision(eid, plan.get("action"), plan.get("value"), source, why, status="refused",
+                                    reason="needs phone approval and no phone is set up")
+            return {"plan": plan, "error": "phone approval needed and no phone is set up (option approval_phone)",
+                    "answer": f"I need an OK on your phone before I {verb} the {name}, and I can't reach a phone. "
+                              "Please use the Home Assistant app."}
+        aid = self.approvals.new(plan, why, source, name, verb)
+        who = (why or {}).get("person") or source
+        await self.ha.push(target, Approvals.message(aid, name, verb, who), tier="important", now=True)
+        self.home._log_decision(eid, plan.get("action"), plan.get("value"), source, why, status="awaiting",
+                                reason=f"phone approval {aid} sent to {target}")
+        return {"plan": plan, "approval_sent": True, "approval_id": aid,
+                "answer": f"I've sent a request to your phone. Approve it there and I'll {verb} the {name}."}
+
+    async def on_approval(self, action):
+        """An answer from the phone (mobile_app_notification_action): HM_APPROVE_<id> does it, HM_DENY_<id> drops it.
+        An unknown, used or expired id does nothing."""
+        m = re.fullmatch(r"HM_(APPROVE|DENY)_([0-9a-f]{12})", str(action or ""))
+        if not m:
+            return None
+        p = self.approvals.take(m.group(2))
+        if not p:
+            return {"expired": True}
+        plan = p["plan"]
+        if m.group(1) == "DENY":
+            self.home._log_decision(plan["entity_id"], plan.get("action"), plan.get("value"), p["source"], p["why"],
+                                    status="refused", reason="denied on the phone")
+            return {"denied": True}
+        try:
+            done = await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"), p["source"],
+                                       why=dict(p["why"] or {}, channel=(p["why"] or {}).get("channel") or p["source"]),
+                                       approved=True)
+        except (ValueError, PermissionError) as e:
+            await self.ha.notify("Home Mind", f"I couldn't {p['verb']} the {p['name']}: {e}", "home_mind_approval")
+            return {"error": str(e)}
+        await self.ha.notify("Home Mind", f"Done: {p['verb']} the {p['name']}.", "home_mind_approval")
+        return {"done": done}
+
+    async def act_checked(self, entity_id, action, value=None, source="api", confirm=False, why=None):
+        """For callers that name the device themselves (/api/home/act, MCP mind_control): an action that needs the
+        phone sends the request instead of failing."""
+        from .approval import ApprovalNeeded, PHONE
+        try:
+            return await self.home.act(entity_id, action, value, source, confirm=confirm, why=why)
+        except ApprovalNeeded as e:
+            if e.level != PHONE:
+                raise
+            eid = entity_id if entity_id in self.home.catalog else (self.home.matching(entity_id, 1) or [entity_id])[0]
+            return await self.ask_phone({"entity_id": eid, "action": action, "value": value}, why, source)
+
+    async def on_red_flag(self, flag, text, speaker=None, conversation_id=None, source="ask"):
+        """A red flag was answered: logged (an event, with its kind only, never the words), and the safety contact
+        is told for emergency, double dose and decline if the person chose that (option safety_contact)."""
+        self.mind.store.log("red_flag", kind=flag.kind, speaker=speaker or "", source=source)
+        target = (self.opts.get("safety_contact") or "").strip()
+        if target and flag.notify:
+            who = speaker or "Someone at home"
+            what = {"emergency": "may need emergency help", "double_dose": "may have taken a double dose",
+                    "decline": "described a big change in how they're managing"}[flag.kind]
+            await self.ha.push(target, {"title": "Home Mind: please check in", "message": f"{who} {what}. "
+                                        "Home Mind told them where to get help. Please check on them."}, tier="safety")
+
+    def checkin_reply(self, text, person=None):
+        """A check-in answer ("rough", "having a low day", or "good" right after the question): recorded, with the
+        day's reply. None if it isn't one."""
+        day = getattr(self, "day", None)
+        if day is None:
+            return None
+        from .day import parse, REPLIES
+        state = parse(text, expecting=day.expecting(person))
+        if not state:
+            return None
+        day.set(state, person, how="said")
+        return {"answer": REPLIES[state], "checkin": state}
+
+    async def on_day_tap(self, action):
+        """Good / Low / Rough tapped on the morning notification."""
+        import re as _re
+        m = _re.fullmatch(r"HM_DAY_(GOOD|LOW|ROUGH)", str(action or ""))
+        if not m or getattr(self, "day", None) is None:
+            return None
+        return self.day.set(m.group(1).lower(), None, how="tap")
+
+    def _measure_do(self, res, text, source, t0):
+        """Phase 4: count the request, its time, an abstain ("nothing fits"), and maybe shadow it."""
+        dlog = getattr(self, "decisions", None)
+        if dlog is None:
+            return
+        try:
+            dlog.count("requests")
+            if "steps" in res:      # several actions, or a "which one?" (the rules / multi-action path): no shadow
+                dlog.timing("do", (time.monotonic() - t0) * 1000, source, res.get("by"))
+                if not res.get("which") and not any(s.get("entity_id") for s in res.get("steps") or []):
+                    dlog.count("abstains")
+                return
+            plan = res.get("plan") or {}
+            dlog.timing("do", (time.monotonic() - t0) * 1000, source, plan.get("by"))
+            if not plan.get("entity_id"):
+                dlog.count("abstains")
+            m = getattr(self, "measure", None)
+            if m is not None and plan.get("entity_id") and not plan.get("compared"):
+                did = (res.get("done") or {}).get("decision_id")
+                m.maybe_shadow(text, plan, did)
+        except Exception:  # noqa: BLE001 - measuring never gets in the way of the answer
+            log.exception("measure")
+
+    def phone_of(self, person):
+        """A person's phone (option people: notify), or None."""
+        for p in self.people():
+            if person and p["name"].lower() == str(person).lower() and p.get("notify"):
+                t = p["notify"]
+                return t if "." in t else "notify." + t
+        return None
+
+    def alone(self, person):
+        """Is the person the only one home? From person entities; with none known, not alone (be careful)."""
+        persons = {e: (c.get("state") or "") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
+        if not persons:
+            return False
+        return sum(1 for s in persons.values() if s == "home") <= 1
+
+    async def private_by_voice(self, res, person):
+        """Who may hear it (design step 18): an answer drawn from someone's personal notes is spoken only when they
+        were recognised and are alone; otherwise "you have a private note", sent to their phone if there is one."""
+        st = self.mind.store
+        private = False
+        for h in res.get("hits") or []:
+            d = st.get(h["id"]) if h.get("id") else None
+            if d and (d.get("meta") or {}).get("scope") == "personal":
+                private = True
+                break
+        if not private or self.alone(person):
+            return res
+        phone = self.phone_of(person)
+        if phone:
+            await self.ha.push(phone, {"title": "Home Mind (private)", "message": res.get("answer") or ""},
+                               tier="important", now=True)
+            return dict(res, answer="You have a private note. I've sent it to your phone.", private=True,
+                        sent_to=phone)
+        return dict(res, answer="That's in your private notes, and you're not on your own. Ask me when you are, "
+                                "or look in Home Mind on your phone.", private=True)
+
+    async def tell_after(self, r):
+        """"Tell me after": a short notice once it's done."""
+        target = (self.opts.get("approval_phone") or "").strip() or await self.morning._phone()
+        did = {"turn_on": "turned on", "turn_off": "turned off", "toggle": "switched", "open_cover": "opened",
+               "close_cover": "closed", "set_percentage": "set the speed of", "set_humidity": "set the humidity of",
+               "lock": "locked", "unlock": "unlocked"}.get(r["service"].split(".")[1], "changed")
+        msg = f"I {did} the {r['name']}."
+        if target:
+            await self.ha.push(target, {"title": "Home Mind", "message": msg}, tier="routine")
+        else:
+            await self.ha.notify("Home Mind", msg, "home_mind_tell")
 
     async def test_done(self, run):
         if run["status"] != "done":
@@ -637,6 +1184,83 @@ class App:
         if rep and self.ha.available and not rep.get("told"):
             rep["told"] = True
             await self.ha.notify("Home Mind: database restored", rep["message"], "home_mind_db")
+        if now - last.setdefault("safety", now - 86400 + 300) > 86400:
+            last["safety"] = now          # the daily safety suite: first 5 minutes after start, then every day
+            from . import safety
+            res = await safety.run_and_report(self)
+            log.info("safety suite: %s (%d passed, %d failed)", "pass" if res["ok"] else "FAIL", res["passed"],
+                     len(res["failed"]))
+        board = getattr(self, "board", None)
+        if board is not None:
+            try:
+                board.refresh(self)
+            except Exception:  # noqa: BLE001
+                log.exception("now board")
+        wo = getattr(self, "worsening", None)
+        if wo is not None and now - last.setdefault("worsening", 0) > 86400 and datetime.now().hour >= 10:
+            last["worsening"] = now      # once a day, mid-morning: yesterday's values, then the trend
+            try:
+                wo.collect(self)
+                r = wo.check()
+                if r.get("alarm"):
+                    from .worsening import MESSAGE
+                    target = (self.opts.get("approval_phone") or "").strip() or await self.morning._phone()
+                    await self.ha.notify("Home Mind", MESSAGE, "home_mind_worsening")
+                    if target:
+                        await self.ha.push(target, {"title": "Home Mind", "message": MESSAGE}, tier="important")
+                    log.info("worsening alarm: %s", {k: r[k] for k in ("rough", "fog")})
+            except Exception:  # noqa: BLE001
+                log.exception("worsening")
+        lr = getattr(self, "learned", None)
+        if lr is not None and getattr(self, "decisions", None) is not None and now - last.get("learn", 0) > 600:
+            last["learn"] = now          # every 10 minutes: settled house requests -> evidence and shadow templates
+            try:
+                got = lr.learn_from(self.decisions)
+                if got["created"] or got["evidence"]:
+                    log.info("learned: %s", got)
+            except Exception:  # noqa: BLE001
+                log.exception("learned")
+        if lr is not None and getattr(self, "measure", None) is not None and \
+                datetime.now().hour == 3 and now - last.get("learned_night", 0) > 20 * 3600:
+            last["learned_night"] = now  # the nightly gate: promotions checked by replay
+            try:
+                r = await lr.nightly(self.decisions, self._learned_score)
+                log.info("learned, nightly: %s", {k: v for k, v in r.items() if k != "waiting"})
+            except Exception:  # noqa: BLE001
+                log.exception("learned nightly")
+        mo = getattr(self, "modes", None)
+        if mo is not None and getattr(self, "measure", None) is not None and \
+                now - last.setdefault("modes", now - 86400 + 3600) > 86400:
+            last["modes"] = now          # once a day: propose kinds the local model has earned, demote failures
+            try:
+                ch = mo.review(self.measure)
+                if ch["proposed"]:
+                    self.ha.batcher.add("The home computer could handle more", "It got " + ", ".join(
+                        ch["proposed"]) + " right nearly every time lately. You can let it take these over "
+                        "(Home Mind: model modes).") if getattr(self.ha, "batcher", None) else None
+                if ch["proposed"] or ch["demoted"]:
+                    log.info("model modes: %s", ch)
+            except Exception:  # noqa: BLE001
+                log.exception("model modes")
+        m = getattr(self, "measure", None)
+        if m is not None and now - last.setdefault("weekly", now - 7 * 86400 + 1800) > 7 * 86400:
+            last["weekly"] = now        # the weekly replay against frozen v1: first 30 minutes after start
+            try:
+                sc = await m.weekly(lambda text: self.plan_only(text),
+                                    notify=lambda t, msg: self.ha.notify(t, msg, "home_mind_scorecard"))
+                log.info("weekly scorecard: %s", {k: v.get("verdict") for k, v in sc["sections"].items()})
+            except Exception:  # noqa: BLE001
+                log.exception("weekly scorecard")
+        if getattr(self, "decisions", None) is not None:
+            try:
+                await self.decisions.sweep(self._state_for_check)      # outcomes that are due (every 20 s)
+                if now - last.get("prune", 0) > 86400:
+                    last["prune"] = now
+                    n = self.decisions.prune()
+                    if n:
+                        log.info("decision log: %d old decisions dropped", n)
+            except Exception:  # noqa: BLE001
+                log.exception("decision log sweep")
         if self.ha.available and self.mind.home and now - last["home"] > 300:
             last["home"] = now
             if now - last.get("areas", 0) > 1800:
@@ -697,7 +1321,7 @@ class App:
                     try:
                         await self.ha.notify(title, msg, "home_mind_house")
                         if target:
-                            await self.ha.push(target, {"title": title, "message": msg})
+                            await self.ha.push(target, {"title": title, "message": msg}, batch=True)
                     except Exception as e:  # noqa: BLE001
                         log.warning("house notice: %s", e)
         if now - last.get("docs", 0) > 3600:
@@ -961,6 +1585,15 @@ class App:
             log.warning("persona: %s", e)
             return res
 
+    def panel_person(self, user_id):
+        """The person signed in to Home Assistant who opened the panel (ingress sends X-Remote-User-Id), or None."""
+        from .speakers import resolve
+        try:
+            name, _ = resolve(self.people(), user=user_id)
+        except Exception:  # noqa: BLE001
+            return None
+        return name
+
     def speaker_for(self, b):
         """From a request body: (viewer, how). viewer None = no speaker information given (sees everything) unless
         option unknown_caller is "guest"; "" = unknown; else a name."""
@@ -1079,6 +1712,18 @@ def check_types(b, types):
     return b
 
 
+def decision_why(opts, plan, text, source, conversation_id, t0=None):
+    """How a planned action was decided, for the decision log: the words, the channel, which model planned it
+    (the local control model or a general one) and how long planning took."""
+    local = (opts or {}).get("control_model") or ""
+    by = plan.get("by")
+    return {"request": text, "channel": source, "conversation_id": conversation_id, "model": by,
+            "route": "reflex" if by == "reflex" else "local" if local and by == local else "cloud" if by else None,
+            **({"records": plan["records"]} if plan.get("records") else {}),
+            "latency_ms": round((time.monotonic() - t0) * 1000) if t0 else None,
+            **({"confidence": plan["confidence"]} if plan.get("confidence") is not None else {})}
+
+
 async def read_body(req, optional=False, **types):
     """The request's JSON body, which must be an object (a list, a string or no JSON at all is a 400). optional: no
     body (or null) is {}. types: field=str/dict/list/float, see check_types."""
@@ -1128,6 +1773,15 @@ def build(app_state):
         if peer in INGRESS_IPS or (tok and secrets.compare_digest(tok.encode("utf-8", "surrogateescape"),
                                                                   str(app_state.token).encode())):
             request["scope"] = "admin"
+            uid = request.headers.get("X-Remote-User-Id") if peer in INGRESS_IPS else None
+            who = app_state.panel_person(uid) if uid and hasattr(app_state, "panel_person") else None
+            if who:                 # the panel, signed in to Home Assistant as a known person: answered as them
+                from .speakers import VIEWER
+                tv = VIEWER.set(who)
+                try:
+                    return await handler(request)
+                finally:
+                    VIEWER.reset(tv)
             return await handler(request)
         rec = app_state.tokens.check(tok) if tok else None
         if rec:                     # a scoped token (#27)
@@ -1137,9 +1791,10 @@ def build(app_state):
                 return web.json_response({"error": f"this token ({rec['name']}) can {rec['scope']}; this needs {need}"},
                                          status=403)
             request["scope"], request["token"] = rec["scope"], rec
-            if rec.get("person"):   # answered as that person (#48)
+            if rec.get("person") or rec["scope"] != "admin":
+                # answered as that person (#48); a read/write token tied to no one is a guest (household notes only)
                 from .speakers import VIEWER
-                tv = VIEWER.set(rec["person"])
+                tv = VIEWER.set(rec.get("person") or "")
                 try:
                     return await handler(request)
                 finally:
@@ -1390,25 +2045,30 @@ def build(app_state):
     async def models_check(_):
         return J(await A.models.check_all())
 
+    @r.post("/api/converse")
+    async def converse(q):
+        """One voice turn for the bridge's conversation agent: {"text", "conversation_id"?, "user_id"?, "device_id"?,
+        "area"?, "language"?, "front_end"?}. With Accept: application/x-ndjson the answer streams as events (an
+        acknowledgement at 1.5 s, then one sentence at a time); otherwise the events come back together."""
+        from . import voice
+        b = await read_body(q, text=str, conversation_id=str, user_id=str, device_id=str, area=str, language=str,
+                            front_end=str)
+        scope = q.get("scope", "admin")
+        if "ndjson" in (q.headers.get("Accept") or "") and hasattr(web, "StreamResponse"):
+            resp = web.StreamResponse(headers={"Content-Type": "application/x-ndjson", "Cache-Control": "no-cache"})
+            await resp.prepare(q)
+            async for ev in voice.converse(A, b, scope):
+                await resp.write(voice.ndjson(ev))
+            await resp.write_eof()
+            return resp
+        events = [ev async for ev in voice.converse(A, b, scope)]
+        return J(dict(events[-1], events=events[:-1]))
+
     @r.post("/api/ask")
     async def ask(q):
-        b = model_ok(await read_body(q, question=str, conversation_id=str, speaker=str, user=str, deadline=float))
-        if not (b.get("question") or "").strip():
-            raise ValueError("give a question")
-        who, how = A.speaker_for(b)
-        if A.has_pending(b.get("conversation_id")) and allows(q.get("scope", "admin"), "admin"):
-            # "yes" right after "Do you want me to open the garage door?" (asked by /api/do in this conversation)
-            done = await A.pending_reply(b["conversation_id"], b["question"])
-            if done is not None:
-                return J(await styled_(dict(done, hits=[], model=None), b["question"], who, bool(b.get("voice")), "do"))
-        res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
-                               expand=bool(b.get("expand")), voice=bool(b.get("voice")),
-                               deadline=b.get("deadline"), fallback=b.get("fallback", True),
-                               conversation_id=b.get("conversation_id"), speaker=who)
-        if who is not None:
-            res["speaker_how"] = how
-        res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
-        return J(await styled_(res, b["question"], who, bool(b.get("voice"))))
+        b = model_ok(await read_body(q, question=str, conversation_id=str, speaker=str, user=str, deadline=float,
+                                     front_end=str))
+        return J(await A.answer(b, q.get("scope", "admin")))
 
     @r.post("/api/organize")
     async def organize(q):
@@ -1523,10 +2183,264 @@ def build(app_state):
         if not A.home.catalog:
             await A.home.refresh()
         try:
-            return J(await A.home.act(b["entity_id"], b["action"], b.get("value"), b.get("source", "api"),
-                                      confirm=b.get("confirm") is True))
+            return J(await A.act_checked(b["entity_id"], b["action"], b.get("value"), b.get("source", "api"),
+                                         confirm=b.get("confirm") is True))
         except (ValueError, PermissionError) as e:
             return J({"error": str(e)}, status=400)
+
+    @r.get("/api/decisions")
+    async def decisions_list(q):
+        """The decision log: newest first. ?entity_id= ?limit= ?status=done|refused"""
+        if A.decisions is None:
+            return J({"error": "the decision log isn't running"}, status=503)
+        limit = num(q.query.get("limit"), "limit", 50, 1, 500)
+        return J({"decisions": A.decisions.recent(limit, q.query.get("entity_id"), status=q.query.get("status"))})
+
+    @r.get("/api/decisions/stats")
+    async def decisions_stats(q):
+        """Expected versus seen: match, mismatch, unknown and overrides per entity and action. ?days="""
+        if A.decisions is None:
+            return J({"error": "the decision log isn't running"}, status=503)
+        days = num(q.query.get("days"), "days", 0, 0, 3650, float)
+        return J(A.decisions.stats(time.time() - days * 86400 if days > 0 else None))
+
+    @r.get("/api/decisions/profile")
+    async def decisions_profile(q):
+        if A.decisions is None:
+            return J({"error": "the decision log isn't running"}, status=503)
+        return J({"profile": A.decisions.profile(q.query.get("entity_id") or "")})
+
+    @r.post("/api/decisions/freeze")
+    async def decisions_freeze(q):
+        """Keep today's test cases under a name (e.g. "v1") for later replays to compare against."""
+        b = await read_body(q, name=str)
+        if A.decisions is None or not b.get("name"):
+            return J({"error": "needs a name, and the decision log running"}, status=400)
+        return J({"name": b["name"], "cases": A.decisions.freeze(b["name"])})
+
+    @r.get("/api/as_of")
+    async def as_of(q):
+        """A keyed fact at a time: ?key=&at= (seconds or ISO date) &by=valid|recorded. Answered for the viewer."""
+        p = q.query
+        at = p.get("at") or ""
+        try:
+            t = float(at)
+        except ValueError:
+            try:
+                t = datetime.fromisoformat(at).timestamp()
+            except ValueError:
+                raise ValueError("at is seconds since 1970 or an ISO date") from None
+        row = st.as_of(p.get("key", ""), t, p.get("by") or "valid")
+        if row and not seen_id(row["id"]):
+            row = None              # someone else's personal note
+        return J({"fact": row})
+
+    @r.post("/api/today/checkin")
+    async def today_checkin(q):
+        """{"state": good|low|rough, "person"?}: the morning check-in from the panel or an app."""
+        from .speakers import VIEWER
+        b = await read_body(q, state=str, person=str)
+        person = VIEWER.get() or b.get("person") or None
+        A.day.set(b.get("state") or "", person, how="panel")
+        from .day import REPLIES
+        return J({"checkin": b["state"], "answer": REPLIES[b["state"]], "budget": A.day.budget(person)})
+
+    def need_measure():
+        if getattr(A, "measure", None) is None:
+            raise ValueError("measurement isn't running (it needs the decision log)")
+        return A.measure
+
+    @r.get("/api/learned")
+    async def learned_list(q):
+        """What Home Mind has learned about house requests: each template, its status and its evidence."""
+        st_ = q.query.get("status")
+        return J({"templates": [A.learned.describe(r) for r in A.learned.all(st_)]})
+
+    @r.get("/api/learned/match")
+    async def learned_match(q):
+        """Which template these words would match (?q=), and whether it would act as a reflex. Never acts."""
+        mm = await A.learned.match(q.query.get("q", ""), statuses=("trusted", "provisional", "shadow"))
+        if not mm:
+            return J({"match": None})
+        from .learned import REFLEX_SIM, REFLEX_MARGIN
+        return J({"match": A.learned.describe(mm["record"]), "sim": mm["sim"], "margin": mm["margin"],
+                  "named": mm["named"], "plan": mm["plan"],
+                  "would_act": mm["record"]["status"] == "trusted" and mm["named"] and mm["sim"] >= REFLEX_SIM and
+                  mm["margin"] >= REFLEX_MARGIN})
+
+    @r.post("/api/learned/{id}")
+    async def learned_set(q):
+        """A person's say: {"status": "dropped"} (never use it) or "shadow" (back on trial)."""
+        b = await read_body(q, status=str)
+        if b.get("status") not in ("dropped", "shadow"):
+            raise ValueError("status is dropped or shadow")
+        rid = num(q.match_info["id"], "id", 0, 1, 1e12)
+        if not A.learned.get(rid):
+            raise ValueError("no such template")
+        A.learned.set_status(rid, b["status"], "set by a person")
+        return J(A.learned.describe(A.learned.get(rid)))
+
+    @r.get("/api/modes")
+    async def modes_get(_):
+        """Model mode, the confidence line, which local models are awake, kinds earned and proposed."""
+        mo = A.modes
+        return J({"mode": mo.mode(None), "dial": mo.dial(), "local_planner": mo.local_planner(),
+                  "local_model": mo.local_chat(), "cloud": mo.cloud(),
+                  "warm": {n: mo.is_warm(n) for n in (mo.local_planner(), mo.local_chat()) if n},
+                  "earned": sorted(A.mind.store.kv_get(mo.EARNED) or []), "proposed": mo.proposals()})
+
+    @r.post("/api/modes")
+    async def modes_set(q):
+        """{"mode": cloud|balanced|private, "person"?}"""
+        b = await read_body(q, mode=str, person=str)
+        return J({"mode": A.modes.set_mode(b.get("mode") or "", b.get("person"))})
+
+    @r.post("/api/modes/accept")
+    async def modes_accept(q):
+        """Yes to a proposed kind ({"kind": "light.on"}): replayed through the local model first; earned if it
+        passes."""
+        b = await read_body(q, kind=str)
+        local = A.modes.local_planner()
+        if not local:
+            raise ValueError("no local control model is set (option control_model)")
+        return J(await A.modes.accept(b.get("kind") or "", need_measure(),
+                                      lambda text: A.shadow_plan(text, local)))
+
+    @r.get("/api/calibration")
+    async def calibration_get(_):
+        """Confidence against what happened: bins, ECE, and the suggested line."""
+        return J(dict(need_measure().calibration(), line=A.modes.dial()))
+
+    @r.get("/api/now")
+    async def now_get(_):
+        """The now board for the viewer (household entries and their own)."""
+        from .speakers import VIEWER
+        return J({"now": A.board.snapshot(VIEWER.get())})
+
+    @r.post("/api/now/propose")
+    async def now_propose(q):
+        """A model's proposed entry ({"kind": waiting_on|unsure_which|doing|note, "value", "ttl"?, "owner"?}),
+        checked before it is written."""
+        b = await read_body(q, kind=str, value=str, owner=str)
+        return J({"id": A.board.propose(b.get("kind") or "", b.get("value") or "", b.get("owner"),
+                                        num(b.get("ttl"), "ttl", 3600, 60, 86400))})
+
+    @r.get("/api/worsening")
+    async def worsening_get(_):
+        """The worsening alarm's numbers (rough days and fog against your own baseline); doesn't speak."""
+        from .worsening import check_series
+        w = A.worsening
+        return J({"rough": check_series(w.series("rough")), "fog": check_series(w.series("fog")),
+                  "last_alarm": (w._state() or {}).get("last_alarm")})
+
+    @r.get("/api/scorecard")
+    async def scorecard_get(_):
+        """The last scorecard (three sections, never averaged) and the trend against v1's first run."""
+        m = need_measure()
+        last = m.reports("scorecard", "v1", 1)
+        return J({"last": last[0] if last else None, "trend": m.trend("v1")})
+
+    @r.post("/api/scorecard/run")
+    async def scorecard_run(q):
+        """Run the scorecard now (replays the frozen set through the planner; never acts). {"set"?: "v1"}"""
+        b = await read_body(q, optional=True, set=str)
+        return J(await need_measure().scorecard(lambda text: A.plan_only(text), b.get("set") or "v1"))
+
+    @r.get("/api/labels/queue")
+    async def labels_queue(q):
+        """This week's labelling queue (about 15 minutes)."""
+        return J({"queue": need_measure().queue(num(q.query.get("size"), "size", 30, 1, 200))})
+
+    @r.post("/api/labels")
+    async def labels_add(q):
+        """{"decision_id", "label": right|wrong|unsure, "correct"?: {"entity_id", "action", "value"}}"""
+        b = await read_body(q, label=str, correct=dict)
+        from .speakers import VIEWER
+        return J(need_measure().label(num(b.get("decision_id"), "decision_id", 0, 1, 1e12), b.get("label") or "",
+                                      b.get("correct"), VIEWER.get() or "admin"))
+
+    @r.get("/api/labels/agreement")
+    async def labels_agreement(_):
+        return J(need_measure().agreement())
+
+    @r.post("/api/labels/gold")
+    async def labels_gold(_):
+        """Make the gold set (30 labelled cases, re-labelled every quarter) if there isn't one."""
+        return J(need_measure().make_gold())
+
+    @r.get("/api/shadow")
+    async def shadow_get(q):
+        """The shadow baseline: live planner against the other model, win/tie/loss by outcome, cost per correct."""
+        return J(need_measure().shadow_report(num(q.query.get("days"), "days", 30, 1, 365)))
+
+    @r.get("/api/burden")
+    async def burden_get(q):
+        """Per day: asks + corrections + redos, with abstains and requests."""
+        return J({"days": need_measure().burden(num(q.query.get("days"), "days", 14, 1, 90))})
+
+    @r.get("/api/timing")
+    async def timing_get(q):
+        """95th-percentile response time and fallback rate by front end."""
+        return J({"timing": need_measure().timing(num(q.query.get("days"), "days", 7, 1, 90))})
+
+    @r.get("/api/safety")
+    async def safety_get(_):
+        """The last daily safety suite: pass/fail and each check."""
+        return J(getattr(A, "safety_result", None) or {"ok": None, "note": "not run yet (it runs 5 minutes after start)"})
+
+    @r.post("/api/safety/run")
+    async def safety_run(_):
+        from . import safety
+        return J(await safety.run_and_report(A))
+
+    @r.get("/api/access")
+    async def access_get(_):
+        """Device access (none/read/act) and the ladder (ask/tell/do) for every device Home Mind knows, hidden ones
+        included, with changes waiting their 24 hours."""
+        if not A.home.catalog:
+            await A.home.refresh()
+        table, lad = A.home.access.table(), A.home.ladder()
+        out = []
+        for e in sorted(set(A.home.catalog) | set(A.home.hidden)):
+            row = {"entity_id": e, "access": A.home.access_of(e), "level": A.home.level(e)[0],
+                   "ladder": A.home.rung(e)}
+            if (table.get(e) or {}).get("pending"):
+                row["pending"] = {"to": table[e]["pending"], "at": table[e]["effective_at"]}
+            if e in lad:
+                row["ladder_set"] = lad[e]
+            out.append(row)
+        return J({"devices": out})
+
+    @r.post("/api/access")
+    async def access_set(q):
+        """{"entity_id", "access": none|read|act} and/or {"ladder": ask|tell|do}. Stricter access applies now,
+        looser access in 24 hours; every change is announced."""
+        b = await read_body(q, entity_id=str, access=str, ladder=str)
+        eid = (b.get("entity_id") or "").strip()
+        if not re.fullmatch(r"[a-z_]+\.[a-z0-9_]+", eid):
+            raise ValueError("give an entity_id like lock.front_door")
+        out = {"entity_id": eid}
+        if b.get("access"):
+            ch = A.home.access.set(eid, b["access"], by="admin")
+            out["access"] = ch
+            await A.ha.notify("Home Mind: device access changed",
+                              f"{eid}: {ch['from'] or 'default'} → {ch['to']} ({ch['when']}).", "home_mind_access")
+        if b.get("ladder"):
+            out["ladder"] = A.home.set_ladder(eid, b["ladder"])
+        await A.home.refresh()
+        return J(out)
+
+    @r.post("/api/replay")
+    async def replay_run(q):
+        """Replay logged requests through the planner (never acts). {"model"?, "limit"?, "frozen"?: name}"""
+        from . import replay
+        b = model_ok(await read_body(q, frozen=str))
+        if A.decisions is None:
+            return J({"error": "the decision log isn't running"}, status=503)
+        ids = A.decisions.frozen(b["frozen"]) if b.get("frozen") else None
+        limit = num(b.get("limit"), "limit", 200, 1, 1000)
+        rep = await replay.replay(A.decisions, lambda text: A.plan_only(text, b.get("model")), limit=limit, ids=ids)
+        return J(rep)
 
     @r.post("/api/do")
     async def home_do(q):
@@ -1561,6 +2475,8 @@ def build(app_state):
                 return J(await A.engine.takeover(ids))
             if op == "release":
                 return J(await A.engine.release(ids or sorted(A.engine.owned)))
+            if op == "take_back":
+                return J(await A.engine.take_back(ids or None))
             if op == "run":
                 return J(await A.engine.run_now(b["id"], b.get("trigger")))
             if op == "retire":
@@ -2103,7 +3019,7 @@ def build(app_state):
     @r.post("/api/tokens")
     async def tokens_make(q):
         b = await read_body(q, name=str, scope=str, person=str)
-        return J(A.tokens.make(b.get("name", ""), b.get("scope", "read"), b.get("person")))
+        return J(A.tokens.make(b.get("name", ""), b.get("scope", "read"), b.get("person"), b.get("days")))
 
     @r.delete("/api/tokens/{tid}")
     async def tokens_revoke(q):

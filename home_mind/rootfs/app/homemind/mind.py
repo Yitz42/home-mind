@@ -825,6 +825,15 @@ class Mind:
                 wl = ""
             if wl:
                 ctx = (ctx + "\n\n" if ctx else "") + flag_instructions(wl)
+        board = getattr(self, "board", None)
+        if board is not None and store is self.store:
+            from .speakers import VIEWER
+            try:
+                now_lines = board.lines(VIEWER.get())       # the now board (working memory), before everything
+            except Exception:  # noqa: BLE001
+                now_lines = ""
+            if now_lines:
+                ctx = now_lines + "\n\n" + (ctx or "")
         return about_names(store.fix_typos(question), hits), procs, ctx
 
     async def _with_meaning(self, store, question, hits, k):
@@ -1260,6 +1269,18 @@ class Mind:
         """speaker: None = no speaker information (sees everything, as before); "" = unknown (household notes only,
         no secrets by voice, no bulk lists); a name = that person (their personal notes too). (#3, #48, #78)"""
         from .speakers import VIEWER
+        from . import redflags
+        flag = redflags.check(question)
+        if flag:
+            # fixed replies in code, before any note or model (design step 4): never advice, only where to get help
+            out = {"answer": flag.reply, "hits": [], "model": None, "red_flag": flag.kind}
+            hook = getattr(self, "on_red_flag", None)
+            if hook:
+                try:
+                    await hook(flag, question, speaker, conversation_id)
+                except Exception:  # noqa: BLE001 - the reply goes out whatever happens to the notice
+                    log.exception("red flag notice")
+            return out
         tok = VIEWER.set(speaker if speaker is not None else VIEWER.get())   # keep a person-bound token's viewer
         vtok = VOICE.set(bool(voice))        # per question: two questions at once never see each other's flag
         try:

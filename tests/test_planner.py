@@ -124,8 +124,16 @@ def app(big=None, opts=None):
                                                                                          get=lambda n: models[n]))
     for n in ("YES", "NO", "PENDING_SECONDS"):
         setattr(A, n, getattr(M.App, n))
-    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan", "_run_steps", "_said", "room_for"):
+    for n in ("do", "pending_reply", "has_pending", "local_plan", "_run_plan", "_run_steps", "_said", "room_for",
+              "_verb"):
         setattr(A, n, getattr(M.App, n).__get__(A))
+    A.phone_requests = []
+
+    async def ask_phone(plan, why=None, source="api"):      # stands in for the phone approval (tested in test_safety)
+        A.phone_requests.append(plan)
+        return {"plan": plan, "approval_sent": True, "approval_id": f"{len(A.phone_requests):012x}",
+                "answer": "I've sent a request to your phone."}
+    A.ask_phone = ask_phone
     return A, ha, big
 
 
@@ -147,9 +155,10 @@ def single():
     check("too ambiguous: it asks which one and does nothing", r.get("which") and "Which" in r["answer"] and
           len(ha.calls) == 1, r)
     r = run(A, "open the garage", cid="c1")
-    check("a garage door from the rules still needs a yes", r.get("confirm_needed") and len(ha.calls) == 1, r)
+    check("a garage door from the rules needs a phone approval and isn't moved", r.get("approval_sent") and
+          len(ha.calls) == 1 and A.phone_requests[-1]["entity_id"].startswith("cover."), r)
     r = run(A, "yes", cid="c1")
-    check("... and a yes opens it", r.get("confirmed") and ha.calls[-1][1] == "open_cover", r)
+    check("... and a spoken yes doesn't open it", not r.get("confirmed") and ha.calls[-1][1] != "open_cover", r)
 
 
 def multi():
@@ -158,15 +167,17 @@ def multi():
     lights = [c for c in ha.calls if c[0] == "light"]
     check("several steps: the lights go off at once", len(lights) == len(B.LIGHTS) and
           all(c[1] == "turn_off" for c in lights), ha.calls)
-    check("... the locks wait for one yes, and the answer says both", r.get("confirm_needed") and
-          not any(c[0] == "lock" for c in ha.calls) and r["answer"].startswith("Done:") and "Say yes" in r["answer"], r)
+    check("... the locks each get a phone approval and don't move, and the answer says both",
+          len(A.phone_requests) == 2 and all(p["entity_id"].startswith("lock.") for p in A.phone_requests) and
+          not any(c[0] == "lock" for c in ha.calls) and r["answer"].startswith("Done:") and "phone" in r["answer"]
+          and len(r.get("approvals") or []) == 2, r)
     r = run(A, "yes", cid="v1")
-    locks = [c for c in ha.calls if c[0] == "lock"]
-    check("one yes locks both doors", r.get("confirmed") and len(locks) == 2 and all(c[1] == "lock" for c in locks), r)
+    check("a spoken yes after that doesn't lock them", not any(c[0] == "lock" for c in ha.calls), r)
     ha.calls.clear()
+    A.phone_requests.clear()
     r = run(A, "lights off and lock up")
-    check("no conversation to say yes in: the lights go off, the locks don't, and it says why",
-          ha.calls and not any(c[0] == "lock" for c in ha.calls) and "yes" in r["answer"] and r.get("error"), r)
+    check("no conversation needed for a phone approval: the lights go off, the locks are sent to the phone",
+          ha.calls and not any(c[0] == "lock" for c in ha.calls) and len(A.phone_requests) == 2, r)
     ha.calls.clear()
     r = run(A, "kitchen light off and turn off the fan")
     check("one ambiguous part: it asks and does nothing at all", r.get("which") and not ha.calls, (r, ha.calls))
@@ -191,9 +202,9 @@ def model_multi():
                                           {"entity_id": "lock.front_door", "action": "unlock"}]}),
                      opts={"rule_planner": False})
     r = run(A, "wind down: den off, kettle on, let Sam in", cid="m1")
-    check("the general model can plan several actions; the unlock still waits for a yes",
-          {(c[0], c[1]) for c in ha.calls} == {("light", "turn_off"), ("switch", "turn_on")} and r.get("confirm_needed"),
-          (r, ha.calls))
+    check("the general model can plan several actions; the unlock goes to the phone",
+          {(c[0], c[1]) for c in ha.calls} == {("light", "turn_off"), ("switch", "turn_on")} and
+          A.phone_requests and A.phone_requests[-1]["action"] == "unlock", (r, ha.calls))
 
     class M_:
         def __init__(self, text):

@@ -32,7 +32,8 @@ def people_from(opts_people, persons=()):
             out[n.lower()] = {"name": n, "users": [str(x).lower() for x in many(p.get("ha_users") or p.get("users"))],
                               "devices": [str(x) for x in many(p.get("devices"))],
                               "areas": [str(x).lower() for x in many(p.get("areas"))],
-                              "persons": [str(x) for x in many(p.get("persons"))]}
+                              "persons": [str(x) for x in many(p.get("persons"))],
+                              "notify": str(p.get("notify") or "").strip()}
     for s in persons or []:
         a = s.get("attributes") or {}
         n = (a.get("friendly_name") or s["entity_id"].split(".")[1]).strip()
