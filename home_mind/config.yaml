@@ -105,6 +105,10 @@ options:
   exertion_threshold: 0
   travel_away_entity: ""
   proposals_model: ""
+  other_assistants: []
+  firefly_url: ""
+  firefly_token: ""
+  firefly_owner: ""
   local_model: ""
   safety_contact: ""
   ha_user_token: ""
@@ -260,6 +264,11 @@ schema:
   exertion_threshold: int(0,200)?
   travel_away_entity: str?
   proposals_model: str?
+  other_assistants:
+    - str?
+  firefly_url: str?
+  firefly_token: password?
+  firefly_owner: str?
   compare_suites:
     - str?
   comfort_rooms:

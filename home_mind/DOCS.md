@@ -133,6 +133,22 @@ earned trust, the same kind of request is done straight away, with no model call
 - **Conflicts:** when people want different things from one device, the person in that room wins; otherwise a number
   goes to the middle, and on/off to the careful choice (off for heat and noise, on for light).
 
+## Other assistants, the plain voice, the four views, Firefly III
+
+- **Other assistants** (Alexa, Gemini, Siri, someone else's Assist; option `other_assistants`, "key: name") are
+  guests: lights and media only, never anything about health, money, where people are, rooms or things, and a safety
+  phrase is answered there with "Please check Home Mind." while the real reply goes to your phone. Anyone can turn
+  them off for themselves (`/api/assistants`), guest mode turns them off, and what's asked through them never teaches
+  Home Mind a learned template.
+- **One voice, three registers:** normal; quiet (a low day, or a room where Home Mind isn't sure who's there: no
+  remarks); plain (your plain voice switch, `/api/plain_voice`, a rough day, or right after something failed: no
+  persona at all).
+- **The four views** (`/api/plain/today`, `asks`, `memory`, `rules`): Today with energy left first and at most 3
+  things Home Mind did; Asks one at a time; Memory one topic at a time, only what you may see; Rules as the one ladder
+  per device in plain words.
+- **Firefly III** (`firefly_url`, `firefly_token`, `firefly_owner`): this month's spent, earned and balance, read every
+  15 minutes, numbers only, said by code (never a model) to its owner only.
+
 ## Your experiments
 
 An experiment tries one change against your usual: **reducing load, sleep timing or meal timing only, never a
@@ -1030,6 +1046,10 @@ you turn them on are listed after the tables.
 | `email_require_verified` | on | Only mail your mail server says passed its sender check (DKIM or SPF) is read |
 | `exertion_zones` | off | Live exertion zones from a fresh heart-rate sensor |
 | `exertion_threshold` | 0 | The exertion line in bpm from your clinician's plan (else resting + 15) |
+| `other_assistants` | empty | Other assistants as guest front ends, as "key: name" |
+| `firefly_url` | empty | Firefly III, read-only: this month's totals for its owner |
+| `firefly_token` | empty | Firefly III personal access token |
+| `firefly_owner` | empty | The person who may hear the Firefly III totals |
 | `proposals_model` | empty | An Anthropic model asked (Batch API) to draft fixes for gaps; sees the schema and made-up data only |
 | `travel_away_entity` | empty | What travel mode switches on (else input_boolean.away) |
 | `monthly_spend_cap` | 0 (none) | Cloud models rest for the month once their spend reaches this many dollars |
@@ -1159,6 +1179,10 @@ note), 502 (a model failed) or 500.
 | POST | `/api/experiments/stop` | admin | stop it now, with the result so far |
 | GET | `/api/proposals` | admin | gaps seen 3 times in two weeks, cheapest fixes first, and module drafts |
 | POST | `/api/proposals/{topic}` | admin | mark a proposal done, dismissed or open (`status`) |
+| GET | `/api/plain/{view}` | admin | the four plain views: today, asks (one at a time), memory (`topic?`), rules |
+| GET | `/api/assistants` | admin | other assistants set up as front ends, and who turned them off |
+| POST | `/api/assistants` | admin | turn other assistants off or on for you (`off`) |
+| POST | `/api/plain_voice` | admin | answers without the persona, for you (`on`) |
 | GET | `/api/trackers` | admin | your trackers, entries waiting for details, and whether they're paused |
 | POST | `/api/trackers` | admin | add a tracker (`name`, `kind?`, `cadence?`), stop one (`stop`), or add details (`confirm`, `details?`) |
 | GET | `/api/meds` | admin | your medicines log (30 days); nobody reviews it, no interaction checks |

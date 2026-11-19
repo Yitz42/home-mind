@@ -337,7 +337,8 @@ class Learned:
         with dlog.lock:
             rows = [dlog._row(r) for r in dlog.db.execute(
                 "SELECT * FROM decisions WHERE id>? AND ts<? AND status='done' AND request IS NOT NULL AND "
-                "request != '' AND (channel IS NULL OR channel != 'automation') AND request NOT LIKE 'undo%' "
+                "request != '' AND (channel IS NULL OR (channel != 'automation' AND channel NOT LIKE 'other:%')) "
+                "AND request NOT LIKE 'undo%' "
                 "ORDER BY id LIMIT ?", (cur, settle, limit))]
         out = {"seen": 0, "evidence": 0, "created": 0, "examples": 0}
         for d in rows:

@@ -219,6 +219,18 @@ configuration:
   exertion_threshold:
     name: Exertion line (bpm)
     description: The heart rate from your clinician's pacing plan. 0 = your resting heart rate + 15.
+  other_assistants:
+    name: Other assistants as front ends
+    description: 'How another assistant reaches Home Mind and its name, as "key: name": the key is its front_end name, its Home Assistant user id or a device id (for example "u_alexa_bridge: Alexa"). They are treated as guests: lights and media only, nothing about health, money, location, rooms or things, and safety replies go to your phone.'
+  firefly_url:
+    name: Firefly III address
+    description: Your Firefly III (personal finance), read-only. Only this month's totals are read, every 15 minutes, and said by code (never a model) to its owner only.
+  firefly_token:
+    name: Firefly III token
+    description: A personal access token from Firefly III (Options > Profile > OAuth).
+  firefly_owner:
+    name: Whose money it is
+    description: The person (from the people option) who may hear the Firefly III totals. Empty = nobody by voice.
   proposals_model:
     name: Model for gap proposals
     description: An Anthropic model from your models list (for example Opus) asked through the Batch API, on nights when a gate failed or a gap is waiting, to draft the cheapest fix for something Home Mind keeps failing at. It sees only the schema and made-up data. Empty = proposals list the record and app fixes only.

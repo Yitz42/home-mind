@@ -86,7 +86,19 @@ async def turn(app, body, scope="admin"):
         if modes.mode(None) == "private":
             b["fallback"] = False
     from .tokens import allows
+    from .frontends import other_assistant
+    oa = other_assistant(body, getattr(app, "opts", None) or {})
+    if oa:
+        from . import redflags
+        if redflags.check(text):
+            return await app.answer(b, scope)        # safety goes to the phone, never this speaker (App.answer)
+        fe = f"other:{oa['name']}"
+        b["front_end"] = body.get("front_end") or fe
     if COMMAND.match(text) and allows(scope, "admin"):
+        if oa:
+            from .frontends import assistants_off
+            if assistants_off(app.mind.store):
+                return {"answer": f"{oa['name']} is turned off for Home Mind.", "other": oa["name"]}
         r = await app.do(text, source=fe, conversation_id=cid, deadline=app.mind.VOICE_SECONDS)
         nothing_fits = (r.get("error") == "nothing on the control list fits")
         if not nothing_fits:

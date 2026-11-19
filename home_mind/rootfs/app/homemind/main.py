@@ -958,6 +958,13 @@ class App:
         eid = plan["entity_id"]
         need = self.home.level(eid, plan.get("action"), plan.get("value"))[0] \
             if eid in self.home.catalog and self.home.allowed(eid) and hasattr(self.home, "level") else "open"
+        if str(source or "").startswith("other:") and need != "open":
+            # another assistant's speaker: open-level actions only; nothing that needs a yes or the phone
+            if hasattr(self.home, "_log_decision"):
+                self.home._log_decision(eid, plan.get("action"), plan.get("value"), source, why, status="refused",
+                                        reason="another assistant: open-level actions only")
+            return {"plan": plan, "error": "open-level actions only from another assistant",
+                    "answer": "Please use Home Mind for that."}
         if need == "open" and plan.get("unsure") and eid in self.home.catalog:
             need = "confirm"            # low confidence (modes.confidence): ask back before acting
         if need == "phone":
@@ -997,8 +1004,39 @@ class App:
         t_ask = time.monotonic()
         if not (b.get("question") or "").strip():
             raise ValueError("give a question")
+        from . import frontends as FE
+        oa = FE.other_assistant(b, self.opts)
+        if oa:
+            # another assistant's speaker: a guest. Open-level only, nothing private, safety replies to the phone
+            from . import redflags as _rf
+            if FE.assistants_off(self.mind.store):
+                return {"answer": f"{oa['name']} is turned off for Home Mind.", "hits": [], "model": None,
+                        "other": oa["name"]}
+            flag = _rf.check(b["question"])
+            if flag:
+                hook = getattr(self, "on_red_flag", None)
+                if hook is not None:
+                    try:
+                        await hook(flag, b["question"], None, b.get("conversation_id"), f"other:{oa['name']}")
+                    except Exception:  # noqa: BLE001
+                        log.exception("red flag via another assistant")
+                return {"answer": FE.OTHER_ANSWER, "hits": [], "model": None, "red_flag": flag.kind,
+                        "other": oa["name"]}
+            if FE.other_refuses(b["question"]):
+                return {"answer": FE.OTHER_ANSWER, "hits": [], "model": None, "other": oa["name"], "private": True}
+            from .speakers import VIEWER as _VW
+            _VW.set("")                      # it can't say who is speaking: a guest sees no personal notes
+            b = dict(b, speaker="", front_end=f"other:{oa['name']}")
         who, how = self.speaker_for(b)
         from . import redflags, conversation as conv
+        fly = self.mind.store.kv_get("firefly") if FE.MONEY_Q.search(b["question"]) else None
+        if fly is not None:
+            owner = (self.opts.get("firefly_owner") or "").lower()
+            if not owner or (who or "").lower() != owner:     # its owner only (firefly_owner)
+                return {"answer": "That's private.", "hits": [], "model": None, "private": True}
+            said = FE.say_money(fly.get("totals"), fly.get("at") or 0)
+            if said:                         # money is said by code from the totals: never through a model
+                return {"answer": said, "hits": [], "model": None, "personal": True}
         rm = getattr(self, "rooms", None)
         if rm is not None:
             if who and b.get("area"):
@@ -1500,6 +1538,23 @@ class App:
             st.kv_set("proposals_batch", {"id": j["id"], "at": time.time()})
         return j
 
+    async def _upkeep15(self, now, last):
+        """Phase 15: Firefly III totals every 15 minutes (never while someone is speaking: off the voice path)."""
+        url, tok = self.opts.get("firefly_url") or "", self.opts.get("firefly_token") or ""
+        if not (url and tok) or now - last.get("firefly", 0) < 900:
+            return
+        last["firefly"] = now
+        from . import frontends as FE
+        try:
+            t = await FE.firefly_totals(self.models.session, url, tok)
+            self.mind.store.kv_set("firefly", {"totals": t, "at": now})
+            b = getattr(self, "board", None)
+            owner = self.opts.get("firefly_owner") or None
+            if b is not None and t and owner:
+                b.set("app:firefly", FE.say_money(t, now), "note", 1800, source="firefly", owner=owner)
+        except Exception as e:  # noqa: BLE001
+            log.warning("firefly: %s", e)
+
     async def _upkeep11(self, now, last):
         """Phase 11: the surprises queue from the decision log, corrections and asks, every 10 minutes."""
         sp = getattr(self, "surprises", None)
@@ -1551,6 +1606,7 @@ class App:
         await self._upkeep12(now, last)
         await self._upkeep13(now, last)
         await self._upkeep14(now, last)
+        await self._upkeep15(now, last)
         rep = getattr(self, "db_report", None)
         if rep and self.ha.available and not rep.get("told"):
             rep["told"] = True
@@ -1951,7 +2007,16 @@ class App:
             name = (who or "").strip().title() or None
             if not isinstance(res, dict) or not isinstance(res.get("answer"), str) or res.get("error"):
                 return res
+            from . import frontends as FE
+            from .mind import DONT_KNOW
+            failed = bool(res.get("error")) or bool(DONT_KNOW.search(res.get("answer") or ""))
+            unsure = bool(voice) and not who
+            reg = FE.register(self.mind.store, name, getattr(self, "day", None), failed, unsure)
+            if reg == "plain":
+                return dict(res, register="plain")          # the plain voice: no persona at all
             emotion = self.persona.emotion(res, question, name, await self.tired(), kind)
+            if reg == "quiet":
+                return dict(self.persona.finish(res, "neutral", voice, name, None), register="quiet")
             by_model = None
             pm = self.opts.get("persona_model")
             if pm and pm in self.models.models and self.models.up(pm) is not False:
@@ -3759,6 +3824,44 @@ def build(app_state):
             raise ValueError("status is done, dismissed or open")
         A.proposals.set_status(q.match_info["topic"], b["status"])
         return J({"ok": True})
+
+    @r.get("/api/plain/{view}")
+    async def views_get(q):
+        """The four plain views: today, asks, memory (?topic) and rules."""
+        from . import frontends as FE
+        from .speakers import VIEWER
+        v, who = q.match_info["view"], VIEWER.get() or None
+        if v == "today":
+            return J(await FE.view_today(A, who))
+        if v == "asks":
+            return J(FE.view_asks(A, who))
+        if v == "memory":
+            return J(FE.view_memory(A, VIEWER.get(), q.query.get("topic")))
+        if v == "rules":
+            return J(FE.view_rules(A))
+        return J({"error": "the views are today, asks, memory and rules"}, 404)
+
+    @r.get("/api/assistants")
+    async def assistants_get(_):
+        """Other assistants set up as front ends, and who has turned them off."""
+        return J({"assistants": A.opts.get("other_assistants") or [],
+                  "off": A.mind.store.kv_get("assistants_off") or {}})
+
+    @r.post("/api/assistants")
+    async def assistants_set(q):
+        """{"off": true}: other assistants can't reach Home Mind for you (or for anyone, from the admin)."""
+        from . import frontends as FE
+        from .speakers import VIEWER
+        b = await read_body(q)
+        return J(FE.set_assistants(A.mind.store, VIEWER.get() or "_", bool(b.get("off"))))
+
+    @r.post("/api/plain_voice")
+    async def plain_voice(q):
+        """{"on": true}: answers without the persona, for you."""
+        from . import frontends as FE
+        from .speakers import VIEWER
+        b = await read_body(q)
+        return J(FE.set_plain(A.mind.store, VIEWER.get() or "_", bool(b.get("on"))))
 
     @r.get("/api/guest")
     async def guest_get(_):
