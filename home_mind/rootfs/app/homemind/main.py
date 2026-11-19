@@ -211,6 +211,14 @@ class App:
         self.engine = Engine(self.mind.store, self.ha, DATA)
         self._start_decisions()
         self.approvals = Approvals()
+        from .modes import Modes, Warm
+        from .nowboard import NowBoard
+        from .worsening import Worsening
+        self.warm = Warm(self.models)
+        self.modes = Modes(self, self.mind.store, self.warm)
+        self.board = NowBoard(self.mind.store)
+        self.mind.board = self.board
+        self.worsening = Worsening(self.mind.store)
         from .day import Day
         self.day = Day(self.mind.store)
         self.ha.day = self.day           # the day's ask budget and rough-day quiet (ha.push)
@@ -306,6 +314,9 @@ class App:
             self.tasks.append(asyncio.create_task(self.telegram.run_forever()))      # #52
         if self.ha.available:
             self.tasks.append(asyncio.create_task(self.engine.run_forever()))
+        if getattr(self, "warm", None) is not None:
+            self.tasks.append(asyncio.create_task(self.warm.run_forever(
+                lambda: [self.modes.local_planner(), self.modes.local_chat()])))
         log.info("Home Mind %s up on port %s (bridge: %s)", VERSION, PORT, self.bridge)
 
     async def on_stop(self, _app):
@@ -471,6 +482,8 @@ class App:
         t0 = time.monotonic()
         if not self.home.catalog:
             await self.home.refresh()
+        if getattr(self, "modes", None) is not None and not model:
+            return await self._do_by_mode(text, source, conversation_id, deadline, t0)
         names = [n for n in self.models.models if n != "mock"]
         local = (getattr(self, "opts", None) or {}).get("control_model") or ""
         things = self.home.controllable()
@@ -498,6 +511,61 @@ class App:
                     "answer": "Sorry, that took too long, so I didn't do anything."}
         plan.setdefault("by", model)
         res = await self._run_plan(plan, text, source, conversation_id, t0)
+        getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+        return res
+
+    async def _do_by_mode(self, text, source, conversation_id, deadline, t0):
+        """Planning by model mode (modes.py): the local model for the kinds it has earned, the cloud model for the
+        rest (the local plan kept beside it as a comparison), private = local only. Then confidence: below the line,
+        the cloud model gets a say, else Home Mind asks back."""
+        from .modes import confidence, kind_of
+        modes = self.modes
+        mode = modes.mode(None)
+        local, cloud = modes.local_planner(), modes.cloud()
+        local_ok = bool(local) and modes.is_warm(local)
+        if mode == "private" and not local_ok:
+            return {"error": "private mode, and the local model isn't awake",
+                    "answer": "In private mode I only use the computer at home, and it's asleep right now, so I "
+                              "didn't do anything."}
+
+        async def by_cloud():
+            coro = plan_action(self.models.get(cloud), text, self.home.controllable())
+            p = await (asyncio.wait_for(coro, deadline) if deadline else coro)
+            p.setdefault("by", cloud)
+            return p
+        lp = {}
+        if local_ok and mode != "cloud":
+            lp = await self.local_plan(local, text, deadline)
+            if lp:
+                modes.warm.saw(local) if modes.warm else None
+            if lp.get("which"):
+                return {"plan": lp, "answer": "Which one: " + ", ".join(lp["which"]) + "?", "which": lp["which"]}
+            if lp.get("answer"):
+                return lp
+        try:
+            if lp.get("entity_id") and (mode == "private" or not cloud or modes.earned(kind_of(lp))):
+                plan, other = lp, None
+            elif cloud and mode != "private":
+                plan, other = await by_cloud(), (lp if lp.get("entity_id") else None)
+            else:
+                return {"error": "nothing on the control list fits", "plan": lp}
+            conf, why = confidence(self.home, text, plan, getattr(self, "decisions", None))
+            if plan.get("entity_id") and conf < modes.dial() and plan.get("by") == local and cloud and \
+                    mode != "private":
+                other, plan = plan, await by_cloud()        # unsure on the local model: the cloud model decides
+                conf, why = confidence(self.home, text, plan, getattr(self, "decisions", None))
+        except asyncio.TimeoutError:
+            return {"error": "the model took too long; nothing was done",
+                    "answer": "Sorry, that took too long, so I didn't do anything."}
+        plan["confidence"] = conf
+        if plan.get("entity_id") and conf < modes.dial():
+            plan["unsure"], plan["unsure_why"] = True, why
+        if other is not None:
+            plan["compared"] = True
+        res = await self._run_plan(plan, text, source, conversation_id, t0)
+        m = getattr(self, "measure", None)
+        if other is not None and m is not None:
+            m.record_pair((res.get("done") or {}).get("decision_id"), plan, other)
         getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
         return res
 
@@ -558,6 +626,8 @@ class App:
         eid = plan["entity_id"]
         need = self.home.level(eid, plan.get("action"), plan.get("value"))[0] \
             if eid in self.home.catalog and self.home.allowed(eid) and hasattr(self.home, "level") else "open"
+        if need == "open" and plan.get("unsure") and eid in self.home.catalog:
+            need = "confirm"            # low confidence (modes.confidence): ask back before acting
         if need == "phone":
             return await self.ask_phone(plan, why, source)
         if need == "confirm":
@@ -572,7 +642,8 @@ class App:
                 pend[conversation_id] = {
                     "plan": plan, "t": time.time(), "source": source, "name": name, "verb": verb, "why": why}
                 return {"plan": plan, "confirm_needed": True,
-                        "answer": f"Do you want me to {verb} the {name}? Say yes to go ahead."}
+                        "answer": (f"Just to check: {verb} the {name}? Say yes to go ahead." if plan.get("unsure")
+                                   else f"Do you want me to {verb} the {name}? Say yes to go ahead.")}
             if hasattr(self.home, "_log_decision"):
                 self.home._log_decision(eid, plan.get("action"), plan.get("value"), source, why, status="refused",
                                         reason="needs a yes and there is no conversation to take one")
@@ -781,7 +852,7 @@ class App:
             if not plan.get("entity_id"):
                 dlog.count("abstains")
             m = getattr(self, "measure", None)
-            if m is not None and plan.get("entity_id"):
+            if m is not None and plan.get("entity_id") and not plan.get("compared"):
                 did = (res.get("done") or {}).get("decision_id")
                 m.maybe_shadow(text, plan, did)
         except Exception:  # noqa: BLE001 - measuring never gets in the way of the answer
@@ -867,6 +938,41 @@ class App:
             res = await safety.run_and_report(self)
             log.info("safety suite: %s (%d passed, %d failed)", "pass" if res["ok"] else "FAIL", res["passed"],
                      len(res["failed"]))
+        board = getattr(self, "board", None)
+        if board is not None:
+            try:
+                board.refresh(self)
+            except Exception:  # noqa: BLE001
+                log.exception("now board")
+        wo = getattr(self, "worsening", None)
+        if wo is not None and now - last.setdefault("worsening", 0) > 86400 and datetime.now().hour >= 10:
+            last["worsening"] = now      # once a day, mid-morning: yesterday's values, then the trend
+            try:
+                wo.collect(self)
+                r = wo.check()
+                if r.get("alarm"):
+                    from .worsening import MESSAGE
+                    target = (self.opts.get("approval_phone") or "").strip() or await self.morning._phone()
+                    await self.ha.notify("Home Mind", MESSAGE, "home_mind_worsening")
+                    if target:
+                        await self.ha.push(target, {"title": "Home Mind", "message": MESSAGE}, tier="important")
+                    log.info("worsening alarm: %s", {k: r[k] for k in ("rough", "fog")})
+            except Exception:  # noqa: BLE001
+                log.exception("worsening")
+        mo = getattr(self, "modes", None)
+        if mo is not None and getattr(self, "measure", None) is not None and \
+                now - last.setdefault("modes", now - 86400 + 3600) > 86400:
+            last["modes"] = now          # once a day: propose kinds the local model has earned, demote failures
+            try:
+                ch = mo.review(self.measure)
+                if ch["proposed"]:
+                    self.ha.batcher.add("The home computer could handle more", "It got " + ", ".join(
+                        ch["proposed"]) + " right nearly every time lately. You can let it take these over "
+                        "(Home Mind: model modes).") if getattr(self.ha, "batcher", None) else None
+                if ch["proposed"] or ch["demoted"]:
+                    log.info("model modes: %s", ch)
+            except Exception:  # noqa: BLE001
+                log.exception("model modes")
         m = getattr(self, "measure", None)
         if m is not None and now - last.setdefault("weekly", now - 7 * 86400 + 1800) > 7 * 86400:
             last["weekly"] = now        # the weekly replay against frozen v1: first 30 minutes after start
@@ -1285,7 +1391,8 @@ def decision_why(opts, plan, text, source, conversation_id, t0=None):
     local = (opts or {}).get("control_model") or ""
     return {"request": text, "channel": source, "conversation_id": conversation_id, "model": plan.get("by"),
             "route": "local" if local and plan.get("by") == local else "cloud" if plan.get("by") else None,
-            "latency_ms": round((time.monotonic() - t0) * 1000) if t0 else None}
+            "latency_ms": round((time.monotonic() - t0) * 1000) if t0 else None,
+            **({"confidence": plan["confidence"]} if plan.get("confidence") is not None else {})}
 
 
 async def read_body(req, optional=False, **types):
@@ -1813,6 +1920,59 @@ def build(app_state):
         if getattr(A, "measure", None) is None:
             raise ValueError("measurement isn't running (it needs the decision log)")
         return A.measure
+
+    @r.get("/api/modes")
+    async def modes_get(_):
+        """Model mode, the confidence line, which local models are awake, kinds earned and proposed."""
+        mo = A.modes
+        return J({"mode": mo.mode(None), "dial": mo.dial(), "local_planner": mo.local_planner(),
+                  "local_model": mo.local_chat(), "cloud": mo.cloud(),
+                  "warm": {n: mo.is_warm(n) for n in (mo.local_planner(), mo.local_chat()) if n},
+                  "earned": sorted(A.mind.store.kv_get(mo.EARNED) or []), "proposed": mo.proposals()})
+
+    @r.post("/api/modes")
+    async def modes_set(q):
+        """{"mode": cloud|balanced|private, "person"?}"""
+        b = await read_body(q, mode=str, person=str)
+        return J({"mode": A.modes.set_mode(b.get("mode") or "", b.get("person"))})
+
+    @r.post("/api/modes/accept")
+    async def modes_accept(q):
+        """Yes to a proposed kind ({"kind": "light.on"}): replayed through the local model first; earned if it
+        passes."""
+        b = await read_body(q, kind=str)
+        local = A.modes.local_planner()
+        if not local:
+            raise ValueError("no local control model is set (option control_model)")
+        return J(await A.modes.accept(b.get("kind") or "", need_measure(),
+                                      lambda text: A.shadow_plan(text, local)))
+
+    @r.get("/api/calibration")
+    async def calibration_get(_):
+        """Confidence against what happened: bins, ECE, and the suggested line."""
+        return J(dict(need_measure().calibration(), line=A.modes.dial()))
+
+    @r.get("/api/now")
+    async def now_get(_):
+        """The now board for the viewer (household entries and their own)."""
+        from .speakers import VIEWER
+        return J({"now": A.board.snapshot(VIEWER.get())})
+
+    @r.post("/api/now/propose")
+    async def now_propose(q):
+        """A model's proposed entry ({"kind": waiting_on|unsure_which|doing|note, "value", "ttl"?, "owner"?}),
+        checked before it is written."""
+        b = await read_body(q, kind=str, value=str, owner=str)
+        return J({"id": A.board.propose(b.get("kind") or "", b.get("value") or "", b.get("owner"),
+                                        num(b.get("ttl"), "ttl", 3600, 60, 86400))})
+
+    @r.get("/api/worsening")
+    async def worsening_get(_):
+        """The worsening alarm's numbers (rough days and fog against your own baseline); doesn't speak."""
+        from .worsening import check_series
+        w = A.worsening
+        return J({"rough": check_series(w.series("rough")), "fog": check_series(w.series("fog")),
+                  "last_alarm": (w._state() or {}).get("last_alarm")})
 
     @r.get("/api/scorecard")
     async def scorecard_get(_):

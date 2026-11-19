@@ -63,6 +63,12 @@ async def turn(app, body, scope="admin"):
     b = {"question": text, "conversation_id": cid, "voice": True, "front_end": fe,
          "user": body.get("user_id") or body.get("user"), "device_id": body.get("device_id"),
          "area": body.get("area")}
+    modes = getattr(app, "modes", None)
+    if modes is not None:
+        # who writes the answer, by model mode (private: the local model or the notes alone, never the cloud)
+        b["model"] = modes.answer_model(None)
+        if modes.mode(None) == "private":
+            b["fallback"] = False
     from .tokens import allows
     if COMMAND.match(text) and allows(scope, "admin"):
         r = await app.do(text, source=fe, conversation_id=cid, deadline=app.mind.VOICE_SECONDS)

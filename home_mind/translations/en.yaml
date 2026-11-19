@@ -132,6 +132,15 @@ configuration:
   control_model:
     name: Local control model
     description: A small function-calling model trained on your house (see "A small local model for house control" in the docs). House requests go to it first; anything it can't place goes to your normal model. Empty = off.
+  model_mode:
+    name: Model mode
+    description: "cloud: the cloud model (Haiku) plans and answers. balanced: your local model handles the kinds of house request it has earned (and you approved), the cloud model the rest. private: nothing leaves the house; if the home computer is asleep, Home Mind says so."
+  confidence_dial:
+    name: Confidence line
+    description: Below this (0 to 1), a house request planned by the local model goes to the cloud model, and otherwise Home Mind asks "Just to check..." before acting. /api/calibration suggests a line from what actually happened.
+  local_model:
+    name: Local model for answers
+    description: A chat model on your own computer (for example a 4B model in Ollama) that writes answers in private mode. Empty = in private mode, answers come from your notes alone.
   shadow_rate:
     name: Shadow share
     description: The share of house requests also planned by a second model in the background (Haiku if your local model planned it, your local model if Haiku did), never acting, to measure which is right more often. 0 = off; 0.1 = one in ten. It costs a model call each.

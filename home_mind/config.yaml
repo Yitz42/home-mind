@@ -97,6 +97,9 @@ options:
   control_model: ""
   approval_phone: ""
   shadow_rate: 0.1
+  model_mode: balanced
+  confidence_dial: 0.55
+  local_model: ""
   safety_contact: ""
   ha_user_token: ""
   ha_url: ""
@@ -205,6 +208,9 @@ schema:
   control_model: str?
   approval_phone: str?
   shadow_rate: float(0,1)?
+  model_mode: list(cloud|balanced|private)?
+  confidence_dial: float(0,1)?
+  local_model: str?
   safety_contact: str?
   ha_user_token: password?
   ha_url: str?

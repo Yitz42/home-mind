@@ -82,6 +82,40 @@ them under Access tokens.
 summary ("While you were away: …"), as many as the day allows (none on a rough day). Anything held longer than a day
 expires.
 
+## Which model, how sure, and what's going on now
+
+**Model modes** (option `model_mode`, or per person with `/api/modes`):
+- **cloud:** the cloud model (Haiku) plans house requests and writes answers.
+- **balanced** (default): your local control model plans every house request first. If it's a kind of request it has
+  *earned*, its plan is used; otherwise the cloud model decides and the local plan is kept beside it as a
+  comparison. A kind (like `light.on`) is proposed once the local model has been right at least 95% of the time over
+  20 requests in 10 different wordings, never for locks, doors, alarms, valves or heating. It only takes over when
+  you say yes (`/api/modes/accept`), and only if a replay of those requests passes. Two failures in its last 20
+  hand that kind back to the cloud.
+- **private:** nothing leaves the house. House requests use the local model; answers use your local chat model
+  (`local_model`) or your notes alone. If the home computer is asleep, Home Mind says so instead of using the cloud.
+
+The local models are pinged every 30 seconds in the background and only used when awake, so a sleeping laptop never
+makes you wait.
+
+**Confidence.** Every house plan gets a score from how clearly the words name the device, whether the action matches
+what you said, any "don't" or "not", and how that kind of request has gone before. Below the line
+(`confidence_dial`), a local plan goes to the cloud model, and if it's still unsure Home Mind asks: "Just to check:
+turn on the desk lamp? Say yes to go ahead." `/api/calibration` shows how often each level of confidence was right
+and suggests a line.
+
+**The now board.** A short list of what's true right now: how each person's day is going, who is home (each person
+sees only their own), what Home Mind did in the last 15 minutes, approvals it's waiting for. Every answer's brief
+starts with it, and entries expire by themselves. A model can only propose notes like "waiting on Anna's answer" or
+"unsure which lamp"; they are checked and expire within a day. On about one day in seven per person the board is left
+out, so its value can be measured.
+
+**Worsening: see your doctor.** Each morning Home Mind looks at the trend of rough days and brain fog against your
+own baseline (the 60 days before the last two weeks), with a fixed rule that gives about one false alarm a year. If
+both the trend and the last two weeks are clearly worse, it says once, calmly: "This has been worse for two weeks. It
+may be worth booking your doctor." It needs 30 days of check-ins first and then waits 30 days before it could say it
+again. Logged events like a cold never silence it. Sudden changes are the red flags' job, the same day.
+
 ## Measuring: is it getting better?
 
 Truth is what actually happened and your labels, never another model's opinion. Everything here is for you or
@@ -587,6 +621,9 @@ you turn them on are listed after the tables.
 | `embed_model` | empty | Embedding model (search by meaning) |
 | `rerank_model` | empty | Re-ranking model |
 | `control_model` | empty | Local control model |
+| `model_mode` | balanced | cloud, balanced (the local model for kinds it has earned) or private (nothing leaves the house) |
+| `confidence_dial` | 0.55 | Below this confidence, a local plan goes to the cloud model, else Home Mind asks before acting |
+| `local_model` | empty | A local chat model for answers in private mode; empty = notes alone |
 | `shadow_rate` | 0.1 | Share of house requests also planned by a second model in the background (never acts), to compare them; 0 = off |
 | `approval_phone` | empty | The phone that approves locks, garage doors, alarms and heaters (`notify.mobile_app_...`); empty = the first phone with the Home Assistant app |
 | `safety_contact` | empty | Someone told when you describe an emergency, a double dose or a big decline (a notify service); empty = no one |
@@ -816,6 +853,13 @@ note), 502 (a model failed) or 500.
 | POST | `/api/converse` | admin | one voice turn for the bridge's conversation agent (`text`, `conversation_id?`, `user_id?`, `device_id?`); streams events with `Accept: application/x-ndjson` |
 | GET | `/api/as_of` | read | a keyed fact at a time (`key`, `at`: seconds or ISO date, `by`: valid or recorded) |
 | POST | `/api/today/checkin` | write | today's check-in (`state`: good, low or rough; `person?`) |
+| GET | `/api/modes` | admin | model mode, confidence line, which local models are awake, kinds earned and proposed |
+| POST | `/api/modes` | admin | set the mode (`mode`: cloud, balanced or private; `person?`) |
+| POST | `/api/modes/accept` | admin | say yes to a proposed kind (`kind`, like `light.on`); it is replayed through the local model first |
+| GET | `/api/calibration` | admin | confidence against what happened: bins, ECE, suggested line |
+| GET | `/api/now` | read | the now board for the viewer |
+| POST | `/api/now/propose` | admin | a model's proposed board entry (`kind`: waiting_on, unsure_which, doing or note; `value`; `ttl?`; `owner?`), checked before writing |
+| GET | `/api/worsening` | admin | the worsening alarm's numbers against your baseline |
 | GET | `/api/scorecard` | admin | the last scorecard (house, memory, safety; never averaged) and the trend against v1 |
 | POST | `/api/scorecard/run` | admin | run the scorecard now (`set?`, default v1; replays, never acts) |
 | GET | `/api/labels/queue` | admin | this week's labelling queue (`size`, default 30) |

@@ -815,6 +815,15 @@ class Mind:
                 wl = ""
             if wl:
                 ctx = (ctx + "\n\n" if ctx else "") + flag_instructions(wl)
+        board = getattr(self, "board", None)
+        if board is not None and store is self.store:
+            from .speakers import VIEWER
+            try:
+                now_lines = board.lines(VIEWER.get())       # the now board (working memory), before everything
+            except Exception:  # noqa: BLE001
+                now_lines = ""
+            if now_lines:
+                ctx = now_lines + "\n\n" + (ctx or "")
         return about_names(store.fix_typos(question), hits), procs, ctx
 
     async def _with_meaning(self, store, question, hits, k):
