@@ -138,6 +138,9 @@ configuration:
   control_model:
     name: Local control model
     description: A small function-calling model trained on your house (see "A small local model for house control" in the docs). House requests go to it first; anything it can't place goes to your normal model. Empty = off.
+  shadow_rate:
+    name: Shadow share
+    description: The share of house requests also planned by a second model in the background (Haiku if your local model planned it, your local model if Haiku did), never acting, to measure which is right more often. 0 = off; 0.1 = one in ten. It costs a model call each.
   approval_phone:
     name: Phone for approvals
     description: The phone that approves locks, garage doors, alarms and heaters (for example notify.mobile_app_my_phone). Approve needs Face ID or the passcode on iPhone. Empty = the first phone with the Home Assistant app.

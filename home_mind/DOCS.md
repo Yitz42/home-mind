@@ -56,6 +56,33 @@ Models can switch things only when all of these hold:
 
 `/api/home/act`, `/api/do` and the MCP tools `mind_control` / `mind_do` need an admin token.
 
+## Measuring: is it getting better?
+
+Truth is what actually happened and your labels, never another model's opinion. Everything here is for you or
+whoever looks after Home Mind; none of it is spoken or shown on Today.
+
+- **Scorecard**, three sections, each with its own pass bar, never averaged into one number:
+  - **House:** a frozen set of your real requests (v1, made once there are 20) replayed through today's planner
+    (it never acts). Scored against what worked, what someone undid, and your labels.
+  - **Memory:** your own corrections ("that's wrong" + the right value), asked again of your real memory.
+  - **Safety:** the daily safety check.
+  Each shows a 90% interval. A section passes only when the whole interval is above its bar, and is "unclear" (any
+  change waits) when the interval straddles the bar or there are under 20 cases. House is also split by front end.
+- **Weekly replay** of the v1 set, with a notification if the house section is clearly worse than its first run, or
+  has fallen three weeks in a row.
+- **Shadow baseline:** about 1 in 10 house requests (option `shadow_rate`) is also planned by the other model
+  (Haiku if your local model planned it, your local model if Haiku did), in the background, never acting. Each pair
+  is judged by what actually happened: a win, a tie or a loss, with an interval, and the cost per correct answer for
+  models whose prices you set.
+- **Labelling, about 15 minutes a week** (`/api/labels/queue`): uncertain decisions, ones you undid, refusals and
+  mismatches first, then a few at random. About 1 in 10 is one you labelled before, to check you'd say the same
+  (agreement and kappa). Once there are 30 labels, `/api/labels/gold` sets aside a gold set that comes back every
+  quarter. A label decides over the outcome; labelled decisions are kept past the 180-day limit.
+- **Burden per day:** notifications and asks, corrections and redos (an action you undid, or the same request again
+  within 10 minutes), beside how often Home Mind said it couldn't do something.
+- **Response time:** the 95th percentile by front end (voice target 2.5 s), and how often an answer came from the
+  fallback model. Send `front_end` with `/api/ask` to name yours.
+
 ## The conversation: check-in, undo, why and privacy
 
 **How's today?** Once a day Home Mind asks "good, low or rough?": by voice, the first time you speak to it that day
@@ -653,6 +680,7 @@ you turn them on are listed after the tables.
 | `rerank_model` | empty | Re-ranking model |
 | `control_model` | empty | Local control model |
 | `rule_planner` | on | Plain commands without a model |
+| `shadow_rate` | 0.1 | Share of house requests also planned by a second model in the background (never acts), to compare them; 0 = off |
 | `approval_phone` | empty | The phone that approves locks, garage doors, alarms and heaters (`notify.mobile_app_...`); empty = the first phone with the Home Assistant app |
 | `safety_contact` | empty | Someone told when you describe an emergency, a double dose or a big decline (a notify service); empty = no one |
 | `ha_user_token` | empty | A long-lived token from a non-admin Home Assistant user, for device control and readings; empty = the add-on's admin access |
@@ -887,6 +915,15 @@ note), 502 (a model failed) or 500.
 | POST | `/api/do` | admin | do what a sentence asks (`text`); never confirms locks |
 | GET | `/api/as_of` | read | a keyed fact at a time (`key`, `at`: seconds or ISO date, `by`: valid or recorded) |
 | POST | `/api/today/checkin` | write | today's check-in (`state`: good, low or rough; `person?`) |
+| GET | `/api/scorecard` | admin | the last scorecard (house, memory, safety; never averaged) and the trend against v1 |
+| POST | `/api/scorecard/run` | admin | run the scorecard now (`set?`, default v1; replays, never acts) |
+| GET | `/api/labels/queue` | admin | this week's labelling queue (`size`, default 30) |
+| POST | `/api/labels` | admin | label a decision (`decision_id`, `label`: right, wrong or unsure; `correct?`: what would have been right) |
+| GET | `/api/labels/agreement` | admin | how often repeat labels agree with the first, with kappa |
+| POST | `/api/labels/gold` | admin | make the gold set of 30 labelled cases |
+| GET | `/api/shadow` | admin | the shadow baseline: wins, ties and losses by outcome, and cost per correct answer (`days`) |
+| GET | `/api/burden` | admin | asks, corrections and redos per day, with abstains (`days`) |
+| GET | `/api/timing` | admin | 95th-percentile response time and fallback rate by front end (`days`) |
 | GET | `/api/safety` | read | the last daily safety suite: pass or fail, and each check |
 | POST | `/api/safety/run` | admin | run the safety suite now |
 | GET | `/api/access` | admin | every device's access (none, read, act), approval level and ladder rung, with changes waiting |

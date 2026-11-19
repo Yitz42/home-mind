@@ -103,6 +103,20 @@ STEPS = [
     ALTER TABLE decisions ADD COLUMN prior_attrs TEXT;
     ALTER TABLE decisions ADD COLUMN undone_by INTEGER;
     """,
+    # 3 (phase 4, measurement): a person's labels, shadow plans, response times, and counts per day
+    """
+    CREATE TABLE labels (id INTEGER PRIMARY KEY, decision_id INTEGER NOT NULL, label TEXT NOT NULL, correct TEXT,
+                         labeller TEXT, at REAL NOT NULL, is_repeat INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX labels_decision ON labels(decision_id, at);
+    CREATE TABLE shadow (id INTEGER PRIMARY KEY, decision_id INTEGER, at REAL NOT NULL, live_model TEXT,
+                         model TEXT NOT NULL, plan TEXT, same INTEGER, ms REAL, error TEXT);
+    CREATE INDEX shadow_decision ON shadow(decision_id);
+    CREATE TABLE timings (id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, front_end TEXT,
+                          ms REAL NOT NULL, model TEXT, fallback INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX timings_at ON timings(at);
+    CREATE TABLE daily (day TEXT NOT NULL, name TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, name));
+    CREATE TABLE reports (id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, name TEXT, report TEXT NOT NULL);
+    """,
 ]
 
 
@@ -570,4 +584,26 @@ class DecisionLog:
     def prune(self, days=RETENTION_DAYS):
         cutoff = self.clock() - days * 86400
         with self.lock:
-            return self.db.execute("DELETE FROM decisions WHERE ts < ? AND keep=0", (cutoff,)).rowcount
+            n = self.db.execute("DELETE FROM decisions WHERE ts < ? AND keep=0", (cutoff,)).rowcount
+            self.db.execute("DELETE FROM timings WHERE at < ?", (cutoff,))
+            self.db.execute("DELETE FROM shadow WHERE at < ? AND decision_id NOT IN (SELECT id FROM decisions)",
+                            (cutoff,))
+            return n
+
+    # ---- measurement records (phase 4; measure.py reads them) -------------------------------------------------------
+    def count(self, name, n=1, day=None):
+        """Add to a per-day count (asks sent, abstains, requests...)."""
+        from datetime import date
+        d = day or date.fromtimestamp(self.clock()).isoformat()
+        with self.lock:
+            self.db.execute("INSERT INTO daily (day, name, n) VALUES (?,?,?) ON CONFLICT(day, name) DO UPDATE SET "
+                            "n = n + excluded.n", (d, name, n))
+
+    def timing(self, kind, ms, front_end=None, model=None, fallback=False):
+        try:
+            ms = float(ms)
+        except (TypeError, ValueError):
+            return
+        with self.lock:
+            self.db.execute("INSERT INTO timings (at, kind, front_end, ms, model, fallback) VALUES (?,?,?,?,?,?)",
+                            (self.clock(), kind, front_end, ms, model, 1 if fallback else 0))
