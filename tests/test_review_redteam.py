@@ -44,7 +44,7 @@ def forged_email_dates():
     st = Store(os.path.join(tempfile.mkdtemp(), "m.db"))
     st.remember(text="The passport is in the desk drawer.")
     mb = Mailbox(types.SimpleNamespace(mind=types.SimpleNamespace(store=st), docs=None, photos=None),
-                 {"email_senders": ["dana@example.com"]})
+                 {"email_senders": ["dana@example.com"], "email_require_verified": False})
     raw = (b"From: dana@example.com\r\nSubject: passport\r\nDate: Wed, 01 Jan 2098 10:00:00 +0000\r\n"
            b"Message-ID: <x1@example.com>\r\n\r\nThe passport is in the blue box in the shed.\r\n")
     eid = mb.file(raw)["id"]

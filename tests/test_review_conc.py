@@ -248,7 +248,7 @@ def mailbox_checks():
             def logout(self):
                 pass
         mb = Mailbox(app, {"email_host": "h", "email_user": "u", "email_password": "p",
-                           "email_senders": ["me@example.com"]}, imap_factory=IMAP)
+                           "email_senders": ["me@example.com"], "email_require_verified": False}, imap_factory=IMAP)
         real = st.remember
 
         def slow(*a, **k):

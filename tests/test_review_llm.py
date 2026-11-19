@@ -101,7 +101,7 @@ def drafts():
 def email_hold():
     mind = Mind(tempfile.mkdtemp(), Models())
     app = types.SimpleNamespace(mind=mind, photos=None, docs=None)
-    mb = Mailbox(app, {"email_senders": ["me@example.com"]})
+    mb = Mailbox(app, {"email_senders": ["me@example.com"], "email_require_verified": False})
 
     def mail(mid, subject, body):
         m = EmailMessage()

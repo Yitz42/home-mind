@@ -98,6 +98,8 @@ class LearnedAnswers(Learned):
         if not item:
             return "no note"
         meta = item.get("meta") or {}
+        if (item.get("source") or "") in ("email", "doc", "docs", "document", "documents", "pdf"):
+            return "from email or a document: never a learned record"
         if meta.get("sensitive"):
             return "a sealed note: always through the model and its masking"
         if not answer or len(answer) > MAX_ANSWER:
