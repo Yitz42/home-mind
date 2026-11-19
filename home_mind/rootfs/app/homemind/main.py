@@ -270,6 +270,11 @@ class App:
                                             else set())
         self.consent = Consent(st9, getattr(self, "day", None))
         self.consent.appliers["automation_on"] = self._consent_automation_on
+        # phase 11: the room model (in memory only), backing off, the surprises queue
+        from .rooms import RoomModel, BackOff, Surprises
+        self.rooms = RoomModel(self.home)
+        self.backoff = BackOff(st9)
+        self.surprises = Surprises(st9)
         self.mind.tiebreak = self.tiebreak
         from .day import Day
         self.day = Day(self.mind.store)
@@ -408,6 +413,10 @@ class App:
         except Exception:  # noqa: BLE001 - without the log the house still works
             log.exception("decision log not started")
             self.decisions = None
+        if self.decisions is not None and getattr(self, "backoff", None) is not None:
+            self.decisions.on_override = lambda eid: self.backoff.mark(eid, "a person undid what Home Mind did")
+        if getattr(self, "backoff", None) is not None:
+            self.engine.backoff = self.backoff
         self.home.call_service = self._call_service
         self.home.live = lambda e: self.engine.states.get(e) if getattr(self.engine, "_ws", None) else None
         if self.decisions is None:
@@ -918,6 +927,10 @@ class App:
         """The checks every planned action goes through, whichever model planned it."""
         why = decision_why(getattr(self, "opts", None), plan, text, source, conversation_id, t0)
         if not plan.get("entity_id"):
+            try:
+                self.mind.store.log("cant_do", None, request=text)        # the surprises queue (step 24)
+            except Exception:  # noqa: BLE001
+                pass
             return {"error": "nothing on the control list fits", "plan": plan}
         eid = plan["entity_id"]
         need = self.home.level(eid, plan.get("action"), plan.get("value"))[0] \
@@ -963,6 +976,17 @@ class App:
             raise ValueError("give a question")
         who, how = self.speaker_for(b)
         from . import redflags, conversation as conv
+        rm = getattr(self, "rooms", None)
+        if rm is not None:
+            if who and b.get("area"):
+                rm.heard_in(b["area"], who)          # the room model: who was last heard where (memory only)
+            from .rooms import where_question, WHERE_ANSWER
+            try:
+                names = [p["name"] for p in self.people()]
+            except Exception:  # noqa: BLE001
+                names = []
+            if where_question(b["question"], names):
+                return {"answer": WHERE_ANSWER, "hits": [], "model": None, "where_refused": True}
         if not redflags.check(b["question"]):
             c = self.checkin_reply(b["question"], who or None) if hasattr(self, "checkin_reply") else None
             if c:
@@ -1174,7 +1198,11 @@ class App:
         return None
 
     def alone(self, person):
-        """Is the person the only one home? From person entities; with none known, not alone (be careful)."""
+        """Is the person on their own? In their room when the room model knows it (rooms.py), else the house: the
+        only one home, from person entities; with none known, not alone (be careful)."""
+        rm = getattr(self, "rooms", None)
+        if rm is not None and rm.where(person):
+            return rm.alone(person)
         persons = {e: (c.get("state") or "") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
         if not persons:
             return False
@@ -1286,6 +1314,17 @@ class App:
         await self.ha.call("automation", "turn_on", {"entity_id": eid}, approved=True)
         return {"on": eid}
 
+    async def _upkeep11(self, now, last):
+        """Phase 11: the surprises queue from the decision log, corrections and asks, every 10 minutes."""
+        sp = getattr(self, "surprises", None)
+        if sp is not None and now - last.get("surprises", 0) > 600:
+            last["surprises"] = now
+            try:
+                from .cases import Cases
+                sp.collect(getattr(self, "decisions", None), Cases(self.mind.store))
+            except Exception:  # noqa: BLE001
+                log.exception("surprises")
+
     async def _upkeep10(self, now, last):
         """Phase 10: agreed changes whose 24 hours are up, and the spend cap said once."""
         c = getattr(self, "consent", None)
@@ -1322,6 +1361,7 @@ class App:
                 log.warning("database snapshot: %s", e)
         await self._upkeep9(now, last)
         await self._upkeep10(now, last)
+        await self._upkeep11(now, last)
         rep = getattr(self, "db_report", None)
         if rep and self.ha.available and not rep.get("told"):
             rep["told"] = True
@@ -2610,11 +2650,16 @@ def build(app_state):
         looser access in 24 hours; every change is announced."""
         b = await read_body(q, entity_id=str, access=str, ladder=str)
         eid = (b.get("entity_id") or "").strip()
-        if not re.fullmatch(r"[a-z_]+\.[a-z0-9_]+", eid):
-            raise ValueError("give an entity_id like lock.front_door")
+        if not re.fullmatch(r"(?:[a-z_]+\.[a-z0-9_]+|room:[\w .'-]+|group:[a-z_]+\.[a-z0-9_]+)", eid):
+            raise ValueError("give an entity_id like lock.front_door, or room:<room> / group:<group entity>")
         out = {"entity_id": eid}
         if b.get("access"):
-            ch = A.home.access.set(eid, b["access"], by="admin")
+            from .speakers import VIEWER
+            try:
+                ch = A.home.access.set(eid, b["access"], by=VIEWER.get() or "admin",
+                                       room=(getattr(A.home, "areas", None) or {}).get(eid))
+            except PermissionError as e:
+                return J({"error": str(e)}, 403)
             out["access"] = ch
             await A.ha.notify("Home Mind: device access changed",
                               f"{eid}: {ch['from'] or 'default'} → {ch['to']} ({ch['when']}).", "home_mind_access")
@@ -3281,6 +3326,44 @@ def build(app_state):
         if a in ("changed my mind", "change my mind", "undo"):
             return J(A.consent.change_mind(cid))
         raise ValueError("answer is yes, no or changed my mind")
+
+    @r.get("/api/surprises")
+    async def surprises_get(q):
+        """The surprises and gaps queue (step 24): missed predictions, failed actions, corrections, requests nothing
+        could do, questions the notes couldn't answer (?kind), with counts for the last week."""
+        sp = A.surprises
+        return J({"open": sp.open(q.query.get("kind")), "week": sp.counts()})
+
+    @r.post("/api/surprises/{id}/seen")
+    async def surprises_seen(q):
+        A.surprises.seen(num(q.match_info["id"], "id", 0, 1, 1e12))
+        return J({"ok": True})
+
+    @r.get("/api/backoff")
+    async def backoff_get(_):
+        """Devices Home Mind's own automations are leaving alone because a person changed them (step 25)."""
+        return J(A.backoff.table())
+
+    @r.get("/api/spaces")
+    async def spaces_get(_):
+        """Personal spaces: rooms whose devices only their person can open up (device access)."""
+        return J(A.home.access.spaces())
+
+    @r.post("/api/spaces")
+    async def spaces_set(q):
+        """{"room": "bedroom", "person": "Dana"} (or person empty to clear). Only that person, or the admin while it
+        has no owner, can set it."""
+        from .speakers import VIEWER
+        b = await read_body(q, room=str, person=str)
+        room = (b.get("room") or "").strip().lower()
+        if not room:
+            raise ValueError("give a room")
+        owner = A.home.access.spaces().get(room)
+        me = VIEWER.get()
+        if owner and me and me.lower() != owner.lower():
+            return J({"error": f"that's {owner}'s space"}, 403)
+        A.home.access.set_space(room, (b.get("person") or "").strip())
+        return J(A.home.access.spaces())
 
     @r.get("/api/guest")
     async def guest_get(_):

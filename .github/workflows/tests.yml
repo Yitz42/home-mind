@@ -88,6 +88,8 @@ jobs:
         run: python tests/test_soundness.py
       - name: Channels, guest mode, spend cap, consent on a clear day (phase 10)
         run: python tests/test_channels.py
+      - name: Rooms, access by room and group, back-off, surprises, conflicts (phase 11)
+        run: python tests/test_rooms.py
       - name: Expert review checks
         run: for f in tests/test_review_*.py; do echo "== $f"; python "$f" || exit 1; done
       - name: Extraction bench scoring

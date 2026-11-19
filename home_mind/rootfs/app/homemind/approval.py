@@ -134,9 +134,13 @@ class Access:
             return s["pending"]
         return s.get("level")
 
-    def effective(self, entity_id, allowed, risky):
-        """allowed: on the control list; risky: a lock, garage door, heater... (for devices that are new)."""
-        s = self.setting(entity_id)
+    def effective(self, entity_id, allowed, risky, groups=()):
+        """allowed: on the control list; risky: a lock, garage door, heater... (for devices that are new).
+        groups: "room:<name>" and "group:<entity>" keys the device belongs to (phase 11). A device inherits its
+        groups' settings and the most restrictive of its own and theirs wins, so a deny always beats an allow."""
+        own = self.setting(entity_id)
+        inherited = [g for g in (self.setting(k) for k in groups) if g in ACCESS]
+        s = min([x for x in [own] + inherited if x in ACCESS], key=ACCESS.index, default=None)
         if s in ACCESS:
             return "act" if s == "act" and allowed else "read" if s == "act" else s
         known = self.known()
@@ -144,10 +148,30 @@ class Access:
             return "none"
         return "act" if allowed else "read"
 
-    def set(self, entity_id, level_, by="admin"):
-        """Change one device's access. Stricter: now. Looser: in 24 hours. Returns the change, for the notice."""
+    SPACES = "personal_spaces"           # room -> the person whose space it is
+
+    def spaces(self):
+        return {k.lower(): v for k, v in (self.store.kv_get(self.SPACES) or {}).items()}
+
+    def set_space(self, room, person):
+        d = dict(self.store.kv_get(self.SPACES) or {})
+        if person:
+            d[room.lower()] = person
+        else:
+            d.pop(room.lower(), None)
+        self.store.kv_set(self.SPACES, d)
+
+    def set(self, entity_id, level_, by="admin", room=None):
+        """Change one device's (or a "room:" / "group:" key's) access. Stricter: now, by anyone (any adult's veto).
+        Looser: in 24 hours, and in someone's personal space only by them. Returns the change, for the notice."""
         if level_ not in ACCESS:
             raise ValueError(f"access is one of {', '.join(ACCESS)}")
+        room = (entity_id[5:] if entity_id.startswith("room:") else room or "").lower()
+        owner = self.spaces().get(room) if room else None
+        before_ = self.setting(entity_id)
+        looser = before_ is not None and ACCESS.index(level_) > ACCESS.index(before_)   # nothing set = no limit yet
+        if owner and looser and str(by or "").lower() != str(owner).lower():
+            raise PermissionError(f"that's in {owner}'s space: only {owner} can open it up")
         allx = self._all()
         cur = allx.get(entity_id) or {}
         now = self.clock()

@@ -117,6 +117,22 @@ earned trust, the same kind of request is done straight away, with no model call
 - **A monthly spend cap** (`monthly_spend_cap`, dollars; models need prices set): once reached, cloud models rest
   until next month and answers come from local models or your notes. Said once. Set a hard limit on the API key too.
 
+## Rooms, backing off, surprises
+
+- **Device access by room and group.** Set `room:bedroom` or `group:light.upstairs` in `/api/access` as you would a
+  device; a device inherits from its room and its groups, and the most restrictive setting wins, so a "none" on the
+  room beats an "act" on a lamp. A room can be someone's **personal space** (`/api/spaces`): anyone can make its
+  devices stricter, but only that person can open them up (after the usual 24 hours).
+- **The room model** knows who was last heard in each room (10 minutes) and which rooms have movement (5 minutes),
+  in memory only: no history is kept. It decides "on your own" for private answers by voice. Nobody can ask where
+  someone else is: "where's Dana?" gets "I don't keep track of where people are". Where things are is unaffected.
+- **Backing off:** when you undo something Home Mind just did, its own automations leave that device alone for 3
+  hours (`/api/backoff`). Your own requests still work.
+- **Surprises and gaps,** one queue (`/api/surprises`): a device that didn't do what was expected, an action that
+  failed, a correction, a request nothing could do, a question the notes couldn't answer.
+- **Conflicts:** when people want different things from one device, the person in that room wins; otherwise a number
+  goes to the middle, and on/off to the careful choice (off for heat and noise, on for light).
+
 ## New things wait for a clear day
 
 Switching on something new (an automation now; experiments and new features later) needs your yes **on a clear
@@ -1073,6 +1089,11 @@ note), 502 (a model failed) or 500.
 | POST | `/api/consent/{id}` | admin | your answer on a change (`answer`: yes, no, or changed my mind) |
 | GET | `/api/guest` | admin | whether guest mode is on |
 | POST | `/api/guest` | admin | guest mode on or off (`on`) |
+| GET | `/api/surprises` | admin | the surprises and gaps queue: missed predictions, failed actions, corrections, requests nothing could do, unanswered questions (`kind?`) |
+| POST | `/api/surprises/{id}/seen` | admin | mark one seen |
+| GET | `/api/backoff` | admin | devices Home Mind's own automations are leaving alone after a person changed them |
+| GET | `/api/spaces` | admin | personal spaces: rooms whose devices only their person can open up |
+| POST | `/api/spaces` | admin | set a room's person (`room`, `person`; empty clears) |
 | GET | `/api/spend` | admin | this month's cloud spend against `monthly_spend_cap` |
 | GET | `/api/outbox` | admin | phone messages of the last week by what happened (sent, held, failed, expired, duplicate) |
 | GET | `/api/learned/answers` | admin | what Home Mind has learned about answering questions: each answer, its note, status and evidence, and how often the tie-break was needed (`status?`) |

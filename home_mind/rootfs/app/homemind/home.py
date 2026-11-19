@@ -168,8 +168,28 @@ class Home:
         c = self.catalog.get(eid) or {}
         return eid.split(".")[0] in RISKY_DOMAINS or self.sensitive(eid) or heater(eid, c.get("name") or "")
 
+    def access_groups(self, eid):
+        """The groups a device inherits access from: its room, and any light or other group listing it."""
+        out = []
+        room = (getattr(self, "areas", {}) or {}).get(eid)
+        if room:
+            out.append(f"room:{room}")
+        cat = self.catalog or {}
+        key = (id(cat), len(cat))
+        cache = self.__dict__.get("_groups_of")
+        if not cache or cache[0] != key:          # member -> groups, worked out once per catalog
+            m = {}
+            for g, c in cat.items():
+                members = (c.get("attrs") or {}).get("entity_id")
+                if isinstance(members, list):
+                    for x in members:
+                        if x != g:
+                            m.setdefault(x, []).append(f"group:{g}")
+            cache = self.__dict__["_groups_of"] = (key, m)
+        return out + cache[1].get(eid, [])
+
     def access_of(self, eid):
-        return self.access.effective(eid, self.allowed(eid), self.risky(eid))
+        return self.access.effective(eid, self.allowed(eid), self.risky(eid), self.access_groups(eid))
 
     def ladder(self):
         return dict(self.store.kv_get("ladder") or {})
