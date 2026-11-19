@@ -5,7 +5,9 @@
   admin  everything: the main token is admin, and so are tokens made with that scope
 
 A token can also be tied to a person (option people): what it asks is answered as that person (personal notes, #48),
-and what it files is theirs. Only a hash of each token is kept; the token itself is shown once, when it is made.
+and what it files is theirs. A read or write token tied to no one is answered as a guest (household notes only); an
+admin token sees everything, like the main token. Tokens expire (90 days by default; days=0 for never) and are
+renewed by making a new one. Only a hash of each token is kept; the token itself is shown once, when it is made.
 """
 import hashlib
 import re
@@ -68,14 +70,24 @@ class Tokens:
     def _all(self):
         return self.store.kv_get("tokens") or []
 
-    def make(self, name, scope="read", person=None):
+    DAYS = 90
+
+    def make(self, name, scope="read", person=None, days=None):
+        days = self.DAYS if days is None else days
+        try:
+            days = float(days)
+        except (TypeError, ValueError):
+            raise ValueError("days should be a number (0 = never expires)") from None
+        if not 0 <= days <= 3650:
+            raise ValueError("days is from 0 (never expires) to 3650")
         if scope not in SCOPES:
             raise ValueError(f"scope is one of {', '.join(SCOPES)}")
         if not (name or "").strip():
             raise ValueError("give the token a name (which client uses it)")
         tok = "hm_" + secrets.token_urlsafe(32)
         rec = {"id": secrets.token_hex(4), "name": name.strip(), "scope": scope, "person": person or None,
-               "hash": _hash(tok), "created": time.time(), "last_used": None}
+               "hash": _hash(tok), "created": time.time(), "last_used": None,
+               "expires": time.time() + days * 86400 if days else None}
         self.store.kv_set("tokens", self._all() + [rec])
         return dict({k: v for k, v in rec.items() if k != "hash"}, token=tok)
 
@@ -97,6 +109,8 @@ class Tokens:
         rs = self._all()
         for r in rs:
             if secrets.compare_digest(r["hash"], h):
+                if r.get("expires") and time.time() > r["expires"]:
+                    return None             # expired: make a new one
                 if not r.get("last_used") or time.time() - r["last_used"] > 300:
                     r["last_used"] = time.time()
                     self.store.kv_set("tokens", rs)

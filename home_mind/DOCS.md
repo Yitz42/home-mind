@@ -56,6 +56,43 @@ Models can switch things only when all of these hold:
 
 `/api/home/act`, `/api/do` and the MCP tools `mind_control` / `mind_do` need an admin token.
 
+## The conversation: check-in, undo, why and privacy
+
+**How's today?** Once a day Home Mind asks "good, low or rough?": by voice, the first time you speak to it that day
+(at the end of its answer, never as an alarm), and on the morning notification as three buttons. Answer with a word
+("rough", "pretty good", "having a low day"), a tap, or the panel. If you don't answer, the day is *unknown*: treated
+gently, never recorded as rough. What it changes:
+- **Asks in a day.** Routine notifications and reminders: about 4 on a good day, 1 on a low day, none on a rough day,
+  1 when unknown. Past that they expire quietly. On a rough day every device stays quiet except safety and things you
+  just asked for (like an approval). Rough: "Taking it easy today. Nothing needs you."
+- **Energy left** on Today: today's readiness score, held down on a low (50), rough (20) or unknown (60) day.
+
+**Undo.** "Undo", "undo that", "put it back" puts back the last thing you asked for in the last 10 minutes, as it was
+(brightness and speed too). Say it again to step back one more. It goes through the same checks: undoing an unlock
+still needs your phone.
+
+**Why.** "Why did you turn on the hall light?" answers in one sentence from the decision log: who asked and how, or
+which automation, and when. To anyone but the person who asked, someone else's request is "a household rule".
+Questions like "why is the humidity high?" still go to the brain.
+
+**Help me do it.** "Help me…" or "walk me through…" gives the steps one at a time, and Home Mind does nothing for
+you.
+
+**Who may hear it.** By voice, an answer drawn from your personal notes is spoken only when you were recognised and
+you're the only one home. Otherwise Home Mind says you have a private note and sends it to your phone (set `notify`
+for each person under `people`).
+
+**Slow answers.** By voice, an answer that isn't ready after 6 seconds goes to your phone instead ("That's taking a
+moment. I'll send it to your phone."), if Home Mind knows your phone.
+
+**Two times per fact.** Every version of a fact keeps when it became true and when Home Mind learned it.
+`/api/as_of` answers "what was the code on the 3rd?" (`by=valid`) and "what did you think on Tuesday?"
+(`by=recorded`).
+
+**Who is asking.** The panel answers as the person signed in to Home Assistant, if they're in `people` or have a
+person entity. A read or write token that isn't tied to a person is treated as a guest (household notes only); make a
+token per person for Claude or other apps. Tokens expire after 90 days unless made with `days: 0`.
+
 ## Safety: approvals, red flags and the daily check
 
 **Who has to say yes.** Every action has an approval level, set in code; nothing a model or a learned record says can
@@ -848,6 +885,8 @@ note), 502 (a model failed) or 500.
 | GET | `/api/home` | read | the house as Home Mind sees it (watched things, control list) |
 | POST | `/api/home/act` | admin | switch one thing (`entity_id`, `action`, `value?`, `confirm?`) |
 | POST | `/api/do` | admin | do what a sentence asks (`text`); never confirms locks |
+| GET | `/api/as_of` | read | a keyed fact at a time (`key`, `at`: seconds or ISO date, `by`: valid or recorded) |
+| POST | `/api/today/checkin` | write | today's check-in (`state`: good, low or rough; `person?`) |
 | GET | `/api/safety` | read | the last daily safety suite: pass or fail, and each check |
 | POST | `/api/safety/run` | admin | run the safety suite now |
 | GET | `/api/access` | admin | every device's access (none, read, act), approval level and ladder rung, with changes waiting |
@@ -909,7 +948,7 @@ note), 502 (a model failed) or 500.
 | GET | `/api/vault` | read | whether secrets are encrypted (vault state) |
 | GET | `/api/vault/key` | admin | the key that opens sealed secrets |
 | GET | `/api/tokens` | admin | access tokens |
-| POST | `/api/tokens` | admin | make a token (`name`, `scope`, `person?`); shown once |
+| POST | `/api/tokens` | admin | make a token (`name`, `scope`, `person?`, `days?`: expires after, default 90, 0 = never); shown once |
 | DELETE | `/api/tokens/{tid}` | admin | revoke a token |
 | GET | `/api/control` | read | the switches, numbers, times and buttons the bridge shows |
 | POST | `/api/control/set` | admin | change one (`key`, `value`) |

@@ -194,6 +194,7 @@ schema:
       devices: str?
       areas: str?
       persons: str?
+      notify: str?
   personal_rule: list(first_person|household)
   unknown_caller: list(admin|guest)
   embed_model: str?

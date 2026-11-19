@@ -179,19 +179,31 @@ class HA:
             raise ValueError(f"tier is one of {', '.join(self.TIERS)}")
         held = self.__dict__.setdefault("held", [])
         sent = self.__dict__.setdefault("sent", {})
-        if tier != "safety" and not (tier == "important" and now) and self.in_quiet():
+        day = getattr(self, "day", None)         # the check-in (day.py): a rough day keeps every device quiet
+        state = day.get() if day is not None else None
+        if state == "rough" and tier == "routine":
+            self.__dict__["quieted"] = self.__dict__.get("quieted", 0) + 1
+            return "quiet"                       # routine asks expire quietly on a rough day
+        if tier != "safety" and not (tier == "important" and now) and (self.in_quiet() or state == "rough"):
             held.append((target, data, tier))
             return "held"
         today = date.today().isoformat()
-        if tier == "routine" and self.cap and sent.get(today, 0) >= self.cap:
-            self.__dict__["capped"] = self.__dict__.get("capped", 0) + 1
-            return "capped"
+        if tier == "routine":
+            # the daily limit counts every counted push; the day's budget (good 4, low 1, rough 0) routine ones only
+            over_cap = bool(self.cap) and sent.get(today, 0) >= self.cap
+            over_budget = day is not None and self.__dict__.setdefault("routine_sent", {}).get(today, 0) >= day.budget()
+            if over_cap or over_budget:
+                self.__dict__["capped"] = self.__dict__.get("capped", 0) + 1
+                return "capped"
         if "." not in target:
             target = "notify." + target        # option written as "mobile_app_phone"
         dom, svc = target.split(".", 1)
         await self.call(dom, svc, data)
         if tier != "safety":
             self.sent = {today: sent.get(today, 0) + 1}
+        if tier == "routine":
+            rs = self.__dict__.setdefault("routine_sent", {})
+            self.routine_sent = {today: rs.get(today, 0) + 1}
         return "sent"
 
     async def flush_held(self):
