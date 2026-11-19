@@ -190,6 +190,13 @@ CREATE TABLE IF NOT EXISTS nudges (id INTEGER PRIMARY KEY, owner TEXT, goal TEXT
             self.store.db.execute("INSERT INTO meds_log (owner, ts, name, amount) VALUES (?,?,?,?)",
                                   (owner, self.clock(), name, amount or None))
             self.store.db.commit()
+        if name not in known:
+            cb = getattr(self, "on_new_medicine", None)     # experiments.py: a new medicine ends the current pair
+            if cb is not None:
+                try:
+                    cb(name)
+                except Exception:  # noqa: BLE001
+                    pass
         if RATE_LOWERING.search(name):
             self.store.kv_set("zones_blocked", {"by": name, "at": self.clock()})
         if prev:

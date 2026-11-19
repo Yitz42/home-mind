@@ -219,6 +219,9 @@ configuration:
   exertion_threshold:
     name: Exertion line (bpm)
     description: The heart rate from your clinician's pacing plan. 0 = your resting heart rate + 15.
+  proposals_model:
+    name: Model for gap proposals
+    description: An Anthropic model from your models list (for example Opus) asked through the Batch API, on nights when a gate failed or a gap is waiting, to draft the cheapest fix for something Home Mind keeps failing at. It sees only the schema and made-up data. Empty = proposals list the record and app fixes only.
   travel_away_entity:
     name: Away switch for travel mode
     description: An input_boolean (or similar) turned on in travel mode. Empty = input_boolean.away if you have one.

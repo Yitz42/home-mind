@@ -285,11 +285,19 @@ class App:
         self.tracking = Tracking(st9, None, folder=DATA)
         self.zones = Zones(st9, self.opts, None, folder=DATA)
         self.ha.travelling = self.tracking.travelling
+        # phase 14: experiments and proposals
+        from .experiments import Experiments
+        from .proposals import Proposals
+        self.experiments = Experiments(st9, None, None, self.tracking)
+        self.proposals = Proposals(st9, self.surprises)
+        self.consent.appliers["experiment_start"] = self.experiments.start
+        self.tracking.on_new_medicine = lambda name: self.experiments.medicine_changed(name, date.today())
         self.mind.tiebreak = self.tiebreak
         from .day import Day
         self.day = Day(self.mind.store)
         self.consent.day = self.day             # a clear day reads the check-in (consent.py)
         self.tracking.day = self.zones.day = self.day
+        self.experiments.day = self.day
         self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
             lambda d: self.on_nudge_action(d.get("action")))
         self.ha.day = self.day           # the day's ask budget and rough-day quiet (ha.push)
@@ -354,6 +362,8 @@ class App:
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
         self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
         self.mind.patterns = self.patterns
+        if getattr(self, "experiments", None) is not None:
+            self.experiments.patterns = self.patterns
         from .datafacts import DataFacts
         self.mind.datafacts = DataFacts(self.mind.store, self.fitness, self.patterns)
         from .health import Health
@@ -1392,7 +1402,18 @@ class App:
                                                    "Any of these this week: a cold, a trip, a hard week, a new "
                                                    "medicine, poor sleep, a big event? (Unanswered stays unknown.)"},
                                            tier="routine", batch=True)
-                for n in tk.nudges_due({"states": {e: c.get("state") for e, c in (self.home.catalog or {}).items()}}):
+                # arrive / leave nudges: where each person's state changed, and when
+                pc = self.__dict__.setdefault("_place_changes", {})
+                was = self.__dict__.setdefault("_places", {})
+                for p in self.people():
+                    for e in p.get("persons") or []:
+                        s = ((self.home.catalog or {}).get(e) or {}).get("state")
+                        if s and was.get(p["name"]) and was[p["name"]] != s:
+                            pc[p["name"]] = {"from": was[p["name"]], "to": s, "at": now}
+                        if s:
+                            was[p["name"]] = s
+                for n in tk.nudges_due({"states": {e: c.get("state") for e, c in (self.home.catalog or {}).items()},
+                                        "place_changes": pc}):
                     phone = self.phone_of(n["owner"]) if n["owner"] else await self.morning._phone()
                     if phone:
                         await self.ha.push(phone, {"title": "Home Mind", "message": tk.nudge_message(n), "data": {
@@ -1417,6 +1438,67 @@ class App:
                                 await self.ha.push(phone, {"title": "Home Mind", "message": msg}, tier="routine")
             except Exception:  # noqa: BLE001
                 log.exception("exertion zones")
+
+    async def _upkeep14(self, now, last):
+        """Phase 14, once a day: the experiment's checks (travel days, a safety stop, the end), and gaps turned into
+        proposals; a batch to Opus only when a gate failed or a gap is queued, and only with proposals_model set."""
+        ex = getattr(self, "experiments", None)
+        if ex is None or datetime.now().hour != 5 or now - last.get("exp_day", 0) < 20 * 3600:
+            return
+        last["exp_day"] = now
+        try:
+            r = ex.check()
+            if r and self.ha.available:
+                await self.ha.notify("Home Mind: experiment", r.get("text") or "The experiment ended.", "home_mind_exp")
+        except Exception:  # noqa: BLE001
+            log.exception("experiment check")
+        try:
+            self.proposals.build()
+            await self._proposal_batch()
+        except Exception:  # noqa: BLE001
+            log.exception("proposals")
+
+    async def _proposal_batch(self):
+        name = self.opts.get("proposals_model") or ""
+        m = (getattr(self.models, "models", {}) or {}).get(name)
+        cfg = getattr(m, "cfg", None) or {}
+        st = self.mind.store
+        if not m or cfg.get("provider") != "anthropic" or not cfg.get("api_key"):
+            return None
+        base = (cfg.get("url") or "https://api.anthropic.com").rstrip("/")
+        hdr = {"x-api-key": cfg["api_key"], "anthropic-version": "2023-06-01"}
+        import aiohttp
+        pending = st.kv_get("proposals_batch")
+        if pending:
+            async with self.models.session.get(f"{base}/v1/messages/batches/{pending['id']}", headers=hdr,
+                                               timeout=aiohttp.ClientTimeout(total=30)) as r:
+                j = await r.json(content_type=None)
+            if j.get("processing_status") == "ended" and j.get("results_url"):
+                async with self.models.session.get(j["results_url"], headers=hdr,
+                                                   timeout=aiohttp.ClientTimeout(total=60)) as r:
+                    lines = (await r.text()).splitlines()
+                drafts = st.kv_get("proposal_drafts") or {}
+                for ln in lines:
+                    try:
+                        x = json.loads(ln)
+                        msg = (x.get("result") or {}).get("message") or {}
+                        drafts[x["custom_id"]] = "".join(b.get("text", "") for b in msg.get("content") or [])
+                    except (ValueError, KeyError):
+                        continue
+                st.kv_set("proposal_drafts", drafts)
+                st.kv_set("proposals_batch", None)
+            return pending
+        gate_failed = any("replay got worse" in (c.get("note") or "") for c in self.learned_history.changes(1)) \
+            if getattr(self, "learned_history", None) else False
+        req = self.proposals.batch(gate_failed, cfg.get("model") or "claude-opus-5-5")
+        if not req:
+            return None
+        async with self.models.session.post(f"{base}/v1/messages/batches", json=req, headers=hdr,
+                                            timeout=aiohttp.ClientTimeout(total=60)) as r:
+            j = await r.json(content_type=None)
+        if j.get("id"):
+            st.kv_set("proposals_batch", {"id": j["id"], "at": time.time()})
+        return j
 
     async def _upkeep11(self, now, last):
         """Phase 11: the surprises queue from the decision log, corrections and asks, every 10 minutes."""
@@ -1468,6 +1550,7 @@ class App:
         await self._upkeep11(now, last)
         await self._upkeep12(now, last)
         await self._upkeep13(now, last)
+        await self._upkeep14(now, last)
         rep = getattr(self, "db_report", None)
         if rep and self.ha.available and not rep.get("told"):
             rep["told"] = True
@@ -3631,6 +3714,51 @@ def build(app_state):
         """"Not today": no exertion notice for the rest of the day."""
         A.zones.mute_today()
         return J({"muted": True})
+
+    @r.post("/api/experiments/plan")
+    async def experiment_plan(q):
+        """A written plan ({"question", "change", "kind": reduce_load|sleep_timing|meal_timing, "outcome"?, "pairs"?,
+        "block_days"?, "washout_days"?}), checked, and put to consent: it starts 24 hours after a yes on a clear day."""
+        from .speakers import VIEWER
+        b = await read_body(q, question=str, change=str, kind=str, outcome=str, pairs=float, block_days=float,
+                            washout_days=float)
+        plan = A.experiments.plan(b.get("question") or "", b.get("change") or "", b.get("kind") or "",
+                                  b.get("outcome") or "fog", b.get("pairs") or 4, b.get("block_days") or 7,
+                                  b.get("washout_days") if b.get("washout_days") is not None else 2)
+        c = A.consent.propose("experiment_start", f"Experiment: {plan['change']}", plan, VIEWER.get() or None)
+        return J({"plan": plan, "consent": c})
+
+    @r.get("/api/experiments")
+    async def experiment_get(_):
+        e = A.experiments.current()
+        return J({"experiment": e, "analysis": A.experiments.analyse() if e else None})
+
+    @r.post("/api/experiments/adherence")
+    async def experiment_adherence(q):
+        """{"yes": true} for today (or "day": "2026-12-03")."""
+        b = await read_body(q, day=str)
+        d = date.fromisoformat(b["day"]) if b.get("day") else date.today()
+        A.experiments.adhered(d, bool(b.get("yes")))
+        return J({"ok": True})
+
+    @r.post("/api/experiments/stop")
+    async def experiment_stop(_):
+        return J(A.experiments.stop("stopped by you"))
+
+    @r.get("/api/proposals")
+    async def proposals_get(_):
+        """Gaps seen at least 3 times in two weeks, each with the cheapest fixes first, and any module drafts."""
+        return J({"proposals": A.proposals.store.kv_get(A.proposals.KV) or A.proposals.build(),
+                  "drafts": A.mind.store.kv_get("proposal_drafts") or {}})
+
+    @r.post("/api/proposals/{topic}")
+    async def proposals_set(q):
+        """{"status": "done" | "dismissed" | "open"}."""
+        b = await read_body(q, status=str)
+        if b.get("status") not in ("done", "dismissed", "open"):
+            raise ValueError("status is done, dismissed or open")
+        A.proposals.set_status(q.match_info["topic"], b["status"])
+        return J({"ok": True})
 
     @r.get("/api/guest")
     async def guest_get(_):

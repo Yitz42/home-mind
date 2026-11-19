@@ -133,6 +133,30 @@ earned trust, the same kind of request is done straight away, with no model call
 - **Conflicts:** when people want different things from one device, the person in that room wins; otherwise a number
   goes to the middle, and on/off to the careful choice (off for heat and noise, on for light).
 
+## Your experiments
+
+An experiment tries one change against your usual: **reducing load, sleep timing or meal timing only, never a
+medicine or a supplement** (that's for your doctor). `/api/experiments/plan` writes the plan and checks it: blocks of
+at least 7 days, 6 A/B pairs by default (4 at least, though 4 can't show a difference at the usual 5% line, and the
+plan says so), the order inside each pair drawn at random, a washout at the start of each block, the start set by
+the calendar (the next Monday), one primary outcome (fog, readiness or crash episodes), and the smallest difference it
+could see, all before it starts. It starts 24 hours after your yes on a clear day.
+
+Crash episodes are the safety outcome, counted per block: an episode starts on the first rough check-in after at
+least 2 days that weren't rough, and ends on the next day that isn't rough (your clinician's definition replaces
+this). A new medicine ends the current pair and is flagged; travel days don't count; 2 or more crash episodes with
+the change than without, in any pair, stop it. The analysis is exact (every way the order inside the pairs could
+have fallen), and "no clear difference" is a result.
+
+## When Home Mind keeps failing at something
+
+Things it couldn't do or answer are grouped by topic; one seen 3 times in two weeks becomes a proposal
+(`/api/proposals`), cheapest fix first: use what's already there (a note, a tracker, a scene, an automation), then an
+existing app (Firefly III for money, Homebox for things you own, Mealie, Grocy, Paperless), and only then a new
+module. With `proposals_model` set (an Anthropic model), a module is drafted overnight through the Batch API, only on
+nights when a gate failed or a proposal is waiting, from the schema and made-up data only, as a spec for you to
+review. Nothing it writes runs on its own.
+
 ## Trackers, medicines, nudges, exertion, travel
 
 - **Trackers** (`/api/trackers`): at most 3, weekly unless you say daily, asked as routine asks (they wait for the
@@ -1006,6 +1030,7 @@ you turn them on are listed after the tables.
 | `email_require_verified` | on | Only mail your mail server says passed its sender check (DKIM or SPF) is read |
 | `exertion_zones` | off | Live exertion zones from a fresh heart-rate sensor |
 | `exertion_threshold` | 0 | The exertion line in bpm from your clinician's plan (else resting + 15) |
+| `proposals_model` | empty | An Anthropic model asked (Batch API) to draft fixes for gaps; sees the schema and made-up data only |
 | `travel_away_entity` | empty | What travel mode switches on (else input_boolean.away) |
 | `monthly_spend_cap` | 0 (none) | Cloud models rest for the month once their spend reaches this many dollars |
 | `email_minutes` | 10 | Check email every (minutes) |
@@ -1128,6 +1153,12 @@ note), 502 (a model failed) or 500.
 | POST | `/api/guest` | admin | guest mode on or off (`on`) |
 | GET | `/api/surprises` | admin | the surprises and gaps queue: missed predictions, failed actions, corrections, requests nothing could do, unanswered questions (`kind?`) |
 | POST | `/api/surprises/{id}/seen` | admin | mark one seen |
+| POST | `/api/experiments/plan` | admin | a written experiment plan, checked and put to consent (`question`, `change`, `kind`, `outcome?`, `pairs?`, `block_days?`, `washout_days?`) |
+| GET | `/api/experiments` | admin | the experiment and its analysis so far |
+| POST | `/api/experiments/adherence` | admin | did you do it today (`yes`, `day?`) |
+| POST | `/api/experiments/stop` | admin | stop it now, with the result so far |
+| GET | `/api/proposals` | admin | gaps seen 3 times in two weeks, cheapest fixes first, and module drafts |
+| POST | `/api/proposals/{topic}` | admin | mark a proposal done, dismissed or open (`status`) |
 | GET | `/api/trackers` | admin | your trackers, entries waiting for details, and whether they're paused |
 | POST | `/api/trackers` | admin | add a tracker (`name`, `kind?`, `cadence?`), stop one (`stop`), or add details (`confirm`, `details?`) |
 | GET | `/api/meds` | admin | your medicines log (30 days); nobody reviews it, no interaction checks |

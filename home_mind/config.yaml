@@ -104,6 +104,7 @@ options:
   exertion_zones: false
   exertion_threshold: 0
   travel_away_entity: ""
+  proposals_model: ""
   local_model: ""
   safety_contact: ""
   ha_user_token: ""
@@ -258,6 +259,7 @@ schema:
   exertion_zones: bool?
   exertion_threshold: int(0,200)?
   travel_away_entity: str?
+  proposals_model: str?
   compare_suites:
     - str?
   comfort_rooms:

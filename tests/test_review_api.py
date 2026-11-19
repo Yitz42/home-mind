@@ -179,6 +179,12 @@ ROUTES = [
     ("GET", "/api/surprises", ["kind"]),
     ("POST", "/api/surprises/{id}/seen", []),
     ("GET", "/api/backoff", []),
+    ("POST", "/api/experiments/plan", ["question", "change", "kind", "outcome", "pairs", "block_days", "washout_days"]),
+    ("GET", "/api/experiments", []),
+    ("POST", "/api/experiments/adherence", ["day", "yes"]),
+    ("POST", "/api/experiments/stop", []),
+    ("GET", "/api/proposals", []),
+    ("POST", "/api/proposals/{topic}", ["status"]),
     ("GET", "/api/trackers", []),
     ("POST", "/api/trackers", ["name", "kind", "cadence", "details"]),
     ("GET", "/api/meds", []),
@@ -333,7 +339,7 @@ BAD_BODIES = [NOBODY, NOTJSON, [], [1, 2], "text", 42, None, True, {}]
 
 def paths_for(path):
     """The route's path filled in: with good placeholder values and each op, then with bad ones."""
-    fills = {"id": ["1"], "name": ["1-ab.jpg"], "did": ["1"], "tid": ["1"], "sid": ["1"]}
+    fills = {"id": ["1"], "name": ["1-ab.jpg"], "did": ["1"], "tid": ["1"], "sid": ["1"], "topic": ["finance"]}
     if path == "/api/item/{id}/{op}":
         return [f"/api/item/1/{op}" for op in OPS["op"]] + [f"/api/item/{i}/forget" for i in BAD_PATH["id"]]
     for key, opk in (("/api/automations/{op}", "automations_op"), ("/api/pantry/{op}", "pantry_op"),
