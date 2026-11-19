@@ -90,8 +90,15 @@ check("plan: 6 pairs of 7-day blocks by default, each pair A and B in a random o
       len({tuple(v) for v in pairs.values()}) == 2, pairs)
 check("plan: says the smallest effect it could see, and the crash definition, before starting",
       plan["smallest_effect"] and "rough" in plan["crash_definition"], plan)
-p4 = ex.plan("q", "lie down after lunch", "reduce_load", pairs=4)
-check("plan: 4 pairs allowed, but it says it can't reach the 5% line", p4["power_note"] and p4["smallest_p"] == 0.125)
+try:
+    ex.plan("q", "lie down after lunch", "reduce_load", pairs=4)
+    refused = False
+except ValueError as e:
+    refused = "can never show" in str(e)
+check("plan: 4 pairs refused (its test can't reach the 5% line)", refused)
+p4 = ex.plan("q", "lie down after lunch", "reduce_load", pairs=4, underpowered_ok=True)
+check("plan: 4 pairs only when asked for, and it says it can't reach the 5% line",
+      p4["power_note"] and p4["smallest_p"] == 0.125)
 asyncio.run(ex.start(plan))
 check("one at a time", asyncio.run(ex.start(plan)).get("error"))
 

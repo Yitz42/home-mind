@@ -126,6 +126,10 @@ class Telegram:
         if lim is not None and not lim.allow("telegram", chat):
             return "That's a lot of messages in an hour. I'll answer again in a little while."
         who = self.chats[chat]
+        if (msg.get("chat") or {}).get("type") in ("group", "supergroup") or (isinstance(chat, int) and chat < 0):
+            # in a group the speaker is the member who wrote (their own user id, listed in telegram_chats), never
+            # the group's name: the group's name would see, and file as, whoever it is named after
+            who = self.chats.get((msg.get("from") or {}).get("id")) or ""
         st = self.app.mind.store
         if msg.get("photo"):
             if not text:

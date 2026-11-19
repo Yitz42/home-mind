@@ -1,6 +1,22 @@
 # Changelog
 
 ## Unreleased
+- **Review fixes** (ten expert panels, `claude/review-2026-11-panels.md`): red flags are checked before every shortcut
+  (money, "where is", the medicines log), said word for word (never restyled by the persona) and on other assistants
+  too, and catch passive crisis phrasing, seizures, blue lips, sudden numbness and a child swallowing pills, with
+  fewer false declines ("I can't get out of bed today" is a crash, not a decline); the safety contact is told once in
+  6 hours. The experiment safety stop reads each person's own check-in (never the "asked" marker), counts washouts
+  and the running block, and stops a harmful change; plans need 6 pairs and start the Monday after the real start.
+  One rough day after a calm stretch no longer says "see your doctor", and the alarm allows for days carrying over.
+  A guest token can't claim a speaker. The forget list only re-deletes notes from before the deletion, matches sealed
+  notes, and scrubs on every re-apply. Learned reflexes never act on a request for later or on the opposite on/off.
+  Back-off is wired, and never stops a safety call. A tap check-in never overrides someone's rough day; "good
+  morning" isn't a check-in and "fine, just tired" is low. The medicines log skips questions and food, knows brand
+  names, and logs a dose and a check-in said together. Email senders are checked against the receiving server's own
+  header (`email_authserv_id`); a Telegram group speaks as the member who wrote. A shared key never shows or replaces
+  someone else's personal note. The proposals batch runs (it read the wrong config key). The significant-events
+  checklist moved to `/api/significant`. Replay errors count as wrong; a kind is earned on its interval, not a point
+  estimate; "about usual" fits each reading's own spread.
 - **Design checks** on phases 8 to 15 (`tests/test_design_checks.py`), and the fixes they called for: a personal
   note, an email or a document never makes a thing link or a thing suggestion; a purge also clears learned answers,
   their weekly saves, the outbox, the surprises queue and tracker details; learned answers are replay-gated even

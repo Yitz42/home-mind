@@ -3,8 +3,9 @@
 Each channel proves its sender and has its own limits:
   telegram   the chat must be on telegram_chats; in a group chat the sender's own user id must be one of the people
              listed there too (a group member nobody listed is ignored); at most 30 messages an hour per chat
-  email      only from email_senders, and the message must say it passed its sender check (an Authentication-Results
-             header with dkim=pass or spf=pass for the sender's domain) unless email_require_verified is off; at most
+  email      only from email_senders, and the message must say it passed its sender check (the receiving server's
+             Authentication-Results, option email_authserv_id or else the topmost, with dkim, spf or dmarc =pass naming
+             the sender's own domain) unless email_require_verified is off; at most
              50 a day. Mail is filed as notes only, and nothing from mail or documents ever becomes a learned record
              or an action
   mcp        each token as scoped (tokens.py); at most 300 calls an hour per token
@@ -59,17 +60,28 @@ def telegram_sender_ok(msg, chats):
     return True, ""
 
 
-def email_verified(msg, sender):
-    """Did the receiving server say this mail passed its sender check, for the sender's own domain?"""
-    dom = (sender or "").rpartition("@")[2].lower()
+def email_verified(msg, sender, authserv=None):
+    """Did the receiving server say this mail passed its sender check, for the sender's own domain?
+
+    Only the receiving server's own Authentication-Results counts: the header whose authserv-id is the one named
+    (option email_authserv_id, e.g. "mx.google.com"), or else the topmost one, which the last server added (a sender
+    can write any header lower down). A pass counts only with the sender's domain named exactly in it (header.from,
+    header.d, header.i or smtp.mailfrom), never a bare "dkim=pass" or a domain that merely contains it."""
+    dom = (sender or "").rpartition("@")[2].lower().strip()
     if not dom:
         return False
-    for h in msg.get_all("Authentication-Results") or []:
-        for m in AUTH_OK.finditer(str(h)):
-            part = m.group(0).lower()
-            if dom in part or ("header.from=" not in part and "smtp.mailfrom=" not in part and
-                               "header.d=" not in part and "header.i=" not in part):
-                return True
+    heads = [str(h) for h in (msg.get_all("Authentication-Results") or [])]
+    if authserv:
+        heads = [h for h in heads if h.split(";", 1)[0].strip().lower() == authserv.strip().lower()]
+    else:
+        heads = heads[:1]
+    for h in heads:
+        for m in AUTH_OK.finditer(h):
+            for prop in re.findall(r"\b(?:header\.from|header\.d|header\.i|smtp\.mailfrom)=([^\s;]+)", m.group(0),
+                                   re.I):
+                d = prop.rpartition("@")[2].strip("<>\"'").lower()
+                if d == dom or d.endswith("." + dom) and m.group(1).lower() != "spf":
+                    return True
     return False
 
 

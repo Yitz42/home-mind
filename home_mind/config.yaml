@@ -130,6 +130,7 @@ options:
   email_folder: INBOX
   email_senders: []
   email_require_verified: true
+  email_authserv_id: ""
   email_minutes: 10
   compare_suites:
     - recall
@@ -259,6 +260,7 @@ schema:
     - email?
   email_minutes: int(1,1440)?
   email_require_verified: bool?
+  email_authserv_id: str?
   monthly_spend_cap: float(0,10000)?
   exertion_zones: bool?
   exertion_threshold: int(0,200)?

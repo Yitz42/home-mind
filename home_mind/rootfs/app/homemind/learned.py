@@ -75,6 +75,28 @@ def words(text):
     return [w for w in re.findall(r"[a-z]+", (text or "").lower()) if w not in STOP]
 
 
+# a request for later is never a reflex: it is planned (and scheduled) the usual way
+TIMED = re.compile(r"\b(?:later|tonight|tomorrow|this (?:evening|afternoon|morning)|in (?:\d+|a|an|half an?|a few|"
+                   r"ten|five|fifteen|twenty|thirty) (?:sec\w*|min\w*|hours?|hrs?)|in an hour|at \d|at (?:noon|midnight|"
+                   r"sunset|sunrise|dusk|dawn|bedtime)|when (?:i|we|it|the)|once (?:i|we|it)|after (?:\d|i|we|the|dinner|"
+                   r"lunch)|before (?:\d|i|we|bed|the)|until|till|for (?:\d+|an?|half an?) (?:min\w*|hours?|hrs?)|every|"
+                   r"each (?:day|night|morning|evening)|schedule)(?![a-z])", re.I)
+# opposite directions: a request that says one must never fire a template that does the other
+OPPOSITE = {"on": "off", "off": "on", "turn_on": "off", "turn_off": "on", "open": "close", "close": "open",
+            "lock": "unlock", "unlock": "lock", "start": "stop", "stop": "start"}
+DIR_WORD = {"on": "on", "off": "off", "turn_on": "on", "turn_off": "off", "open": "open", "close": "close",
+            "lock": "lock", "unlock": "unlock", "start": "start", "stop": "stop"}
+
+
+def opposite(text, action):
+    """True when the words name the opposite of the action ("tv light bars off" against an "on" template)."""
+    a = (action or "").lower()
+    if a not in OPPOSITE:
+        return False
+    w = set(re.findall(r"[a-z]+", (text or "").lower()))
+    return OPPOSITE[a] in w and DIR_WORD[a] not in w
+
+
 def shape(text):
     """(the words with numbers taken out, the numbers, a "not" in it?)"""
     t = (text or "").replace("’", "'")
@@ -156,9 +178,9 @@ class Learned:
         """The best template for these words: {"record", "sim", "margin", "plan", "named"} or None. Never for a
         request with a "not" in it."""
         base, nums, neg = shape(text)
-        if neg:
-            return None
-        cands = [r for r in self.all() if r["status"] in statuses]
+        if neg or TIMED.search(text or ""):
+            return None             # "not", or for later ("turn off the porch light in an hour"): planned instead
+        cands = [r for r in self.all() if r["status"] in statuses and not opposite(text, r["action"])]
         if not cands:
             return None
         vec = None
@@ -351,14 +373,14 @@ class Learned:
             stood = d.get("seen") == "match" and not d.get("override")
             done = {"entity_id": d["entity_id"], "action": (d.get("action") or "").lower()}
             base, nums, neg = shape(d["request"])
-            if neg:
-                continue
+            if neg or TIMED.search(d["request"] or ""):
+                continue                      # a reflex never acts on these, so they are no evidence for one
             slot = slot_of(done)
             for r in self.all():
                 if r["status"] in ("dropped", "retired"):
                     continue
-                if (r["slot"] == "n") != bool(nums):
-                    continue
+                if (r["slot"] == "n") != bool(nums) or opposite(d["request"], r["action"]):
+                    continue                  # the other direction: it would never have matched
                 if max((overlap(base, e) for e in r["examples"]), default=0.0) < REFLEX_SIM:
                     continue                  # it wouldn't have matched: no evidence
                 predicted = r["entity_id"] == done["entity_id"] and r["action"] == done["action"]

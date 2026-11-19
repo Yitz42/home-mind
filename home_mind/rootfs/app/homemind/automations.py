@@ -215,6 +215,23 @@ def unsupported(cfg):
         walk_actions(cfg.get("actions") or cfg.get("action"))
 
 
+
+def safety_call(dom, name, ents, states=None):
+    """A call that makes the house safer (lock, close a valve, arm, a heater or oven off, anything in a risky domain):
+    never backed off, whoever changed the device by hand lately. Back-off is for comfort only."""
+    from .approval import RISKY_DOMAINS, heater
+    n = (name or "").lower()
+    if dom in RISKY_DOMAINS or dom in ("siren", "water_heater"):
+        return True
+    if n.startswith(("lock", "close", "alarm_arm")) or n in ("stop_cover",):
+        return True
+    if n in ("turn_off", "off"):
+        for e in ents:
+            nm = ((states or {}).get(e) or {}).get("attributes", {}).get("friendly_name", "")
+            if heater(e, nm):
+                return True
+    return False
+
 class Stop(Exception):
     pass
 
@@ -1053,7 +1070,7 @@ class Engine:
         ents = [e.strip() for e in ents.split(",")] if isinstance(ents, str) else list(ents or []) \
             if isinstance(ents, (list, tuple)) else []
         bo = getattr(self, "backoff", None)
-        if bo is not None and ents:
+        if bo is not None and ents and not safety_call(dom, name, ents, self.states):
             kept = [e for e in ents if not bo.active(e)]
             if not kept:
                 steps.append(f"backed off: {', '.join(ents)} changed by hand lately")

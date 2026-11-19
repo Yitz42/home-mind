@@ -3,7 +3,9 @@
 The forget list. What you had deleted for good stays deleted, even after a restore from a snapshot or a backup made
 before you deleted it. Every purge is remembered as fingerprints, never as text: a keyed hash of each deleted note,
 of each value found in it (codes, serials), and of a name purged with "forget everything about". After any restore
-(and every night) the list is applied again: a note whose fingerprint matches is deleted for good once more. The
+(and every night) the list is applied again: a note written before the purge whose fingerprint matches is deleted
+for good once more; a note written since is new information and stays. Sealed notes are matched by their sealed text
+as stored, and the copies phases 8-15 keep are scrubbed on every re-apply too. The
 list is a table in the main database and, so a restore can't roll it back, also a file beside it (forget.jsonl);
 the two are joined when read. The key is a file of its own (forget.key).
 
@@ -84,6 +86,7 @@ class ForgetList:
     def record_notes(self, rows, values=()):
         """Called by Store.purge: fingerprints of what was deleted (never the text)."""
         e = [(self.h(f"{r.get('title') or ''}\n{r.get('body') or ''}"), "note") for r in rows]
+        e += [(self.h(r["_sealed"]), "note") for r in rows if r.get("_sealed")]   # a sealed note, as stored
         e += [(self.h(v), "value") for v in values if v]
         if e:
             self._add(e)
@@ -91,39 +94,57 @@ class ForgetList:
     def record_name(self, name):
         self._add([(self.h(name), "name")])
 
-    def entries(self):
-        out = {r["h"]: r["kind"] for r in self.store.db.execute("SELECT h, kind FROM forget_list")}
+    def entries(self, with_time=False):
+        """{fingerprint: kind}, or with_time {fingerprint: (kind, when it was forgotten)}."""
+        out = {r["h"]: (r["kind"], r["ts"]) for r in self.store.db.execute("SELECT h, kind, ts FROM forget_list")}
         if os.path.exists(self.file):
             with open(self.file) as f:
                 for line in f:
                     try:
                         d = json.loads(line)
-                        out.setdefault(d["h"], d["kind"])
-                    except (ValueError, KeyError):
+                        out.setdefault(d["h"], (d["kind"], float(d.get("ts") or 0)))
+                    except (ValueError, KeyError, TypeError):
                         continue
-        return out
+        return out if with_time else {h: k for h, (k, _) in out.items()}
 
     def matches(self, conn=None):
-        """Note ids (in this database, or another connection's) that the list says should be gone."""
-        ent = self.entries()
+        """Note ids (in this database, or another connection's) that the list says should be gone.
+
+        Only notes written before the purge they match: a restore brings back old notes, which go again; a note
+        written after it is new information (a code changed back to a forgotten one, "1200 W" on a new heater) and
+        stays. The scan holds no lock and touches only what it reads, so it can run off the event loop."""
+        ent = self.entries(with_time=True)
         if not ent:
             return []
         db = conn or self.store.db
+        cols = {r[1] for r in db.execute("PRAGMA table_info(items)")}
+        sel = "SELECT id, title, body, created" + (", secret" if "secret" in cols else "") + " FROM items"
         ids = []
-        for r in db.execute("SELECT id, title, body FROM items"):
+
+        def hit(h, kind, created):
+            e = ent.get(h)
+            return bool(e) and (kind is None or e[0] == kind) and (created is None or created <= e[1])
+
+        for r in db.execute(sel):
+            created = r["created"]
             text = f"{r['title'] or ''}\n{r['body'] or ''}"
-            if self.h(text) in ent:
+            if hit(self.h(text), None, created):
                 ids.append(r["id"])
                 continue
+            if "secret" in cols and r["secret"]:
+                if hit(self.h(r["secret"]), "note", created):
+                    ids.append(r["id"])     # a sealed note: its stored sealed text is what was fingerprinted
+                continue
             vals = set(re.findall(r"(?<![\w-])(?=[\w!@#$%^&*-]*\d)[\w!@#$%^&*-]{4,}", text))
-            if any(ent.get(self.h(v)) == "value" for v in vals) or \
-                    any(ent.get(self.h(g)) == "name" for g in _grams(text)):
+            if any(hit(self.h(v), "value", created) for v in vals) or \
+                    any(hit(self.h(g), "name", created) for g in _grams(text)):
                 ids.append(r["id"])
         return ids
 
-    def apply(self):
-        """Delete again, for good, whatever the list says should be gone. Returns how many notes."""
-        ids = self.matches()
+    def apply(self, ids=None):
+        """Delete again, for good, whatever the list says should be gone. Returns how many notes. The copies kept
+        elsewhere (learned answers, phone messages, trackers) are scrubbed as after any purge."""
+        ids = self.matches() if ids is None else ids
         if not ids:
             return 0
         hook, self.store.on_forget = getattr(self.store, "on_forget", None), None   # don't record them twice
@@ -131,6 +152,10 @@ class ForgetList:
             self.store.purge(ids)
         finally:
             self.store.on_forget = hook
+        try:
+            scrub(self.store, ids, ())
+        except Exception:  # noqa: BLE001 - the notes are gone; the copies are tidied next night
+            pass
         self.store.log("forget_reapplied", None, n=len(ids))
         return len(ids)
 

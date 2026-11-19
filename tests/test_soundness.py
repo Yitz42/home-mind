@@ -124,8 +124,8 @@ check("forget: after a restore the old notes are back (and the list's table copy
 check("forget: the file beside it still knows", len(fl2.entries()) >= 2)
 d = st2.remember("Gym bag: towel, lock code 4471", title="Gym bag")["id"]
 removed = fl2.apply()
-check("forget: applied again: the deleted notes, a note holding a forgotten value, a note naming a forgotten name",
-      removed >= 3 and not st2.get(a) and not st2.get(b) and not st2.get(d) and st2.get(c), removed)
+check("forget: applied again: the restored notes go, a note written since (holding a forgotten value) stays",
+      removed >= 2 and not st2.get(a) and not st2.get(b) and st2.get(d) and st2.get(c), removed)
 
 
 # ---- the check and the test restore -------------------------------------------------------------------------------
@@ -140,11 +140,11 @@ rep = U.check(app)
 check("check: all well", rep["ok"] and rep["checks"]["database"] == "ok" and rep["checks"]["forgotten_back"] == 0,
       rep)
 st2.db.execute("INSERT INTO items (title, body, created, updated) VALUES ('Sam', 'Sam likes tea', ?, ?)",
-               (time.time(), time.time()))
+               (1000.0, 1000.0))         # an old note back from somewhere (written long before the purge)
 st2.db.commit()
 rep = U.check(app)
-check("check: a forgotten name back in a note is a problem", not rep["ok"] and rep["checks"]["forgotten_back"] == 1,
-      rep)
+check("check: a forgotten name back in an old note is a problem", not rep["ok"] and
+      rep["checks"]["forgotten_back"] == 1, rep)
 fl2.apply()
 dbguard.snapshot(st2.db, st2.path, now=time.time() + 86400)
 rt = U.restore_test(st2, fl2)

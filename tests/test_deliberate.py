@@ -206,7 +206,7 @@ mapp = types.SimpleNamespace(decisions=L, mind=types.SimpleNamespace(store=st))
 meas = ME.Measure(mapp, rate=0, clock=clk)
 mo = MO.Modes(types.SimpleNamespace(opts={"control_model": "fg"},
                                     models=types.SimpleNamespace(models={"fg": 1, "haiku": 1})), st, clock=clk)
-for i in range(22):
+for i in range(30):
     did = L.record("light.desk", "on", None, "light.turn_on", {}, context_id=f"d{i}", request=f"desk light on {i % 11}",
                    route="cloud", model="haiku", confidence=0.9)
     L.on_state("light.desk", {"state": "on", "attributes": {}, "context": {"id": f"d{i}"}})

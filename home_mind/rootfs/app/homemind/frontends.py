@@ -4,9 +4,9 @@ steps 1, 14, 17 and 18, What you see; phase 15).
 Other assistants (Alexa, Gemini for Home, Siri, Home Assistant's Assist on someone else's account): option
 other_assistants lists how each reaches Home Mind (a front_end name, a Home Assistant user id or a device id) and its
 name. They are treated like a guest: they can't say who is speaking, so they get open-level actions only (lights,
-media) and never health, location, finance, room or things answers. Safety and red-flag replies never go through
-their speakers: Home Mind answers there with "Please check Home Mind." and sends the real reply to the household's own
-phone. Each person can turn them off (/api/assistants), and guest mode turns them all off. Their reworded requests
+media) and never health, location, finance, room or things answers. A red flag is the exception: its fixed reply
+(call 911, 988, Poison Control) is said there too, since it holds nothing private and "check Home Mind" helps nobody
+in an emergency; it is logged, and the safety contact told, as anywhere else. Each person can turn them off (/api/assistants), and guest mode turns them all off. Their reworded requests
 never count toward a kind of request the local model earns, nor toward a learned template.
 
 Registers (step 17): one voice, three registers.

@@ -6,7 +6,10 @@ A pre-set alarm on the trend of rough days and brain fog, never a model's judgem
   - an EWMA (exponentially weighted moving average, weight 0.2) of each, against the person's own baseline: the 60
     days before the last 14
   - it fires when an EWMA has been above baseline + L x its spread for 7 of the last 14 days AND the last 14 days are
-    worse on average than the baseline. L is set so a steady person sees about one false alarm a year.
+    worse on average than the baseline. L is set so a steady person sees about one false alarm a year. The spread
+    allows for days carrying over (lag-1 autocorrelation of the baseline), and for rough days it is never below that
+    of a 10% rate, and at least 3 rough days in 14 (2 more than usual) are needed: one rough day after a calm
+    stretch is not a trend.
   - at least 30 days of data first, then a 30-day cooldown after it speaks
   - logged events (a cold, a trip) explain changes but never silence it
 
@@ -48,6 +51,17 @@ def _mean_sd(xs):
     return m, sd
 
 
+def _lag1(xs):
+    """Lag-1 autocorrelation of the days that have values next to each other (0 if too few)."""
+    pairs = [(a, b) for a, b in zip(xs, xs[1:]) if a is not None and b is not None]
+    if len(pairs) < 10:
+        return 0.0
+    m = sum(a for a, _ in pairs) / len(pairs)
+    num = sum((a - m) * (b - m) for a, b in pairs)
+    den = sum((a - m) ** 2 for a, _ in pairs)
+    return max(0.0, min(0.9, num / den)) if den else 0.0
+
+
 def check_series(values, lam=LAMBDA, L=L_SIGMA):
     """values: one per day, oldest first (None = missing). Returns {"worse": bool, ...}."""
     n = len(values)
@@ -58,12 +72,27 @@ def check_series(values, lam=LAMBDA, L=L_SIGMA):
     m, sd = _mean_sd(base)
     if m is None:
         return {"worse": False, "why": "not enough baseline"}
-    sd = max(sd, 0.05 if max(v for v in base if v is not None) <= 1 else 0.3)     # never a zero spread
-    limit = m + L * sd * math.sqrt(lam / (2 - lam))
+    binary = max(v for v in base if v is not None) <= 1 and all(v in (0, 1) for v in values if v is not None)
+    if binary:
+        # rough days (0/1): the spread of a yes/no day, never below that of a 10% rate, so a calm stretch doesn't
+        # make one rough day look like a change
+        sd = max(sd, math.sqrt(max(m, 0.1) * (1 - max(m, 0.1))))
+    else:
+        sd = max(sd, 0.3)                                   # never a zero spread
+    r1 = _lag1(base)
+    # days carry over (a bad day makes the next one likelier): the average moves more than for independent days,
+    # so its spread is widened by the AR(1) factor for an EWMA (Lucas & Saccucci 1990)
+    carry = (1 + (1 - lam) * r1) / (1 - (1 - lam) * r1) if r1 > 0 else 1.0
+    limit = m + L * sd * math.sqrt(lam / (2 - lam) * carry)
     z = ewma(values[max(0, n - RECENT_DAYS - BASELINE_DAYS):], lam, start=m)[-RECENT_DAYS:]
     above = sum(1 for x in z if x is not None and x > limit)
     rm, _ = _mean_sd(recent)
     worse = above >= 7 and rm is not None and rm > m
+    if binary and worse:
+        # and enough rough days to mean something: at least 3 in the last 14, and at least 2 more than usual
+        k = sum(1 for v in recent if v == 1)
+        expected = m * sum(1 for v in recent if v is not None)
+        worse = k >= 3 and k >= expected + 2
     return {"worse": worse, "baseline": round(m, 3), "recent": round(rm, 3) if rm is not None else None,
             "limit": round(limit, 3), "days_above": above}
 
