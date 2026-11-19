@@ -262,9 +262,18 @@ class App:
         self.ha.outbox = Outbox(st9)
         self.learned_history = LearnedHistory(st9)
         self.learned.history = self.learned_answers.history = self.learned_history
+        # phase 10: limits per channel, the spend cap, consent on a clear day
+        from .channels import Limits, over_cap, priced
+        from .consent import Consent
+        self.limits = Limits()
+        self.mind.blocked_models = lambda: (priced(self.usage) if over_cap(self.usage, self.opts.get("monthly_spend_cap"))
+                                            else set())
+        self.consent = Consent(st9, getattr(self, "day", None))
+        self.consent.appliers["automation_on"] = self._consent_automation_on
         self.mind.tiebreak = self.tiebreak
         from .day import Day
         self.day = Day(self.mind.store)
+        self.consent.day = self.day             # a clear day reads the check-in (consent.py)
         self.ha.day = self.day           # the day's ask budget and rough-day quiet (ha.push)
         from .day import AskBatch
         self.ha.batcher = AskBatch(self.mind.store)      # routine notices wait for the morning check-in
@@ -1269,6 +1278,36 @@ class App:
             except Exception:  # noqa: BLE001
                 log.exception("nightly check")
 
+    async def _consent_automation_on(self, payload):
+        """An automation agreed on a clear day, 24 hours on: switched on."""
+        eid = payload.get("entity_id")
+        if not eid:
+            return {"error": "no automation"}
+        await self.ha.call("automation", "turn_on", {"entity_id": eid}, approved=True)
+        return {"on": eid}
+
+    async def _upkeep10(self, now, last):
+        """Phase 10: agreed changes whose 24 hours are up, and the spend cap said once."""
+        c = getattr(self, "consent", None)
+        if c is not None and now - last.get("consent", 0) > 60:
+            last["consent"] = now
+            try:
+                for r in await c.due():
+                    log.info("agreed change took effect: %s", r)
+            except Exception:  # noqa: BLE001
+                log.exception("consent")
+        if now - last.get("spend", 0) > 3600:
+            last["spend"] = now
+            from .channels import over_cap, month_spend
+            st = self.mind.store
+            month = datetime.now().strftime("%Y-%m")
+            if over_cap(self.usage, self.opts.get("monthly_spend_cap")) and st.kv_get("spend_told") != month:
+                st.kv_set("spend_told", month)
+                await self.ha.notify("Home Mind: spend cap reached",
+                                     f"This month's cloud spend is ${month_spend(self.usage):.2f}, at the cap of "
+                                     f"${float(self.opts.get('monthly_spend_cap')):.2f}. Until next month, answers come "
+                                     "from local models or your notes.", "home_mind_spend")
+
     async def _upkeep_step(self, last):
         now = time.time()
         if now - last.get("snapshot", 0) > 3600:
@@ -1282,6 +1321,7 @@ class App:
             except Exception as e:  # noqa: BLE001
                 log.warning("database snapshot: %s", e)
         await self._upkeep9(now, last)
+        await self._upkeep10(now, last)
         rep = getattr(self, "db_report", None)
         if rep and self.ha.available and not rep.get("told"):
             rep["told"] = True
@@ -3209,8 +3249,58 @@ def build(app_state):
     @r.post("/api/automations/install")
     async def automation_install(q):
         b = await read_body(q, config=dict, pin=str)
-        r = await A.install_automation(b.get("config"), bool(b.get("enable")), b.get("pin") or "")
+        enable = bool(b.get("enable"))
+        r = await A.install_automation(b.get("config"), False, b.get("pin") or "")
+        if enable and r.get("installed") and r.get("entity_id"):
+            # a new behaviour: installed switched off; on 24 hours after a yes on a clear day (consent.py)
+            from .speakers import VIEWER
+            c = A.consent.propose("automation_on", f"Switch on: {(b.get('config') or {}).get('alias') or r['entity_id']}",
+                                  {"entity_id": r["entity_id"]}, VIEWER.get() or None)
+            r = dict(r, consent=A.consent.yes(c["id"]))
         return J(r, status=400 if r.get("problems") else 200)
+
+    @r.get("/api/consent")
+    async def consent_list(q):
+        """Changes waiting for a yes, agreed (taking effect 24 hours on), done or cancelled; and whether today is a
+        clear day for whoever is asking."""
+        from .speakers import VIEWER
+        ok, why = A.consent.clear_day(VIEWER.get() or None)
+        return J({"changes": A.consent.list(q.query.get("status")), "clear_day": ok, "why": why or None})
+
+    @r.post("/api/consent/{id}")
+    async def consent_answer(q):
+        """{"answer": "yes" | "no" | "changed my mind"} for one change."""
+        from .speakers import VIEWER
+        b = await read_body(q, answer=str)
+        cid = num(q.match_info["id"], "id", 0, 1, 1e12)
+        a = (b.get("answer") or "").strip().lower()
+        if a == "yes":
+            return J(A.consent.yes(cid, VIEWER.get() or None))
+        if a == "no":
+            return J(A.consent.no(cid))
+        if a in ("changed my mind", "change my mind", "undo"):
+            return J(A.consent.change_mind(cid))
+        raise ValueError("answer is yes, no or changed my mind")
+
+    @r.get("/api/guest")
+    async def guest_get(_):
+        from .channels import guest_on
+        return J({"on": guest_on(A.mind.store)})
+
+    @r.post("/api/guest")
+    async def guest_post(q):
+        """Guest mode on or off ({"on": true}): microphones muted where they can be, nothing answered by voice but
+        safety phrases, no transcripts kept."""
+        from .channels import set_guest
+        b = await read_body(q)
+        return J(await set_guest(A, bool(b.get("on"))))
+
+    @r.get("/api/spend")
+    async def spend_get(_):
+        """This month's cloud spend against the cap (models with prices set)."""
+        from .channels import month_spend, over_cap
+        cap = float(A.opts.get("monthly_spend_cap") or 0)
+        return J({"month": month_spend(A.usage), "cap": cap or None, "over": over_cap(A.usage, cap)})
 
     @r.get("/api/morning")
     async def morning_preview(q):

@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- **Channels and household rules** (design phase 10): Telegram groups answer only listed people; email is read only
+  when the mail server vouched for the sender (`email_require_verified`); limits per channel (Telegram, email, MCP);
+  nothing from email or documents becomes a learned answer; guest mode (`/api/guest`); a monthly spend cap on cloud
+  models (`monthly_spend_cap`); new behaviours agreed on a clear day take effect 24 hours later (`/api/consent`).
+- **Behaviour change:** "install and switch on" for an automation now installs it switched off and switches it on 24
+  hours after a yes on a clear day.
 - **Keeping things sound** (design phase 9): an outbox for phone messages (sent once, retried until accepted, given
   up on when too late, held ones kept across restarts); a forget list that re-deletes what you deleted for good after
   any restore (fingerprints only, mirrored in a file so a restore can't roll it back); one check of every store at

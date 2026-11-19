@@ -117,9 +117,14 @@ class Telegram:
             if chat in self.chats:
                 return "Hi! Ask me anything you've told Home Mind, or say \"remember ...\" to add a note."
             return f"Your chat id is {chat}. Add it to the telegram_chats option to use this bot."
-        if chat not in self.chats:
-            log.info("telegram: ignored a message from chat %s (not in telegram_chats)", chat)
+        from .channels import telegram_sender_ok
+        ok, why = telegram_sender_ok(msg, self.chats)
+        if not ok:
+            log.info("telegram: ignored a message from chat %s (%s)", chat, why)
             return None
+        lim = getattr(self.app, "limits", None)
+        if lim is not None and not lim.allow("telegram", chat):
+            return "That's a lot of messages in an hour. I'll answer again in a little while."
         who = self.chats[chat]
         st = self.app.mind.store
         if msg.get("photo"):

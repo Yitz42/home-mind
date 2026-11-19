@@ -190,6 +190,13 @@ class MCP:
                                   "annotations": annotations(n)} for n, d, s in TOOLS if allows(scope, tool_needs(n))]}
             elif method == "tools/call":
                 name, args = params.get("name"), params.get("arguments") or {}
+                lim = getattr(self.app, "limits", None)
+                from .speakers import VIEWER as _V
+                if lim is not None and (_V.get() or scope != "admin"):
+                    # a person's link or a narrower token (the add-on's own admin access isn't a channel)
+                    if not lim.allow("mcp", _V.get() or scope):
+                        return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
+                                "over this token's limit of calls an hour; try again later"}], "isError": True}}
                 if not isinstance(args, dict):
                     return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
                             "arguments should be an object"}], "isError": True}}

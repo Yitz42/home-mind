@@ -72,6 +72,7 @@ class Mailbox:
         self.folder = opts.get("email_folder") or "INBOX"
         self.senders = {s.strip().lower() for s in (opts.get("email_senders") or []) if s and s.strip()}
         self.minutes = float(opts.get("email_minutes") or 10)
+        self.require_verified = opts.get("email_require_verified", True) is not False
         self.imap_factory = imap_factory or (lambda h: imaplib.IMAP4_SSL(h, ssl_context=ssl.create_default_context(),
                                                                           timeout=TIMEOUT))
         self.last = None
@@ -92,6 +93,13 @@ class Mailbox:
             return {"skipped": "already read"}
         if sender not in self.senders:
             return {"skipped": f"sender {sender or '?'} not allowed"}
+        from .channels import email_verified
+        if self.require_verified and not email_verified(msg, sender):
+            # anyone can write any From line: only mail the receiving server vouched for (DKIM or SPF) is read
+            return {"skipped": f"mail from {sender} didn't pass its sender check (email_require_verified)"}
+        lim = getattr(self.app, "limits", None)
+        if lim is not None and not lim.allow("email", "all"):
+            return {"skipped": "over today's limit of emails"}
         subject = re.sub(r"^\s*(?:(?:fwd?|fw|re)\s*:\s*)+", "", str(msg.get("Subject") or ""), flags=re.I).strip()
         body = text_of(msg)
         try:

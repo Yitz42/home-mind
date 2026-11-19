@@ -58,6 +58,22 @@ async def turn(app, body, scope="admin"):
     text = (body.get("text") or "").strip()
     if not text:
         return {"answer": "Sorry, I didn't catch that.", "empty": True}
+    st = getattr(getattr(app, "mind", None), "store", None)
+    if st is not None:
+        from .channels import guest_on
+        if guest_on(st):
+            # guest mode: microphones off and nothing kept; only the safety phrases are still answered
+            from . import redflags
+            flag = redflags.check(text)
+            if flag:
+                hook = getattr(app, "on_red_flag", None)
+                if hook:
+                    try:
+                        await hook(flag, text, None, body.get("conversation_id"), "voice")
+                    except Exception:  # noqa: BLE001
+                        pass
+                return {"answer": flag.reply, "red_flag": flag.kind}
+            return {"answer": "Guest mode is on, so I'm not listening right now.", "guest": True}
     cid = body.get("conversation_id")
     fe = body.get("front_end") or "assist"
     b = {"question": text, "conversation_id": cid, "voice": True, "front_end": fe,

@@ -116,7 +116,7 @@ def email_hang():
     try:
         with tempfile.TemporaryDirectory() as tmp:
             mb = Mailbox(mail_app(tmp), {"email_host": "127.0.0.1", "email_user": "u", "email_password": "p",
-                                         "email_senders": ["me@example.com"]})
+                                         "email_senders": ["me@example.com"], "email_require_verified": False})
 
             def go():
                 try:
@@ -179,7 +179,7 @@ def email_unseen_on_failure():
             return real(**kw)
         st.remember = flaky
         mb = Mailbox(app, {"email_host": "h", "email_user": "u", "email_password": "p",
-                           "email_senders": ["me@example.com"]}, imap_factory=ServerIMAP)
+                           "email_senders": ["me@example.com"], "email_require_verified": False}, imap_factory=ServerIMAP)
         try:
             r = mb.run()
         except Exception as e:  # noqa: BLE001

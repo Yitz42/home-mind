@@ -210,6 +210,12 @@ configuration:
   email_senders:
     name: Email senders allowed
     description: Only mail from these addresses is read. Empty = no mail is read. A From address can be forged, so list only your own.
+  email_require_verified:
+    name: Only verified email
+    description: Read mail only when your mail server says it passed its sender check (DKIM or SPF for the sender's domain). A From line alone can be forged. Turn off only if your server doesn't add Authentication-Results.
+  monthly_spend_cap:
+    name: Monthly cloud spend cap (dollars)
+    description: Once this month's cloud model spend (for models with prices set) reaches this, cloud models aren't used until next month; answers come from local models or your notes. 0 = no cap. Set a hard limit on the API key too.
   email_minutes:
     name: Check email every (minutes)
     description: How often the mailbox is checked.

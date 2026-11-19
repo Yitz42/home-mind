@@ -1167,6 +1167,13 @@ class Mind:
         names = list(self.models.models)
         chain = [m for m in [model] + list(self.FALLBACK) if m and m in names]
         chain = list(dict.fromkeys(chain))
+        blocked = getattr(self, "blocked_models", None)       # the monthly spend cap (channels.py)
+        if blocked is not None:
+            try:
+                out = blocked() or set()
+            except Exception:  # noqa: BLE001
+                out = set()
+            chain = [m for m in chain if m not in out]
         down = getattr(self, "_down", {})
         now = time.time()
         up = getattr(self.models, "up", None)

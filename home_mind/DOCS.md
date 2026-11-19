@@ -104,6 +104,27 @@ earned trust, the same kind of request is done straight away, with no model call
 - **You have the last word:** `/api/learned` shows what's been learned and why; drop a template, or put it back on
   trial, with `/api/learned/{id}`.
 
+## Who can reach Home Mind, and how much
+
+- **Telegram:** the chat must be on `telegram_chats`; in a group chat, the person writing must be listed too (their
+  own chat id is their user id). At most 30 messages an hour per chat.
+- **Email:** only from `email_senders`, and only mail your mail server says passed its sender check (DKIM or SPF for
+  the sender's own domain), since a From line alone can be forged (`email_require_verified`, on by default). At most
+  50 a day. Mail is filed as notes; nothing from mail or documents ever becomes a learned answer or an action.
+- **Claude (MCP):** each person's link as scoped, at most 300 calls an hour.
+- **Guest mode** (`/api/guest`, or the panel): microphones muted where the satellite has a mute switch, nothing
+  answered by voice except the safety phrases, and nothing kept.
+- **A monthly spend cap** (`monthly_spend_cap`, dollars; models need prices set): once reached, cloud models rest
+  until next month and answers come from local models or your notes. Said once. Set a hard limit on the API key too.
+
+## New things wait for a clear day
+
+Switching on something new (an automation now; experiments and new features later) needs your yes **on a clear
+day**: a "good" check-in today, no rough day in the two days before, before 8 pm, and only one such yes a day. A yes
+on another day is kept and asked again on the next clear one. After a yes, the change takes effect **24 hours later**,
+and until then "changed my mind" stops it. An automation installed with "switch on" is installed switched off and
+switched on that way (`/api/consent`). Safety never waits for any of this.
+
 ## Keeping things sound
 
 - **Every phone message is sent once.** Each one goes through an outbox: the same message to the same phone isn't
@@ -932,6 +953,8 @@ you turn them on are listed after the tables.
 | `email_password` | empty | Email password |
 | `email_folder` | `INBOX` | Email folder |
 | `email_senders` | empty | Email senders allowed |
+| `email_require_verified` | on | Only mail your mail server says passed its sender check (DKIM or SPF) is read |
+| `monthly_spend_cap` | 0 (none) | Cloud models rest for the month once their spend reaches this many dollars |
 | `email_minutes` | 10 | Check email every (minutes) |
 **Before you turn these on**
 
@@ -1046,6 +1069,11 @@ note), 502 (a model failed) or 500.
 | POST | `/api/learned/rollback` | admin | roll learned records back to a saved week (`week`, `confirm`); the forget list is applied after |
 | GET | `/api/check` | admin | the cross-check of every store: database, forget list, learned records, decision log, snapshots, vault key, last test restore (`run?`) |
 | POST | `/api/restore_test` | admin | try restoring the newest snapshot into a scratch copy and check it |
+| GET | `/api/consent` | admin | changes waiting for a yes, agreed (on in 24 hours), done or cancelled, and whether today is a clear day (`status?`) |
+| POST | `/api/consent/{id}` | admin | your answer on a change (`answer`: yes, no, or changed my mind) |
+| GET | `/api/guest` | admin | whether guest mode is on |
+| POST | `/api/guest` | admin | guest mode on or off (`on`) |
+| GET | `/api/spend` | admin | this month's cloud spend against `monthly_spend_cap` |
 | GET | `/api/outbox` | admin | phone messages of the last week by what happened (sent, held, failed, expired, duplicate) |
 | GET | `/api/learned/answers` | admin | what Home Mind has learned about answering questions: each answer, its note, status and evidence, and how often the tie-break was needed (`status?`) |
 | GET | `/api/learned/match` | admin | which template some words would match, and whether it would act (`q`); never acts |

@@ -172,7 +172,7 @@ def mail(sender="me@example.com", subject="Fwd: Dishwasher warranty", body="Warr
 
 def email_():
     app = App()
-    mb = Mailbox(app, {"email_host": "h", "email_user": "u", "email_password": "p", "email_senders": ["me@example.com"]})
+    mb = Mailbox(app, {"email_host": "h", "email_user": "u", "email_password": "p", "email_senders": ["me@example.com"], "email_require_verified": False})
     r = mb.file(mail())
     hit = app.mind.store.recall("When does the dishwasher warranty end?")[0]
     check("an email from an allowed sender is filed", r.get("id") and "2028" in hit["body"] and
@@ -217,7 +217,7 @@ def email_():
 
         def logout(self):
             pass
-    mb2 = Mailbox(app, {"email_host": "h", "email_user": "u", "email_password": "p", "email_senders": ["me@example.com"]},
+    mb2 = Mailbox(app, {"email_host": "h", "email_user": "u", "email_password": "p", "email_senders": ["me@example.com"], "email_require_verified": False},
                   imap_factory=IMAP)
     r = mb2.run()
     check("a mailbox run reads, files, skips and marks as seen", r["read"] == 2 and r["filed"] == 1 and r["skipped"] == 1 and
