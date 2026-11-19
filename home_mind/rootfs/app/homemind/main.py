@@ -239,6 +239,10 @@ class App:
         self.board = NowBoard(self.mind.store)
         self.mind.board = self.board
         self.worsening = Worsening(self.mind.store)
+        from .learned import Learned
+        em = self.opts.get("embed_model") or ""
+        self.learned = Learned(self.mind.store, self.home, embed=(
+            (lambda texts: self.models.get(em).embed(texts)) if em else None))
         from .day import Day
         self.day = Day(self.mind.store)
         self.ha.day = self.day           # the day's ask budget and rough-day quiet (ha.push)
@@ -555,6 +559,24 @@ class App:
                 res = await self._run_steps(steps, text, source, conversation_id, "rules", t0=t0)
                 getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
                 return res
+        lr = getattr(self, "learned", None)
+        if lr is not None and not model:
+            m = await lr.reflex(text)
+            if m and not m.get("audit"):
+                # a trusted template: no model call (it still goes through every check in _run_plan / Home.act)
+                plan = dict(m["plan"], confidence=m["sim"])
+                res = await self._run_plan(plan, text, source, conversation_id, t0=t0)
+                getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+                return res
+            if m and m.get("audit"):
+                # about 1 in 20: planned the usual way instead, and the template is judged against it
+                plan = await self.plan_only(text, reflex=False)
+                from .replay import same_action
+                ok = bool(plan.get("entity_id")) and same_action(plan, m["plan"])
+                lr.evidence(m["record"], ok, "" if ok else "an audit disagreed")
+                res = await self._run_plan(dict(plan, audit_of=m["record"]["id"]), text, source, conversation_id, t0=t0)
+                getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+                return res
         if getattr(self, "modes", None) is not None and not model:
             return await self._do_by_mode(text, source, conversation_id, deadline, t0)
         names = [n for n in self.models.models if n != "mock"]
@@ -651,9 +673,10 @@ class App:
         getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
         return res
 
-    async def plan_only(self, text, model=None):
+    async def plan_only(self, text, model=None, reflex=True, include=()):
         """What do() would plan for these words, without acting (replay), in the order do() uses: the rules (option
-        rule_planner), then the local control model when set, then the general model."""
+        rule_planner), a trusted template (and, for the nightly gate, provisional ones in `include`), then the local
+        control model when set, then the general model."""
         if not self.home.catalog:
             await self.home.refresh()
         opts = getattr(self, "opts", None) or {}
@@ -663,6 +686,13 @@ class App:
             if steps:
                 steps = [dict(s, by="rules") for s in steps]
                 return steps[0] if len(steps) == 1 else {"actions": steps, "by": "rules"}
+        lr = getattr(self, "learned", None)
+        if lr is not None and reflex and not model:
+            from .learned import REFLEX_SIM, REFLEX_MARGIN
+            m = await lr.match(text, statuses=("trusted", "provisional"))
+            if m and m["named"] and m["sim"] >= REFLEX_SIM and m["margin"] >= REFLEX_MARGIN and \
+                    (m["record"]["status"] == "trusted" or m["record"]["id"] in include):
+                return m["plan"]
         names = [n for n in self.models.models if n != "mock"]
         local = opts.get("control_model") or ""
         if local and local in self.models.models and not model:
@@ -757,6 +787,33 @@ class App:
                 answer += (" " if answer else "") + f"I need a yes before I {what}, and I can't take one here."
         out["answer"] = answer.strip()
         return out
+
+    async def _learned_score(self, include):
+        """The house scorecard's rate with trusted templates, plus the provisional ones in `include`: the nightly
+        gate's replay. Model plans are shared between the two runs, so they cost one call per request."""
+        from . import replay as R
+        m = self.measure
+        ids = m.ensure_v1()
+        if not ids:
+            return None
+        cache = self.__dict__.setdefault("_score_cache", {})
+
+        from .learned import REFLEX_SIM, REFLEX_MARGIN
+
+        async def planner(text):
+            mm = await self.learned.match(text, statuses=("trusted", "provisional"))
+            if mm and mm["named"] and mm["sim"] >= REFLEX_SIM and mm["margin"] >= REFLEX_MARGIN and \
+                    (mm["record"]["status"] == "trusted" or mm["record"]["id"] in include):
+                return mm["plan"]
+            if text not in cache:
+                cache[text] = await self.plan_only(text, reflex=False)
+            return cache[text]
+        cs = [c for c in m.cases(ids=ids) if c["kind"] != "device"]
+        rep = await R.replay(self.decisions, planner, cases=cs)
+        n = rep["match"] + rep["override"]
+        if include == () and len(cache) > 500:
+            cache.clear()
+        return (rep["agree"] + rep["override"] - rep["repeats"]) / n if n else None
 
     async def shadow_plan(self, text, model):
         """A plan from one named model, for the shadow baseline (measure.py). Never acts."""
@@ -1154,6 +1211,23 @@ class App:
                     log.info("worsening alarm: %s", {k: r[k] for k in ("rough", "fog")})
             except Exception:  # noqa: BLE001
                 log.exception("worsening")
+        lr = getattr(self, "learned", None)
+        if lr is not None and getattr(self, "decisions", None) is not None and now - last.get("learn", 0) > 600:
+            last["learn"] = now          # every 10 minutes: settled house requests -> evidence and shadow templates
+            try:
+                got = lr.learn_from(self.decisions)
+                if got["created"] or got["evidence"]:
+                    log.info("learned: %s", got)
+            except Exception:  # noqa: BLE001
+                log.exception("learned")
+        if lr is not None and getattr(self, "measure", None) is not None and \
+                datetime.now().hour == 3 and now - last.get("learned_night", 0) > 20 * 3600:
+            last["learned_night"] = now  # the nightly gate: promotions checked by replay
+            try:
+                r = await lr.nightly(self.decisions, self._learned_score)
+                log.info("learned, nightly: %s", {k: v for k, v in r.items() if k != "waiting"})
+            except Exception:  # noqa: BLE001
+                log.exception("learned nightly")
         mo = getattr(self, "modes", None)
         if mo is not None and getattr(self, "measure", None) is not None and \
                 now - last.setdefault("modes", now - 86400 + 3600) > 86400:
@@ -1642,8 +1716,10 @@ def decision_why(opts, plan, text, source, conversation_id, t0=None):
     """How a planned action was decided, for the decision log: the words, the channel, which model planned it
     (the local control model or a general one) and how long planning took."""
     local = (opts or {}).get("control_model") or ""
-    return {"request": text, "channel": source, "conversation_id": conversation_id, "model": plan.get("by"),
-            "route": "local" if local and plan.get("by") == local else "cloud" if plan.get("by") else None,
+    by = plan.get("by")
+    return {"request": text, "channel": source, "conversation_id": conversation_id, "model": by,
+            "route": "reflex" if by == "reflex" else "local" if local and by == local else "cloud" if by else None,
+            **({"records": plan["records"]} if plan.get("records") else {}),
             "latency_ms": round((time.monotonic() - t0) * 1000) if t0 else None,
             **({"confidence": plan["confidence"]} if plan.get("confidence") is not None else {})}
 
@@ -2173,6 +2249,36 @@ def build(app_state):
         if getattr(A, "measure", None) is None:
             raise ValueError("measurement isn't running (it needs the decision log)")
         return A.measure
+
+    @r.get("/api/learned")
+    async def learned_list(q):
+        """What Home Mind has learned about house requests: each template, its status and its evidence."""
+        st_ = q.query.get("status")
+        return J({"templates": [A.learned.describe(r) for r in A.learned.all(st_)]})
+
+    @r.get("/api/learned/match")
+    async def learned_match(q):
+        """Which template these words would match (?q=), and whether it would act as a reflex. Never acts."""
+        mm = await A.learned.match(q.query.get("q", ""), statuses=("trusted", "provisional", "shadow"))
+        if not mm:
+            return J({"match": None})
+        from .learned import REFLEX_SIM, REFLEX_MARGIN
+        return J({"match": A.learned.describe(mm["record"]), "sim": mm["sim"], "margin": mm["margin"],
+                  "named": mm["named"], "plan": mm["plan"],
+                  "would_act": mm["record"]["status"] == "trusted" and mm["named"] and mm["sim"] >= REFLEX_SIM and
+                  mm["margin"] >= REFLEX_MARGIN})
+
+    @r.post("/api/learned/{id}")
+    async def learned_set(q):
+        """A person's say: {"status": "dropped"} (never use it) or "shadow" (back on trial)."""
+        b = await read_body(q, status=str)
+        if b.get("status") not in ("dropped", "shadow"):
+            raise ValueError("status is dropped or shadow")
+        rid = num(q.match_info["id"], "id", 0, 1, 1e12)
+        if not A.learned.get(rid):
+            raise ValueError("no such template")
+        A.learned.set_status(rid, b["status"], "set by a person")
+        return J(A.learned.describe(A.learned.get(rid)))
 
     @r.get("/api/modes")
     async def modes_get(_):
