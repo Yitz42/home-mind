@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **Front ends and views** (design phase 15): other assistants as guest front ends (`other_assistants`: open-level
+  only, nothing private, safety replies to the phone, off per person and in guest mode, never teaching templates);
+  normal, quiet and plain registers with a plain voice switch; the four plain views (`/api/plain/...`); Firefly III
+  totals for their owner, said by code.
 - **Experiments and proposals** (design phase 14, steps 30 and 32): written ABAB plans for reducing load, sleep or
   meal timing only (never medicines or supplements), agreed on a clear day, random order inside pairs, washouts,
   crash episodes per block as the safety outcome (open decision 9's definition), an exact randomisation test, a new

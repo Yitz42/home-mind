@@ -96,6 +96,8 @@ jobs:
         run: python tests/test_tracking.py
       - name: Experiments and proposals (phase 14)
         run: python tests/test_experiments.py
+      - name: Other assistants, registers, views, Firefly III (phase 15)
+        run: python tests/test_frontends.py
       - name: Expert review checks
         run: for f in tests/test_review_*.py; do echo "== $f"; python "$f" || exit 1; done
       - name: Extraction bench scoring
