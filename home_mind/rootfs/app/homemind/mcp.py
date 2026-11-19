@@ -333,8 +333,9 @@ class MCP:
         if name == "mind_control":
             if not app.home.catalog:
                 await app.home.refresh()
-            return await app.home.act(a["entity_id"], a["action"], a.get("value"), source="claude",
-                                      confirm=a.get("confirm") is True)
+            act_ = app.act_checked if hasattr(app, "act_checked") else app.home.act
+            return await act_(a["entity_id"], a["action"], a.get("value"), source="claude",
+                              confirm=a.get("confirm") is True)
         if name == "mind_do":
             return await app.do(a["text"], a.get("model"), source="claude",
                                 conversation_id=str(a["conversation_id"]) if a.get("conversation_id") else None)

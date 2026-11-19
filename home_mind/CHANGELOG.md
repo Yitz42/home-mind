@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (design phases 1 and 2)
+- **Decision log** (phase 1, #30). Every action taken or refused is logged with how it was decided and its Home Assistant context ID. Outcomes are checked (match, mismatch, unknown) and overrides spotted; devices get outcome profiles. Logged requests can be replayed through the planner. See "The decision log" in the docs.
+- **Approvals** (phase 2). Locks, alarms, valves, garage doors, openers, heaters, ovens and extreme temperatures need a fresh approval on your phone (Face ID or the passcode); a spoken yes is no longer enough for them. Heating within normal limits needs a spoken yes. Per device you can choose ask me first, tell me after or just do it, never below what the code requires.
+- **Device access.** Each device is none, read or act. New locks, alarms, valves, garage doors, heating, cameras and microphones start hidden. Loosening waits 24 hours; every change is announced.
+- **Red flags.** Emergencies, crisis, a double dose, a big decline and dizziness on standing get fixed replies in code before any model, pointing to help. Option `safety_contact` tells someone if you choose.
+- **Notification tiers.** Safety always goes out; important skips the daily limit; routine as before.
+- **Automations if Home Mind stops.** Home Mind installs the watchdog: after 3 missed heartbeats Home Assistant runs them. Home Mind no longer takes them back by itself; use "Take automations back". Missed times are caught up once if under 30 minutes late and safe to repeat; a restart never runs a time twice.
+- **A limited Home Assistant user** (option `ha_user_token`) for control and readings, and a guard that refuses lock, alarm and valve calls that didn't pass the approval checks.
+- **Daily safety suite**: `sensor.home_mind_safety_suite`, `GET /api/safety`.
+
 ## 0.28.0
 Fitness goals, built on the scale, meal and watch data Home Mind already collects.
 - **Goals as numbers:** target weight (and a date), calories, protein (or automatic from body weight, 1.6 g/kg), steps, workouts a week and body fat. Set them on the Health tab, with `POST /api/fitness/goals` or the `mind_fitness` tool. Calorie goals below 1,200 are refused.

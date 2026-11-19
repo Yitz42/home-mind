@@ -56,6 +56,58 @@ Models can switch things only when all of these hold:
 
 `/api/home/act`, `/api/do` and the MCP tools `mind_control` / `mind_do` need an admin token.
 
+## Safety: approvals, red flags and the daily check
+
+**Who has to say yes.** Every action has an approval level, set in code; nothing a model or a learned record says can
+lower it:
+- **Just done:** lights, media, fans, switches, scenes.
+- **A spoken yes:** heating within normal limits. Home Mind asks, and a "yes" in the same conversation within 30
+  seconds does it.
+- **Your phone:** locks, alarms, valves, garage doors and gates, scripts and switches that open the house, heaters
+  and ovens, and temperatures outside 16–27 °C (61–80 °F). Home Mind sends an approval to your phone (option
+  `approval_phone`). Approve needs Face ID or your passcode on iPhone; on Android, the phone has to be unlocked.
+  Each request works once and expires after 2 minutes. A spoken yes is not enough for these.
+
+For each device you can ask for more care than that, never less: **ask me first**, **tell me after** (done, then a
+short notice), or **just do it** (`POST /api/access` with `ladder`).
+
+**What Home Mind may see.** Each device is set to *none* (Home Mind can't see or touch it; it isn't in the house list
+or the model's context), *read* or *act*. Devices it already knew keep what they had (act if on the control list,
+else read). Devices that show up later start at *none* if they are locks, alarms, valves, garage doors, heating,
+cameras or microphones. Stricter settings apply at once; looser ones wait 24 hours, and every change is announced.
+
+**Red flags.** Some things are answered by fixed wording in code, before any note or model: chest pain, fainting,
+trouble breathing, signs of a stroke or a sudden severe headache (call 911); thoughts of suicide or self-harm (988);
+a double dose (Poison Control, 1-800-222-1222, and the pharmacist); a big decline such as being unable to get out of
+bed, eat or drink, or new confusion (your doctor within a day or two); dizziness or a racing heart on standing (noted
+for the doctor). These replies point to help and never give advice. They only answer someone describing what's
+happening, not a question like "what are the signs of a stroke?" or a denial like "no chest pain". If you set
+`safety_contact`, that person is told about emergencies, double doses and big declines.
+
+**Phone notifications** come in three tiers. *Safety* always goes out at once, even in quiet hours, and isn't counted
+in the daily limit. *Important* (like an approval you just asked for) skips the daily limit. *Routine* waits for quiet
+hours to end and stops at the daily limit.
+
+**Automations, if Home Mind stops.** Home Mind installs a "Home Mind watchdog" automation in Home Assistant. If Home
+Mind misses 3 heartbeats (about 3 minutes), Home Assistant runs Home Mind's everyday automations again. When Home Mind
+is back it doesn't take them back by itself: it tells you, and you hand them back with the **Take automations back**
+button. Before each timed run Home Mind writes it to disk, so a restart never runs it twice. A time it missed while
+stopped is caught up once, only if it is under 30 minutes late and the automation is safe to repeat (lights, media,
+fans, scenes, helpers and notifications; nothing that opens, locks, heats or runs a script).
+
+**A limited Home Assistant user.** By default Home Mind uses the add-on's admin access. To limit it, make a
+non-admin user in Home Assistant (Settings › People › Users, "Can only log in from the local network" off, not an
+administrator), log in as that user, create a long-lived token under its profile, and put it in `ha_user_token`.
+Device control and readings then use that user. Setting up automations (taking them over, the watchdog, labels)
+still needs the admin access. Whatever the token, lock, alarm and valve calls are refused at the last step unless
+they came through the approval checks.
+
+**The daily safety check** runs 5 minutes after start and then every day. It checks the red-flag replies, every
+approval level, that a lock can't be moved without the phone, the service guard, device access, that an unknown
+voice can't read a personal note, and that nothing reading email or documents can act. It uses a throwaway memory and
+a pretend Home Assistant, and only reads your real house list. The result is `sensor.home_mind_safety_suite` (pass or
+fail); a failure also shows as a notification. Details: `GET /api/safety`.
+
 ## The decision log
 
 Every action Home Mind takes, and every one it refuses, is written to a decision log (`log.db`, next to the main
@@ -89,7 +141,7 @@ the app from any dashboard, automation or voice command:
 | switches | Bedroom comfort brain, Watch the house, Overnight learning, Morning summary, Brain-fog check-ins, Install new packs automatically, Repeat the best note before the question, Name the notes before answering, Quiet hours for phone notifications, Ask about old facts in the morning |
 | numbers | Voice time limit (s), Fade unused notes after (days), Brain tests every (hours), Phone notifications a day, Keep the detailed activity log for (days), Ask about facts older than (days) |
 | times | Morning summary time, Overnight learning time, Quiet hours start, Quiet hours end |
-| buttons | Run overnight learning now, Send the morning summary, Sync calendars, Check models, Install pack updates, Run a comfort cycle, Refresh the daily record, Run brain tests, Hand automations back to Home Assistant |
+| buttons | Run overnight learning now, Send the morning summary, Sync calendars, Check models, Install pack updates, Run a comfort cycle, Refresh the daily record, Run brain tests, Hand automations back to Home Assistant, Take automations back |
 | sensors | Memory items, Conversation turns to learn from, Last overnight run, Facts filed last night, Automations run by Home Mind, Model calls today, Model tokens today, Model cost today (priced models), Phone notifications waiting, Version |
 
 A change made from Home Assistant is kept across restarts. If you later change the same option on the
@@ -564,6 +616,10 @@ you turn them on are listed after the tables.
 | `rerank_model` | empty | Re-ranking model |
 | `control_model` | empty | Local control model |
 | `rule_planner` | on | Plain commands without a model |
+| `approval_phone` | empty | The phone that approves locks, garage doors, alarms and heaters (`notify.mobile_app_...`); empty = the first phone with the Home Assistant app |
+| `safety_contact` | empty | Someone told when you describe an emergency, a double dose or a big decline (a notify service); empty = no one |
+| `ha_user_token` | empty | A long-lived token from a non-admin Home Assistant user, for device control and readings; empty = the add-on's admin access |
+| `ha_url` | empty | Where Home Mind reaches Home Assistant with that token; empty = `http://homeassistant:8123` |
 | `answer_edges` | off | Repeat the best note before the question |
 | `answer_notes_first` | off | Name the notes before answering |
 | `use_preferences` | on | Use learned settings |
@@ -792,6 +848,10 @@ note), 502 (a model failed) or 500.
 | GET | `/api/home` | read | the house as Home Mind sees it (watched things, control list) |
 | POST | `/api/home/act` | admin | switch one thing (`entity_id`, `action`, `value?`, `confirm?`) |
 | POST | `/api/do` | admin | do what a sentence asks (`text`); never confirms locks |
+| GET | `/api/safety` | read | the last daily safety suite: pass or fail, and each check |
+| POST | `/api/safety/run` | admin | run the safety suite now |
+| GET | `/api/access` | admin | every device's access (none, read, act), approval level and ladder rung, with changes waiting |
+| POST | `/api/access` | admin | set a device's access (`entity_id`, `access`: stricter now, looser in 24 hours) and/or its ladder rung (`ladder`: ask, tell, do) |
 | GET | `/api/decisions` | admin | the decision log, newest first (`limit`, `entity_id`, `status`) |
 | GET | `/api/decisions/stats` | admin | expected versus seen per entity and action (`days`) |
 | GET | `/api/decisions/profile` | admin | one device's outcome profile (`entity_id`) |
