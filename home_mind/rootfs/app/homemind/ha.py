@@ -183,13 +183,19 @@ class HA:
             return "batched"                     # it comes with the morning check-in
         held = self.__dict__.setdefault("held", [])
         sent = self.__dict__.setdefault("sent", {})
+        ob = getattr(self, "outbox", None)       # outbox.py: sent once, retried, expired
+        if ob is not None and ob.duplicate(target, data):
+            return "duplicate"
         day = getattr(self, "day", None)         # the check-in (day.py): a rough day keeps every device quiet
         state = day.get() if day is not None else None
         if state == "rough" and tier == "routine":
             self.__dict__["quieted"] = self.__dict__.get("quieted", 0) + 1
             return "quiet"                       # routine asks expire quietly on a rough day
         if tier != "safety" and not (tier == "important" and now) and (self.in_quiet() or state == "rough"):
-            held.append((target, data, tier))
+            if ob is not None:
+                ob.add(target, data, tier, "held")        # kept in the database: a restart doesn't lose it
+            else:
+                held.append((target, data, tier))
             return "held"
         today = date.today().isoformat()
         if tier == "routine":
@@ -202,7 +208,19 @@ class HA:
         if "." not in target:
             target = "notify." + target        # option written as "mobile_app_phone"
         dom, svc = target.split(".", 1)
-        await self.call(dom, svc, data)
+        oid = ob.add(target, data, tier, "sending") if ob is not None else None
+        try:
+            status = await self.call(dom, svc, data)
+        except Exception as e:  # noqa: BLE001
+            if oid is None:
+                raise
+            ob.mark(oid, "failed", e)
+            return "failed"
+        if oid is not None:
+            if status is None or status >= 400:
+                ob.mark(oid, "failed", f"Home Assistant answered {status}")
+                return "failed"
+            ob.mark(oid, "sent")
         hook = getattr(self, "on_push", None)
         if hook is not None:
             try:
@@ -216,8 +234,40 @@ class HA:
             self.routine_sent = {today: rs.get(today, 0) + 1}
         return "sent"
 
+    async def retry_failed(self):
+        """Every minute: send again what Home Assistant didn't accept, until it expires."""
+        ob = getattr(self, "outbox", None)
+        if ob is None or not self.available:
+            return 0
+        n = 0
+        for r in ob.take("failed"):
+            target = r["target"] if "." in r["target"] else "notify." + r["target"]
+            dom, svc = target.split(".", 1)
+            try:
+                status = await self.call(dom, svc, r["data"])
+            except Exception as e:  # noqa: BLE001
+                ob.mark(r["id"], "failed", e)
+                continue
+            if status is not None and status < 400:
+                ob.mark(r["id"], "sent")
+                n += 1
+            else:
+                ob.mark(r["id"], "failed", f"Home Assistant answered {status}")
+        return n
+
     async def flush_held(self):
         """After quiet hours: send what waited, oldest first (within the daily limit)."""
+        ob = getattr(self, "outbox", None)
+        if ob is not None and not self.in_quiet():
+            n = 0
+            for r in ob.take("held"):
+                ob.mark(r["id"], "released")
+                try:
+                    if await self.push(r["target"], r["data"], r["tier"]) == "sent":
+                        n += 1
+                except Exception:  # noqa: BLE001
+                    pass
+            return n
         held = self.__dict__.get("held") or []
         if not held or self.in_quiet():
             return 0

@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- **Keeping things sound** (design phase 9): an outbox for phone messages (sent once, retried until accepted, given
+  up on when too late, held ones kept across restarts); a forget list that re-deletes what you deleted for good after
+  any restore (fingerprints only, mirrored in a file so a restore can't roll it back); one check of every store at
+  startup and nightly (`/api/check`); a weekly test restore; weekly saves of learned records with a change log, a daily
+  cap and rollback (`/api/learned/weeks`, `/api/learned/rollback`); after a model change, trusted learned records and
+  earned kinds go back on trial (step 35).
 - **Learned answers** (design phase 8). A question a model answered well from one note (cited, not weak, not
   corrected within 15 minutes) becomes an answer template; once trusted it is answered with no model call, only while
   its note is unchanged, never for sealed notes, never with a number or "not" in the question, personal notes only to

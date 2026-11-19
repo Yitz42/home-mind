@@ -104,6 +104,26 @@ earned trust, the same kind of request is done straight away, with no model call
 - **You have the last word:** `/api/learned` shows what's been learned and why; drop a template, or put it back on
   trial, with `/api/learned/{id}`.
 
+## Keeping things sound
+
+- **Every phone message is sent once.** Each one goes through an outbox: the same message to the same phone isn't
+  sent twice within 10 minutes; one Home Assistant didn't accept (restarting, offline) is tried again every minute
+  until it's too late to be useful (safety after 1 hour, important after 6, routine after 12); one held for quiet
+  hours waits in the database, so a restart doesn't lose it. `/api/outbox`.
+- **Deleted for good stays deleted**, even after restoring a snapshot or a backup made before you deleted it. Home
+  Mind keeps fingerprints (keyed hashes, never the text) of what you deleted for good and of the names you purged, in
+  the database and in a file beside it (`forget.jsonl`, keyed by `forget.key`), and applies them again at startup,
+  every night and after a rollback.
+- **One check of everything**, at startup and every night (`/api/check`): the database, the forget list, learned
+  records pointing at something that's gone, the decision log, snapshots, the vault key, the last test restore. A
+  problem is shown in Home Assistant's notifications.
+- **A weekly test restore** (Sunday night): the newest snapshot is restored into a scratch copy and checked.
+- **Rolling back a bad week:** learned records are saved every week (the last 8 kept); every change to them is in
+  a change log; at most 25 new ones a day of each kind. `/api/learned/weeks`, `/api/learned/rollback`.
+- **A new model** (the local control model, the local chat model or the cloud model changed): trusted learned
+  records go back on trial and act again only after the nightly replay passes; kinds the old local model had earned
+  are earned again.
+
 ## What Home Mind learns from your questions
 
 The same way, for questions. When a model answers from exactly one note, the match wasn't weak, and nobody said
@@ -1022,6 +1042,11 @@ note), 502 (a model failed) or 500.
 | GET | `/api/as_of` | read | a keyed fact at a time (`key`, `at`: seconds or ISO date, `by`: valid or recorded) |
 | POST | `/api/today/checkin` | write | today's check-in (`state`: good, low or rough; `person?`) |
 | GET | `/api/learned` | admin | what Home Mind has learned about house requests: each template, its status and evidence (`status?`) |
+| GET | `/api/learned/weeks` | admin | saved weeks of learned records and the change log of the last two weeks |
+| POST | `/api/learned/rollback` | admin | roll learned records back to a saved week (`week`, `confirm`); the forget list is applied after |
+| GET | `/api/check` | admin | the cross-check of every store: database, forget list, learned records, decision log, snapshots, vault key, last test restore (`run?`) |
+| POST | `/api/restore_test` | admin | try restoring the newest snapshot into a scratch copy and check it |
+| GET | `/api/outbox` | admin | phone messages of the last week by what happened (sent, held, failed, expired, duplicate) |
 | GET | `/api/learned/answers` | admin | what Home Mind has learned about answering questions: each answer, its note, status and evidence, and how often the tie-break was needed (`status?`) |
 | GET | `/api/learned/match` | admin | which template some words would match, and whether it would act (`q`); never acts |
 | POST | `/api/learned/{id}` | admin | your say on a template (`status`: dropped, or shadow to put it back on trial) |

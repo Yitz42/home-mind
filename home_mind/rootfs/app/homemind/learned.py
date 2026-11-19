@@ -293,6 +293,8 @@ class Learned:
                                   (a, b, json.dumps(recent), status, now, now if ok else r.get("last_used"),
                                    1, note, r["id"]))
             self.store.db.commit()
+        if status != r["status"]:
+            self._changed(r["id"], status, note)
         return status
 
     def set_status(self, rid, status, note=None):
@@ -300,6 +302,19 @@ class Learned:
             self.store.db.execute("UPDATE learned SET status=?, updated=?, note=COALESCE(?, note) WHERE id=?",
                                   (status, self.clock(), note, rid))
             self.store.db.commit()
+        self._changed(rid, status, note)
+
+    history = None          # upkeep.LearnedHistory: the daily cap on new records
+
+    def _changed(self, rid, status, note=None):
+        """The change log (upkeep.py: roll back a bad week)."""
+        try:
+            self.store.log("learned_change", None, id=rid, status=status, note=note)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _room(self, kind):
+        return self.history is None or self.history.room_today(kind)
 
     def retire_missing(self):
         """Templates for devices that are gone (or no longer movable): retired."""
@@ -360,7 +375,7 @@ class Learned:
                 if base.strip() not in same[0]["examples"]:
                     self.add_example(same[0], base.strip())
                     out["examples"] += 1
-            else:
+            elif self._room("template"):
                 self._new(done["entity_id"], done["action"], slot, base.strip(), f"decision {d['id']}")
                 out["created"] += 1
         self.store.kv_set("learned_cursor", cur)
@@ -402,6 +417,7 @@ class Learned:
                 self.store.db.execute("UPDATE learned SET status='trusted', version=version+1, updated=?, recent='[]' "
                                       "WHERE id=?", (self.clock(), rid))
                 self.store.db.commit()
+            self._changed(rid, "trusted", "promoted: the replay held")
         return {"promoted": cand, "before": before, "after": after}
 
     async def nightly(self, dlog, scorecard):

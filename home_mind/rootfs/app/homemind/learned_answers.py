@@ -270,7 +270,7 @@ class LearnedAnswers(Learned):
                 if base.strip() not in same[0]["examples"] or same[0]["answer"] != ans:
                     self.add_example(same[0], base.strip(), ans, item)
                     out["examples"] += 1
-            else:
+            elif self._room("answer"):
                 self._new_answer(item, ans, base.strip(), f"ask {ev['id']}")
                 out["created"] += 1
         self.store.kv_set(self.CURSOR, cur)

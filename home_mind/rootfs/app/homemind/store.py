@@ -453,6 +453,8 @@ class Store:
     filer = None           # filing.Filer, set by the app (#58)
     vault_key = None       # set by the app with option encrypt_secrets (#66)
     on_purge = None        # called after purge(): the app deletes the photo files no note lists any more
+    on_forget = None       # called after purge() with (rows, values): the forget list keeps their fingerprints
+    on_forget_name = None  # called by purge_about(name): the forget list keeps the name's fingerprint
 
     def _row(self, r):
         if r is None:
@@ -923,6 +925,11 @@ class Store:
             except sqlite3.OperationalError:
                 pass
         self._vocab_n = None
+        if self.on_forget:
+            try:
+                self.on_forget(rows, vals)
+            except Exception:  # noqa: BLE001
+                pass
         if self.on_purge:
             try:
                 self.on_purge()
@@ -1122,6 +1129,11 @@ class Store:
         pat = re.compile(rf"\b{re.escape(name.strip())}\b", re.I)
         rows = self.db.execute("SELECT id, title, body FROM items").fetchall()
         ids = [r["id"] for r in rows if pat.search((r["title"] or "") + " " + (r["body"] or ""))]
+        if self.on_forget_name:
+            try:
+                self.on_forget_name(name.strip())
+            except Exception:  # noqa: BLE001
+                pass
         out = self.purge(ids, values=[name.strip()]) if ids else {"deleted": 0}
         return dict(out, name=name)
 

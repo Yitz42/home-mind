@@ -252,6 +252,16 @@ class App:
         self.learned_answers = LearnedAnswers(self.mind.store, cases=Cases(self.mind.store), embed=(
             (lambda texts: self.models.get(em).embed(texts)) if em else None))
         self.mind.learned_answers = self.learned_answers
+        # phase 9: the forget list, the outbox, weekly saves of learned records
+        from .upkeep import ForgetList, LearnedHistory
+        from .outbox import Outbox
+        st9 = self.mind.store
+        self.forget = ForgetList(st9, DATA)
+        st9.on_forget = lambda rows, vals: self.forget.record_notes(rows, vals)
+        st9.on_forget_name = self.forget.record_name
+        self.ha.outbox = Outbox(st9)
+        self.learned_history = LearnedHistory(st9)
+        self.learned.history = self.learned_answers.history = self.learned_history
         self.mind.tiebreak = self.tiebreak
         from .day import Day
         self.day = Day(self.mind.store)
@@ -1218,6 +1228,47 @@ class App:
                 log.exception("upkeep")
             await asyncio.sleep(20)
 
+    async def _upkeep9(self, now, last):
+        """Phase 9: retries from the outbox, the forget list after a restore and every night, the check, the weekly
+        test restore and save of learned records, and records back on trial after a model change."""
+        from . import upkeep as U
+        if now - last.get("outbox", 0) > 60:
+            last["outbox"] = now
+            try:
+                await self.ha.retry_failed()
+            except Exception:  # noqa: BLE001
+                log.exception("outbox")
+        fl = getattr(self, "forget", None)
+        if fl is None:
+            return
+        if not last.get("check_first"):
+            last["check_first"] = True       # at startup: after a restore the list goes first, then the check
+            try:
+                n = fl.apply()
+                if n:
+                    log.warning("forget list: %d note(s) you had deleted for good were back and are deleted again", n)
+                U.retest_if_swapped(self)
+            except Exception:  # noqa: BLE001
+                log.exception("forget list / model check")
+            self.store_check = U.check(self)
+        if datetime.now().hour == 4 and now - last.get("check_night", 0) > 20 * 3600:
+            last["check_night"] = now
+            try:
+                fl.apply()
+                self.store_check = U.check(self)
+                if not self.store_check["ok"] and self.ha.available:
+                    await self.ha.notify("Home Mind: a check found something", "\n".join(self.store_check["problems"]),
+                                         "home_mind_check")
+                U.retest_if_swapped(self)
+                if self.learned_history.save_week():
+                    log.info("learned records: this week saved")
+                if datetime.now().weekday() == 6:
+                    rt = U.restore_test(self.mind.store, fl)
+                    log.info("weekly test restore: %s", "ok" if rt["ok"] else rt.get("why"))
+                self.ha.outbox.prune()
+            except Exception:  # noqa: BLE001
+                log.exception("nightly check")
+
     async def _upkeep_step(self, last):
         now = time.time()
         if now - last.get("snapshot", 0) > 3600:
@@ -1230,6 +1281,7 @@ class App:
                     log.info("database snapshot: %s", made)
             except Exception as e:  # noqa: BLE001
                 log.warning("database snapshot: %s", e)
+        await self._upkeep9(now, last)
         rep = getattr(self, "db_report", None)
         if rep and self.ha.available and not rep.get("told"):
             rep["told"] = True
@@ -2337,6 +2389,42 @@ def build(app_state):
             raise ValueError("no such template")
         rec.set_status(rid, b["status"], "set by a person")
         return J(rec.describe(rec.get(rid)))
+
+    @r.get("/api/check")
+    async def check_get(q):
+        """The cross-check of every store (phase 9): database, forget list, learned records, decision log, snapshots,
+        vault key, the last test restore. ?run=1 runs it now."""
+        from . import upkeep as U
+        if q.query.get("run") or not getattr(A, "store_check", None):
+            A.store_check = U.check(A)
+        return J(A.store_check)
+
+    @r.post("/api/restore_test")
+    async def restore_test_post(_):
+        """Try restoring the newest snapshot into a scratch copy, and check it."""
+        from . import upkeep as U
+        return J(U.restore_test(A.mind.store, A.forget))
+
+    @r.get("/api/outbox")
+    async def outbox_get(_):
+        """Phone messages in the last 7 days by what happened (sent, held, failed, expired, duplicate), and what's
+        waiting now."""
+        ob = A.ha.outbox
+        return J({"week": ob.stats(), "held": len(ob.take("held")), "failed": len(ob.take("failed"))})
+
+    @r.get("/api/learned/weeks")
+    async def learned_weeks(_):
+        """Saved weeks of learned records, and the change log of the last two weeks."""
+        return J({"weeks": A.learned_history.weeks(), "changes": A.learned_history.changes()})
+
+    @r.post("/api/learned/rollback")
+    async def learned_rollback(q):
+        """Roll the learned records back to a saved week ({"week": "2026-W46", "confirm": true}); the forget list is
+        applied after."""
+        b = await read_body(q, week=str)
+        if b.get("confirm") is not True:
+            raise ValueError("rolling back replaces every learned record: send confirm: true")
+        return J(A.learned_history.rollback(b["week"], A.forget))
 
     @r.get("/api/learned/answers")
     async def learned_answers_list(q):

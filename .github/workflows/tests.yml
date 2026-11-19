@@ -84,6 +84,8 @@ jobs:
         run: python tests/test_learned.py
       - name: Learned answers (phase 8)
         run: python tests/test_learned_answers.py
+      - name: Outbox, forget list, check, test restore, rollback, model swap (phase 9)
+        run: python tests/test_soundness.py
       - name: Expert review checks
         run: for f in tests/test_review_*.py; do echo "== $f"; python "$f" || exit 1; done
       - name: Extraction bench scoring

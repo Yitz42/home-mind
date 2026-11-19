@@ -23,7 +23,7 @@ ADMIN_PATHS = [r"^/api/tokens", r"^/api/item/\d+/purge$", r"^/api/purge_about$",
                r"^/api/decisions", r"^/api/replay$",   # the decision log holds everyone's requests: admin only
                r"^/api/access", r"^/api/safety/run$",   # who may move what, and the safety suite
                r"^/api/converse$",   # a voice turn can act on the house, like /api/do
-               r"^/api/learned", r"^/api/modes", r"^/api/calibration$", r"^/api/now/propose$", r"^/api/worsening$",
+               r"^/api/learned", r"^/api/check$", r"^/api/outbox$", r"^/api/restore_test$", r"^/api/modes", r"^/api/calibration$", r"^/api/now/propose$", r"^/api/worsening$",
                r"^/api/scorecard", r"^/api/labels", r"^/api/shadow", r"^/api/burden", r"^/api/timing"]   # measuring
 READ_POSTS = [r"^/api/ask$", r"^/api/recall$", r"^/api/search$", r"^/api/lookup$", r"^/api/models/check$", r"^/api/sql$"]
 MCP_READ = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_tasks", "mind_ask",
