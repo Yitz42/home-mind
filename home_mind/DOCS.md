@@ -133,6 +133,18 @@ earned trust, the same kind of request is done straight away, with no model call
 - **Conflicts:** when people want different things from one device, the person in that room wins; otherwise a number
   goes to the middle, and on/off to the careful choice (off for heat and noise, on for light).
 
+## Things, and scenes from a description
+
+- **Things:** the drill, the red toolbox, the dishwasher, the car. Each of Home Assistant's devices is one (a renamed
+  device keeps its thing; the old name still works). Others come from your notes ("the drill is in the red toolbox"),
+  but only after you say yes to them in `/api/things`. Notes are linked to the things they mention, and "X is in Y"
+  links two things, so "where's the drill?" is answered by following the links: "In the red toolbox, in the shed."
+  Look-alike names are offered for merging, never merged on their own. A link never shows a note you may not see.
+- **Scenes from words:** "make the living room cozy" (`/api/scenes/draft`) drafts the room's lights and fans: cozy,
+  bright, movie, reading, cool or off by fixed words, a model's draft otherwise. Heaters, heating, locks, doors and
+  covers are never in a drafted scene, and every step goes through the usual checks. The first run is a preview that
+  undoes itself after 10 minutes unless you keep it; a kept scene runs by name.
+
 ## New things wait for a clear day
 
 Switching on something new (an automation now; experiments and new features later) needs your yes **on a clear
@@ -1091,6 +1103,12 @@ note), 502 (a model failed) or 500.
 | POST | `/api/guest` | admin | guest mode on or off (`on`) |
 | GET | `/api/surprises` | admin | the surprises and gaps queue: missed predictions, failed actions, corrections, requests nothing could do, unanswered questions (`kind?`) |
 | POST | `/api/surprises/{id}/seen` | admin | mark one seen |
+| GET | `/api/things` | read | things Home Mind keeps track of, things noticed in notes waiting for a yes, look-alikes to merge |
+| GET | `/api/things/{id}` | read | one thing, its links (only to notes you may see) and where it is |
+| POST | `/api/things` | write | yes to a thing (`name`), no to one noticed (`dismiss`), merge look-alikes (`keep`, `merge`), or link two (`a`, `b`, `relation`) |
+| GET | `/api/scenes` | read | kept scenes, previews running, and how each has done |
+| POST | `/api/scenes/draft` | admin | draft a scene from words (`text`, `room?`, `preview?`) |
+| POST | `/api/scenes/{name}` | admin | keep a preview (with edited `steps`), run a kept scene, or remove it (`do`) |
 | GET | `/api/backoff` | admin | devices Home Mind's own automations are leaving alone after a person changed them |
 | GET | `/api/spaces` | admin | personal spaces: rooms whose devices only their person can open up |
 | POST | `/api/spaces` | admin | set a room's person (`room`, `person`; empty clears) |

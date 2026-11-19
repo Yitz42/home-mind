@@ -1408,6 +1408,12 @@ class Mind:
                             "reflex": {"id": m["record"]["id"], "version": m["record"]["version"],
                                        "tiebreak": bool(m.get("tiebreak"))}}
                 audit = m if m and m.get("audit") else None
+            th = getattr(self, "things", None)
+            if th is not None:
+                from .speakers import VIEWER
+                w = th.answer_where(said, VIEWER.get())     # "where's the drill?": its 'in' links, followed
+                if w:
+                    return {"answer": w, "hits": [], "model": None, "things": True}
             hl = getattr(self, "health", None)
             if hl is not None:
                 from .speakers import VIEWER
