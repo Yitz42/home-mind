@@ -213,6 +213,15 @@ configuration:
   email_require_verified:
     name: Only verified email
     description: Read mail only when your mail server says it passed its sender check (DKIM or SPF for the sender's domain). A From line alone can be forged. Turn off only if your server doesn't add Authentication-Results.
+  exertion_zones:
+    name: Live exertion zones
+    description: Off by default. When on, a fresh heart-rate reading above the line puts you in the upper zone; on a low day one neutral notice at most ("Heart's up. Rest when you can."), none on a rough day. Switches itself off if a beta-blocker or ivabradine is logged. Heart rate misses mental and emotional effort.
+  exertion_threshold:
+    name: Exertion line (bpm)
+    description: The heart rate from your clinician's pacing plan. 0 = your resting heart rate + 15.
+  travel_away_entity:
+    name: Away switch for travel mode
+    description: An input_boolean (or similar) turned on in travel mode. Empty = input_boolean.away if you have one.
   monthly_spend_cap:
     name: Monthly cloud spend cap (dollars)
     description: Once this month's cloud model spend (for models with prices set) reaches this, cloud models aren't used until next month; answers come from local models or your notes. 0 = no cap. Set a hard limit on the API key too.

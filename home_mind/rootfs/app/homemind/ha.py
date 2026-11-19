@@ -188,6 +188,9 @@ class HA:
             return "duplicate"
         day = getattr(self, "day", None)         # the check-in (day.py): a rough day keeps every device quiet
         state = day.get() if day is not None else None
+        trav = getattr(self, "travelling", None)
+        if tier == "routine" and trav is not None and trav():
+            return "travel"                      # travel mode: routine asks wait (safety and important still go)
         if state == "rough" and tier == "routine":
             self.__dict__["quieted"] = self.__dict__.get("quieted", 0) + 1
             return "quiet"                       # routine asks expire quietly on a rough day

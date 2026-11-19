@@ -133,6 +133,28 @@ earned trust, the same kind of request is done straight away, with no model call
 - **Conflicts:** when people want different things from one device, the person in that room wins; otherwise a number
   goes to the middle, and on/off to the careful choice (off for heat and noise, on for light).
 
+## Trackers, medicines, nudges, exertion, travel
+
+- **Trackers** (`/api/trackers`): at most 3, weekly unless you say daily, asked as routine asks (they wait for the
+  morning and count against the day's asks), paused on low and rough days and in travel mode. Logging takes one word
+  and keeps the time: "fog 2", "log headache". Details are asked on a good day, never as a follow-up question.
+  Trackers describe; they never feed tests.
+- **The medicines log:** "took ibuprofen 400mg" is logged with its time, and the reply says what it is: nobody
+  reviews it and there are no interaction checks. Never dosing guidance. A second log of the same medicine within 4
+  hours (or the window you set) is answered with the fact only: "You logged ibuprofen at 8:05 am."
+- **Significant events** (`/api/events`): a weekly checklist (a cold, a trip, a hard week, a new medicine, poor
+  sleep, a big event). Unanswered stays unknown. They can explain a change but never silence the worsening alarm.
+- **Nudges** (`/api/nudges`): only for a goal you wrote, with a trigger (a time, arriving or leaving a place after 10
+  minutes, nothing logged by a time, a sensor), one message that says which goal it's for, once a day at most, quiet
+  hours as always, and they stop after 3 ignored (no "Done" within 2 hours).
+- **Live exertion zones** (option `exertion_zones`, off by default): the line is your clinician's
+  (`exertion_threshold`) or resting heart rate + 15; a zone changes only after two readings agree; only per-minute
+  summaries are kept (`zones.jsonl`), never the raw stream. On a low day, one notice at most: "Heart's up. Rest when
+  you can."; none on a rough day; "not today" mutes it. They switch themselves off if a beta-blocker or ivabradine
+  is logged. Heart rate misses mental and emotional effort.
+- **Travel mode** (`/api/travel`): routine asks, trackers and nudges pause; the house is set to away
+  (`travel_away_entity`, or `input_boolean.away`); safety and important messages still reach your phone.
+
 ## Things, and scenes from a description
 
 - **Things:** the drill, the red toolbox, the dishwasher, the car. Each of Home Assistant's devices is one (a renamed
@@ -982,6 +1004,9 @@ you turn them on are listed after the tables.
 | `email_folder` | `INBOX` | Email folder |
 | `email_senders` | empty | Email senders allowed |
 | `email_require_verified` | on | Only mail your mail server says passed its sender check (DKIM or SPF) is read |
+| `exertion_zones` | off | Live exertion zones from a fresh heart-rate sensor |
+| `exertion_threshold` | 0 | The exertion line in bpm from your clinician's plan (else resting + 15) |
+| `travel_away_entity` | empty | What travel mode switches on (else input_boolean.away) |
 | `monthly_spend_cap` | 0 (none) | Cloud models rest for the month once their spend reaches this many dollars |
 | `email_minutes` | 10 | Check email every (minutes) |
 **Before you turn these on**
@@ -1103,6 +1128,17 @@ note), 502 (a model failed) or 500.
 | POST | `/api/guest` | admin | guest mode on or off (`on`) |
 | GET | `/api/surprises` | admin | the surprises and gaps queue: missed predictions, failed actions, corrections, requests nothing could do, unanswered questions (`kind?`) |
 | POST | `/api/surprises/{id}/seen` | admin | mark one seen |
+| GET | `/api/trackers` | admin | your trackers, entries waiting for details, and whether they're paused |
+| POST | `/api/trackers` | admin | add a tracker (`name`, `kind?`, `cadence?`), stop one (`stop`), or add details (`confirm`, `details?`) |
+| GET | `/api/meds` | admin | your medicines log (30 days); nobody reviews it, no interaction checks |
+| POST | `/api/meds/window` | admin | how long after a log a second one is answered "You logged that at..." (`name`, `hours`) |
+| GET | `/api/events` | admin | this week's checklist of significant events (unanswered is unknown) |
+| POST | `/api/events` | admin | answer it (`{"a trip": "yes", ...}`) |
+| GET | `/api/nudges` | admin | nudges, with how often each was ignored |
+| POST | `/api/nudges` | admin | add a nudge for a goal you wrote (`goal`, `trigger`, `message`) |
+| POST | `/api/travel` | admin | travel mode on or off (`on`) |
+| GET | `/api/zones` | admin | exertion zones: on or off and why, and the current zone |
+| POST | `/api/zones/mute` | admin | "not today": no exertion notice for the rest of the day |
 | GET | `/api/things` | read | things Home Mind keeps track of, things noticed in notes waiting for a yes, look-alikes to merge |
 | GET | `/api/things/{id}` | read | one thing, its links (only to notes you may see) and where it is |
 | POST | `/api/things` | write | yes to a thing (`name`), no to one noticed (`dismiss`), merge look-alikes (`keep`, `merge`), or link two (`a`, `b`, `relation`) |
