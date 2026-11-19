@@ -417,6 +417,43 @@ class Measure:
                       "per_correct": round(cost / calls / share, 5) if share else None}
         return out
 
+    def record_pair(self, decision_id, live_plan, other_plan):
+        """Balanced mode's comparison: the plan that was used and the other model's plan for the same words, kept
+        like a shadow pair (no second model call: both were made anyway)."""
+        same = int(R.same_action(other_plan, live_plan))
+        with self.log_.lock:
+            self.db.execute("INSERT INTO shadow (decision_id, at, live_model, model, plan, same, ms, error) VALUES "
+                            "(?,?,?,?,?,?,?,?)", (decision_id, self.clock(), live_plan.get("by"), other_plan.get("by"),
+                                                  json.dumps({k: other_plan.get(k) for k in ("entity_id", "action",
+                                                                                             "value")}),
+                                                  same, None, None))
+
+    def calibration(self, bins=5):
+        """Is confidence honest? Decisions with a confidence and a known truth, in bins: how often each bin was
+        right, and the expected calibration error (ECE). Also the lowest line above which 95% were right."""
+        with self.log_.lock:
+            ids = [r[0] for r in self.db.execute("SELECT id FROM decisions WHERE confidence IS NOT NULL")]
+        cs = [c for c in self.cases(ids=ids, limit=5000) if c["kind"] != "device"] if ids else []
+        rows = [(float(c["confidence"]), c["kind"] == "match" and not c.get("corrected")) for c in cs]
+        table, ece = [], 0.0
+        for i in range(bins):
+            lo, hi = i / bins, (i + 1) / bins
+            b = [(p, ok) for p, ok in rows if lo <= p < hi or (i == bins - 1 and p == 1.0)]
+            if not b:
+                table.append({"from": lo, "to": hi, "n": 0})
+                continue
+            conf = sum(p for p, _ in b) / len(b)
+            acc = sum(ok for _, ok in b) / len(b)
+            ece += len(b) / len(rows) * abs(acc - conf)
+            table.append({"from": lo, "to": hi, "n": len(b), "confidence": round(conf, 3), "right": round(acc, 3)})
+        line = None
+        for t in sorted({round(p, 2) for p, _ in rows}):
+            above = [ok for p, ok in rows if p >= t]
+            if len(above) >= MIN_CASES and sum(above) / len(above) >= 0.95:
+                line = t
+                break
+        return {"cases": len(rows), "bins": table, "ece": round(ece, 3) if rows else None, "suggested_line": line}
+
     # ---- burden and timing -------------------------------------------------------------------------------------
     def burden(self, days=14):
         """Per day: asks + corrections + redos, with abstains and requests beside them."""
