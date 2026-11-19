@@ -219,6 +219,13 @@ class Morning:
                              "home_mind_morning")
         target = self.notify or await self._phone()
         pushed = None
+        batch, day = getattr(self, "batch", None), getattr(self, "day", None)
+        if batch is not None:
+            # routine notices held since yesterday: as many as today's budget allows (none on a rough day)
+            held = batch.take(day.budget() if day is not None else 4)
+            if held:
+                text += "\n\nWhile you were away: " + "; ".join(f"{h['title']}: {h['message']}" if h["title"] else
+                                                                 h["message"] for h in held)
         if target:
             data = {"title": title, "message": text}
             day = getattr(self, "day", None)

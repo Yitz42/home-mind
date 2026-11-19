@@ -19,7 +19,7 @@ from .const import CONF_WEBHOOK_ID, DOMAIN, NOTIFY_ID
 from .coordinator import HomeMindCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["switch", "number", "time", "button", "sensor"]
+PLATFORMS = ["switch", "number", "time", "button", "sensor", "conversation"]
 PASS_IN = ("Content-Type", "Accept", "Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-ID")
 PASS_OUT = ("Content-Type", "Mcp-Session-Id")
 
@@ -69,7 +69,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if request.method in ("GET", "HEAD"):
             return web.Response(status=405, headers={"Allow": "POST"})
         headers = {k: request.headers[k] for k in PASS_IN if k in request.headers}
-        headers["X-Home-Mind-Token"] = conn["token"]
+        # a person's own link (?token=hm_..., or Authorization: Bearer hm_...) is answered as that person, with that
+        # token's scope; the plain link uses the app's main token, as before
+        own = request.query.get("token") or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        headers["X-Home-Mind-Token"] = own if own.startswith("hm_") else conn["token"]
         body = await request.read()
         s = async_get_clientsession(hass)
         try:
@@ -118,6 +121,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def show_link(call: ServiceCall):
         await _show_links(hass, wid)
 
+    async def person_link(call: ServiceCall):
+        """A link for one person's Claude: a token tied to them (their notes, not anyone else's), shown once."""
+        d = dict(call.data)
+        tok = await _call(hass, "POST", "/api/tokens", {"name": f"Claude ({d['person']})", "person": d["person"],
+                                                        "scope": d.get("scope", "write"), "days": d.get("days", 90)})
+        if not isinstance(tok, dict) or not tok.get("token"):
+            raise ValueError(f"Home Mind didn't make the token: {tok}")
+        links = await _links(hass, wid)
+        lines = [f"Claude link for **{d['person']}** (answers as them; expires in {d.get('days', 90)} days, renew "
+                 "by making a new one). In their Claude: Settings > Connectors > Add custom connector, and paste:", ""]
+        for name in ("remote", "local"):
+            if name in links:
+                lines.append(f"- {name.capitalize()}: `{links[name]}?token={tok['token']}`")
+        lines += ["", "This is shown once. Anyone with it can use Home Mind as this person; revoke it on the Models "
+                  "tab (Access tokens)."]
+        persistent_notification.async_create(hass, "\n".join(lines), f"Home Mind link for {d['person']}",
+                                             f"{NOTIFY_ID}_{d['person'].lower()}")
+        return {"person": d["person"], "token_id": tok.get("id")}
+
     hass.services.async_register(DOMAIN, "remember", remember, vol.Schema({
         vol.Required("text"): cv.string, vol.Optional("title"): cv.string, vol.Optional("shelf"): cv.string,
         vol.Optional("tags"): vol.All(cv.ensure_list, [cv.string]), vol.Optional("key"): cv.string,
@@ -126,6 +148,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         vol.Required("query"): cv.string, vol.Optional("shelf"): cv.string,
         vol.Optional("limit", default=5): vol.All(int, vol.Range(1, 25))}), supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "show_link", show_link)
+    hass.services.async_register(DOMAIN, "person_link", person_link, vol.Schema({
+        vol.Required("person"): cv.string, vol.Optional("scope", default="write"): vol.In(["read", "write", "admin"]),
+        vol.Optional("days", default=90): vol.All(int, vol.Range(0, 3650))}), supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "call", call_api, vol.Schema({
         vol.Required("path"): cv.string, vol.Optional("method"): vol.In(["GET", "POST"]),
         vol.Optional("body"): dict}), supports_response=SupportsResponse.ONLY)
@@ -145,7 +170,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    for s in ("remember", "recall", "show_link", "call"):
+    for s in ("remember", "recall", "show_link", "person_link", "call"):
         hass.services.async_remove(DOMAIN, s)
     return ok
 

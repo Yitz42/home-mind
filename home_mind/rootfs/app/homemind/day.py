@@ -130,3 +130,29 @@ class Day:
         except (TypeError, ValueError):
             return None
         return round(min(r, CAP[self.get(person)]))
+
+
+class AskBatch:
+    """Routine asks held for the morning check-in (design step 20: "batched into the morning check-in"). Each is
+    kept for a day; the morning takes as many as the day's budget allows, newest first, and the rest expire quietly."""
+    KV = "ask_batch"
+    KEEP = 86400
+
+    def __init__(self, store, clock=None):
+        self.store = store
+        self.clock = clock or time.time
+
+    def add(self, title, message):
+        items = [i for i in (self.store.kv_get(self.KV) or []) if self.clock() - i["at"] <= self.KEEP]
+        items.append({"title": str(title or "")[:120], "message": str(message or "")[:500], "at": self.clock()})
+        self.store.kv_set(self.KV, items[-20:])
+        return len(items)
+
+    def take(self, limit):
+        """Up to `limit` held asks (newest first); everything held is cleared (what isn't taken expires)."""
+        items = [i for i in (self.store.kv_get(self.KV) or []) if self.clock() - i["at"] <= self.KEEP]
+        self.store.kv_set(self.KV, [])
+        return list(reversed(items))[:max(0, int(limit))]
+
+    def pending(self):
+        return len([i for i in (self.store.kv_get(self.KV) or []) if self.clock() - i["at"] <= self.KEEP])

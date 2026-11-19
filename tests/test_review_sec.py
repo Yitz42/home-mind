@@ -137,6 +137,8 @@ def setup():
     A = types.SimpleNamespace(on_start=None, on_stop=None, token="main-token", tokens=T.Tokens(st), mind=Mind(),
                               opts={}, home=types.SimpleNamespace(catalog={}), views=Views(st))
     A.speaker_for = M.App.speaker_for.__get__(A)
+    A.answer = M.App.answer.__get__(A)          # /api/ask's logic, shared with the voice agent (0.27)
+    A.has_pending = lambda cid: False
     A.has_pending = lambda cid: False
     A.scope_meta = M.App.scope_meta.__get__(A)
     A.people = lambda: []

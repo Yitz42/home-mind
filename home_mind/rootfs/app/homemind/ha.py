@@ -155,7 +155,7 @@ class HA:
 
     TIERS = ("safety", "important", "routine")
 
-    async def push(self, target, data, tier="routine", now=False):
+    async def push(self, target, data, tier="routine", now=False, batch=False):
         """Send a phone notification (notify.mobile_app_...). By tier (design spec step 5, interrupt priority):
           safety     always, at once: ignores quiet hours and the daily limit, and isn't counted
           important  ignores the daily limit (counted); waits for quiet hours to end unless now=True (time-bound,
@@ -165,6 +165,10 @@ class HA:
         from datetime import date
         if tier not in self.TIERS:
             raise ValueError(f"tier is one of {', '.join(self.TIERS)}")
+        batcher = getattr(self, "batcher", None)
+        if batch and tier == "routine" and batcher is not None:
+            batcher.add(data.get("title"), data.get("message"))
+            return "batched"                     # it comes with the morning check-in
         held = self.__dict__.setdefault("held", [])
         sent = self.__dict__.setdefault("sent", {})
         day = getattr(self, "day", None)         # the check-in (day.py): a rough day keeps every device quiet

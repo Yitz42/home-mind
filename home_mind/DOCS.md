@@ -56,6 +56,32 @@ Models can switch things only when all of these hold:
 
 `/api/home/act`, `/api/do` and the MCP tools `mind_control` / `mind_do` need an admin token.
 
+## Home Mind as your voice assistant
+
+The Home Mind Bridge integration (version 0.3.0, installed by the app) adds a conversation agent called Home Mind.
+To use it: Settings › Voice assistants › your assistant › Conversation agent: **Home Mind**, and turn on **Prefer
+handling commands locally**. Then:
+- Home Assistant's own commands (lights, timers, shopping list) are handled by Home Assistant first, as fast as ever.
+- Everything else goes to Home Mind. House commands go through its planner and checks; questions, "remember…",
+  "undo", "why…" and the check-in go to the brain.
+- If an answer takes more than 1.5 seconds, you hear a short "One moment." first. The answer is then streamed a
+  sentence at a time, so speech starts before the whole answer is ready.
+- Past 6 seconds the answer goes to your phone (if Home Mind knows it), and private answers follow the "who may hear
+  it" rules.
+- When Home Mind asks you something ("Say yes to go ahead", "good, low or rough?"), it keeps listening for the
+  answer.
+- It knows who's speaking from the signed-in user and the satellite you spoke to.
+
+**A Claude link per person.** The plain Claude link uses the app's main access and sees everything. For someone's
+own Claude, call the `home_mind_bridge.person_link` action with their name (and `scope`: read, write, or admin to
+also control the house). A notification shows a link ending `?token=hm_…`, once. That Claude then answers as that
+person: their notes and the household's, not anyone else's. Links expire after 90 days unless `days` is 0; revoke
+them under Access tokens.
+
+**Routine notices wait for the morning.** Notices like an unusual reading are held and come with the next morning
+summary ("While you were away: …"), as many as the day allows (none on a rough day). Anything held longer than a day
+expires.
+
 ## Measuring: is it getting better?
 
 Truth is what actually happened and your labels, never another model's opinion. Everything here is for you or
@@ -787,6 +813,7 @@ note), 502 (a model failed) or 500.
 | GET | `/api/home` | read | the house as Home Mind sees it (watched things, control list) |
 | POST | `/api/home/act` | admin | switch one thing (`entity_id`, `action`, `value?`, `confirm?`) |
 | POST | `/api/do` | admin | do what a sentence asks (`text`); never confirms locks |
+| POST | `/api/converse` | admin | one voice turn for the bridge's conversation agent (`text`, `conversation_id?`, `user_id?`, `device_id?`); streams events with `Accept: application/x-ndjson` |
 | GET | `/api/as_of` | read | a keyed fact at a time (`key`, `at`: seconds or ISO date, `by`: valid or recorded) |
 | POST | `/api/today/checkin` | write | today's check-in (`state`: good, low or rough; `person?`) |
 | GET | `/api/scorecard` | admin | the last scorecard (house, memory, safety; never averaged) and the trend against v1 |

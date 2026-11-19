@@ -139,6 +139,7 @@ ROUTES = [
     ("GET", "/api/tasks", ["project", "status"]),
     ("GET", "/api/models", []),
     ("POST", "/api/models/check", []),
+    ("POST", "/api/converse", ["text", "conversation_id", "user_id", "device_id", "area", "language", "front_end"]),
     ("POST", "/api/ask", ["front_end", "question", "model", "use_brain", "expand", "voice", "deadline", "fallback",
                           "conversation_id", "speaker"]),
     ("POST", "/api/organize", ["text", "model"]),
