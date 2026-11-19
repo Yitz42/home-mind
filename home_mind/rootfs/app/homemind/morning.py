@@ -221,7 +221,15 @@ class Morning:
         pushed = None
         if target:
             data = {"title": title, "message": text}
-            if self._checkin:
+            day = getattr(self, "day", None)
+            if day is not None and day.get() == "unknown":
+                # the check-in: one tap (phones show three buttons at most, so it comes first)
+                data["message"] = text + "\n\nGood, low or rough today?"
+                data["data"] = {"tag": "hm_morning", "actions": [
+                    {"action": "HM_DAY_GOOD", "title": "Good"}, {"action": "HM_DAY_LOW", "title": "Low"},
+                    {"action": "HM_DAY_ROUGH", "title": "Rough"}]}
+                day.asked()
+            elif self._checkin:
                 data["data"] = {"tag": "hm_morning", "actions": [
                     {"action": f"HM_STILL_{self._checkin['id']}", "title": "Still true"},
                     {"action": f"HM_CHANGED_{self._checkin['id']}", "title": "It changed"}]}

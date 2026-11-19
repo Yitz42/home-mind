@@ -210,6 +210,11 @@ class App:
         self.engine = Engine(self.mind.store, self.ha, DATA)
         self._start_decisions()
         self.approvals = Approvals()
+        from .day import Day
+        self.day = Day(self.mind.store)
+        self.ha.day = self.day           # the day's ask budget and rough-day quiet (ha.push)
+        self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
+            lambda d: self.on_day_tap(d.get("action")))
         self.home.on_tell = self.tell_after
         self.mind.on_red_flag = self.on_red_flag
         self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
@@ -242,6 +247,7 @@ class App:
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False
+        self.morning.day = getattr(self, "day", None)
         self.morning.checkin_on = self.opts.get("checkin_old_facts", True) is not False
         self.morning.checkin_days = int(self.opts.get("checkin_after_days") or 180)
         self.evening = Evening(self.mind.store, self.ha, self.opts.get("evening_time") or "21:00",
@@ -386,6 +392,8 @@ class App:
         if n:
             log.info("marked %d older notes as secret", n)
 
+    HANDOFF_SECONDS = 6          # by voice, an answer not ready by then goes to the person's phone instead
+    HANDOFF_LATE = 60            # ... and is given this long to finish
     # a lock, alarm or garage door asked for in words waits for a spoken "yes" in the same conversation for this long
     PENDING_SECONDS = 30
     YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|confirm(?:ed)?|do it|go ahead|please do|affirmative)\b"
@@ -438,6 +446,20 @@ class App:
                 except Exception:  # noqa: BLE001
                     log.exception("red flag notice")
             return {"answer": flag.reply, "red_flag": flag.kind}
+        c = self.checkin_reply(text) if hasattr(self, "checkin_reply") else None
+        if c:
+            return c
+        from . import conversation as conv
+        if conv.UNDO.match(text or "") and getattr(self, "decisions", None) is not None:
+            return await conv.undo(self, conversation_id, source)
+        if getattr(self, "decisions", None) is not None:
+            w = conv.why(self, text)
+            if w:
+                return w
+        task = conv.help_request(text)
+        if task and getattr(self, "mind", None) is not None:
+            r = await self.mind.ask(conv.HELP_PROMPT + task, voice=bool(deadline))
+            return dict(r, help=True)
         t0 = time.monotonic()
         if not self.home.catalog:
             await self.home.refresh()
@@ -625,6 +647,63 @@ class App:
                     "decline": "described a big change in how they're managing"}[flag.kind]
             await self.ha.push(target, {"title": "Home Mind: please check in", "message": f"{who} {what}. "
                                         "Home Mind told them where to get help. Please check on them."}, tier="safety")
+
+    def checkin_reply(self, text, person=None):
+        """A check-in answer ("rough", "having a low day", or "good" right after the question): recorded, with the
+        day's reply. None if it isn't one."""
+        day = getattr(self, "day", None)
+        if day is None:
+            return None
+        from .day import parse, REPLIES
+        state = parse(text, expecting=day.expecting(person))
+        if not state:
+            return None
+        day.set(state, person, how="said")
+        return {"answer": REPLIES[state], "checkin": state}
+
+    async def on_day_tap(self, action):
+        """Good / Low / Rough tapped on the morning notification."""
+        import re as _re
+        m = _re.fullmatch(r"HM_DAY_(GOOD|LOW|ROUGH)", str(action or ""))
+        if not m or getattr(self, "day", None) is None:
+            return None
+        return self.day.set(m.group(1).lower(), None, how="tap")
+
+    def phone_of(self, person):
+        """A person's phone (option people: notify), or None."""
+        for p in self.people():
+            if person and p["name"].lower() == str(person).lower() and p.get("notify"):
+                t = p["notify"]
+                return t if "." in t else "notify." + t
+        return None
+
+    def alone(self, person):
+        """Is the person the only one home? From person entities; with none known, not alone (be careful)."""
+        persons = {e: (c.get("state") or "") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
+        if not persons:
+            return False
+        return sum(1 for s in persons.values() if s == "home") <= 1
+
+    async def private_by_voice(self, res, person):
+        """Who may hear it (design step 18): an answer drawn from someone's personal notes is spoken only when they
+        were recognised and are alone; otherwise "you have a private note", sent to their phone if there is one."""
+        st = self.mind.store
+        private = False
+        for h in res.get("hits") or []:
+            d = st.get(h["id"]) if h.get("id") else None
+            if d and (d.get("meta") or {}).get("scope") == "personal":
+                private = True
+                break
+        if not private or self.alone(person):
+            return res
+        phone = self.phone_of(person)
+        if phone:
+            await self.ha.push(phone, {"title": "Home Mind (private)", "message": res.get("answer") or ""},
+                               tier="important", now=True)
+            return dict(res, answer="You have a private note. I've sent it to your phone.", private=True,
+                        sent_to=phone)
+        return dict(res, answer="That's in your private notes, and you're not on your own. Ask me when you are, "
+                                "or look in Home Mind on your phone.", private=True)
 
     async def tell_after(self, r):
         """"Tell me after": a short notice once it's done."""
@@ -946,6 +1025,15 @@ class App:
         home = {e: c.get("state") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
         return resolve(self.people(), device=device_id, home=home)
 
+    def panel_person(self, user_id):
+        """The person signed in to Home Assistant who opened the panel (ingress sends X-Remote-User-Id), or None."""
+        from .speakers import resolve
+        try:
+            name, _ = resolve(self.people(), user=user_id)
+        except Exception:  # noqa: BLE001
+            return None
+        return name
+
     def speaker_for(self, b):
         """From a request body: (viewer, how). viewer None = no speaker information given (sees everything) unless
         option unknown_caller is "guest"; "" = unknown; else a name."""
@@ -1122,6 +1210,15 @@ def build(app_state):
         if peer in INGRESS_IPS or (tok and secrets.compare_digest(tok.encode("utf-8", "surrogateescape"),
                                                                   str(app_state.token).encode())):
             request["scope"] = "admin"
+            uid = request.headers.get("X-Remote-User-Id") if peer in INGRESS_IPS else None
+            who = app_state.panel_person(uid) if uid and hasattr(app_state, "panel_person") else None
+            if who:                 # the panel, signed in to Home Assistant as a known person: answered as them
+                from .speakers import VIEWER
+                tv = VIEWER.set(who)
+                try:
+                    return await handler(request)
+                finally:
+                    VIEWER.reset(tv)
             return await handler(request)
         rec = app_state.tokens.check(tok) if tok else None
         if rec:                     # a scoped token (#27)
@@ -1131,9 +1228,10 @@ def build(app_state):
                 return web.json_response({"error": f"this token ({rec['name']}) can {rec['scope']}; this needs {need}"},
                                          status=403)
             request["scope"], request["token"] = rec["scope"], rec
-            if rec.get("person"):   # answered as that person (#48)
+            if rec.get("person") or rec["scope"] != "admin":
+                # answered as that person (#48); a read/write token tied to no one is a guest (household notes only)
                 from .speakers import VIEWER
-                tv = VIEWER.set(rec["person"])
+                tv = VIEWER.set(rec.get("person") or "")
                 try:
                     return await handler(request)
                 finally:
@@ -1390,17 +1488,63 @@ def build(app_state):
         if not (b.get("question") or "").strip():
             raise ValueError("give a question")
         who, how = A.speaker_for(b)
+        from . import redflags, conversation as conv
+        if not redflags.check(b["question"]):
+            c = A.checkin_reply(b["question"], who or None) if hasattr(A, "checkin_reply") else None
+            if c:
+                return J(dict(c, hits=[], model=None))
+            if getattr(A, "decisions", None) is not None:
+                if conv.UNDO.match(b["question"]) and allows(q.get("scope", "admin"), "admin"):
+                    return J(dict(await conv.undo(A, b.get("conversation_id"), "voice" if b.get("voice") else "ask"),
+                                  hits=[], model=None))
+                w = conv.why(A, b["question"], who)
+                if w:
+                    return J(dict(w, hits=[], model=None))
+            task = conv.help_request(b["question"])
+            if task:
+                b["question"] = conv.HELP_PROMPT + task
         if A.has_pending(b.get("conversation_id")) and allows(q.get("scope", "admin"), "admin"):
             # "yes" right after "Do you want me to open the garage door?" (asked by /api/do in this conversation)
             done = await A.pending_reply(b["conversation_id"], b["question"])
             if done is not None:
                 return J(dict(done, hits=[], model=None))
-        res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
-                               expand=bool(b.get("expand")), voice=bool(b.get("voice")),
-                               deadline=b.get("deadline"), fallback=b.get("fallback", True),
-                               conversation_id=b.get("conversation_id"), speaker=who)
+        phone = A.phone_of(who) if b.get("voice") and who and hasattr(A, "phone_of") else None
+        ask = A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
+                         expand=bool(b.get("expand")), voice=bool(b.get("voice")),
+                         deadline=(b.get("deadline") or A.HANDOFF_LATE) if phone else b.get("deadline"),
+                         fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who)
+        if phone:
+            # past HANDOFF_SECONDS by voice: say so, and send the whole answer to the person's phone when it's ready
+            # (design step 19); without a phone the voice deadline and its best-note fallback stand as before
+            task = asyncio.ensure_future(ask)
+            done, _ = await asyncio.wait({task}, timeout=A.HANDOFF_SECONDS)
+            if not done:
+                async def finish():
+                    try:
+                        r = await task
+                        await A.ha.push(phone, {"title": "Home Mind", "message": r.get("answer") or
+                                                "Sorry, I couldn't find an answer."}, tier="important", now=True)
+                    except Exception:  # noqa: BLE001
+                        log.exception("voice handoff")
+                key = f"handoff-{id(task)}"
+                A._bg[key] = asyncio.ensure_future(finish())
+                A._bg[key].add_done_callback(lambda _t, k=key: A._bg.pop(k, None))
+                return J({"answer": "That's taking a moment. I'll send it to your phone.", "handoff": phone,
+                          "hits": [], "model": None})
+            res = task.result()
+        else:
+            res = await ask
         if who is not None:
             res["speaker_how"] = how
+        if b.get("voice") and who and not res.get("red_flag") and hasattr(A, "private_by_voice"):
+            res = await A.private_by_voice(res, who)
+        if b.get("voice") and not res.get("red_flag") and getattr(A, "day", None) is not None:
+            from .day import QUESTION, DAY_STARTS
+            # the check-in starts when the person first speaks, never as an alarm: once, after what they asked
+            if A.day.get(who or None) == "unknown" and datetime.now().hour >= DAY_STARTS and \
+                    not A.day.asked(who or None):
+                res["answer"] = f"{(res.get('answer') or '').rstrip()} {QUESTION}".strip()
+                res["checkin_asked"] = True
         res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
         return J(res)
 
@@ -1551,6 +1695,33 @@ def build(app_state):
         if A.decisions is None or not b.get("name"):
             return J({"error": "needs a name, and the decision log running"}, status=400)
         return J({"name": b["name"], "cases": A.decisions.freeze(b["name"])})
+
+    @r.get("/api/as_of")
+    async def as_of(q):
+        """A keyed fact at a time: ?key=&at= (seconds or ISO date) &by=valid|recorded. Answered for the viewer."""
+        p = q.query
+        at = p.get("at") or ""
+        try:
+            t = float(at)
+        except ValueError:
+            try:
+                t = datetime.fromisoformat(at).timestamp()
+            except ValueError:
+                raise ValueError("at is seconds since 1970 or an ISO date") from None
+        row = st.as_of(p.get("key", ""), t, p.get("by") or "valid")
+        if row and not seen_id(row["id"]):
+            row = None              # someone else's personal note
+        return J({"fact": row})
+
+    @r.post("/api/today/checkin")
+    async def today_checkin(q):
+        """{"state": good|low|rough, "person"?}: the morning check-in from the panel or an app."""
+        from .speakers import VIEWER
+        b = await read_body(q, state=str, person=str)
+        person = VIEWER.get() or b.get("person") or None
+        A.day.set(b.get("state") or "", person, how="panel")
+        from .day import REPLIES
+        return J({"checkin": b["state"], "answer": REPLIES[b["state"]], "budget": A.day.budget(person)})
 
     @r.get("/api/safety")
     async def safety_get(_):
@@ -2014,7 +2185,7 @@ def build(app_state):
     @r.post("/api/tokens")
     async def tokens_make(q):
         b = await read_body(q, name=str, scope=str, person=str)
-        return J(A.tokens.make(b.get("name", ""), b.get("scope", "read"), b.get("person")))
+        return J(A.tokens.make(b.get("name", ""), b.get("scope", "read"), b.get("person"), b.get("days")))
 
     @r.delete("/api/tokens/{tid}")
     async def tokens_revoke(q):

@@ -581,6 +581,34 @@ class Store:
         return self._row(self.db.execute(
             "SELECT * FROM items WHERE key=? AND status IN ('active','faded') ORDER BY id DESC LIMIT 1", (key,)).fetchone())
 
+    def as_of(self, key, when, by="valid"):
+        """Two times per fact (design step 9), read through one function. Every version of a keyed fact has when it
+        became true (valid: its own date if it gave one, else when it was filed) and when Home Mind learned it
+        (recorded: when it was filed).
+          by="valid":    what was true at `when` ("what was the code on the 3rd?")
+          by="recorded": what Home Mind believed at `when` ("what did you think on Tuesday?"), knowing only what
+                         it had been told by then
+        Returns the version with valid_from / valid_to (when the next version took over; None if still current), or
+        None. Forgotten (purged) versions are never returned."""
+        if by not in ("valid", "recorded"):
+            raise ValueError("by is valid or recorded")
+        key = (key or "").strip().lower()
+        rows = self.db.execute("SELECT * FROM items WHERE key=? AND status IN ('active','faded','superseded') "
+                               "ORDER BY id", (key,)).fetchall()
+        if not rows:
+            return None
+        when = float(when)
+        known = [r for r in rows if by == "valid" or float(r["created"]) <= when]
+        cands = [r for r in known if _eff(r) <= when] if by == "valid" else known
+        if not cands:
+            return None
+        pick = max(cands, key=lambda r: (_eff(r), r["id"]))
+        later = sorted(_eff(r) for r in known if _eff(r) > _eff(pick))
+        out = self._row(pick)
+        out["valid_from"], out["valid_to"] = _eff(pick), (later[0] if later else None)
+        out["recorded_at"] = float(pick["created"])
+        return out
+
     # ---- writing ----------------------------------------------------------------------------------------------
     def remember(self, text="", title="", kind="note", shelf="inbox", tags=None, key=None, source="", meta=None, at=None):
         """Keep something. With a key (e.g. 'tavrin locker|code'), a different value for the same key supersedes

@@ -68,7 +68,7 @@ configuration:
     description: A phone notice for very few things (a lock opened at an unusual hour, a reading far outside its usual range), at most one a day for each.
   people:
     name: People
-    description: "Who lives here, so Home Mind knows who is speaking: name, and any of ha_users (Home Assistant user names or IDs), devices (phone or satellite device IDs), areas (rooms where only they have a satellite), persons (their person entities), each comma-separated. Signed-in users are recognised from person entities with no setup. Once anyone is listed, overnight learning skips voices it can't recognise."
+    description: "Who lives here, so Home Mind knows who is speaking: name, and any of ha_users (Home Assistant user names or IDs), devices (phone or satellite device IDs), areas (rooms where only they have a satellite), persons (their person entities), each comma-separated, and notify (their phone, e.g. notify.mobile_app_their_phone: private answers and slow voice answers go there). Signed-in users are recognised from person entities with no setup. Once anyone is listed, overnight learning skips voices it can't recognise."
   personal_rule:
     name: Personal notes
     description: first_person = what a known person files about themselves ("my", "I") is theirs alone; household = everything is shared.

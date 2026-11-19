@@ -28,7 +28,7 @@ async def build(A, now=None):
     now = now or time.time()
     st = A.mind.store
     midnight = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-    out = {"at": now, "version": None, "day": None, "room": {}, "outside": None, "week": [], "fog_days": 0,
+    out = {"energy": None, "checkin": None, "at": now, "version": None, "day": None, "room": {}, "outside": None, "week": [], "fog_days": 0,
            "fog_needed": 2 * MIN_DAYS, "soon": [], "expired": [], "where": {}, "meals": [], "protein_g": 0,
            "protein_target_g": None, "remembered": [], "house": {}, "review": 0, "comfort": None}
     from .version import VERSION
@@ -67,10 +67,19 @@ async def build(A, now=None):
                 out["expired"].append(row)
             elif d <= 7:
                 out["soon"].append(row)
+    from .speakers import VIEWER
+    day = getattr(A, "day", None)
+    if day is not None:
+        out["checkin"] = day.get(VIEWER.get() or None)
+        out["asks_left"] = day.budget(VIEWER.get() or None)
     if getattr(A, "patterns", None):
         rows = A.patterns.rows(120)
         out["fog_days"] = sum(1 for r in rows if r.get("fog") is not None)
         out["week"] = [{k: r.get(k) for k in ("day", "fog", "sleep_h", "readiness", "bedtime", "hrv")} for r in rows[-7:]]
+        last = rows[-1] if rows else {}
+        if day is not None and last.get("day") == datetime.fromtimestamp(now).date().isoformat():
+            # energy left: today's readiness, held down on a low, rough or unknown day (design step 33)
+            out["energy"] = day.energy(last.get("readiness"), VIEWER.get() or None)
     for r in st.db.execute("SELECT id, title, body, meta, created FROM items WHERE shelf='body/meals' AND status='active' "
                            "AND created >= ? ORDER BY created", (midnight,)):
         meta = json.loads(r["meta"] or "{}") if isinstance(r["meta"], str) else (r["meta"] or {})

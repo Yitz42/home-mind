@@ -97,6 +97,12 @@ STEPS = [
     );
     CREATE TABLE frozen (name TEXT NOT NULL, decision_id INTEGER NOT NULL, PRIMARY KEY (name, decision_id));
     """,
+    # 2 (phase 3): what the device looked like before (brightness, speed...), so "undo" can put it back exactly,
+    # and which later decision undid this one
+    """
+    ALTER TABLE decisions ADD COLUMN prior_attrs TEXT;
+    ALTER TABLE decisions ADD COLUMN undone_by INTEGER;
+    """,
 ]
 
 
@@ -267,7 +273,7 @@ class DecisionLog:
 
     # ---- writing --------------------------------------------------------------------------------------------------
     def record(self, entity_id=None, action=None, value=None, service=None, data=None, status="done", reason=None,
-               context_id=None, prior=None, states=None, person=None, channel=None, source=None,
+               context_id=None, prior=None, states=None, person=None, channel=None, source=None, prior_attrs=None,
                conversation_id=None, request=None, route=None, model=None, records=None, confidence=None, cost=None,
                latency_ms=None):
         """Log one decision. states: the changed states Home Assistant returned with the call (checked at once).
@@ -280,11 +286,12 @@ class DecisionLog:
             cur = self.db.execute(
                 "INSERT INTO decisions (ts, context_id, person, channel, source, conversation_id, request, route, "
                 "model, records, confidence, cost, latency_ms, entity_id, action, value, service, data, prior, status, "
-                "reason, expected, due, seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "reason, expected, due, seen, prior_attrs) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (now, context_id, person, channel, source, conversation_id, request, route, model,
                  json.dumps(records or []), confidence, cost, latency_ms, entity_id, action,
                  None if value is None else str(value), service, json.dumps(data or {}, default=str), prior, status,
-                 reason, json.dumps(exp) if exp else None, due, seen))
+                 reason, json.dumps(exp) if exp else None, due, seen,
+                 json.dumps(prior_attrs) if prior_attrs else None))
             did = cur.lastrowid
             if exp:
                 self.watch.setdefault(entity_id, {})[did] = due
@@ -434,7 +441,7 @@ class DecisionLog:
     @staticmethod
     def _row(r):
         d = dict(r)
-        for k in ("records", "data", "expected", "seen_state", "override"):
+        for k in ("records", "data", "expected", "seen_state", "override", "prior_attrs"):
             if d.get(k):
                 try:
                     d[k] = json.loads(d[k])
@@ -462,6 +469,25 @@ class DecisionLog:
         args.append(int(limit))
         with self.lock:
             return [self._row(r) for r in self.db.execute(q, args)]
+
+    def undoable(self, within=600, conversation_id=None):
+        """The newest action that can still be undone: done in the last `within` seconds, by a request (not an
+        automation), not already undone, and not itself an undo. Same conversation first."""
+        q = ("SELECT * FROM decisions WHERE status='done' AND ts>=? AND undone_by IS NULL AND entity_id IS NOT NULL "
+             "AND (channel IS NULL OR channel != 'automation') AND (request IS NULL OR request NOT LIKE 'undo%') ")
+        args = [self.clock() - within]
+        with self.lock:
+            if conversation_id:
+                r = self.db.execute(q + "AND conversation_id=? ORDER BY id DESC LIMIT 1",
+                                    args + [conversation_id]).fetchone()
+                if r:
+                    return self._row(r)
+            r = self.db.execute(q + "ORDER BY id DESC LIMIT 1", args).fetchone()
+        return self._row(r) if r else None
+
+    def mark_undone(self, did, by):
+        with self.lock:
+            self.db.execute("UPDATE decisions SET undone_by=? WHERE id=?", (by, did))
 
     def last_for(self, entity_id):
         r = self.recent(1, entity_id=entity_id, status="done")

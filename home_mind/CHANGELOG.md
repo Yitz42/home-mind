@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (design phases 1 and 2)
+## Unreleased (design phases 1 to 3)
 - **Decision log** (phase 1, #30). Every action taken or refused is logged with how it was decided and its Home Assistant context ID. Outcomes are checked (match, mismatch, unknown) and overrides spotted; devices get outcome profiles. Logged requests can be replayed through the planner. See "The decision log" in the docs.
 - **Approvals** (phase 2). Locks, alarms, valves, garage doors, openers, heaters, ovens and extreme temperatures need a fresh approval on your phone (Face ID or the passcode); a spoken yes is no longer enough for them. Heating within normal limits needs a spoken yes. Per device you can choose ask me first, tell me after or just do it, never below what the code requires.
 - **Device access.** Each device is none, read or act. New locks, alarms, valves, garage doors, heating, cameras and microphones start hidden. Loosening waits 24 hours; every change is announced.
@@ -9,6 +9,11 @@
 - **Automations if Home Mind stops.** Home Mind installs the watchdog: after 3 missed heartbeats Home Assistant runs them. Home Mind no longer takes them back by itself; use "Take automations back". Missed times are caught up once if under 30 minutes late and safe to repeat; a restart never runs a time twice.
 - **A limited Home Assistant user** (option `ha_user_token`) for control and readings, and a guard that refuses lock, alarm and valve calls that didn't pass the approval checks.
 - **Daily safety suite**: `sensor.home_mind_safety_suite`, `GET /api/safety`.
+- **The check-in** (phase 3). Good, low or rough, once a day: asked by voice the first time you speak, as three buttons on the morning notification, or on the panel. It sets the day's routine asks (good ~4, low 1, rough 0, unknown 1) and holds down energy left on Today. A rough day keeps every device quiet except safety and what you just asked for.
+- **Undo, why, help me.** "Undo" puts back the last thing you asked for in the last 10 minutes, exactly as it was; again steps back further. "Why did you…" answers in one sentence from the decision log. "Help me…" walks you through without doing it.
+- **Private answers by voice** are spoken only when you're the only one home; otherwise they go to your phone (`notify` per person under `people`). Slow voice answers go to your phone after 6 seconds.
+- **Two times per fact:** `/api/as_of` answers what was true then, or what Home Mind believed then.
+- **Who is asking.** The panel answers as the signed-in Home Assistant person. **Read and write tokens not tied to a person are now guests** (household notes only): make one per person for Claude or other apps. Tokens expire after 90 days unless made with `days: 0`; tokens made before keep working.
 
 ## 0.26.0
 - **A small local model for house control.** For Home Assistant on modest hardware (an old laptop), a 270M-parameter FunctionGemma fine-tuned on your own devices can turn "dim the den lamp to 30" into an action on the CPU, without a cloud model.

@@ -498,14 +498,23 @@ class Home:
                                reason=f"{type(e).__name__}: {e}")
             raise
         states = r.pop("_states", None)
-        self._log_decision(r["entity_id"], action, value, source, why, status="done", service=r["service"],
-                           data=r["data"], context_id=r.get("context_id"), states=states, prior=r.pop("_prior", None))
+        r["decision_id"] = self._log_decision(r["entity_id"], action, value, source, why, status="done", service=r["service"],
+                           data=r["data"], context_id=r.get("context_id"), states=states, prior=r.pop("_prior", None),
+                           prior_attrs=r.pop("_prior_attrs", None))
         if r.pop("_tell", False) and getattr(self, "on_tell", None):
             try:
                 await self.on_tell(r)                 # "tell me after": a short notice
             except Exception:  # noqa: BLE001
                 log.exception("tell after")
         return r
+
+    def attrs_now(self, eid):
+        """The attributes "undo" needs to put a device back: brightness, fan speed, humidity, temperature."""
+        live = getattr(self, "live", None)
+        s = live(eid) if live else None
+        a = ((s or {}).get("attributes") if s else (self.catalog.get(eid) or {}).get("attrs")) or {}
+        keep = {k: a[k] for k in ("brightness", "percentage", "humidity", "temperature") if a.get(k) is not None}
+        return keep or None
 
     def state_now(self, eid):
         """The entity's state as last heard: the live event stream when the add-on set one (live), else the
@@ -610,6 +619,7 @@ class Home:
         else:
             raise ValueError(f"can't {action} {entity_id}")
         before = self.state_now(entity_id)
+        before_attrs = self.attrs_now(entity_id)
         status, ctx, changed = await self._call(svc[0], svc[1], data)
         self.actions.append(now)
         if isinstance(status, int) and status >= 400:
@@ -622,7 +632,7 @@ class Home:
                             tags=["home", "action", dom], source="home",
                             meta={"entity_id": entity_id, "service": ".".join(svc), "data": data, "status": status})
         return {"entity_id": entity_id, "name": name, "service": ".".join(svc), "data": data, "status": status,
-                "context_id": ctx, "_states": changed, "_prior": before, "_tell": tell}
+                "context_id": ctx, "_states": changed, "_prior": before, "_tell": tell, "_prior_attrs": before_attrs}
 
 
 DO_SYSTEM = ("You turn a request into one smart-home action. Reply with JSON only: "
