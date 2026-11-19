@@ -12,6 +12,8 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install "aiohttp>=3.10,<4" "metaphone==0.6" "libzim>=3.4,<5" "numpy>=1.26,<3" "cryptography>=42" "pypdf>=4" jinja2 pyyaml
+      - name: Health questions from the watch's readings
+        run: python tests/test_health.py
       - name: Options and schema (as the Supervisor checks them)
         run: python tests/test_config.py
       - name: End to end (no Home Assistant)

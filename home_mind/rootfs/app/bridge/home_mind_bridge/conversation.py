@@ -30,9 +30,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 def body_for(user_input):
     """What the app needs from one turn."""
     ctx = getattr(user_input, "context", None)
-    return {"text": user_input.text, "conversation_id": getattr(user_input, "conversation_id", None),
-            "user_id": getattr(ctx, "user_id", None), "device_id": getattr(user_input, "device_id", None),
-            "language": getattr(user_input, "language", None), "front_end": "assist"}
+    b = {"text": user_input.text, "conversation_id": getattr(user_input, "conversation_id", None),
+         "user_id": getattr(ctx, "user_id", None), "device_id": getattr(user_input, "device_id", None),
+         "language": getattr(user_input, "language", None), "front_end": "assist"}
+    if hasattr(user_input, "satellite_id"):
+        # set only for a voice satellite; the phone app's Assist has a device_id too, so that alone can't tell
+        b["satellite_id"] = getattr(user_input, "satellite_id", None)
+    return b
 
 
 async def deltas(lines, done):

@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- **Health questions are answered from your watch's readings.** "How's my health looking today?" now gives today's
+  readiness, sleep, HRV and resting heart rate, each against your usual (the median of the 28 days before), plus fog
+  and your check-in. Before, it went to a model with whatever notes the search found (a fog reading, the scale's
+  BMR) and answered about the wrong data. Only descriptive (higher, lower or about usual), no advice.
+- **"What's my heart rate?"** uses a live heart-rate sensor in Home Assistant if one was updated in the last 30
+  minutes; otherwise it says there's no live heart rate and gives this morning's resting and overnight low.
+- Health readings count as personal: an unknown voice gets no numbers, and by voice they're spoken only when you're
+  on your own (otherwise sent to your phone).
+- **No "Just a second." in the phone app's chat:** the phone's Assist has a device too, so the acknowledgement now
+  goes only to voice satellites (Home Assistant's satellite_id, where your version sends it).
 - **A house request just after the check-in question is a house request again.** For 15 minutes after "good, low or
   rough today?" (by voice or the morning notification), 0.29.1 took "set the fan to low" as a low day and "ok, turn off
   the kitchen lights" as a good one, and did neither request. A reply that names a device or a house verb is now never

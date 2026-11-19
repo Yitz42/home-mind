@@ -313,6 +313,8 @@ class App:
         self.mind.patterns = self.patterns
         from .datafacts import DataFacts
         self.mind.datafacts = DataFacts(self.mind.store, self.fitness, self.patterns)
+        from .health import Health
+        self.mind.health = Health(self.patterns, getattr(self, "day", None), self.ha)   # "how's my health today?"
         self.persona = Persona(self.mind.store)
         for brief in (self.morning, self.evening):
             brief.persona, brief.tired, brief.people = self.persona, self.tired, self.people
@@ -1145,7 +1147,7 @@ class App:
         """Who may hear it (design step 18): an answer drawn from someone's personal notes is spoken only when they
         were recognised and are alone; otherwise "you have a private note", sent to their phone if there is one."""
         st = self.mind.store
-        private = False
+        private = bool(res.get("personal"))      # health readings (health.py) are personal too
         for h in res.get("hits") or []:
             d = st.get(h["id"]) if h.get("id") else None
             if d and (d.get("meta") or {}).get("scope") == "personal":

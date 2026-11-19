@@ -1384,6 +1384,15 @@ class Mind:
             logged = await self._log_said(said, model, voice, deadline, conversation_id)
             if logged:
                 return logged
+            hl = getattr(self, "health", None)
+            if hl is not None:
+                from .speakers import VIEWER
+                h = await hl.answer(said, VIEWER.get() or None)   # "how's my health today?": the readings themselves
+                if h:
+                    if VIEWER.get() == "":
+                        return {"answer": "Health readings are private. Ask me on your phone, or once I know your "
+                                          "voice.", "hits": [], "model": None, "personal": True}
+                    return {"answer": h["answer"], "hits": [], "model": None, "data": h, "personal": True}
             df = getattr(self, "datafacts", None)
             if df is not None:
                 d = df.answer(said)        # "average sleep this week?": computed, not guessed by a model
