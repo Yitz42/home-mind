@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- **Experiments and proposals** (design phase 14, steps 30 and 32): written ABAB plans for reducing load, sleep or
+  meal timing only (never medicines or supplements), agreed on a clear day, random order inside pairs, washouts,
+  crash episodes per block as the safety outcome (open decision 9's definition), an exact randomisation test, a new
+  medicine ending its pair; gaps seen 3 times turned into proposals, cheapest fix first, with optional Opus drafts
+  through the Batch API from the schema and made-up data only (`proposals_model`). Arrive and leave nudges now see
+  people coming and going.
 - **Trackers and nudges** (design phase 13, step 28): up to 3 trackers in the ask cap with one-word logs; a medicines
   log (tracking only, "You logged that at..." inside its window); a weekly significant-events checklist (unknown,
   never none); nudges for your own goals that stop after 3 ignored; live exertion zones, off by default, with the
