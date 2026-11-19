@@ -25,6 +25,7 @@ it is left to Home Assistant.
 """
 import ast
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -151,9 +152,14 @@ class Stop(Exception):
     pass
 
 
+RUNNING = contextvars.ContextVar("homemind_automation", default=None)    # (automation id, trigger id) of this run
+
+
 class Engine:
     def __init__(self, store, ha, data_dir):
         self.event_handlers = {}           # event type -> [async fn(data)]
+        self.state_listeners = []          # fn(entity_id, new_state, old_state) for every state change (decision log)
+        self.decisions = None              # the decision log: every service call a run makes is logged there
         self.store, self.ha = store, ha
         self.path = os.path.join(data_dir, "automations.json")
         self.owned = set()
@@ -477,6 +483,11 @@ class Engine:
         eid, old, new = data.get("entity_id"), data.get("old_state"), data.get("new_state")
         if new is not None:
             self.states[eid] = new
+        for fn in self.state_listeners:
+            try:
+                fn(eid, new, old)
+            except Exception:  # noqa: BLE001 - a listener must never stop the automations
+                log.exception("state listener")
         if eid and any(t.get("trigger", t.get("platform")) == "template" for a in self.owned for t in self._triggers(a)):
             asyncio.create_task(_safe(lambda _: self._templates(eid), {}))
         if eid and eid.startswith("automation.") and eid in self.autos and new:
@@ -719,6 +730,7 @@ class Engine:
         cfg = a["config"]
         trig = dict(trig, id=str(trig.get("id")))
         v = {"trigger": {k: val for k, val in trig.items() if k not in ("idx",)}, "this": self.states.get(auto)}
+        RUNNING.set((auto, trig.get("id")))
         try:
             if not await self.conds(cfg.get("conditions") or cfg.get("condition"), v):
                 return
@@ -889,11 +901,41 @@ class Engine:
             steps.append(f"(dry) {svc} {json.dumps(data, default=str)[:120]}")
             return None
         path = f"services/{dom}/{name}" + ("?return_response" if rv else "")
+        ents = data.get("entity_id")
+        ents = [e.strip() for e in ents.split(",")] if isinstance(ents, str) else list(ents or []) \
+            if isinstance(ents, (list, tuple)) else []
+        before = {e: (self.states.get(e) or {}).get("state") for e in ents}
         r = await self._post(path, data)
+        self._log_call(svc, data, r, before)
         if rv:
             v[rv] = (r or {}).get("service_response", r) if isinstance(r, dict) else r
         steps.append(f"{svc} {json.dumps({k: x for k, x in data.items() if k != 'instructions'}, default=str)[:120]}")
         return None
+
+    def _log_call(self, svc, data, response, before=None):
+        """Log a service call this run made, once per entity it targets, so its outcome is checked like any
+        other decision (channel "automation", source the automation)."""
+        dlog = self.decisions
+        if dlog is None:
+            return
+        try:
+            from .decisions import context_of
+            ctx, states = context_of(response)
+            auto, trig = RUNNING.get() or (None, None)
+            ents = data.get("entity_id")
+            ents = [e.strip() for e in ents.split(",")] if isinstance(ents, str) else list(ents or [None])
+            name = (self.autos.get(auto) or {}).get("name")
+            for e in ents:
+                if e == "all":
+                    e = None
+                prior = (before or {}).get(e) if e else None
+                dlog.record(entity_id=e, action=svc.split(".", 1)[1], service=svc,
+                            data={k: x for k, x in data.items() if k != "entity_id"}, context_id=ctx, states=states,
+                            prior=prior, channel="automation", source=auto,
+                            route="automation", model=None, request=None,
+                            records=[{"automation": auto, "name": name, "trigger": trig}] if auto else [])
+        except Exception:  # noqa: BLE001 - the log must never stop a run
+            log.exception("decision log")
 
     async def _wait(self, a, v, steps):
         trigs = _list(a["wait_for_trigger"])

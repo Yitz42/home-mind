@@ -143,6 +143,7 @@ class App:
                                              if m.get("price_in") is not None and m.get("price_out") is not None})
         models_mod.USAGE = self.usage.record
         self.updater = Updater(self.mind.store, self.opts.get("update_url"))
+        self.decisions = None       # the decision log (decisions.py), started with the house in setup
         self.mcp = MCP(self)
         self.ha = None
         self.comfort = None
@@ -224,6 +225,7 @@ class App:
         if self.opts.get("use_preferences", True) is not False:
             self.home.prefs = self.prefs
         self.engine = Engine(self.mind.store, self.ha, DATA)
+        self._start_decisions()
         self.mind.FALLBACK = list(self.opts.get("fallback") or [])
         self.mind.CONTROL_MODEL = self.opts.get("control_model") or None
         self.mind.ROUTER = self.opts.get("router", True) is not False
@@ -333,6 +335,40 @@ class App:
             await asyncio.wait(live, timeout=TASKS_GRACE)
         await self.models.stop()
 
+    def _start_decisions(self):
+        """The decision log (decisions.py, its own file log.db): every action, refused ones too, with what should
+        happen; outcomes are checked from the engine's event stream and by the upkeep loop's sweep."""
+        from .decisions import DecisionLog
+        try:
+            self.decisions = DecisionLog(os.path.join(DATA, "log.db"))
+        except Exception:  # noqa: BLE001 - without the log the house still works
+            log.exception("decision log not started")
+            self.decisions = None
+            return
+        self.home.decisions = self.decisions
+        self.home.call_service = self._call_service
+        self.home.live = lambda e: self.engine.states.get(e) if getattr(self.engine, "_ws", None) else None
+        self.engine.decisions = self.decisions
+        self.engine.state_listeners.append(self.decisions.on_state)
+
+    async def _call_service(self, domain, service, data):
+        """Service calls for the decision log: over the websocket when it is connected (its answer always carries
+        the call's context id), else REST (whose answer carries it when a state changed)."""
+        if getattr(self.engine, "_ws", None):
+            try:
+                res = await self.engine.ws_call({"type": "call_service", "domain": domain, "service": service,
+                                                 "service_data": data})
+            except RuntimeError as e:
+                if "not connected" not in str(e):
+                    return 400, None, None          # Home Assistant refused it (act() reports the failure)
+            else:
+                return 200, ((res or {}).get("context") or {}).get("id"), None
+        return await self.ha.call_ctx(domain, service, data)
+
+    async def _state_for_check(self, eid):
+        s = self.engine.states.get(eid) if getattr(self.engine, "_ws", None) else None
+        return s if s is not None else await self.ha.state(eid)
+
     def _fix_kg_backfill(self):
         """0.8.x filed the scale's early kilogram readings with 'lb'. Rewrite them once, converted."""
         st = self.mind.store
@@ -398,12 +434,14 @@ class App:
             return None
         if self.YES.match(said):
             plans = p.get("plans") or [p["plan"]]
+            whys = p.get("whys") or [p.get("why")] * len(plans)
             done, errs = [], []
             batch = f"yes:{time.time()}"
-            for plan in plans:
+            for plan, why in zip(plans, whys):
                 try:
                     done.append(await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"),
-                                                    p["source"], confirm=True, batch=batch))
+                                                    p["source"], confirm=True, batch=batch,
+                                                    why=dict(why or {}, confirmed=True)))
                 except (ValueError, PermissionError) as e:
                     errs.append(str(e))
             if errs and not done:
@@ -426,6 +464,7 @@ class App:
         r = await self.pending_reply(conversation_id, text)
         if r is not None:
             return r
+        t0 = time.monotonic()
         if not self.home.catalog:
             await self.home.refresh()
         opts = getattr(self, "opts", None) or {}
@@ -446,10 +485,11 @@ class App:
                         named = text[:g.start()] + (sub[one[0]].get("name") or one[0]) + text[g.end():]
                         steps = planner.plan(named, sub, self.home.allowed)
                 if steps and all(s.get("entity_id") for s in steps):
-                    return dict(await self._run_steps(steps, text, source, conversation_id, "rules"), room=room)
+                    return dict(await self._run_steps(steps, text, source, conversation_id, "rules", t0=t0),
+                                room=room)
             steps = planner.plan(text, self.home.catalog, self.home.allowed)
             if steps:
-                return await self._run_steps(steps, text, source, conversation_id, "rules")
+                return await self._run_steps(steps, text, source, conversation_id, "rules", t0=t0)
         names = [n for n in self.models.models if n != "mock"]
         local = opts.get("control_model") or ""
         things = self.home.controllable()
@@ -462,7 +502,7 @@ class App:
                     return {"plan": r, "answer": "Which one: " + ", ".join(r["which"]) + "?", "which": r["which"]}
                 if r.get("answer"):
                     return r
-                return await self._run_plan(plan, text, source, conversation_id)
+                return await self._run_plan(plan, text, source, conversation_id, t0=t0)
             names = [n for n in names if n != local]          # not a command for it: the general model decides
         model = model or ("haiku" if "haiku" in names else names[0] if names else None)
         if not model:
@@ -473,9 +513,36 @@ class App:
         except asyncio.TimeoutError:
             return {"error": "the model took too long; nothing was done",
                     "answer": "Sorry, that took too long, so I didn't do anything."}
+        plan.setdefault("by", model)
         if plan.get("actions"):
-            return await self._run_steps(plan["actions"], text, source, conversation_id, model)
-        return await self._run_plan(plan, text, source, conversation_id)
+            return await self._run_steps(plan["actions"], text, source, conversation_id, model, t0=t0)
+        return await self._run_plan(plan, text, source, conversation_id, t0=t0)
+
+    async def plan_only(self, text, model=None):
+        """What do() would plan for these words, without acting (replay), in the order do() uses: the rules (option
+        rule_planner), then the local control model when set, then the general model."""
+        if not self.home.catalog:
+            await self.home.refresh()
+        opts = getattr(self, "opts", None) or {}
+        if not model and opts.get("rule_planner", True) is not False:
+            from . import planner
+            steps = planner.plan(text, self.home.catalog, self.home.allowed)
+            if steps:
+                steps = [dict(s, by="rules") for s in steps]
+                return steps[0] if len(steps) == 1 else {"actions": steps, "by": "rules"}
+        names = [n for n in self.models.models if n != "mock"]
+        local = opts.get("control_model") or ""
+        if local and local in self.models.models and not model:
+            r = await self.local_plan(local, text)
+            if r.get("entity_id") or r.get("which") or r.get("answer"):
+                return r
+            names = [n for n in names if n != local]
+        model = model or ("haiku" if "haiku" in names else names[0] if names else None)
+        if not model:
+            raise RuntimeError("no model connected")
+        plan = await plan_action(self.models.get(model), text, self.home.controllable())
+        plan.setdefault("by", model)
+        return plan
 
     def room_for(self, text, area):
         """The room to keep a command to: where it was said, unless the words name a room (or the whole house)."""
@@ -498,7 +565,7 @@ class App:
             what = f"{v}%" if a in ("brightness", "speed", "humidity") and v is not None else f"{a} {v}".strip()
         return f"{name} {what}"
 
-    async def _run_steps(self, steps, text, source, conversation_id, by):
+    async def _run_steps(self, steps, text, source, conversation_id, by, t0=None):
         """Several actions from one request ("lights off and lock up"). A "which one?" anywhere asks first and does
         nothing. The ordinary ones run; locks, alarms and garage doors among them wait for one yes together."""
         ask = next((s for s in steps if s.get("which")), None)
@@ -507,7 +574,7 @@ class App:
                     "answer": f"Which {ask.get('device') or 'one'}: " + ", ".join(ask["which"]) + "?"}
         steps = [dict(s, by=by) for s in steps if s.get("entity_id")]
         if len(steps) == 1:
-            return await self._run_plan(steps[0], text, source, conversation_id)
+            return await self._run_plan(steps[0], text, source, conversation_id, t0=t0)
         sens = [s for s in steps if s["entity_id"] in self.home.catalog and self.home.allowed(s["entity_id"])
                 and self.home.sensitive(s["entity_id"])]
         results, said = [], []
@@ -515,7 +582,7 @@ class App:
         for s in steps:
             if s in sens:
                 continue
-            r = await self._run_plan(s, text, source, conversation_id, batch)
+            r = await self._run_plan(s, text, source, conversation_id, batch=batch, t0=t0)
             results.append(r)
             if r.get("done"):
                 said.append(self._said(s))
@@ -532,7 +599,9 @@ class App:
             if conversation_id:
                 pend = self.__dict__.setdefault("_pending", {})
                 pend[conversation_id] = {"plans": sens, "plan": sens[0], "t": time.time(), "source": source,
-                                         "name": ", ".join(names), "verb": " and ".join(verbs)}
+                                         "name": ", ".join(names), "verb": " and ".join(verbs),
+                                         "whys": [decision_why(getattr(self, "opts", None), s, text, source,
+                                                               conversation_id, t0) for s in sens]}
                 out["confirm_needed"] = True
                 answer += (" " if answer else "") + f"Do you want me to {what}? Say yes to go ahead."
             else:
@@ -563,8 +632,9 @@ class App:
             return {}          # a name it couldn't place: let the general model try with the whole list
         return plan
 
-    async def _run_plan(self, plan, text, source, conversation_id, batch=None):
+    async def _run_plan(self, plan, text, source, conversation_id, batch=None, t0=None):
         """The checks every planned action goes through, whichever model planned it."""
+        why = decision_why(getattr(self, "opts", None), plan, text, source, conversation_id, t0)
         if not plan.get("entity_id"):
             return {"error": "nothing on the control list fits", "plan": plan}
         eid = plan["entity_id"]
@@ -577,16 +647,19 @@ class App:
                 for k in [k for k, v in pend.items() if time.time() - v["t"] > 10 * self.PENDING_SECONDS]:
                     pend.pop(k)
                 pend[conversation_id] = {
-                    "plan": plan, "t": time.time(), "source": source, "name": name, "verb": verb}
+                    "plan": plan, "t": time.time(), "source": source, "name": name, "verb": verb, "why": why}
                 return {"plan": plan, "confirm_needed": True,
                         "answer": f"Do you want me to {verb} the {name}? Say yes to go ahead."}
+            if hasattr(self.home, "_log_decision"):
+                self.home._log_decision(eid, plan.get("action"), plan.get("value"), source, why, status="refused",
+                                        reason="needs a yes and there is no conversation to take one")
             return {"plan": plan, "error": f"{eid} is a lock or door: it needs the person's yes, and this request has "
                                            "no conversation_id to take one (or use mind_control with confirm: true)",
                     "answer": f"I need a yes before I {verb} the {name}, and I can't take one here. "
                               "Please use the Home Assistant app for that."}
         try:
             return {"plan": plan, "done": await self.home.act(plan["entity_id"], plan.get("action"), plan.get("value"),
-                                                              source, batch=batch)}
+                                                              source, batch=batch, why=why)}
         except (ValueError, PermissionError) as e:
             return {"plan": plan, "error": str(e)}
 
@@ -637,6 +710,16 @@ class App:
         if rep and self.ha.available and not rep.get("told"):
             rep["told"] = True
             await self.ha.notify("Home Mind: database restored", rep["message"], "home_mind_db")
+        if getattr(self, "decisions", None) is not None:
+            try:
+                await self.decisions.sweep(self._state_for_check)      # outcomes that are due (every 20 s)
+                if now - last.get("prune", 0) > 86400:
+                    last["prune"] = now
+                    n = self.decisions.prune()
+                    if n:
+                        log.info("decision log: %d old decisions dropped", n)
+            except Exception:  # noqa: BLE001
+                log.exception("decision log sweep")
         if self.ha.available and self.mind.home and now - last["home"] > 300:
             last["home"] = now
             if now - last.get("areas", 0) > 1800:
@@ -1077,6 +1160,15 @@ def check_types(b, types):
         if v is not None and not any(fits(v, x) for x in ts):
             raise ValueError(f"{k} should be {' or '.join(_KINDS[x] for x in ts)}")
     return b
+
+
+def decision_why(opts, plan, text, source, conversation_id, t0=None):
+    """How a planned action was decided, for the decision log: the words, the channel, which model planned it
+    (the local control model or a general one) and how long planning took."""
+    local = (opts or {}).get("control_model") or ""
+    return {"request": text, "channel": source, "conversation_id": conversation_id, "model": plan.get("by"),
+            "route": "local" if local and plan.get("by") == local else "cloud" if plan.get("by") else None,
+            "latency_ms": round((time.monotonic() - t0) * 1000) if t0 else None}
 
 
 async def read_body(req, optional=False, **types):
@@ -1527,6 +1619,48 @@ def build(app_state):
                                       confirm=b.get("confirm") is True))
         except (ValueError, PermissionError) as e:
             return J({"error": str(e)}, status=400)
+
+    @r.get("/api/decisions")
+    async def decisions_list(q):
+        """The decision log: newest first. ?entity_id= ?limit= ?status=done|refused"""
+        if A.decisions is None:
+            return J({"error": "the decision log isn't running"}, status=503)
+        limit = num(q.query.get("limit"), "limit", 50, 1, 500)
+        return J({"decisions": A.decisions.recent(limit, q.query.get("entity_id"), status=q.query.get("status"))})
+
+    @r.get("/api/decisions/stats")
+    async def decisions_stats(q):
+        """Expected versus seen: match, mismatch, unknown and overrides per entity and action. ?days="""
+        if A.decisions is None:
+            return J({"error": "the decision log isn't running"}, status=503)
+        days = num(q.query.get("days"), "days", 0, 0, 3650, float)
+        return J(A.decisions.stats(time.time() - days * 86400 if days > 0 else None))
+
+    @r.get("/api/decisions/profile")
+    async def decisions_profile(q):
+        if A.decisions is None:
+            return J({"error": "the decision log isn't running"}, status=503)
+        return J({"profile": A.decisions.profile(q.query.get("entity_id") or "")})
+
+    @r.post("/api/decisions/freeze")
+    async def decisions_freeze(q):
+        """Keep today's test cases under a name (e.g. "v1") for later replays to compare against."""
+        b = await read_body(q, name=str)
+        if A.decisions is None or not b.get("name"):
+            return J({"error": "needs a name, and the decision log running"}, status=400)
+        return J({"name": b["name"], "cases": A.decisions.freeze(b["name"])})
+
+    @r.post("/api/replay")
+    async def replay_run(q):
+        """Replay logged requests through the planner (never acts). {"model"?, "limit"?, "frozen"?: name}"""
+        from . import replay
+        b = model_ok(await read_body(q, frozen=str))
+        if A.decisions is None:
+            return J({"error": "the decision log isn't running"}, status=503)
+        ids = A.decisions.frozen(b["frozen"]) if b.get("frozen") else None
+        limit = num(b.get("limit"), "limit", 200, 1, 1000)
+        rep = await replay.replay(A.decisions, lambda text: A.plan_only(text, b.get("model")), limit=limit, ids=ids)
+        return J(rep)
 
     @r.post("/api/do")
     async def home_do(q):

@@ -471,9 +471,57 @@ class Home:
         return [{"entity_id": e, "name": c["name"], "state": c["state"]} for e, c in sorted(self.catalog.items())
                 if self.allowed(e)]
 
-    async def act(self, entity_id, action, value=None, source="api", confirm=False, batch=None):
+    async def act(self, entity_id, action, value=None, source="api", confirm=False, batch=None, why=None):
         """action: on, off, toggle, brightness (1-100), color (name), speed (fan %), humidity (%), run; covers also
-        open, close; locks lock, unlock. Locks, alarms and garage doors need confirm=True."""
+        open, close; locks lock, unlock. Locks, alarms and garage doors need confirm=True.
+        why: how the decision was made, for the decision log (request, person, route, model, latency_ms,
+        conversation_id, confidence). Every call is logged there, refusals included."""
+        try:
+            r = await self._act(entity_id, action, value, source, confirm, batch)
+        except (ValueError, PermissionError) as e:
+            self._log_decision(entity_id, action, value, source, why, status="refused", reason=str(e))
+            raise
+        except Exception as e:
+            # Home Assistant didn't answer (a timeout, a dropped connection): the call may or may not have happened
+            self._log_decision(entity_id, action, value, source, why, status="error",
+                               reason=f"{type(e).__name__}: {e}")
+            raise
+        states = r.pop("_states", None)
+        self._log_decision(r["entity_id"], action, value, source, why, status="done", service=r["service"],
+                           data=r["data"], context_id=r.get("context_id"), states=states, prior=r.pop("_prior", None))
+        return r
+
+    def state_now(self, eid):
+        """The entity's state as last heard: the live event stream when the add-on set one (live), else the
+        five-minute catalog."""
+        live = getattr(self, "live", None)
+        s = live(eid) if live else None
+        return (s or {}).get("state") if s else (self.catalog.get(eid) or {}).get("state")
+
+    def _log_decision(self, entity_id, action, value, source, why, **kw):
+        log_ = getattr(self, "decisions", None)
+        if log_ is None:
+            return None
+        w = dict(why or {})
+        try:
+            return log_.record(entity_id=entity_id, action=action, value=value, source=source,
+                               channel=w.pop("channel", source), **{k: w[k] for k in (
+                                   "request", "person", "route", "model", "latency_ms", "conversation_id",
+                                   "confidence", "cost", "records") if k in w}, **kw)
+        except Exception:  # noqa: BLE001 - the log must never stop the house from working
+            log.exception("decision log")
+            return None
+
+    async def _call(self, domain, service, data):
+        """A service call -> (HTTP-like status, Home Assistant context id or None, changed states or None).
+        call_service (set by the add-on: the websocket when connected) gives the context id of every call."""
+        caller = getattr(self, "call_service", None)
+        if caller is not None:
+            return await caller(domain, service, data)
+        status = await self.ha.call(domain, service, data)
+        return status, None, None
+
+    async def _act(self, entity_id, action, value=None, source="api", confirm=False, batch=None):
         if entity_id not in self.catalog:
             m = self.matching(entity_id, 1)
             if not m:
@@ -540,7 +588,8 @@ class Home:
             svc, data["humidity"] = ("humidifier", "set_humidity"), v
         else:
             raise ValueError(f"can't {action} {entity_id}")
-        status = await self.ha.call(svc[0], svc[1], data)
+        before = self.state_now(entity_id)
+        status, ctx, changed = await self._call(svc[0], svc[1], data)
         if not same:
             self.actions.append(now)
             self._batch = batch
@@ -553,7 +602,8 @@ class Home:
                             title=f"Action: {name} {said}", kind="note", shelf="home/actions",
                             tags=["home", "action", dom], source="home",
                             meta={"entity_id": entity_id, "service": ".".join(svc), "data": data, "status": status})
-        return {"entity_id": entity_id, "name": name, "service": ".".join(svc), "data": data, "status": status}
+        return {"entity_id": entity_id, "name": name, "service": ".".join(svc), "data": data, "status": status,
+                "context_id": ctx, "_states": changed, "_prior": before}
 
 
 DO_SYSTEM = ("You turn a request into smart-home actions. Reply with JSON only: "
