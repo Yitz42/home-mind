@@ -45,16 +45,20 @@ _LOOSE = re.compile(
     r"\b(not (?:too |that |so )?bad|not (?:great|good|so good|too good)|so-so|so so|good|great|fine|okay|ok|alright|"
     r"decent|low|meh|tired|rough|bad|awful|terrible|horrible|crashing|crashed|wiped|wrecked|blah|ugh+)(?:ish|-ish)?\b",
     re.I)
+_HOUSE = re.compile(r"\b(?:turn|switch|set|dim|brighten|open|close|shut|lock|unlock|start|stop|run|play|pause|resume|"
+                    r"raise|lower|increase|decrease|activate|deactivate|toggle|lights?|lamps?|fans?|blinds?|heat(?:ing|er)?|"
+                    r"\d+)\b", re.I)
 _LOOSE_MAP = dict(_MAP, **{"not bad": "good", "not too bad": "good", "not that bad": "good", "not so bad": "good",
-                           "not good": "low", "not so good": "low", "not too good": "low"})
+                           "not good": "low", "not so good": "low", "not too good": "low",
+                           "not great": "low"})
 
 
 def _loose(t):
     """Right after the question: a short reply with an answer word in it ("I would say it's about goodish",
     "pretty much fine I guess", "not too bad"). The first word that fits decides; questions and long replies don't
     count (they're about something else)."""
-    if "?" in t or len(re.findall(r"[A-Za-z']+", t)) > 12:
-        return None
+    if "?" in t or len(re.findall(r"[A-Za-z']+", t)) > 12 or _HOUSE.search(t):
+        return None       # a question, a long reply, or a house request ("set the fan to low"): not an answer
     m = _LOOSE.search(t)
     if not m:
         return None
