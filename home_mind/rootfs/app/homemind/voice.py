@@ -87,7 +87,8 @@ async def converse(app, body, scope="admin", ack_seconds=ACK_SECONDS):
     work = asyncio.ensure_future(turn(app, body, scope))
     # only a voice device (a satellite) needs "One moment." to fill the silence; in the app's chat window the
     # acknowledgement just runs into the answer ("Let me check. I don't have...")
-    spoken = bool(body.get("device_id"))
+    # the phone app's Assist sends a device_id as well, so a satellite_id (newer Home Assistant) decides when sent
+    spoken = bool(body.get("satellite_id")) if "satellite_id" in body else bool(body.get("device_id"))
     done, _ = await asyncio.wait({work}, timeout=ack_seconds) if spoken else (set(), None)
     acked = None
     if spoken and not done:

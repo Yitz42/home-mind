@@ -105,6 +105,14 @@ ev = run(collect(V.converse(App(delay=0.3), {"text": "when do the bins go out?"}
 check("converse: typed in the app (no voice device), no acknowledgement runs into the answer",
       not any(e.get("ack") for e in ev) and ev[0]["text"].startswith("The bins") and ev[-1]["acked"] is None, ev)
 
+ev = run(collect(V.converse(App(delay=0.3), {"text": "when do the bins go out?", "device_id": "iphone",
+                                             "satellite_id": None}, ack_seconds=0.1)))
+check("converse: the phone app's Assist (a device, but no satellite) gets no acknowledgement in the text",
+      not any(e.get("ack") for e in ev), ev)
+ev = run(collect(V.converse(App(delay=0.3), {"text": "when do the bins go out?", "device_id": "sat1",
+                                             "satellite_id": "assist_satellite.kitchen"}, ack_seconds=0.1)))
+check("converse: a satellite does", ev[0].get("ack"), ev)
+
 
 class Broken(App):
     async def answer(self, b, scope="admin"):
