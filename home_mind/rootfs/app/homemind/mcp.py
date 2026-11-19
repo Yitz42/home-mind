@@ -111,6 +111,19 @@ TOOLS = [
                     "today (tired day? weight trend).",
      S({"action": {"type": "string", "enum": ["list", "add", "used", "tossed", "goals", "today"]}, "text": STR,
         "location": STR})),
+    ("mind_fitness", "Fitness goals and progress. action: status (default; weight trend against the goal, today's protein "
+                     "and calories, workouts this week), review (the week, with what to change), goals (show, or set "
+                     "with goals={weight_target, weight_by, protein_g, calories, steps, workouts_per_week, "
+                     "body_fat_target}), log (text like 'squats 3x8 at 185, ran 2 miles in 18 min'), workouts "
+                     "(recent ones, bests and stalled lifts; optional exercise).",
+     S({"action": {"type": "string", "enum": ["status", "review", "goals", "log", "workouts"]}, "text": STR,
+        "goals": {"type": "object"}, "exercise": STR})),
+    ("mind_phrasebook", "The phrasebook: odd ways people say sleep and workouts, each with the plain log line Home Mind "
+                        "reads (\"zonked at 1, kid woke me at 5:40\" -> \"slept from 1 am to 5:40 am\"; NONE for "
+                        "look-alikes that aren't logs). action: list (default; status active|pending|rejected), add (said, "
+                        "plain), approve/reject/remove (id), try (text: what each reader makes of it).",
+     S({"action": {"type": "string", "enum": ["list", "add", "approve", "reject", "remove", "try"]}, "said": STR,
+        "plain": STR, "id": {"type": "integer"}, "status": STR, "text": STR})),
     ("mind_meals", "Meal ideas from what's in the house: uses what expires first, fits today (tired days lower-carb) and "
                    "the goals (more protein, fewer calories). meal: breakfast/lunch/dinner/snack; request: anything extra.",
      S({"meal": STR, "request": STR, "model": STR}, [])),
@@ -356,6 +369,39 @@ class MCP:
                 return pa.goals()
             if act == "today":
                 return await pa.today()
+            raise ValueError(f"unknown action {act}")
+        if name == "mind_fitness":
+            fi, act = app.fitness, a.get("action", "status")
+            if act == "status":
+                return fi.status()
+            if act == "review":
+                return {"lines": fi.review(), "suggestions": fi.suggestions()}
+            if act == "goals":
+                return fi.set_goals(a["goals"]) if a.get("goals") else fi.goals()
+            if act == "log":
+                return fi.log(a.get("text") or "", source="claude")
+            if act == "workouts":
+                from .fitness import exercise_name
+                rows = fi.workouts(90)
+                if a.get("exercise"):
+                    rows = [w for w in rows if w["entry"]["exercise"] == exercise_name(a["exercise"])]
+                return {"workouts": rows, "records": fi.records(), "stalls": fi.stalls()}
+            raise ValueError(f"unknown action {act}")
+        if name == "mind_phrasebook":
+            pb, act = app.phrasebook, a.get("action", "list")
+            if act == "list":
+                return {"stats": pb.stats(), "entries": pb.entries(a.get("status") or None, limit=200)}
+            if act == "add":
+                return pb.add(a.get("said") or "", a.get("plain") or "", "added")
+            if act in ("approve", "reject", "remove"):
+                if a.get("id") is None:
+                    raise ValueError("give id")
+                rid = int(a["id"])
+                return pb.remove(rid) if act == "remove" else pb.set_status(rid, "active" if act == "approve" else "rejected")
+            if act == "try":
+                hit = pb.match(a.get("text") or "")
+                return {"phrasebook": {"entry": hit[0]["id"], "plain": hit[1]} if hit else None,
+                        "similar": pb.similar(a.get("text") or "", 5)}
             raise ValueError(f"unknown action {act}")
         if name == "mind_meals":
             return await app.pantry.suggest(a.get("meal"), a.get("model"), 3, a.get("request", ""))

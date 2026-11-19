@@ -14,5 +14,7 @@ Settings › Apps › App store › ⋮ › Repositories, add `https://github.co
 
 - `home_mind/` the app (add-on): `rootfs/app/homemind` is the Python service, `rootfs/app/bridge` the
   Home Assistant integration it installs
+- `home_mind_control/` the app that runs the small house-control model (llama.cpp)
+- `home_mind_voice/` the app that gives Jeeves a Voicebox voice with emotions, Piper as the fallback
 - `packs/` knowledge packs and the update manifest
 - `tests/` tests that run without Home Assistant

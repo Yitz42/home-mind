@@ -174,6 +174,14 @@ class Morning:
         last_w = self.store.db.execute("SELECT meta FROM items WHERE shelf='body/weight' AND status='active' "
                                        "ORDER BY created DESC LIMIT 1").fetchone()
         target = nutrition.protein_target(json.loads(last_w["meta"] or "{}").get("weight")) if last_w else None
+        fit = getattr(self, "fitness", None)
+        if fit:
+            try:
+                target = fit.protein_goal() or target       # a set protein goal wins over the weight-based one
+                if fit.goals().get("weight_target"):
+                    lines += [ln for ln in fit.status_lines() if ln.startswith("Weight:")]
+            except Exception:  # noqa: BLE001
+                pass
         if target:
             lines.append(f"Protein today: aim for about {target} g (1.6 g per kg, the level where muscle gains top out)")
         pantry = getattr(self, "pantry", None)
@@ -212,8 +220,22 @@ class Morning:
             lines.append(self._checkin_line(self._checkin))
         return "\n".join(lines)
 
+    async def _framed(self, text):
+        """The persona's opening and closing lines around the brief (the facts in between stay as they are)."""
+        pe = getattr(self, "persona", None)
+        if pe is None:
+            return text
+        try:
+            tired = bool(await self.tired()) if getattr(self, "tired", None) else False
+            ppl = self.people() if getattr(self, "people", None) else []
+            who = (ppl[0].get("name") or "").title() or None if len(ppl) == 1 else None   # one person: by name
+            return pe.frame(text, "morning", who, tired=tired)
+        except Exception:  # noqa: BLE001 - a brief is never lost to styling
+            return text
+
     async def send(self, text=None):
         text = text or self.build(commit=True)
+        text = await self._framed(text)
         title = "Home Mind this morning"
         await self.ha.notify(title, text + "\n\nReview or forget anything in Home Mind › Memory › Recently added.",
                              "home_mind_morning")

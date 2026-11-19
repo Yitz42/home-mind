@@ -592,8 +592,8 @@ def nothing_close(store, question, hits):
     return not hits or weak_match(store, question, hits)
 
 
-DONT_KNOW = re.compile(r"(don'?t know|do not know|not sure|no (?:record|note|information)|nothing in memory|"
-                       r"can'?t find|cannot find|doesn'?t say|does not say)", re.I)
+DONT_KNOW = re.compile(r"\b(don'?t know|do not know|not sure|no (?:record|note|information)|nothing in memory|"
+                       r"can'?t find|cannot find|doesn'?t say|does not say)\b", re.I)
 
 
 def sources_for(answer, hits, question):
@@ -781,6 +781,16 @@ class Mind:
                 live = (live + "\n\n" if live else "") + hist
             if live:
                 ctx = live + "\n\nMEMORY NOTES:\n" + (ctx or "(none)")
+        fit = getattr(self, "fitness", None)
+        if fit and store is self.store:
+            from .fitness import FIT_Q
+            if FIT_Q.search(question or ""):
+                try:
+                    fl = fit.context_lines(question)
+                except Exception:  # noqa: BLE001
+                    fl = ""
+                if fl:
+                    ctx = fl + "\n\n" + (ctx or "")
         cal = getattr(self, "calendars", None)
         if cal and store is self.store:
             days = cal.lines_for(question)
@@ -864,6 +874,285 @@ class Mind:
     VOICE_SECONDS = 8.0
     DOWN_SECONDS = 300          # a model that just failed is skipped for this long
 
+    REWRITE_SYSTEM = (
+        "If the message reports last night's sleep or exercise the person did, rewrite it as ONE line in exactly one "
+        "of these forms, in English, keeping the person's own numbers and units:\n"
+        "slept from <time> to <time>   (e.g. slept from 11:30 pm to 6:45 am)\n"
+        "slept <N> hours\n"
+        "<exercise> <sets>x<reps> at <weight> lb|kg   (leave out 'at ...' with no weight; several joined by ', ')\n"
+        "<activity> <N> miles|km in <M> min   (or just '<activity> <M> min', or '<activity> <N> miles')\n"
+        "Otherwise answer NONE: for a question, a plan or wish, a habit, another night or day, or anything else. "
+        "Answer with the line only.")
+    LOG_FIX_SECONDS = 600
+    # sleep said without the usual words: worth a model's reading (with phrasebook examples) when the parsers miss it
+    SLEEPISH = re.compile(r"\b(?:alarm|woke|wake|waking|zonk\w*|conk\w*|out cold|zz+|snooz\w*|doz\w*|drift\w* off|"
+                          r"sawed logs|shut-?eye|insomnia|tossed and turned|hit the (?:hay|sack)|night'?s rest)\b", re.I)
+    UNDO_LOG = re.compile(r"^\s*(?:no[,.!]?\s*)?(?:that'?s wrong|that is wrong|wrong|undo(?: that)?|delete that|remove that|"
+                          r"scratch that|don'?t log (?:that|it)|that wasn'?t\b.*|it wasn'?t\b.*|not (?:a )?(?:sleep|workout|log)\b.*|"
+                          r"i didn'?t (?:sleep|work out|do (?:that|it))\b.*|that'?s not (?:right|what i (?:meant|said))|"
+                          r"that'?s not a (?:sleep|workout|log)\b.*)[\s.!]*$", re.I)
+    NOT_A_LOG = re.compile(r"wasn'?t|didn'?t|don'?t log|not (?:a )?(?:sleep|workout|log)", re.I)
+    FIX_LOG = re.compile(r"^\s*(?:no|nope|actually|wrong|correction|not quite)\b[,.!:\s-]*(?:it was|i meant|make it|it'?s|"
+                         r"that was|should be)?\s*(\S.*)$", re.I)
+
+    def _log_key(self, conversation_id):
+        from .speakers import VIEWER
+        return conversation_id or VIEWER.get() or "_"
+
+    def _remember_log(self, conversation_id, said, kind, r, plain, entry=None):
+        logs = self.__dict__.setdefault("_logs", {})
+        logs[self._log_key(conversation_id)] = {"t": time.time(), "said": said, "kind": kind, "id": r.get("id"),
+                                                "plain": plain, "entry": entry}
+        if len(logs) > 200:
+            logs.pop(next(iter(logs)))
+
+    async def _fix_log(self, said, conversation_id=None):
+        """Right after a log: "that's wrong" removes it, "no, 6 hours" fixes it. Either way the phrasebook learns
+        how that wording should be read next time."""
+        logs = self.__dict__.get("_logs") or {}
+        key = self._log_key(conversation_id)
+        rec = logs.get(key)
+        if not rec or time.time() - rec["t"] > self.LOG_FIX_SECONDS or rec.get("done"):
+            return None
+        pb = getattr(self, "phrasebook", None)
+        t = said.strip()
+        if self.UNDO_LOG.match(t):
+            if rec["id"]:
+                self.store.set_status(rec["id"], "archived")
+            not_log = bool(self.NOT_A_LOG.search(t))
+            if pb is not None:
+                if not_log:
+                    pb.add(rec["said"], "NONE", "correction", numbers_said=False)
+                elif rec.get("entry"):
+                    pb.set_status(rec["entry"], "rejected")
+            rec.update(removed=True, t=time.time(), done=not_log)     # "that wasn't sleep": nothing more to wait for
+            what = "sleep" if rec["kind"] == "sleep" else "workout"
+            return {"answer": f"Removed that {what} log." + (" I won't read that wording as a log again." if not_log else
+                    f" Tell me the right {'times or hours' if what == 'sleep' else 'numbers'} and I'll log it and "
+                    "remember how to read it."), "hits": [], "model": None, "unlogged": rec["id"]}
+        m = self.FIX_LOG.match(t) if not rec.get("removed") else None
+        rest = m.group(1).strip().rstrip(".!") if m else (t if rec.get("removed") else None)
+        if not rest:
+            return None
+        from .phrasebook import meaning
+        if rec["kind"] == "sleep":
+            tries = [rest, f"slept {rest}", f"slept {rest} hours"] if not rest.lower().startswith("slept") else [rest]
+            plain = next((x for x in tries if (meaning(x) or ("",))[0] == "sleep"), None)
+        else:
+            plain = rest if (meaning(rest) or ("",))[0] == "workout" else None
+        if not plain:
+            return None
+        if rec["id"] and not rec.get("removed"):
+            self.store.set_status(rec["id"], "archived")
+        from .speakers import VIEWER
+        who = VIEWER.get()
+        if rec["kind"] == "sleep":
+            from .sleeplog import log_sleep
+            r = log_sleep(self.store, rec["said"], meta={"said_by": who} if who else None, read_as=plain)
+        else:
+            fit = getattr(self, "fitness", None)
+            meta = {"said_by": who, "scope": "personal", "owner": who} if who else {}
+            r = fit.log(rec["said"], source="correction", meta=meta, read_as=plain) if fit else None
+        if not r:
+            return None
+        if pb is not None:
+            try:
+                pb.add(rec["said"], plain, "correction", numbers_said=False)
+            except ValueError:
+                pass
+        rec.update(done=True)
+        r["answer"] = r["answer"].replace("Logged:", "Fixed:", 1).rstrip(".") + \
+            ". I'll read it that way next time."
+        if rec["kind"] == "sleep":
+            pat = getattr(self, "patterns", None)
+            if pat is not None:
+                try:
+                    await asyncio.wait_for(pat.refresh(2), 10)
+                except Exception:  # noqa: BLE001
+                    pass
+        return {"answer": r["answer"], "hits": [], "model": None, rec["kind"]: r, "fixed": rec["id"]}
+
+    async def _log_said(self, said, model=None, voice=False, deadline=None, conversation_id=None):
+        """Sleep or a workout said in words is logged, not answered:
+        1. the phrasebook: a message shaped like an entry is read with no model (and a known "not a log" stops here)
+        2. the parsers (any word order)
+        3. a model, with the closest phrasebook entries as examples, when the message clearly mentions sleep or
+           training, is close to an entry, or is in another language. Its line may only use numbers that were said;
+           a reading that's used is kept in the phrasebook."""
+        from .sleeplog import log_sleep, SLEEP_CUE
+        from .speakers import VIEWER
+        from .fitness import describe
+        fit = getattr(self, "fitness", None)
+        pb = getattr(self, "phrasebook", None)
+        who = VIEWER.get()
+
+        async def done(kind, r, plain, entry=None):
+            rec = (self.__dict__.get("_logs") or {}).get(self._log_key(conversation_id))
+            if pb is not None and rec and rec.get("removed") and not rec.get("done") and rec["kind"] == kind and \
+                    time.time() - rec["t"] <= self.LOG_FIX_SECONDS:
+                try:        # "that's wrong", then the right one said again: that's how the first wording reads
+                    pb.add(rec["said"], plain, "correction", numbers_said=False)
+                except ValueError:
+                    pass
+            self._remember_log(conversation_id, said, kind, r, plain, entry)
+            if kind == "sleep":
+                pat = getattr(self, "patterns", None)
+                if pat is not None:
+                    try:
+                        await asyncio.wait_for(pat.refresh(2), 10)
+                    except Exception:  # noqa: BLE001
+                        pass
+                return {"answer": r["answer"], "hits": [], "model": None, "sleep": r}
+            return {"answer": r["answer"], "hits": [], "model": None, "workout": r}
+
+        def sleep(read_as=None):
+            return log_sleep(self.store, said, meta={"said_by": who} if who else None, read_as=read_as)
+
+        def workout(read_as=None):
+            from .fitness import is_workout_log, parse_workout
+            if fit is None or not (parse_workout(read_as) if read_as else is_workout_log(said)):
+                return None
+            meta = {"said_by": who, "scope": "personal", "owner": who} if who else {}
+            try:
+                return fit.log(said, source="voice" if voice else "ask", meta=meta, read_as=read_as)
+            except ValueError:
+                return None
+
+        def wplain(r):
+            return ", ".join(describe(e) for e in r["entries"]).replace("×", "x")
+
+        if pb is not None:
+            hit = pb.match(said)
+            if hit:
+                e, plain = hit
+                if plain == "NONE":
+                    return None
+                is_sleep = plain.lower().startswith("slept")
+                r = sleep(plain) if is_sleep else workout(plain)
+                if r:
+                    pb.used(e["id"])
+                    return await done("sleep" if is_sleep else "workout", r, plain, e["id"])
+        r = sleep()
+        if r:
+            return await done("sleep", r, r["plain"])
+        r = workout()
+        if r:
+            return await done("workout", r, wplain(r))
+        # the parsers couldn't read it: worth a model's reading only when it's clearly about sleep or training
+        from .fitness import workout_cue, PLANS
+        from .langs import guess
+        t = said.strip()
+        if not model or model == "auto":     # nothing named (the Ask box): the router's first choice, local first
+            order, _ = self.routed("where is it", None)
+            model = (order or [None])[0]
+        if not model or t.endswith("?") or re.match(r"^(?:what|where|when|who|which|why|how|remind|can|could|should)\b",
+                                                     t, re.I) or len(t) > 300:
+            return None
+        other_lang = guess(t) != "en" and re.search(r"\d", t)
+        is_sleep = bool(SLEEP_CUE.search(t) or self.SLEEPISH.search(t)) and not PLANS.search(t)
+        near = pb is not None and pb.close(t) >= 0.34
+        if not (is_sleep or (workout_cue(t) and not PLANS.search(t)) or other_lang or near):
+            return None
+        cm = getattr(self, "CONTROL_MODEL", None)
+        up = getattr(getattr(self, "models", None), "up", None)
+        if cm and cm in getattr(getattr(self, "models", None), "models", {}) and (up is None or up(cm) is not False):
+            # the small local model, once trained on the phrasebook (log_sleep / log_workout): no big model needed
+            from . import localctl
+            from .phrasebook import new_numbers
+            try:
+                rc = await asyncio.wait_for(self.models.get(cm).call_tool([{"role": "user", "content": t}],
+                                                                          localctl.TOOLS, system=localctl.SYSTEM), 3)
+                tool, args = localctl.parse_call(rc)
+            except Exception:  # noqa: BLE001
+                tool, args = None, {}
+            line = str((args or {}).get("line") or "").strip()
+            if tool in localctl.LOG_TOOLS and line and not new_numbers(t, line):
+                r = sleep(line) if tool == "log_sleep" else workout(line)
+                if r:
+                    entry = None
+                    if pb is not None:
+                        try:
+                            entry = pb.add(said, line, "learned")["id"]
+                        except ValueError:
+                            pass
+                    r["read_by"] = cm
+                    r["answer"] = r["answer"].rstrip(".") + f" (read as: {line})."
+                    return await done("sleep" if tool == "log_sleep" else "workout", r, line, entry)
+        chain = self._chain(model)
+        if not chain:
+            return None
+        limit = min(deadline or 8, 5 if voice else 8)
+        try:
+            if pb is not None:
+                line = await pb.read(self.models.get(chain[0]), t, timeout=limit)
+            else:
+                rr = await asyncio.wait_for(self.models.get(chain[0]).chat(
+                    self.REWRITE_SYSTEM, [{"role": "user", "content": t}], max_tokens=60, temperature=0), limit)
+                line = (rr.get("text") or "").strip().strip('"').splitlines()
+                line = line[0].strip() if line else ""
+        except Exception:  # noqa: BLE001 - a slow or missing model: answer it the usual way
+            return None
+        if not line or line.upper().startswith("NONE"):
+            return None
+        from .phrasebook import new_numbers
+        extra = new_numbers(t, line)
+        if extra and not (guess(t) != "en" and extra <= {"12", "1", "60", "30", "90", "0"}):
+            log.info("rewrite of %r added numbers %s: not logged", t[:80], sorted(extra))
+            return None
+        is_sleep = line.lower().startswith("slept")
+        r = sleep(line) if is_sleep else workout(line)
+        if not r:
+            return None
+        entry = None
+        if pb is not None:
+            try:
+                entry = pb.add(said, line, "learned")["id"]
+            except ValueError:
+                pass
+        r["read_by"] = chain[0]
+        r["answer"] = r["answer"].rstrip(".") + f" (read as: {line})."
+        return await done("sleep" if is_sleep else "workout", r, line, entry)
+
+    ROUTER = True               # option router: with no model named, pick by difficulty and privacy
+    ROUTE_LOCAL, ROUTE_CLOUD = [], []
+
+    def route_lists(self):
+        """(local, cloud) model names: the options router_local/router_cloud, else the fallback list split by where
+        each model runs (a computer on your network = local)."""
+        names = set(getattr(getattr(self, "models", None), "models", None) or {})
+        if not names:
+            return [], []
+        local = [m for m in self.ROUTE_LOCAL if m in names]
+        cloud = [m for m in self.ROUTE_CLOUD if m in names]
+        if not local and not cloud:
+            for m in self.FALLBACK:
+                if m not in names or m == "mock":
+                    continue
+                ep = self.models.get(m).endpoint() if hasattr(self.models.get(m), "endpoint") else None
+                (local if ep and not ep[0].endswith((".com", ".ai", ".io", ".net", ".org")) else cloud).append(m)
+        return local, cloud
+
+    def routed(self, question, hits=None, voice=False):
+        """The router's model order for a question (None when routing is off or there's nothing to route to)."""
+        if not self.ROUTER:
+            return None, None
+        local, cloud = self.route_lists()
+        if not local and not cloud:
+            return None, None
+        from .router import route
+        order, info = route(question, hits, local, cloud, voice)
+        return self._order(order), info
+
+    def _order(self, chain):
+        """Models that failed in the last few minutes, or whose computer is away, go last."""
+        chain = list(dict.fromkeys(chain))
+        down = getattr(self, "_down", {})
+        now = time.time()
+        up = getattr(self.models, "up", None)
+        asleep = {m for m in chain if up and up(m) is False}
+        ok = [m for m in chain if now - down.get(m, 0) > self.DOWN_SECONDS and m not in asleep]
+        return ok + [m for m in chain if m not in ok]
+
     def _chain(self, model):
         """The requested model, then the fallbacks that exist; models that failed in the last few minutes go last."""
         names = list(self.models.models)
@@ -871,8 +1160,10 @@ class Mind:
         chain = list(dict.fromkeys(chain))
         down = getattr(self, "_down", {})
         now = time.time()
-        return [m for m in chain if now - down.get(m, 0) > self.DOWN_SECONDS] + \
-            [m for m in chain if now - down.get(m, 0) <= self.DOWN_SECONDS]
+        up = getattr(self.models, "up", None)
+        asleep = {m for m in chain if up and up(m) is False}     # its computer isn't answering (asleep, off)
+        ok = [m for m in chain if now - down.get(m, 0) > self.DOWN_SECONDS and m not in asleep]
+        return ok + [m for m in chain if m not in ok]
 
     FOLLOW_SECONDS = 600       # a question can follow up on the one before it for this long
     ORDER = "default"          # option answer_order: "edges" repeats the best note just before the question
@@ -994,6 +1285,10 @@ class Mind:
         last = convs.get(conversation_id) if conversation_id else None
         said = question.replace("’", "'")
         fresh = bool(last) and time.time() - last["t"] <= self.FOLLOW_SECONDS
+        if store is self.store:
+            fixed = await self._fix_log(said, conversation_id)    # "no, 6 hours" right after a sleep or workout log
+            if fixed:
+                return fixed
         right = self.RIGHT_IS.match(said.strip()) if fresh and last.get("src") and \
             not said.rstrip().endswith("?") and not self.LET_GO.match(said) else None
         if right and re.match(r"(?:not|wrong|incorrect|out of date|outdated|old)\b", right.group(1), re.I):
@@ -1064,6 +1359,15 @@ class Mind:
                 if VIEWER.get() == "":
                     said = mask_all(said)       # a list read to someone the house doesn't know: no codes (#78)
                 return {"answer": said, "hits": [], "model": None, "view": name}
+        if store is self.store:
+            logged = await self._log_said(said, model, voice, deadline, conversation_id)
+            if logged:
+                return logged
+            df = getattr(self, "datafacts", None)
+            if df is not None:
+                d = df.answer(said)        # "average sleep this week?": computed, not guessed by a model
+                if d:
+                    return {"answer": d["answer"], "hits": [], "model": None, "data": d}
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS
@@ -1078,10 +1382,19 @@ class Mind:
             hits = [dict(h, body=privacy.mask_all(h.get("body") or ""), title=privacy.mask_all(h.get("title") or ""))
                     for h in hits]
         weak = bool(use_brain and (ctx or "").find(LOW_MATCH) >= 0)
+        route_info = None
+        if model in (None, "auto"):
+            chain, route_info = self.routed(question, hits, voice)
+            if chain:
+                model = chain[0]
+            elif model == "auto":
+                chain = self._chain(None)
+                model = chain[0] if chain else None
         if model is None:
             return {"answer": best_note(hits, voice) if hits else None, "hits": hits, "model": None, "weak": weak,
                     "sources": sources_for(hits[0]["body"], hits[:1], question) if hits else []}
-        chain = self._chain(model) if fallback else [model]
+        if route_info is None:
+            chain = self._chain(model) if fallback else [model]
         if not chain:
             chain = [model]
         sysmsg = system or (ANSWER_SYSTEM if use_brain else ALONE_SYSTEM)
@@ -1094,6 +1407,7 @@ class Mind:
             sysmsg += VOICE_SYSTEM
         content = answer_content(store, question, ctx, self.ORDER) if use_brain else question
         errors, r, used = [], None, None
+        escalated, kept = False, None
         self._down = getattr(self, "_down", {})
         plain = content
         base_sys = sysmsg
@@ -1108,14 +1422,31 @@ class Mind:
                 break
             if left is not None and i < len(chain) - 1:
                 left *= 0.6         # leave the fallbacks time to answer
+            up = getattr(self.models, "up", None)
+            if up and up(m) is False and i < len(chain) - 1:
+                errors.append(f"{m}: its computer isn't answering")      # skipped at once; a fallback answers
+                continue
             try:
                 coro = self.models.get(m).chat(sysmsg, [{"role": "user", "content": content}])
                 r = await (asyncio.wait_for(coro, left) if left is not None else coro)
                 used = m
+                if route_info is not None and not escalated and i < len(chain) - 1 and \
+                        m in self.route_lists()[0] and DONT_KNOW.search(r.get("text") or "") and hits and not weak:
+                    # the local model didn't know although good notes were found: the next model gets one try
+                    escalated = True
+                    route_info["escalated"] = f"{m} didn't know"
+                    errors.append(f"{m}: said it didn't know; asked {chain[i + 1]}")
+                    kept = (r, m)
+                    r = None
+                    continue
                 break
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                 errors.append(f"{m}: {type(e).__name__} {e}"[:200])
                 self._down[m] = time.time()
+                if re.search(r"Cannot connect|ClientConnector|timed out", str(e)) and hasattr(self.models, "mark"):
+                    self.models.mark(m, False)
+        if r is None and kept is not None:
+            r, used = kept                   # the next model failed too: the local answer stands
         if r is None:
             best = hits[0] if hits else None
             said = best_note(hits, voice)
@@ -1153,6 +1484,8 @@ class Mind:
             out["understood_as"] = question
         if used != model:
             out.update(asked_model=model, errors=errors, fallback=used)
+        if route_info is not None:
+            out["route"] = route_info            # why this model: simple/complex, private, escalated
         return out
 
     async def organize(self, text, model, store=None, source="organize"):

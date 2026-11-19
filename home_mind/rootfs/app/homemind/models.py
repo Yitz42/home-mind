@@ -7,11 +7,14 @@ Every model is used the same way: chat(system, messages) -> {"text", "ms", "toke
 import asyncio
 import os
 import re
+import logging
 import time
 
 import aiohttp
 
 from .ha import SUPERVISOR  # noqa: E402  (overridable for local testing)
+
+log = logging.getLogger("homemind.models")
 USAGE = None        # set by the app: f(model, ok, tokens_in, tokens_out, ms) records each call (see usage.py)
 
 
@@ -33,7 +36,21 @@ class Model:
         self.name = cfg["name"]
         self.type = cfg.get("type", "openai")
         self.session = session
-        self.timeout = aiohttp.ClientTimeout(total=float(cfg.get("timeout") or 120))
+        # a computer that's asleep or off fails in seconds (connect), not after the whole answer's time (total)
+        self.timeout = aiohttp.ClientTimeout(total=float(cfg.get("timeout") or 120),
+                                             sock_connect=float(cfg.get("connect_timeout") or 4))
+
+    def endpoint(self):
+        """(host, port) of the computer this model runs on, for the up/asleep check; None for services in
+        Home Assistant and for cloud APIs without a url."""
+        from urllib.parse import urlsplit
+        url = self.cfg.get("url") or ("http://localhost:11434" if self.type == "ollama" else "")
+        if not url or self.type not in ("ollama", "openai"):
+            return None
+        u = urlsplit(url if "//" in url else "http://" + url)
+        if not u.hostname:
+            return None
+        return u.hostname, u.port or (443 if u.scheme == "https" else 80)
 
     def describe(self):
         d = {k: v for k, v in self.cfg.items() if k != "api_key"}
@@ -199,9 +216,14 @@ class Model:
     async def _chat_ollama(self, system, messages, max_tokens, temperature):
         url = (self.cfg.get("url") or "http://localhost:11434").rstrip("/")
         msgs = ([{"role": "system", "content": system}] if system else []) + messages
-        j = await self._post(url + "/api/chat", {"model": self.cfg.get("model", ""), "messages": msgs, "stream": False,
-                                                 "think": False,
-                                                 "options": {"num_predict": max_tokens, "temperature": temperature}})
+        opts = {"num_predict": max_tokens, "temperature": temperature}
+        for k in ("num_gpu", "num_ctx", "num_thread"):      # num_gpu 0: on that computer's CPU, leaving its GPU free
+            if self.cfg.get(k) is not None:
+                opts[k] = int(self.cfg[k])
+        body = {"model": self.cfg.get("model", ""), "messages": msgs, "stream": False, "think": False, "options": opts}
+        if self.cfg.get("keep_alive"):
+            body["keep_alive"] = self.cfg["keep_alive"]          # how long it stays loaded ("5m", "0", "-1")
+        j = await self._post(url + "/api/chat", body)
         text = (j.get("message") or {}).get("content", "")
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
         return text, (j.get("prompt_eval_count") or 0, j.get("eval_count") or 0)
@@ -269,20 +291,98 @@ class Model:
 
 
 class Models:
+    WATCH_SECONDS = 30          # how often the computers models run on are checked (a quick connect, no model call)
+
     def __init__(self, configs):
         self.session = None
         self.configs = configs or []
         self.models = {}
+        self.hosts = {}         # "host:port" -> {"up", "since", "checked", "ms"}
+        self._watch = None
 
-    async def start(self):
+    async def start(self, watch=True):
         self.session = aiohttp.ClientSession()
         self.models = {c["name"]: Model(c, self.session) for c in self.configs if c.get("name")}
         if "mock" not in self.models:
             self.models["mock"] = Model({"name": "mock", "type": "mock"}, self.session)
+        if watch and any(m.endpoint() for m in self.models.values()):
+            await self.probe_all()
+            self._watch = asyncio.create_task(self._watch_loop())
 
     async def stop(self):
+        if self._watch:
+            self._watch.cancel()
         if self.session:
             await self.session.close()
+
+    async def probe(self, host, port, timeout=2.0):
+        """Is the computer there? A TCP connect only: cheap, and it doesn't load a model."""
+        key = f"{host}:{port}"
+        t0 = time.monotonic()
+        try:
+            _, w = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
+            w.close()
+            up = True
+        except Exception:  # noqa: BLE001 - asleep, off, restarting, wrong address
+            up = False
+        now = time.time()
+        old = self.hosts.get(key)
+        if old is None or old["up"] != up:
+            if old is not None:
+                log.info("model computer %s is %s", key, "back" if up else "unreachable (asleep, off or restarting)")
+            self.hosts[key] = {"up": up, "since": now}
+        self.hosts[key].update(checked=now, ms=int((time.monotonic() - t0) * 1000) if up else None)
+        return up
+
+    async def probe_all(self):
+        eps = {m.endpoint() for m in self.models.values()} - {None}
+        await asyncio.gather(*(self.probe(h, p) for h, p in eps))
+
+    async def _watch_loop(self):
+        while True:
+            await asyncio.sleep(self.WATCH_SECONDS)
+            try:
+                await self.probe_all()
+                if self.on_probe is not None:
+                    await self.on_probe()
+            except Exception as e:  # noqa: BLE001
+                log.warning("model watch: %s", e)
+
+    on_probe = None             # called after each round of checks (the away alert)
+
+    def away_changes(self, sent, hours, now=None):
+        """Which computers to tell about: ('away', key, since) once a computer has been away `hours`, ('back', key,
+        since) when one that was told about answers again. `sent` (key -> since) is kept by the caller."""
+        now = now or time.time()
+        out = []
+        for key, h in list(self.hosts.items()):
+            if not h["up"] and now - h["since"] >= hours * 3600 and sent.get(key) != h["since"]:
+                sent[key] = h["since"]
+                out.append(("away", key, h["since"]))
+            elif h["up"] and key in sent:
+                sent.pop(key)
+                out.append(("back", key, h["since"]))
+        return out
+
+    def on_host(self, key):
+        """The model names on one computer ('host:port')."""
+        return [m.name for m in self.models.values() if m.endpoint() and f"{m.endpoint()[0]}:{m.endpoint()[1]}" == key]
+
+    def up(self, name):
+        """True/False for a model whose computer is checked; None when it isn't (Home Assistant, cloud)."""
+        m = self.models.get(name)
+        ep = m.endpoint() if m else None
+        h = self.hosts.get(f"{ep[0]}:{ep[1]}") if ep else None
+        return None if h is None else h["up"]
+
+    def mark(self, name, up):
+        """A call just failed to connect (or worked): the computer's state now, without waiting for the next check."""
+        m = self.models.get(name)
+        ep = m.endpoint() if m else None
+        if ep:
+            key = f"{ep[0]}:{ep[1]}"
+            if (self.hosts.get(key) or {}).get("up") != up:
+                self.hosts[key] = {"up": up, "since": time.time(), "checked": time.time(), "ms": None}
 
     def get(self, name):
         if name not in self.models:
@@ -290,7 +390,15 @@ class Models:
         return self.models[name]
 
     def list(self):
-        return [m.describe() for m in self.models.values()]
+        out = []
+        for m in self.models.values():
+            d = m.describe()
+            ep = m.endpoint()
+            if ep:
+                h = self.hosts.get(f"{ep[0]}:{ep[1]}") or {}
+                d.update(host=f"{ep[0]}:{ep[1]}", up=h.get("up"), up_since=h.get("since"), checked=h.get("checked"))
+            out.append(d)
+        return out
 
     async def check_all(self):
         return await asyncio.gather(*(m.check() for m in self.models.values()))

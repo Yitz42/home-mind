@@ -1,0 +1,42 @@
+configuration:
+  voicebox_url:
+    name: Voicebox address
+    description: The Voicebox computer on your network, e.g. http://192.168.1.50:17493 (Voicebox › Settings › Server › Allow network access). Empty = Piper only.
+  voice:
+    name: Voicebox voice
+    description: The voice profile's name in Voicebox. For emotions, make it a Qwen VoiceDesign (or CustomVoice) voice; cloned voices ignore delivery instructions.
+  model:
+    name: Model
+    description: tts-1 uses the engine the voice profile is set to. Or name one from Voicebox's /v1/models.
+  language:
+    name: Language
+    description: Shown to Home Assistant for this voice (e.g. en_GB).
+  emotions:
+    name: Emotions
+    description: Speak each answer in its emotion (from Home Mind's marker, or the words themselves) as a Voicebox delivery instruction.
+  timeout_seconds:
+    name: Wait for Voicebox (seconds)
+    description: Longer than this and the fallback voice speaks instead.
+  retry_seconds:
+    name: After Voicebox is unreachable, try again after (seconds)
+    description: Until then the fallback voice answers straight away, with no wait.
+  speed:
+    name: Speed
+    description: 1.0 is normal. Voicebox stretches the audio without changing pitch.
+  fallback_host:
+    name: Fallback voice host
+    description: A Wyoming voice used when Voicebox can't answer. core-piper is the Piper add-on. Empty = no fallback.
+  fallback_port:
+    name: Fallback voice port
+    description: Piper's is 10200.
+  fallback_voice:
+    name: Fallback voice name
+    description: A Piper voice, e.g. en_GB-northern_english_male-medium. Empty = Piper's default.
+  homemind_url:
+    name: Home Mind address
+    description: Optional, e.g. http://homeassistant.local:8099. With it, the exact emotion Home Mind marked is used; without, it's read from the words.
+  homemind_token:
+    name: Home Mind token
+    description: A read token for Home Mind's direct API (Home Mind › People and tokens).
+network:
+  10200/tcp: Wyoming. Leave empty; Home Assistant reaches the add-on on the internal network.

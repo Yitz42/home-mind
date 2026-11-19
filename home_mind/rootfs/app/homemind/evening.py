@@ -64,12 +64,32 @@ class Evening:
         if sug:
             lines.append(f"Suggested automations {len(sug)}: " + "; ".join(s["config"]["alias"] for s in sug[:2])
                          + ". Create or dismiss them in Home Mind › House.")
+        fit = getattr(self, "fitness", None)
+        if fit and any(v not in (None, "") for v in fit.goals().values()):
+            try:                                   # only once fitness goals are set (0.28)
+                lines += fit.evening_lines()
+            except Exception:  # noqa: BLE001
+                pass
         return "\n".join(lines)
+
+    async def _framed(self, text):
+        """The persona's opening and closing lines around the brief (the facts in between stay as they are)."""
+        pe = getattr(self, "persona", None)
+        if pe is None:
+            return text
+        try:
+            tired = bool(await self.tired()) if getattr(self, "tired", None) else False
+            ppl = self.people() if getattr(self, "people", None) else []
+            who = (ppl[0].get("name") or "").title() or None if len(ppl) == 1 else None   # one person: by name
+            return pe.frame(text, "evening", who, tired=tired)
+        except Exception:  # noqa: BLE001 - a brief is never lost to styling
+            return text
 
     async def send(self, text=None):
         text = text if text is not None else self.build()
         if not text:
             return {"sent_to": None, "text": "", "skipped": "nothing to say today"}
+        text = await self._framed(text)
         title = "Home Mind this evening"
         await self.ha.notify(title, text, "home_mind_evening")
         target = self.notify or (await self.phone() if self.phone else None)

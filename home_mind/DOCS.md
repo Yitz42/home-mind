@@ -415,6 +415,116 @@ If Home Assistant runs on modest hardware, a 270M-parameter model trained on you
 
 House requests (`/api/do`, voice) go to it first. It only proposes one call from a fixed set (turn on/off, toggle, brightness, color, fan speed, humidity, open/close, lock/unlock, run a script or scene). Home Mind then matches the device name against your control list. If several devices match, it asks which one. The usual checks still apply: only allowed devices, and locks and garage doors need your yes. Questions and requests with several actions are marked `not_a_command` and go to your normal model, as does anything it can't place. Retrain after adding or renaming devices.
 
+## Commands said in a room (0.28)
+When a voice request says where it came from (the voice device's `device_id`, or `area`, sent to `/api/do`), Home Mind uses Home Assistant's areas: "lights off" said in the bedroom turns off the bedroom's lights, and "turn off the light" in the den turns off the den's only light, with no "which one?". If the words name a room ("kitchen lights off") or the whole house ("all the lights"), that wins. If the room has nothing that fits, the request works across the house as before. Rooms are read from Home Assistant every 30 minutes.
+
+## The database's safety net (0.28)
+Home Mind takes a snapshot of its database once a day (option `db_snapshots`, the last 7 kept, in its data folder under `snapshots/`). At startup it checks the database. If it's damaged (a power cut mid-write, a failing disk), the damaged file is moved aside and kept, and the newest good snapshot is put in its place. You get a notification and an Overview note saying from when, and that anything saved after that is missing. With no good snapshot it starts empty and keeps the damaged file. Home Assistant's own backups still cover everything.
+
+## Choosing the model: the router (0.28)
+When a question doesn't name a model (the Ask box, Telegram, a voice agent that leaves it to Home Mind), the router picks the order:
+
+- **Simple lookups** ("where's the drill?") go to a **local** model first, such as the one on the GPU computer: quick, and nothing leaves the house.
+- **Harder questions** (why, compare, plan, summarise, explain; long or several parts) go to the **cloud** model first.
+- **Private questions** (health, body, food, money, passwords; or a personal or health note among the matches) go local first, whatever their difficulty.
+- A computer that's away goes to the back, so while the GPU laptop sleeps everything goes to the cloud model without waiting.
+- If a local model says it doesn't know although good notes were found, the next model gets one try. If that fails too, the local answer stands.
+
+Local and cloud come from `router_local` / `router_cloud`, or by default the `fallback` list split by where each model runs. The answer carries `route` (simple or complex, private, and whether it was escalated). A named model is never rerouted. With `router` off, a question with no model named gets the best matching note, as before 0.28.
+
+## Data answers (0.28)
+Questions about your own numbers are answered from the numbers, not by a model reading notes and doing the arithmetic. Each question is matched to a measure and a period, the value is computed from what Home Mind saved, and the sentence is written from a template:
+
+- **Measures:** sleep, bedtime, readiness, steps (from the watch rows, with sleep you've said taking priority), weight and body fat (weigh-ins), protein and calories (logged meals), workouts, a lift (last and best, by estimated 1-rep max), and distance.
+- **Periods:** last night, today, yesterday, this or last week (Monday to Sunday), this or last month, this year, a month by name ("in October"), and "the past N days/weeks/months". Without one, the last 7 days.
+- **Kinds of answer:** average, total, highest or lowest (with the day), latest, change from first to last, and against your goals where there is one.
+
+For example "what was my average sleep this week?", "how many workouts did I do in October?", "what's my best squat?" or "how much protein yesterday?". If there's no data for the period, it says so. Questions that aren't one measure over one period ("why am I tired?", "how can I sleep better?", "calories in an apple?") go to a model as before. A data answer comes back with `data` (the value, how many days it covers, the period) and `model: null`.
+
+## A GPU computer as a model server (0.28)
+A newer computer with an NVIDIA GPU (for example a laptop left plugged in at home) can run local models for Home Mind through **Ollama**, next to **Voicebox** (see the Home Mind Voice app). Home Mind checks that computer every 30 seconds and skips its models while it's asleep, off or restarting, so answers go straight to the next model instead of waiting. The Models page shows each computer as **up** or **away**, and if one is away longer than `away_alert_hours` (3 by default) you get a notification, and another when it's back.
+
+**On the computer (Windows):**
+1. Install Ollama (ollama.com).
+2. Add the system environment variable `OLLAMA_HOST` = `0.0.0.0`, then restart Ollama so other machines on your network can reach it.
+3. Allow TCP port 11434 in Windows Firewall for your home network only (Private profile).
+4. Give the computer a fixed address. When plugged in it should never sleep, and closing the lid should do nothing (as for Voicebox).
+5. Pull the models, e.g. `ollama pull qwen3:4b` and `ollama pull qwen3:1.7b`.
+
+**Sharing an 8 GB GPU with Voicebox.** Voicebox's VoiceDesign voice takes a good part of the GPU, so keep the answer model small enough to sit beside it, and run the persona model on the CPU (a modern laptop CPU rewords a sentence quickly):
+
+```yaml
+models:
+  - name: precision
+    type: ollama
+    url: http://192.168.1.50:11434
+    model: qwen3:4b
+    keep_alive: 30m
+  - name: jeeves-style
+    type: ollama
+    url: http://192.168.1.50:11434
+    model: qwen3:1.7b
+    num_gpu: 0          # on the CPU, leaving the GPU to Voicebox
+    keep_alive: "-1"    # stay loaded
+  - name: haiku
+    type: ha_ai_task
+    entity_id: ai_task.claude_ai_task
+fallback: [precision, haiku]
+persona_model: jeeves-style
+overnight_model: precision
+```
+
+These sizes are a starting point, not measured on your computer. Use **Models › Check** and the phrasebook's **Test the model** to see real speeds and accuracy. If Voicebox and a model don't both fit, Ollama keeps part of the model in system memory: it still works, just slower.
+
+New model fields: `connect_timeout` (default 4 s: an unreachable computer fails fast) and, for Ollama, `num_gpu` (0 = on the CPU), `keep_alive`, `num_ctx` and `num_thread`. Option `persona_model`: a model that rewords answers in the persona's voice, with the same fact check as the rules. If it's slow (over 1.5 s spoken, 4 s written), away, or changes a fact, the rules style the answer instead. Answers it styled are marked `styled_by: model`.
+
+## Persona: Jeeves (0.28)
+Answers from Home Mind (the Ask box, `/api/ask`, `/api/do`) come in a persona's voice, Jeeves by default: an English butler, composed, precise and quietly dry. Each answer gets an **emotion marker** from what actually happened:
+
+| Emotion | When |
+|---|---|
+| alert | locks, alarms, an unlocked or open door, anything that needs a "yes" |
+| corrected | right after "that's wrong" or "no, 6 hours" |
+| proud | a new best |
+| pleased / concerned | a good night's sleep / a short one |
+| sympathetic | a tired day (low readiness, little sleep, brain fog) |
+| amused | the same question again within 10 minutes |
+| disapproving | something changed or cleaned 30+ days ago |
+| apologetic | Home Mind doesn't know |
+| relieved, warm, neutral | a lock done; evenings; everything else |
+
+The answer comes back with `emotion`, the unstyled `plain` text, `persona`, and, with the `ssml` setting on, `ssml` (pace, pitch and a pause before the remark, for voices that read SSML).
+
+**Facts are never styled.** The persona may add words, never change them: every number, every "not" and every "Say yes" must still be there, and it can't run long, or the plain answer is used. Safety questions are left word for word, and lists, tables and long answers are left as they are.
+
+**Training its own voice:** `tools/train_jeeves_style.ipynb` (Colab) trains a small style model (Qwen3-0.6B) on Home Mind's practice set (System › Persona › *download the practice set*). Gemini writes the persona's version of each made-up answer, and only versions that pass Home Mind's fact check are kept. The model is saved as a GGUF for Ollama on your GPU computer; set it as `persona_model`.
+
+**Hearing it:** the **Home Mind Voice** app (in this repository) speaks answers through Voicebox on another computer with the emotion as a delivery instruction ("speak gently, with quiet concern"), and through Piper when that computer is away. It asks `/api/persona/emotion` for the marker each answer got. See its DOCS.
+
+**Everywhere he speaks:** Ask-box and voice answers, Telegram replies, and the morning and evening briefs. A brief gets his opening and closing lines ("Good morning, Yitz." … "Do take it gently today." on a tired day), and the facts in between are left exactly as they are.
+
+**Per person:** the butler's name and SSML are the house's, but how he addresses each person, the wit and on/off can be set per person (the **For** selector on the card, or `POST /api/persona` with `person`).
+
+Settings are on the System page (name, how it addresses you, wit off/low/normal, on/off, SSML), with a **Try** box and the examples. Your Home Assistant voice agent writes some answers itself: paste the **instructions for your voice agent** from that card into the agent's instructions so it sounds the same.
+
+## Fitness goals (0.28)
+Set goals on the Health tab (or `POST /api/fitness/goals` with any of `weight_target` (lb), `weight_by` (YYYY-MM-DD), `calories`, `protein_g`, `steps`, `workouts_per_week`, `body_fat_target`, `sleep_hours`, `bedtime` (HH:MM); `null` clears one). Progress uses the scale's weigh-ins (a 7-day average and a 28-day trend), the meals you log (protein and calorie estimates) and the watch's steps and sleep.
+
+Log workouts in plain words by voice, chat or `POST /api/fitness/workout`: "squats 3x8 at 185", "deadlift 1x5 @ 275, pull ups 3x10", "ran 3 miles in 28 minutes", "30 min yoga". Kilograms and kilometres are converted. The answer says last time and any new best.
+
+Sleep goals: `sleep_hours` (a night) and `bedtime` (in bed by, e.g. `23:15`). The weekly review counts the nights that met each, the evening brief carries the bedtime goal, and a mostly-missed goal brings a suggestion. **Recent logs** on the Health tab lists the last 30 days of sleep and workouts. **Edit** replaces one (same day; the old one is archived) and **Delete** archives it.
+
+Sleep can be said the same way: "slept from 12 to 7am last night", "went to bed at 11:30 and woke up at 6:45", "slept 6.5 hours". It's filed on `body/sleep` and replaces the watch's number for that night (handy when the watch was off). Other wording works too ("crashed at 12, up at 7", "did 3 sets of 8 squats at 185", "went for a 3 mile run"). If Home Mind can't read a message that clearly mentions sleep or exercise, including one in another language, your model rewrites it into the plain form first. The reply shows what it was read as, and nothing is logged if the rewrite has a number you didn't say.
+
+**On the small local model:** the house-control training file (`/api/control_model/dataset`) now includes the phrasebook, teaching FunctionGemma two more tools, `log_sleep` and `log_workout`. After retraining in `tools/finetune_functiongemma.ipynb`, the control model is asked before a big one when a sleep or workout message isn't read by the built-in rules. Its line is checked the same way.
+
+### The phrasebook
+Odd ways of saying sleep and workouts, each with the plain line Home Mind reads. It starts with a checked set and grows from four places: model readings of your messages, your corrections right after a log ("no, 6 hours", "that wasn't sleep"), cases you add on the Health tab, and new cases the overnight model writes (option `phrasebook_grow`). A written case is kept only if its line can be read, it has no number that wasn't said, and a second blind reading agrees; otherwise it waits for **Right / Wrong** on the Health tab.
+
+A message shaped like an entry (same words, different numbers) is read with no model. Otherwise the most similar entries go into the model's prompt as examples. **Test the model** (`POST /api/phrasebook/eval`, `model?`) reads every entry with the others as examples and reports right, wrong logs (the ones that matter) and missed: a quick way to see whether a small local model is good enough. **Try** (`POST /api/phrasebook/try`) shows what the phrasebook, the built-in reading and (with `model`) a model make of a message. `GET /api/phrasebook/export` gives the pairs, e.g. for fine-tuning.
+
+Sunday's evening brief carries the week in review. Suggested changes (fewer or more calories, a lighter week for a stalled lift, more steps) are listed on the Health tab and only apply when you press **Use** (`POST /api/fitness/accept`). It never suggests fewer than 1,500 kcal a day or losing more than about 1% of body weight a week. This is general guidance, not medical advice.
+
 ## Options
 
 Every option, as on the Configuration tab (each has a longer description there). The ones that need thought before
@@ -465,6 +575,13 @@ you turn them on are listed after the tables.
 | `overnight_time` | `03:00` | Overnight learning time |
 | `overnight_model` | empty | Overnight learning model |
 | `overnight_structure` | off | Overnight, read what the patterns missed |
+| `phrasebook_grow` | on | Each night, write new odd wordings for sleep and workouts; keep those a blind second reading agrees with |
+| `persona_model` | empty | a model that rewords answers in the persona's voice (checked like the rules); empty = rules only |
+| `away_alert_hours` | 3 | a notification when a model computer has been away this long, and when it's back; 0 = never |
+| `db_snapshots` | 7 | daily database snapshots to keep; a damaged database is restored from the newest good one |
+| `router` | on | with no model named, choose by the question: simple and private ones local first, harder ones to the cloud first |
+| `router_local` | empty | models on your computers (empty = the fallback models on your network) |
+| `router_cloud` | empty | models tried first for harder questions (empty = the other fallback models) |
 | `learn_filing` | on | Learn where notes go |
 | `fade_days` | 60 | Fade unused notes after N days |
 | `events_keep_days` | 90 | Keep the detailed activity log for (days) |
@@ -671,6 +788,19 @@ note), 502 (a model failed) or 500.
 | POST | `/api/body/backfill` | write | fill in past body-signal readings |
 | GET | `/api/calendar` | read | calendar events for a day (`day`, `q`) |
 | POST | `/api/calendar/sync` | write | sync calendars now |
+| GET | `/api/fitness` | read | goals, progress, today's protein and calories, recent workouts, bests, stalls, suggestions |
+| GET | `/api/fitness/review` | read | the week in review and suggested changes |
+| GET | `/api/fitness/workouts` | read | `days?`, `exercise?`: logged workouts with bests and stalled lifts |
+| GET | `/api/fitness/logs` | read | `kind` (sleep or workout), `days?`: recent logs to look at and fix |
+| POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review), `edit` (`kind`, `id`, `text`: what it should say), `delete` (`kind`, `id`) |
+| GET | `/api/persona` | read | the persona's settings, its emotions, examples, and instructions for a voice agent |
+| POST | `/api/persona` | write | any of `enabled`, `name`, `address` (name, sir, madam, none), `wit` (off, low, normal), `ssml`; with `person`, only `enabled`, `address` and `wit` for that person (`null` = back to the house's) |
+| GET | `/api/persona/corpus` | read | `n?`, `download?`: a made-up practice set (plain answers per emotion), the persona's instructions and examples, for training a style model |
+| GET | `/api/persona/emotion` | read | `text`: the emotion of something about to be spoken (the marker its answer got, else read from the words), for the Home Mind Voice app |
+| POST | `/api/persona/try` | write | `text`, `emotion`: the persona's version of a plain answer, and its SSML |
+| GET | `/api/phrasebook` | read | `status?`, `source?`, `limit?`: entries and counts |
+| GET | `/api/phrasebook/export` | read | every active pair, for training |
+| POST | `/api/phrasebook/{op}` | write | `add` (`said`, `plain`), `approve`/`reject`/`remove` (`id`), `try` (`text`, `model?`), `grow` (`model?`, `n?`), `eval` (`model?`, `limit?`) |
 | GET | `/api/pantry` | read | pantry items and goals |
 | POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`), `used`, `tossed`, `remove`, `suggest`, `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
 | GET | `/api/patterns` | read | brain-fog report, findings, experiment and daily rows (`days`) |
@@ -733,6 +863,8 @@ note), 502 (a model failed) or 500.
 | `mind_comfort` | write | comfort status and votes |
 | `mind_pantry` | write | the pantry |
 | `mind_meals` | read | meal ideas from the pantry |
+| `mind_phrasebook` | read | the phrasebook of odd wordings (`add`, `approve`, `reject`, `remove` need write) |
+| `mind_fitness` | read | fitness goals, progress, workouts, weekly review (`log` and setting `goals` need write) |
 | `mind_models` | read | connected models (`check` pings them) |
 | `mind_status` | read | counts, version, packs, models |
 | `mind_updates` | read; apply: admin | check for updates, install packs |

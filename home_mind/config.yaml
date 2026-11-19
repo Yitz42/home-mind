@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.27.0"
+version: "0.28.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -127,6 +127,13 @@ options:
   checkin_old_facts: true
   checkin_after_days: 180
   overnight_structure: false
+  phrasebook_grow: true
+  persona_model: ""
+  away_alert_hours: 3
+  router: true
+  router_local: []
+  router_cloud: []
+  db_snapshots: 7
 schema:
   models:
     - name: str
@@ -136,6 +143,11 @@ schema:
       api_key: password?
       entity_id: str?
       timeout: int(5,900)?
+      connect_timeout: int(1,60)?
+      keep_alive: str?
+      num_gpu: int(0,999)?
+      num_ctx: int(512,131072)?
+      num_thread: int(1,128)?
       price_in: float?
       price_out: float?
   update_url: str
@@ -242,3 +254,12 @@ schema:
   checkin_old_facts: bool
   checkin_after_days: int(30,3650)
   overnight_structure: bool
+  phrasebook_grow: bool?
+  persona_model: str?
+  away_alert_hours: float(0,168)?
+  router: bool?
+  router_local:
+    - str
+  router_cloud:
+    - str
+  db_snapshots: int(1,60)?

@@ -23,6 +23,9 @@ from .morning import Morning
 from .evening import Evening
 from .overnight import ConvLog, Overnight
 from .pantry import Pantry
+from .fitness import Fitness
+from .phrasebook import Phrasebook
+from .persona import Persona
 from . import nutrition
 from .patterns import FACTOR, Patterns
 from .knowledge import Knowledge
@@ -93,7 +96,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "answer_edges": False, "answer_notes_first": False,
             "events_keep_days": 90, "quiet_hours": True, "quiet_start": "22:00", "quiet_end": "07:00",
             "notify_daily_cap": 0, "checkin_old_facts": True, "checkin_after_days": 180,
-            "overnight_structure": False,
+            "overnight_structure": False, "phrasebook_grow": True, "persona_model": "", "away_alert_hours": 3, "router": True, "router_local": [], "router_cloud": [], "db_snapshots": 7,
             "calendar_quiet": ["calendar.hebcal_baltimore", "calendar.hebcal_baltimore_2", "calendar.hebcal_baltimore_3",
                                "calendar.jewish_holidays"]}
 
@@ -132,6 +135,8 @@ class App:
                             format="%(asctime)s %(levelname)s %(name)s: %(message)s")
         self.token = load_token()
         self.models = Models(self.opts.get("models"))
+        from . import dbguard
+        self.db_report = dbguard.guard(os.path.join(DATA, "mind.db"))   # a damaged database: the newest good snapshot
         self.mind = Mind(DATA, self.models)
         self.usage = Usage(self.mind.store, {m["name"]: (float(m["price_in"]), float(m["price_out"]))
                                              for m in (self.opts.get("models") or [])
@@ -151,6 +156,9 @@ class App:
         return {"version": VERSION, "uptime_s": int(time.time() - self.started), **self.mind.store.stats(),
                 "packs": self.updater.installed(), "models": [m["name"] for m in self.models.list()],
                 "bridge": self.bridge, "in_home_assistant": bool(self.ha and self.ha.available),
+                "time": __import__("homemind.tz", fromlist=["status"]).status(),
+                "database": dict(__import__("homemind.dbguard", fromlist=["status"]).status(self.mind.store.path),
+                                 restored=self.db_report and {k: v for k, v in self.db_report.items() if k != "told"}),
                 "updates": self.updater.last and {k: v for k, v in self.updater.last.items() if k != "manifest"}}
 
     # ---- lifecycle --------------------------------------------------------------------------------------------
@@ -164,6 +172,18 @@ class App:
             except Exception as e:  # noqa: BLE001 - a missing model name: keyword search only
                 log.warning("embed_model: %s", e)
         self.ha = HA(self.models.session)
+        self.models.on_probe = self.away_alert
+        from . import tz
+        tz.apply(os.environ.get("TZ"))
+        if self.ha.available:
+            try:        # Home Assistant's own time zone wins: "today" and "last night" end when the house's day does
+                conf = await asyncio.wait_for(self.ha.get_json("config"), 10)
+                tz.apply((conf or {}).get("time_zone"))
+            except Exception as e:  # noqa: BLE001
+                log.warning("time zone from Home Assistant: %s", e)
+        st = tz.status()
+        (log.info if st["ok"] else log.warning)("time zone %s (UTC%s)%s", st["time_zone"], st["utc_offset"],
+                                                f": {st['problem']}" if st["problem"] else "")
         self.ha.quiet = quiet_window(self.opts)
         self.ha.cap = int(self.opts.get("notify_daily_cap") or 0)
         from .tokens import Tokens
@@ -205,6 +225,10 @@ class App:
             self.home.prefs = self.prefs
         self.engine = Engine(self.mind.store, self.ha, DATA)
         self.mind.FALLBACK = list(self.opts.get("fallback") or [])
+        self.mind.CONTROL_MODEL = self.opts.get("control_model") or None
+        self.mind.ROUTER = self.opts.get("router", True) is not False
+        self.mind.ROUTE_LOCAL = list(self.opts.get("router_local") or [])
+        self.mind.ROUTE_CLOUD = list(self.opts.get("router_cloud") or [])
         self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
         self.mind.ORDER = "edges" if self.opts.get("answer_edges") else "default"
         self.mind.NOTES_FIRST = bool(self.opts.get("answer_notes_first"))
@@ -249,6 +273,17 @@ class App:
         self.pantry.knowledge = self.knowledge
         self.morning.pantry = self.pantry
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
+        self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
+        self.mind.patterns = self.patterns
+        from .datafacts import DataFacts
+        self.mind.datafacts = DataFacts(self.mind.store, self.fitness, self.patterns)
+        self.persona = Persona(self.mind.store)
+        for brief in (self.morning, self.evening):
+            brief.persona, brief.tired, brief.people = self.persona, self.tired, self.people
+        self.phrasebook = Phrasebook(self.mind.store)
+        self.mind.phrasebook = self.overnight.phrasebook = self.phrasebook
+        self.overnight.grow_phrasebook = self.opts.get("phrasebook_grow", True) is not False
+        self.mind.fitness = self.morning.fitness = self.evening.fitness = self.fitness
         self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
             lambda d: self.patterns.on_action(d.get("action")))
         self.engine.event_handlers["mobile_app_notification_action"].append(
@@ -383,7 +418,7 @@ class App:
             return {"answer": f"OK, I won't {p['verb']} the {p['name']}.", "cancelled": True}
         return None
 
-    async def do(self, text, model=None, source="api", conversation_id=None, deadline=None):
+    async def do(self, text, model=None, source="api", conversation_id=None, deadline=None, area=None):
         """A request in words ("dim the desk light to 30%") -> one checked action, planned by a model. A lock, alarm
         or garage door is never moved on words alone: with a conversation_id it asks, and a "yes" in the same
         conversation within PENDING_SECONDS does it (pending_reply). deadline (seconds; voice): planning that takes
@@ -397,6 +432,21 @@ class App:
         if not model and opts.get("rule_planner", True) is not False:
             # plain commands need no model at all: "kitchen light off", "den lamp to 40%", "lights off and lock up"
             from . import planner
+            room = self.room_for(text, area) if area else None
+            if room:
+                # said in a room without naming one: "lights off" means this room's lights, if that's clear
+                sub = {e: c for e, c in self.home.catalog.items() if (self.home.areas or {}).get(e) == room}
+                steps = planner.plan(text, sub, self.home.allowed) if sub else None
+                g = re.search(r"\bthe (light|lamp|fan|blinds?|shades?|curtains?)\b", text, re.I)
+                if sub and g and not (steps and all(s.get("entity_id") for s in steps)):
+                    # "the light" in a room with one light: that one, by its name
+                    dom = {"light": "light", "lamp": "light", "fan": "fan"}.get(g.group(1).lower(), "cover")
+                    one = [e for e in sub if e.split(".")[0] == dom]
+                    if len(one) == 1:
+                        named = text[:g.start()] + (sub[one[0]].get("name") or one[0]) + text[g.end():]
+                        steps = planner.plan(named, sub, self.home.allowed)
+                if steps and all(s.get("entity_id") for s in steps):
+                    return dict(await self._run_steps(steps, text, source, conversation_id, "rules"), room=room)
             steps = planner.plan(text, self.home.catalog, self.home.allowed)
             if steps:
                 return await self._run_steps(steps, text, source, conversation_id, "rules")
@@ -426,6 +476,18 @@ class App:
         if plan.get("actions"):
             return await self._run_steps(plan["actions"], text, source, conversation_id, model)
         return await self._run_plan(plan, text, source, conversation_id)
+
+    def room_for(self, text, area):
+        """The room to keep a command to: where it was said, unless the words name a room (or the whole house)."""
+        if not area or not getattr(self.home, "areas", None):
+            return None
+        rooms = set(self.home.areas.values())
+        t = " " + re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower()) + " "
+        if any(f" {r} " in t for r in rooms) or re.search(r"\b(?:all|every|everywhere|whole house|house|downstairs|"
+                                                         r"upstairs|outside)\b", t):
+            return None
+        a = area.lower()
+        return a if a in rooms else None
 
     def _said(self, plan):
         name = (self.home.catalog.get(plan.get("entity_id")) or {}).get("name") or plan.get("entity_id")
@@ -495,7 +557,7 @@ class App:
         tool, args = localctl.parse_call(r)
         plan = localctl.to_plan(tool, args, catalog, self.home.allowed)
         plan["by"] = name
-        if plan.get("not_a_command") or tool is None:
+        if plan.get("not_a_command") or plan.get("log") or tool is None:
             return {}
         if not plan.get("entity_id") and not plan.get("which"):
             return {}          # a name it couldn't place: let the general model try with the whole list
@@ -561,8 +623,28 @@ class App:
 
     async def _upkeep_step(self, last):
         now = time.time()
+        if now - last.get("snapshot", 0) > 3600:
+            last["snapshot"] = now
+            from . import dbguard
+            try:
+                st = self.mind.store
+                made = dbguard.snapshot(st.db, st.path, int(self.opts.get("db_snapshots", 7) or 7))
+                if made:
+                    log.info("database snapshot: %s", made)
+            except Exception as e:  # noqa: BLE001
+                log.warning("database snapshot: %s", e)
+        rep = getattr(self, "db_report", None)
+        if rep and self.ha.available and not rep.get("told"):
+            rep["told"] = True
+            await self.ha.notify("Home Mind: database restored", rep["message"], "home_mind_db")
         if self.ha.available and self.mind.home and now - last["home"] > 300:
             last["home"] = now
+            if now - last.get("areas", 0) > 1800:
+                last["areas"] = now
+                try:
+                    await self.home.load_areas()          # rooms, for "lights off" said in a room
+                except Exception as e:  # noqa: BLE001
+                    log.warning("areas: %s", e)
             try:
                 await self.home.refresh()
                 n = self.home.log_changes(first=last["home_first"])
@@ -826,6 +908,58 @@ class App:
         from .speakers import resolve
         home = {e: c.get("state") for e, c in (self.home.catalog or {}).items() if e.startswith("person.")}
         return resolve(self.people(), device=device_id, home=home)
+
+    async def away_alert(self, now=None):
+        """A model computer away longer than away_alert_hours: one notification, and one when it's back."""
+        hours = float(self.opts.get("away_alert_hours", 3) or 0)
+        if hours <= 0 or not self.ha:
+            return []
+        sent = self.__dict__.setdefault("_away_sent", {})
+        out = self.models.away_changes(sent, hours, now)
+        for what, key, since in out:
+            mine = self.models.on_host(key)
+            names = ", ".join(mine) or key
+            if what == "away":
+                when = datetime.fromtimestamp(since).strftime("%a %I:%M %p").replace(" 0", " ")
+                others = [m for m in (self.mind.FALLBACK or []) if m not in mine]
+                msg = (f"The computer at {key} ({names}) hasn't answered since {when}. Answers are coming from "
+                       f"{', '.join(others) or 'the best matching note'} meanwhile; if it runs Voicebox, the house "
+                       "voice is Piper until it's back. It may be asleep, off, or stuck on an update.")
+                await self.ha.notify("Home Mind: a model computer is away", msg, "home_mind_away")
+            else:
+                await self.ha.notify("Home Mind: it's back", f"The computer at {key} ({names}) is answering again.",
+                                     "home_mind_away")
+        return out
+
+    async def tired(self):
+        """Is today a tired day (readiness, sleep, fog)? Cached 10 minutes; False when it can't be told quickly."""
+        c = getattr(self, "_tired_cache", None)
+        if c and time.time() - c[0] < 600:
+            return c[1]
+        try:
+            t = bool((await asyncio.wait_for(self.pantry.today(), 3)).get("tired"))
+        except Exception:  # noqa: BLE001
+            t = False
+        self._tired_cache = (time.time(), t)
+        return t
+
+    async def styled(self, res, question="", who=None, voice=False, kind="ask"):
+        """The persona's voice and emotion marker on an answer (never on errors; facts checked, see persona.py)."""
+        try:
+            name = (who or "").strip().title() or None
+            if not isinstance(res, dict) or not isinstance(res.get("answer"), str) or res.get("error"):
+                return res
+            emotion = self.persona.emotion(res, question, name, await self.tired(), kind)
+            by_model = None
+            pm = self.opts.get("persona_model")
+            if pm and pm in self.models.models and self.models.up(pm) is not False:
+                # Jeeves's words from a model (on the GPU computer); slow, asleep or a changed fact: the rules instead
+                by_model = await self.persona.style_model(self.models.get(pm), res["answer"], emotion, who=name,
+                                                          voice=voice, timeout=1.5 if voice else 4.0)
+            return self.persona.finish(res, emotion, voice, name, by_model)
+        except Exception as e:  # noqa: BLE001 - styling never costs an answer
+            log.warning("persona: %s", e)
+            return res
 
     def speaker_for(self, b):
         """From a request body: (viewer, how). viewer None = no speaker information given (sees everything) unless
@@ -1266,7 +1400,7 @@ def build(app_state):
             # "yes" right after "Do you want me to open the garage door?" (asked by /api/do in this conversation)
             done = await A.pending_reply(b["conversation_id"], b["question"])
             if done is not None:
-                return J(dict(done, hits=[], model=None))
+                return J(await styled_(dict(done, hits=[], model=None), b["question"], who, bool(b.get("voice")), "do"))
         res = await A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
                                expand=bool(b.get("expand")), voice=bool(b.get("voice")),
                                deadline=b.get("deadline"), fallback=b.get("fallback", True),
@@ -1274,7 +1408,7 @@ def build(app_state):
         if who is not None:
             res["speaker_how"] = how
         res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
-        return J(res)
+        return J(await styled_(res, b["question"], who, bool(b.get("voice"))))
 
     @r.post("/api/organize")
     async def organize(q):
@@ -1396,10 +1530,18 @@ def build(app_state):
 
     @r.post("/api/do")
     async def home_do(q):
-        b = model_ok(await read_body(q, text=str, source=str, conversation_id=str, deadline=float))
+        b = model_ok(await read_body(q, text=str, source=str, conversation_id=str, deadline=float, area=str,
+                                     device_id=str))
         deadline = b.get("deadline") or (A.mind.VOICE_SECONDS if b.get("voice") else None)
-        return J(await A.do(b.get("text", ""), b.get("model"), b.get("source", "api"),
-                            conversation_id=b.get("conversation_id"), deadline=deadline))
+        area = b.get("area") or None
+        if not area and b.get("device_id") and A.ha and A.ha.available:
+            try:
+                area = await asyncio.wait_for(A.home.area_of_device(b["device_id"]), 3)
+            except Exception:  # noqa: BLE001
+                area = None
+        res = await A.do(b.get("text", ""), b.get("model"), b.get("source", "api"),
+                         conversation_id=b.get("conversation_id"), deadline=deadline, area=area)
+        return J(await styled_(res, b.get("text", ""), A.speaker_for(b)[0], bool(b.get("voice")), "do"))
 
     @r.get("/api/automations")
     async def autos_list(_):
@@ -1460,6 +1602,172 @@ def build(app_state):
     async def today_get(_):
         from . import today
         return J(await today.build(A))
+
+    @r.get("/api/fitness")
+    async def fitness_get(_):
+        return J(A.fitness.status())
+
+    @r.get("/api/fitness/review")
+    async def fitness_review(_):
+        return J({"lines": A.fitness.review(), "suggestions": A.fitness.suggestions()})
+
+    @r.get("/api/fitness/logs")
+    async def fitness_logs(q):
+        days = int(num(q.query.get("days"), "days", 30, 1, 3650))
+        return J({"logs": A.fitness.logs(q.query.get("kind") or "", days)})
+
+    @r.get("/api/fitness/workouts")
+    async def fitness_workouts(q):
+        try:
+            days = max(1, min(3650, int(q.query.get("days", "90"))))
+        except ValueError:
+            raise ValueError("days must be a number") from None
+        ex = q.query.get("exercise")
+        rows = A.fitness.workouts(days)
+        if ex:
+            from .fitness import exercise_name
+            rows = [w for w in rows if w["entry"]["exercise"] == exercise_name(ex)]
+        return J({"workouts": rows, "records": A.fitness.records(), "stalls": A.fitness.stalls()})
+
+    @r.post("/api/fitness/{op}")
+    async def fitness_op(q):
+        op = q.match_info["op"]
+        if op == "goals":
+            from .fitness import GOALS
+            b = await read_body(q, optional=True, **{k: (float, str) for k in GOALS})
+            return J({"goals": A.fitness.set_goals(b)})
+        if op == "workout":
+            b = await read_body(q, text=str, at=float, scope=str, speaker=str)
+            who = A.speaker_for(b)[0]
+            meta = {"said_by": who, "scope": "personal", "owner": who} if who and b.get("scope") != "household" else {}
+            return J(A.fitness.log(b.get("text") or "", when=b.get("at"),
+                                   source="api", meta=meta))
+        if op in ("edit", "delete"):
+            b = await read_body(q, kind=str, id=float, text=str)
+            if b.get("id") is None:
+                raise ValueError("give id")
+            if op == "delete":
+                return J(A.fitness.delete_log(b.get("kind") or "", int(b["id"])))
+            return J(A.fitness.edit_log(b.get("kind") or "", int(b["id"]), b.get("text") or ""))
+        if op == "accept":
+            b = await read_body(q, index=float)
+            sug = [s for s in A.fitness.suggestions() if s.get("set")]
+            i = int(b.get("index") or 0)
+            if not 0 <= i < len(sug):
+                raise ValueError("no such suggestion (GET /api/fitness/review lists them)")
+            return J({"goals": A.fitness.set_goals(sug[i]["set"]), "applied": sug[i]})
+        return J({"error": f"unknown {op}"}, status=404)
+
+    async def styled_(res, *a):
+        """The persona on an answer, when there is one (an app without it answers plainly)."""
+        f = getattr(A, "styled", None)
+        return await f(res, *a) if f is not None and getattr(A, "persona", None) is not None else res
+
+    @r.get("/api/persona")
+    async def persona_get(_):
+        from .persona import EMOTIONS
+        names = []
+        try:
+            names = sorted({(p.get("name") or "").lower() for p in A.people() if p.get("name")})
+        except Exception:  # noqa: BLE001
+            pass
+        return J({"settings": A.persona.settings(), "emotions": EMOTIONS, "prompt": A.persona.prompt(),
+                  "examples": A.persona.examples(), "people": A.persona.people(), "known_people": names})
+
+    @r.post("/api/persona")
+    async def persona_set(q):
+        b = await read_body(q, optional=True, name=str, address=str, wit=str, person=str)
+        person = b.pop("person", None)
+        return J({"settings": A.persona.set(b, person=person), "people": A.persona.people(),
+                  "prompt": A.persona.prompt()})
+
+    @r.get("/api/persona/corpus")
+    async def persona_corpus(q):
+        """A practice set for training a style model: made-up plain answers per emotion, the persona's
+        instructions, examples, and the fact check's rules (for tools/train_jeeves_style.ipynb)."""
+        n = int(num(q.query.get("n"), "n", 600, 12, 5000))
+        body = {"persona": A.persona.settings()["name"], "prompt": A.persona.prompt(),
+                "style_system": A.persona.MODEL_SYSTEM, "examples": A.persona.examples(),
+                "items": A.persona.corpus(n)}
+        resp = J(body)
+        if q.query.get("download"):
+            resp.headers["Content-Disposition"] = 'attachment; filename="jeeves_corpus.json"'
+        return resp
+
+    @r.get("/api/persona/emotion")
+    async def persona_emotion(q):
+        t = q.query.get("text") or ""
+        if not t.strip():
+            raise ValueError("give text")
+        emo, how = A.persona.emotion_for(t[:2000])
+        return J({"emotion": emo, "from": how})
+
+    @r.post("/api/persona/try")
+    async def persona_try(q):
+        from .persona import EMOTIONS
+        b = await read_body(q, text=str, emotion=str)
+        emo = b.get("emotion") or "neutral"
+        if emo not in EMOTIONS:
+            raise ValueError(f"emotion is one of {', '.join(EMOTIONS)}")
+        styled, applied = A.persona.style(b.get("text") or "", emo, who=None, voice=bool(b.get("voice")))
+        return J({"plain": b.get("text") or "", "emotion": emo, "styled": styled, "applied": applied,
+                  "ssml": A.persona.ssml(styled, emo)})
+
+    @r.get("/api/phrasebook")
+    async def phrasebook_get(q):
+        st = q.query.get("status") or None
+        if st not in (None, "active", "pending", "rejected"):
+            raise ValueError("status is active, pending or rejected")
+        src = q.query.get("source") or None
+        lim = num(q.query.get("limit"), "limit", 100, 1, 5000)
+        return J({"stats": A.phrasebook.stats(), "entries": A.phrasebook.entries(st, src, lim)})
+
+    @r.get("/api/phrasebook/export")
+    async def phrasebook_export(_):
+        return J({"pairs": A.phrasebook.export()})
+
+    def _pb_model(name):
+        name = name or A.overnight.pick_model() or (A.mind.FALLBACK[0] if A.mind.FALLBACK else None)
+        if not name:
+            raise ValueError("no model to use: give model, or set overnight_model")
+        return name, A.models.get(name)
+
+    @r.post("/api/phrasebook/{op}")
+    async def phrasebook_op(q):
+        op, pb = q.match_info["op"], A.phrasebook
+        b = await read_body(q, optional=True, said=str, plain=str, id=float, model=str, n=float, limit=float, text=str)
+        if op == "add":
+            return J(pb.add(b.get("said") or "", b.get("plain") or "", "added"))
+        if op in ("approve", "reject", "remove"):
+            if b.get("id") is None:
+                raise ValueError("give id")
+            rid = int(b["id"])
+            return J(pb.remove(rid) if op == "remove" else pb.set_status(rid, "active" if op == "approve" else "rejected"))
+        if op == "try":
+            from .phrasebook import meaning
+            t = b.get("text") or ""
+            hit = pb.match(t)
+            out = {"text": t, "phrasebook": {"entry": hit[0]["id"], "plain": hit[1]} if hit else None,
+                   "similar": pb.similar(t, 5)}
+            from .sleeplog import parse_sleep
+            from .fitness import parse_workout, is_workout_log, describe
+            ps = parse_sleep(t)
+            out["parsers"] = ps and ps.get("plain") or (f"slept {ps['hours']:g} hours" if ps else None) or \
+                (", ".join(describe(e) for e in parse_workout(t)) if is_workout_log(t) else None)
+            if b.get("model"):
+                name, m = _pb_model(b["model"])
+                line = await pb.read(m, t)
+                out["model"] = {"name": name, "line": line, "meaning": meaning(line)}
+            return J(out)
+        if op == "grow":
+            name, m = _pb_model(b.get("model"))
+            n = int(num(b.get("n"), "n", 10, 1, 30))
+            return J(dict(await pb.grow(m, n), model=name))
+        if op == "eval":
+            name, m = _pb_model(b.get("model"))
+            lim = int(num(b.get("limit"), "limit", 40, 1, 500))
+            return J(dict(await pb.evaluate(m, lim), model=name))
+        return J({"error": f"unknown {op}"}, status=404)
 
     @r.get("/api/pantry")
     async def pantry_list(q):
@@ -1652,7 +1960,7 @@ def build(app_state):
         from . import localctl
         if not A.home.catalog:
             await A.home.refresh()
-        d = localctl.build_dataset(A.home.controllable())
+        d = localctl.build_dataset(A.home.controllable(), phrasebook=A.phrasebook.export())
         part = q.query.get("part") or "train"
         if part not in ("train", "test"):
             return J({"error": "part must be train or test"}, status=400)

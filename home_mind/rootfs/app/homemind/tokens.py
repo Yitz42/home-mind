@@ -46,6 +46,10 @@ def tool_needs(name, args=None):
         return "admin"
     if name == "mind_updates" and a.get("apply"):
         return "admin"
+    if name == "mind_phrasebook":
+        return "read" if (a.get("action") or "list") in ("list", "try") else "write"
+    if name == "mind_fitness":
+        return "write" if (a.get("action") == "log" or (a.get("action") == "goals" and a.get("goals"))) else "read"
     if name == "mind_view" and (a.get("action") or "list") not in ("list", "run"):
         return "write"          # as POST/DELETE /api/views; listing and running one is a read (GET /api/views...)
     return "admin" if name in MCP_ADMIN else "read" if name in MCP_READ else "write"

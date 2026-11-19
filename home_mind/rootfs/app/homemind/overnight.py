@@ -350,10 +350,19 @@ class Overnight:
                 keyed = await model_keys(self.store, model)     # #71: other words for recent notes
             except Exception as e:  # noqa: BLE001
                 log.warning("search keys: %s", e)
+        grown = None
+        pb = getattr(self, "phrasebook", None)
+        if pb is not None and getattr(self, "grow_phrasebook", True):
+            try:
+                g = await pb.grow(model, 8)            # new odd wordings for sleep and workouts, checked twice
+                grown = {k: g[k] for k in ("kept", "review", "dropped", "known", "parser_misread")}
+            except Exception as e:  # noqa: BLE001
+                log.warning("phrasebook: %s", e)
         self.last = {"at": time.time(), "model": name, "turns": len(done), "filed": len(filed), "already_known": skipped,
                      "unknown_voices": len(guests), "keys_added": keyed, "links_moved": relinked, "tagged_languages": tagged,
                      "reshelved": len(reshelved["moved"]), "reshelve_suggested": len(reshelved["suggested"]),
-                     "ids": filed, **({"structure_read": read} if read is not None else {})}
+                     "ids": filed, **({"structure_read": read} if read is not None else {}),
+                     **({"phrasebook": grown} if grown is not None else {})}
         self.store.kv_set("overnight_last", self.last)
         return self.last
 

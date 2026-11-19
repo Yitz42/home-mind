@@ -6,6 +6,9 @@ configuration:
       ollama / openai use a computer on your network (url like http://192.168.1.50:11434, plus model name);
       anthropic calls Claude directly (needs api_key and model). Optional price_in and price_out (dollars per
       million tokens) let Home Mind show what each model costs; none are built in because prices change.
+      For a computer that sleeps or restarts: its models are checked every 30 seconds and skipped while it's
+      away (connect_timeout, default 4 s). Ollama only: num_gpu (0 = on that computer's CPU, leaving the GPU to
+      Voicebox), keep_alive (how long it stays loaded, e.g. 10m, 0, -1), num_ctx, num_thread.
   update_url:
     name: Update manifest
     description: Where to look for new knowledge packs (procedures written by a large model). Change it only if you host your own packs.
@@ -258,5 +261,26 @@ configuration:
   overnight_structure:
     name: Overnight, read what the patterns missed
     description: The overnight model reads recent notes where the built-in patterns found no place, schedule, chore, details or who-is-who, and keeps only what it copies word for word from the note. Off until tests/compare_structure.py shows it helps your model and adds nothing wrong.
+  router:
+    name: Choose the model by the question
+    description: When no model is named (the Ask box, Telegram, a voice agent that leaves it to Home Mind), simple lookups go to a local model first, harder questions (why, compare, plan, summarise) to the cloud model first, and private ones (health, money, personal notes) local first. Off = such questions get the best matching note, as before.
+  router_local:
+    name: Local models (router)
+    description: Models on your own computers, tried first for simple and private questions. Empty = the fallback models that run on your network.
+  router_cloud:
+    name: Cloud models (router)
+    description: Models tried first for harder questions. Empty = the other fallback models.
+  db_snapshots:
+    name: Database snapshots to keep
+    description: One a day. If the database is ever damaged, Home Mind starts from the newest good one, tells you, and keeps the damaged file.
+  away_alert_hours:
+    name: Tell me when a model computer is away (hours)
+    description: When a computer your models run on (e.g. the GPU laptop) hasn't answered for this long, one notification, and another when it's back. 0 = never.
+  persona_model:
+    name: Persona model
+    description: A model that rewords answers in the persona's voice (a small one on a GPU computer, e.g. an Ollama qwen3:1.7b). Checked like the rules; slow (over 1.5 s spoken, 4 s written), asleep or a changed fact and the rules style it instead. Empty = rules only.
+  phrasebook_grow:
+    name: Grow the phrasebook overnight
+    description: Each night the overnight model writes new odd ways of saying sleep and workouts. A case is kept only if it can be read, adds no number that wasn't said, and a second blind reading agrees; the rest wait for review on the Health tab.
 network:
   8099/tcp: Direct API (token in /data/token). Leave empty unless another computer needs it.
