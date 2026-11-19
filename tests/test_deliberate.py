@@ -325,7 +325,8 @@ det = [sim("fog", 2, s, shift=200) for s in range(6)] + [sim("rough", 2, s, shif
 check("worsening: a clear drift is caught within about three weeks", sum(1 for d in det if d is not None and d <= 21)
       >= 9, det)
 check("worsening: needs 30 days first", not W.check_series([1] * 20)["worse"])
-clk = Clock(time.time())
+_now = time.localtime()   # midday today: the check-in's day starts at 5 am, so at 2 am "yesterday at this time"
+clk = Clock(time.time() - (_now.tm_hour * 3600 + _now.tm_min * 60 + _now.tm_sec) + 12 * 3600)  # = 2 days ago
 wo = W.Worsening(store(), clock=clk)
 from datetime import date, timedelta  # noqa: E402
 today = date.fromtimestamp(clk.t)
