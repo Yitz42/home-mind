@@ -182,10 +182,12 @@ class Things:
             return 0
         n = 0
         cur = int(self.store.kv_get("things_cursor") or 0)
-        rows = self.store.db.execute("SELECT id, title, body FROM items WHERE id>? AND kind!='thing' AND "
-                                     "status='active' ORDER BY id LIMIT ?", (cur, limit)).fetchall()
+        rows = self.store.db.execute("SELECT id, title, body, source, meta FROM items WHERE id>? AND kind!='thing' "
+                                     "AND status='active' ORDER BY id LIMIT ?", (cur, limit)).fetchall()
         for r in rows:
             cur = r["id"]
+            if not household_note(r):
+                continue        # a personal note, or one from email or a document, never makes a link (check 2, 3)
             text = f"{r['title'] or ''} {r['body'] or ''}"
             t = self.find(text)
             if t:
@@ -201,13 +203,16 @@ class Things:
         return n
 
     def noticed(self, limit=500):
-        """Things named in notes that aren't things yet ("the drill is in the red toolbox"): proposals only."""
+        """Things named in household notes that aren't things yet ("the drill is in the red toolbox"): proposals
+        only. Personal notes and mail or documents are never read for this."""
         from .structure import place
         known = {n.lower() for t in self.all() for n in self.names(t)}
         dismissed = set(self.store.kv_get("things_dismissed") or [])
         out = {}
-        for r in self.store.db.execute("SELECT body FROM items WHERE kind!='thing' AND status='active' ORDER BY id "
-                                       "DESC LIMIT ?", (limit,)):
+        for r in self.store.db.execute("SELECT body, source, meta FROM items WHERE kind!='thing' AND status='active' "
+                                       "ORDER BY id DESC LIMIT ?", (limit,)):
+            if not household_note(r):
+                continue
             p = place(r["body"] or "")
             if not p:
                 continue
@@ -257,6 +262,17 @@ class Things:
         return self.get(keep)
 
 
+def household_note(r):
+    """A note anyone in the house may see, not filed from email or a document."""
+    try:
+        meta = json.loads(r["meta"] or "{}") if isinstance(r["meta"], str) else (r["meta"] or {})
+    except ValueError:
+        meta = {}
+    src = (r["source"] or "").lower()
+    return meta.get("scope") != "personal" and not meta.get("sensitive") and \
+        not src.startswith(("email", "mail", "doc", "pdf"))
+
+
 # ---- scenes ----------------------------------------------------------------------------------------------------
 class Scenes:
     KV = "scenes"
@@ -264,7 +280,7 @@ class Scenes:
     def __init__(self, app, clock=None):
         self.app = app
         self.clock = clock or time.time
-        self.previews = {}        # name -> {"steps", "before", "until"}
+        self.previews = {}        # name -> {"scene", "before", "until"}; also in kv, so a restart still undoes them
 
     def _store(self):
         return self.app.mind.store
@@ -327,10 +343,19 @@ class Scenes:
             r = await self.app._run_plan(dict(s, by="scene"), f"scene: {scene['name']}", source, None)
             done.append({"entity_id": s["entity_id"], "ok": bool(r.get("done")), "error": r.get("error")})
         self.previews[scene["name"]] = {"scene": scene, "before": before, "until": self.clock() + PREVIEW_SECONDS}
+        self._save_previews()
         return {"name": scene["name"], "preview_until": self.clock() + PREVIEW_SECONDS, "steps": done}
 
+    def _save_previews(self):
+        try:
+            self._store().kv_set("scene_previews", self.previews)
+        except Exception:  # noqa: BLE001
+            pass
+
     async def undo_due(self):
-        """Previews nobody kept: put back as they were."""
+        """Previews nobody kept: put back as they were (including ones started before a restart)."""
+        if not self.previews:
+            self.previews.update(self._store().kv_get("scene_previews") or {})
         out = []
         for name, p in list(self.previews.items()):
             if p["until"] > self.clock():
@@ -351,10 +376,13 @@ class Scenes:
                     pass
             out.append(name)
             self._score(name, "undone")
+        if out:
+            self._save_previews()
         return out
 
     def keep(self, name, steps=None):
         p = self.previews.pop(name, None)
+        self._save_previews()
         if p is None and steps is None:
             raise ValueError("no preview by that name running (previews last 10 minutes)")
         scene = dict((p or {}).get("scene") or {"name": name, "steps": []})

@@ -113,11 +113,17 @@ class Health:
         return None, None
 
     async def live_heart_rate(self):
-        """A heart-rate sensor in Home Assistant updated in the last 30 minutes: (bpm, name, minutes ago) or None."""
+        """A heart-rate sensor in Home Assistant updated in the last 30 minutes: (bpm, name, minutes ago) or None.
+        The sensor is looked for among all states at most once an hour; in between only it is read."""
         if self.ha is None or not getattr(self.ha, "available", True):
             return None
+        found = self.__dict__.get("_hr_sensor")
         try:
-            states = await self.ha.states()
+            if found and self.clock() - found[1] < 3600 and hasattr(self.ha, "state"):
+                one = await self.ha.state(found[0])
+                states = [dict(one, entity_id=found[0])] if one else []
+            else:
+                states = await self.ha.states()
         except Exception:  # noqa: BLE001
             return None
         best = None
@@ -139,6 +145,10 @@ class Health:
             age = self.clock() - at
             if 20 <= v <= 230 and age <= LIVE_MAX_AGE and (best is None or age < best[2] * 60):
                 best = (round(v), a.get("friendly_name") or eid, max(0, round(age / 60)))
+                if not found or found[0] != eid or self.clock() - found[1] >= 3600:
+                    self.__dict__["_hr_sensor"] = (eid, self.clock())
+        if best is None and found:
+            self.__dict__.pop("_hr_sensor", None)      # gone quiet: look among all states next time
         return best
 
     async def answer(self, question, person=None):

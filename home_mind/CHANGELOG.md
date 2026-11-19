@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- **Design checks** on phases 8 to 15 (`tests/test_design_checks.py`), and the fixes they called for: a personal
+  note, an email or a document never makes a thing link or a thing suggestion; a purge also clears learned answers,
+  their weekly saves, the outbox, the surprises queue and tracker details; learned answers are replay-gated even
+  before any corrections exist; travel mode only switches an input_boolean or a switch; scene previews are undone
+  after a restart; a change agreed while Home Assistant is down is applied when it's back; the heart-rate sensor is
+  read on its own instead of every state every 20 seconds.
 - **Front ends and views** (design phase 15): other assistants as guest front ends (`other_assistants`: open-level
   only, nothing private, safety replies to the phone, off per person and in guest mode, never teaching templates);
   normal, quiet and plain registers with a plain voice switch; the four plain views (`/api/plain/...`); Firefly III

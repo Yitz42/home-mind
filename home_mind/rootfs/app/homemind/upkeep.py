@@ -135,6 +135,46 @@ class ForgetList:
         return len(ids)
 
 
+def scrub(store, ids, values):
+    """After a purge: the copies phases 8 to 15 keep go too (learned answers and their weekly saves, phone messages,
+    the surprises queue, tracker words). Store.purge already covers events, conversations and test cases."""
+    ids, vals = set(ids or ()), [v for v in (values or ()) if v and len(v) >= 4]
+    db = store.db
+    have = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+    def hit(text):
+        return any(v in (text or "") for v in vals)
+    n = 0
+    with store.lock:
+        if "learned_answers" in have:
+            gone = [r["record_id"] for r in db.execute("SELECT record_id, item_id, answer, examples FROM "
+                                                       "learned_answers")
+                    if r["item_id"] in ids or hit(r["answer"]) or hit(r["examples"])]
+            for rid in gone:
+                db.execute("DELETE FROM learned_answers WHERE record_id=?", (rid,))
+                db.execute("DELETE FROM learned WHERE id=?", (rid,))
+            n += len(gone)
+        if "learned_weeks" in have:
+            for w in db.execute("SELECT week, data FROM learned_weeks").fetchall():
+                d = json.loads(w["data"] or "{}")
+                rows = d.get("learned_answers") or []
+                keep = [r for r in rows if r.get("item_id") not in ids and not hit(r.get("answer")) and
+                        not hit(r.get("examples"))]
+                if len(keep) != len(rows):
+                    dropped = {r["record_id"] for r in rows} - {r["record_id"] for r in keep}
+                    d["learned_answers"] = keep
+                    d["learned"] = [r for r in d.get("learned") or [] if r.get("id") not in dropped]
+                    db.execute("UPDATE learned_weeks SET data=? WHERE week=?", (json.dumps(d), w["week"]))
+                    n += len(dropped)
+        for table, col in (("outbox", "data"), ("surprises", "what"), ("tracker_entries", "details"),
+                           ("meds_log", "name")):
+            if table in have and vals:
+                for v in vals:
+                    n += db.execute(f"DELETE FROM {table} WHERE {col} LIKE ?", (f"%{v}%",)).rowcount
+        db.commit()
+    return n
+
+
 # ---- the check ---------------------------------------------------------------------------------------------------
 def check(app):
     """Every store, cross-checked. {"ok": bool, "problems": [...], "checks": {...}}"""
