@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased (design phases 1 to 7)
+## 0.29.0
+The design's version 1 and the first phases after it (#30–#36), brought onto 0.28 in one piece. Where they met 0.27–0.28:
+- **Several actions in one request follow the safety ladder:** "lights off and lock up" turns the lights off now and
+  sends each lock to your phone for approval (a spoken yes no longer covers locks and garage doors); devices you set to
+  "ask me first" still wait for one spoken yes together. Several actions planned by the cloud model work the same way.
+- **Order for house requests:** the rules (no model) first, then a trusted learned template, then planning by model
+  mode. Every route goes through the same checks, and every action is logged with its Home Assistant context ID.
+- **Jeeves styles every answer** from the shared answer path, so the voice agent and the Ask box sound the same.
+- **Replay and the nightly gate** plan the way do() does, rules included.
+
 - **Decision log** (phase 1, #30). Every action taken or refused is logged with how it was decided and its Home Assistant context ID. Outcomes are checked (match, mismatch, unknown) and overrides spotted; devices get outcome profiles. Logged requests can be replayed through the planner. See "The decision log" in the docs.
 - **Approvals** (phase 2). Locks, alarms, valves, garage doors, openers, heaters, ovens and extreme temperatures need a fresh approval on your phone (Face ID or the passcode); a spoken yes is no longer enough for them. Heating within normal limits needs a spoken yes. Per device you can choose ask me first, tell me after or just do it, never below what the code requires.
 - **Device access.** Each device is none, read or act. New locks, alarms, valves, garage doors, heating, cameras and microphones start hidden. Loosening waits 24 hours; every change is announced.
