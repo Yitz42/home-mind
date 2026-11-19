@@ -96,6 +96,23 @@ class HA:
     async def call(self, domain, service, data):
         return await self._post(f"services/{domain}/{service}", data)
 
+    async def call_ctx(self, domain, service, data):
+        """A service call that also returns its context id. Home Assistant answers with the states the call
+        changed, each carrying the call's context (an empty list when nothing changed, e.g. already on).
+        Returns (status, context id or None, changed states or None)."""
+        if not self.token:
+            return None, None, None
+        async with self.session.post(f"{SUPERVISOR}/core/api/services/{domain}/{service}", json=data,
+                                     headers={"Authorization": f"Bearer {self.token}"},
+                                     timeout=aiohttp.ClientTimeout(total=15)) as r:
+            try:
+                body = await r.json(content_type=None)
+            except Exception:  # noqa: BLE001 - an answer without JSON still has its status
+                body = None
+            from .decisions import context_of
+            ctx, states = context_of(body)
+            return r.status, ctx, states
+
     # ---- phone notifications: quiet hours and a daily limit -----------------------------------------------------
     quiet = None        # ((h, m), (h, m)): no phone pushes from start to end (may run past midnight); None = off
     cap = 0             # most phone pushes a day; 0 = no limit

@@ -56,6 +56,29 @@ Models can switch things only when all of these hold:
 
 `/api/home/act`, `/api/do` and the MCP tools `mind_control` / `mind_do` need an admin token.
 
+## The decision log
+
+Every action Home Mind takes, and every one it refuses, is written to a decision log (`log.db`, next to the main
+database): who asked and how (voice, Telegram, Claude, the panel, an automation), the words, which model planned it
+and how long that took, the Home Assistant service call, and its context ID.
+
+Each action also records what should happen (the light on, the fan at 40%, the door locked) and by when. Home Mind
+then checks:
+- **Match, mismatch or unknown.** Changes are read from Home Assistant's event stream as they happen; anything still
+  waiting when its time is up is read directly. An unavailable device is *unknown*, never a failure. Scripts and
+  scenes can't be checked and are logged as *unchecked*.
+- **Who did it.** From the context ID: Home Mind's own call, a person in Home Assistant, an automation, or the device
+  itself.
+- **Overrides.** A person or a device undoing a matched action within 10 minutes. Changes in the first 3 minutes
+  after Home Mind starts, and a device's first report after coming back from unavailable, don't count.
+- **Device profiles.** How often each device's outcomes matched and how long it usually takes. A slow device gets
+  longer to respond before it is checked; one whose outcomes are mostly unknown is marked not trusted for learning.
+
+Decisions older than 180 days are dropped unless they are kept as test cases. `/api/replay` runs logged requests
+back through the planner (it never acts) and reports how often it still agrees with what worked, and whether it
+would repeat something a person undid. `/api/decisions/freeze` keeps a set of cases under a name, so a later replay
+can be compared with it. The log holds everyone's requests, so it needs an admin token.
+
 ## Controls in Home Assistant
 
 The bridge adds a **Home Mind** device (Settings › Devices & services › Home Mind Bridge) whose entities control
@@ -643,6 +666,11 @@ note), 502 (a model failed) or 500.
 | GET | `/api/home` | read | the house as Home Mind sees it (watched things, control list) |
 | POST | `/api/home/act` | admin | switch one thing (`entity_id`, `action`, `value?`, `confirm?`) |
 | POST | `/api/do` | admin | do what a sentence asks (`text`); never confirms locks |
+| GET | `/api/decisions` | admin | the decision log, newest first (`limit`, `entity_id`, `status`) |
+| GET | `/api/decisions/stats` | admin | expected versus seen per entity and action (`days`) |
+| GET | `/api/decisions/profile` | admin | one device's outcome profile (`entity_id`) |
+| POST | `/api/decisions/freeze` | admin | keep the current test cases under a name (`name`) |
+| POST | `/api/replay` | admin | replay logged requests through the planner without acting (`model?`, `limit?`, `frozen?`) |
 | GET | `/api/controls` | read | the Home tab: devices with their map spots, presets, comfort, weather, routines, plugs |
 | POST | `/api/controls/{op}` | admin | `act` (`entity`, `service`, `data`; allow-listed per domain, values clamped), `scene` (`name`), `routine` (`entity`, `on`) |
 | GET | `/api/today` | read | the Today page: readiness, fog, food to eat first, protein so far, the bedroom, what was learned |

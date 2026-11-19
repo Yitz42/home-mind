@@ -247,7 +247,20 @@ async def forecasts(ha):
 
 async def act(A, entity, service, data=None):
     domain, clean = check(entity, service, data)
-    await A.ha.call(domain, service, dict(clean, entity_id=entity))
+    dlog = getattr(A, "decisions", None)
+    prior = A.home.state_now(entity) if dlog is not None and getattr(A, "home", None) else None
+    if dlog is not None and hasattr(A.ha, "call_ctx"):
+        status, ctx, states = await A.ha.call_ctx(domain, service, dict(clean, entity_id=entity))
+    else:
+        status, ctx, states = await A.ha.call(domain, service, dict(clean, entity_id=entity)), None, None
+    if dlog is not None:
+        try:
+            ok = not (isinstance(status, int) and status >= 400)
+            dlog.record(entity_id=entity, action=service, service=f"{domain}.{service}", data=clean,
+                        status="done" if ok else "refused", reason=None if ok else f"Home Assistant said {status}",
+                        context_id=ctx, states=states, prior=prior, channel="panel", source="panel")
+        except Exception:  # noqa: BLE001 - the log must never stop the panel's buttons
+            log.exception("decision log")
     return {"done": f"{domain}.{service}", "entity": entity, "data": clean}
 
 
