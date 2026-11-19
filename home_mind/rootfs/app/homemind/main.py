@@ -140,6 +140,7 @@ class App:
         models_mod.USAGE = self.usage.record
         self.updater = Updater(self.mind.store, self.opts.get("update_url"))
         self.decisions = None       # the decision log (decisions.py), started with the house in setup
+        self.measure = None         # scorecard, shadow, labelling, burden (measure.py), started with the log
         self.mcp = MCP(self)
         self.ha = None
         self.comfort = None
@@ -329,6 +330,10 @@ class App:
             return
         self.home.decisions = self.decisions
         self.engine.decisions = self.decisions
+        self.ha.on_push = lambda tier: self.decisions.count("asks") if tier != "safety" else None
+        from .measure import Measure
+        rate = self.opts.get("shadow_rate")
+        self.measure = Measure(self, rate=0.1 if rate in (None, "") else rate)
         self.engine.state_listeners.append(self.decisions.on_state)
 
     async def _call_service(self, domain, service, data):
@@ -475,7 +480,9 @@ class App:
                     return {"plan": r, "answer": "Which one: " + ", ".join(r["which"]) + "?", "which": r["which"]}
                 if r.get("answer"):
                     return r
-                return await self._run_plan(plan, text, source, conversation_id, t0)
+                res = await self._run_plan(plan, text, source, conversation_id, t0)
+                getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+                return res
             names = [n for n in names if n != local]          # not a command for it: the general model decides
         model = model or ("haiku" if "haiku" in names else names[0] if names else None)
         if not model:
@@ -487,7 +494,9 @@ class App:
             return {"error": "the model took too long; nothing was done",
                     "answer": "Sorry, that took too long, so I didn't do anything."}
         plan.setdefault("by", model)
-        return await self._run_plan(plan, text, source, conversation_id, t0)
+        res = await self._run_plan(plan, text, source, conversation_id, t0)
+        getattr(self, "_measure_do", lambda *a: None)(res, text, source, t0)
+        return res
 
     async def plan_only(self, text, model=None):
         """What do() would plan for these words, without acting (replay). Local control model first when set,
@@ -507,6 +516,15 @@ class App:
         plan = await plan_action(self.models.get(model), text, self.home.controllable())
         plan.setdefault("by", model)
         return plan
+
+    async def shadow_plan(self, text, model):
+        """A plan from one named model, for the shadow baseline (measure.py). Never acts."""
+        local = (getattr(self, "opts", None) or {}).get("control_model") or ""
+        if model == local:
+            r = await self.local_plan(local, text)
+            return {k: r.get(k) for k in ("entity_id", "action", "value")} if r else {}
+        plan = await plan_action(self.models.get(model), text, self.home.controllable())
+        return {k: plan.get(k) for k in ("entity_id", "action", "value")}
 
     async def local_plan(self, name, text, deadline=None):
         """The small local control model (option control_model; localctl): one tool call -> a plan, a "which one?",
@@ -669,6 +687,24 @@ class App:
             return None
         return self.day.set(m.group(1).lower(), None, how="tap")
 
+    def _measure_do(self, res, text, source, t0):
+        """Phase 4: count the request, its time, an abstain ("nothing fits"), and maybe shadow it."""
+        dlog = getattr(self, "decisions", None)
+        if dlog is None:
+            return
+        try:
+            dlog.count("requests")
+            plan = res.get("plan") or {}
+            dlog.timing("do", (time.monotonic() - t0) * 1000, source, plan.get("by"))
+            if not plan.get("entity_id"):
+                dlog.count("abstains")
+            m = getattr(self, "measure", None)
+            if m is not None and plan.get("entity_id"):
+                did = (res.get("done") or {}).get("decision_id")
+                m.maybe_shadow(text, plan, did)
+        except Exception:  # noqa: BLE001 - measuring never gets in the way of the answer
+            log.exception("measure")
+
     def phone_of(self, person):
         """A person's phone (option people: notify), or None."""
         for p in self.people():
@@ -749,6 +785,15 @@ class App:
             res = await safety.run_and_report(self)
             log.info("safety suite: %s (%d passed, %d failed)", "pass" if res["ok"] else "FAIL", res["passed"],
                      len(res["failed"]))
+        m = getattr(self, "measure", None)
+        if m is not None and now - last.setdefault("weekly", now - 7 * 86400 + 1800) > 7 * 86400:
+            last["weekly"] = now        # the weekly replay against frozen v1: first 30 minutes after start
+            try:
+                sc = await m.weekly(lambda text: self.plan_only(text),
+                                    notify=lambda t, msg: self.ha.notify(t, msg, "home_mind_scorecard"))
+                log.info("weekly scorecard: %s", {k: v.get("verdict") for k, v in sc["sections"].items()})
+            except Exception:  # noqa: BLE001
+                log.exception("weekly scorecard")
         if getattr(self, "decisions", None) is not None:
             try:
                 await self.decisions.sweep(self._state_for_check)      # outcomes that are due (every 20 s)
@@ -1484,7 +1529,9 @@ def build(app_state):
 
     @r.post("/api/ask")
     async def ask(q):
-        b = model_ok(await read_body(q, question=str, conversation_id=str, speaker=str, user=str, deadline=float))
+        b = model_ok(await read_body(q, question=str, conversation_id=str, speaker=str, user=str, deadline=float,
+                                     front_end=str))
+        t_ask = time.monotonic()
         if not (b.get("question") or "").strip():
             raise ValueError("give a question")
         who, how = A.speaker_for(b)
@@ -1536,6 +1583,16 @@ def build(app_state):
             res = await ask
         if who is not None:
             res["speaker_how"] = how
+        if getattr(A, "decisions", None) is not None:
+            try:
+                fe = b.get("front_end") or ("voice" if b.get("voice") else "api")
+                A.decisions.count("requests")
+                A.decisions.timing("ask", (time.monotonic() - t_ask) * 1000, fe, res.get("model"),
+                                   bool(res.get("fallback")) or res.get("model") in (A.mind.FALLBACK or []))
+                if not res.get("answer") or res.get("weak"):
+                    A.decisions.count("abstains")
+            except Exception:  # noqa: BLE001
+                log.exception("measure")
         if b.get("voice") and who and not res.get("red_flag") and hasattr(A, "private_by_voice"):
             res = await A.private_by_voice(res, who)
         if b.get("voice") and not res.get("red_flag") and getattr(A, "day", None) is not None:
@@ -1722,6 +1779,61 @@ def build(app_state):
         A.day.set(b.get("state") or "", person, how="panel")
         from .day import REPLIES
         return J({"checkin": b["state"], "answer": REPLIES[b["state"]], "budget": A.day.budget(person)})
+
+    def need_measure():
+        if getattr(A, "measure", None) is None:
+            raise ValueError("measurement isn't running (it needs the decision log)")
+        return A.measure
+
+    @r.get("/api/scorecard")
+    async def scorecard_get(_):
+        """The last scorecard (three sections, never averaged) and the trend against v1's first run."""
+        m = need_measure()
+        last = m.reports("scorecard", "v1", 1)
+        return J({"last": last[0] if last else None, "trend": m.trend("v1")})
+
+    @r.post("/api/scorecard/run")
+    async def scorecard_run(q):
+        """Run the scorecard now (replays the frozen set through the planner; never acts). {"set"?: "v1"}"""
+        b = await read_body(q, optional=True, set=str)
+        return J(await need_measure().scorecard(lambda text: A.plan_only(text), b.get("set") or "v1"))
+
+    @r.get("/api/labels/queue")
+    async def labels_queue(q):
+        """This week's labelling queue (about 15 minutes)."""
+        return J({"queue": need_measure().queue(num(q.query.get("size"), "size", 30, 1, 200))})
+
+    @r.post("/api/labels")
+    async def labels_add(q):
+        """{"decision_id", "label": right|wrong|unsure, "correct"?: {"entity_id", "action", "value"}}"""
+        b = await read_body(q, label=str, correct=dict)
+        from .speakers import VIEWER
+        return J(need_measure().label(num(b.get("decision_id"), "decision_id", 0, 1, 1e12), b.get("label") or "",
+                                      b.get("correct"), VIEWER.get() or "admin"))
+
+    @r.get("/api/labels/agreement")
+    async def labels_agreement(_):
+        return J(need_measure().agreement())
+
+    @r.post("/api/labels/gold")
+    async def labels_gold(_):
+        """Make the gold set (30 labelled cases, re-labelled every quarter) if there isn't one."""
+        return J(need_measure().make_gold())
+
+    @r.get("/api/shadow")
+    async def shadow_get(q):
+        """The shadow baseline: live planner against the other model, win/tie/loss by outcome, cost per correct."""
+        return J(need_measure().shadow_report(num(q.query.get("days"), "days", 30, 1, 365)))
+
+    @r.get("/api/burden")
+    async def burden_get(q):
+        """Per day: asks + corrections + redos, with abstains and requests."""
+        return J({"days": need_measure().burden(num(q.query.get("days"), "days", 14, 1, 90))})
+
+    @r.get("/api/timing")
+    async def timing_get(q):
+        """95th-percentile response time and fallback rate by front end."""
+        return J({"timing": need_measure().timing(num(q.query.get("days"), "days", 7, 1, 90))})
 
     @r.get("/api/safety")
     async def safety_get(_):

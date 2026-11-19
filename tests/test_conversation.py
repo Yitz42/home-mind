@@ -138,7 +138,7 @@ c.close()
 L = DecisionLog(p)
 cols = {r[1] for r in L.db.execute("PRAGMA table_info(decisions)")}
 check("migration 2: an existing log gains prior_attrs and undone_by, rows kept",
-      L.version == (1, 2) and {"prior_attrs", "undone_by"} <= cols and L.get(1)["status"] == "done", (L.version, cols))
+      L.version == (1, len(DE.STEPS)) and {"prior_attrs", "undone_by"} <= cols and L.get(1)["status"] == "done", (L.version, cols))
 
 # ---- undo ---------------------------------------------------------------------------------------------------------
 

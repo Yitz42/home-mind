@@ -187,6 +187,12 @@ class HA:
             target = "notify." + target        # option written as "mobile_app_phone"
         dom, svc = target.split(".", 1)
         await self.call(dom, svc, data)
+        hook = getattr(self, "on_push", None)
+        if hook is not None:
+            try:
+                hook(tier)              # burden per day (measure.py): asks the house made of you
+            except Exception:  # noqa: BLE001
+                pass
         if tier != "safety":
             self.sent = {today: sent.get(today, 0) + 1}
         if tier == "routine":

@@ -43,11 +43,12 @@ def same_action(plan, case):
     return str(va).strip().lower() == str(vb).strip().lower()
 
 
-async def replay(log, planner, limit=200, ids=None, since=None, timeout=30, concurrency=4):
+async def replay(log, planner, limit=200, ids=None, since=None, timeout=30, concurrency=4, cases=None):
     """planner: async request -> plan ({"entity_id", "action", "value"} or {} for "not a device action").
     Returns a report: counts, agreement on match cases with its interval, repeats of overridden actions,
     disagreements to look at."""
-    cases = log.cases(limit=limit, since=since, ids=ids)
+    if cases is None:
+        cases = log.cases(limit=limit, since=since, ids=ids)
     sem = asyncio.Semaphore(concurrency)
 
     async def one(c):
@@ -62,7 +63,7 @@ async def replay(log, planner, limit=200, ids=None, since=None, timeout=30, conc
 
     results = await asyncio.gather(*(one(c) for c in cases))
     rep = {"cases": len(cases), "match": 0, "agree": 0, "override": 0, "repeats": 0, "device": 0, "errors": 0,
-           "by_route": {}, "disagree": [], "repeated": [], "ms": []}
+           "by_route": {}, "by_channel": {}, "disagree": [], "repeated": [], "ms": []}
     for c, plan, err, ms in results:
         rep["ms"].append(ms)
         if err:
@@ -74,6 +75,9 @@ async def replay(log, planner, limit=200, ids=None, since=None, timeout=30, conc
             continue
         same = same_action(plan, c)
         r = rep["by_route"].setdefault(c.get("route") or "?", {"match": 0, "agree": 0, "override": 0, "repeats": 0})
+        ch = rep["by_channel"].setdefault(c.get("channel") or "?", {"cases": 0, "right": 0})
+        ch["cases"] += 1
+        ch["right"] += int(same if c["kind"] == "match" else not same)
         if c["kind"] == "match":
             rep["match"] += 1
             r["match"] += 1

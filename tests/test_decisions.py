@@ -181,7 +181,8 @@ L2.db.close()
 L3 = DecisionLog(os.path.join(d, "quiet.db"), clock=clk2)
 check("restart: an awaited outcome is unknown (restart), never failure",
       L3.get(k)["seen"] == "unknown" and L3.get(k)["seen_by"] == "restart")
-check("restart: the log reopens at its version without migrating again", L3.version == (2, 2))
+from homemind.decisions import STEPS  # noqa: E402
+check("restart: the log reopens at its version without migrating again", L3.version == (len(STEPS), len(STEPS)))
 
 # ---- device profiles ---------------------------------------------------------------------------------------------
 clk3 = Clock(9_000_000.0)
