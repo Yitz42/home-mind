@@ -132,8 +132,12 @@ async def main():
     models.models["haiku"] = Est()
     models.get = lambda n: models.models["haiku"]
     p.add("Bumble Bee tuna", "2 cans", "pantry")
-    lg = p.ate("lunch: tuna and chickpea penne", when=meal_time("12:30pm"))
-    assert lg["id"] and lg["at"] == "12:30 PM", lg
+    # a given time is used as given (meal_time puts a time still ahead today on yesterday, so it's checked apart
+    # from Today: this test runs at any hour)
+    early = p.ate("breakfast: oats", when=meal_time("12:30pm", _dt(2026, 11, 16, 13)))
+    assert early["id"] and early["at"] == "12:30 PM", early
+    lg = p.ate("lunch: tuna and chickpea penne")          # now: always today
+    assert lg["id"], lg
     e = await p.estimate(lg["id"])
     assert e == {"id": lg["id"], "protein_g": 25, "calories": 410}, e
     assert "Bumble Bee tuna" in Est.prompt, Est.prompt
