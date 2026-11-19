@@ -82,6 +82,31 @@ them under Access tokens.
 summary ("While you were away: …"), as many as the day allows (none on a rough day). Anything held longer than a day
 expires.
 
+## What Home Mind learns from your house requests
+
+Every house request that worked, and that nobody undid, teaches Home Mind a *template*: one device, one action, and
+where a number goes ("dim the desk lamp to {n}"), with the different ways you've said it. Once a template has
+earned trust, the same kind of request is done straight away, with no model call: a reflex, in milliseconds.
+
+- **Shadow first.** A new template never acts. Every house request is checked against it as if it had: did it predict
+  what was done, and did that stand? That's its evidence.
+- **Trust is earned, never assumed.** It starts sceptical (as if it had been wrong 3 times out of 4), rises only on
+  outcomes that were checked (never on silence), and is judged by the low end of its likely range, so a few lucky
+  matches are never enough: it takes about 45 checked outcomes in a row (a month or two for something used daily). Evidence fades by half every 90 days without use.
+- **Promotion is checked at night.** At 3 am, templates whose evidence clears the bar are tried: the scorecard's
+  house requests are replayed with and without them, and if the score drops they go back to shadow.
+- **Reflexes stay inside the lines.** A template is only made from requests that went through every check, only for
+  things that need no yes (never locks, doors, alarms, valves or heating), and a reflex still goes through the same
+  checks as any action. It needs the device named in full ("the lamp" could be another lamp), a close match, and a clear margin over any other template. A
+  request with "not" or "don't" in it is never a reflex.
+- **It keeps being checked.** About 1 in 20 reflexes is planned the usual way instead, and the template is judged
+  against that. Two failures in its last 20 put it back on trial. A template for a device that's gone is retired.
+- **You have the last word:** `/api/learned` shows what's been learned and why; drop a template, or put it back on
+  trial, with `/api/learned/{id}`.
+
+With an embedding model set (`embed_model`), wordings are also compared by meaning, but meaning alone never makes a
+reflex.
+
 ## Which model, how sure, and what's going on now
 
 **Model modes** (option `model_mode`, or per person with `/api/modes`):
@@ -853,6 +878,9 @@ note), 502 (a model failed) or 500.
 | POST | `/api/converse` | admin | one voice turn for the bridge's conversation agent (`text`, `conversation_id?`, `user_id?`, `device_id?`); streams events with `Accept: application/x-ndjson` |
 | GET | `/api/as_of` | read | a keyed fact at a time (`key`, `at`: seconds or ISO date, `by`: valid or recorded) |
 | POST | `/api/today/checkin` | write | today's check-in (`state`: good, low or rough; `person?`) |
+| GET | `/api/learned` | admin | what Home Mind has learned about house requests: each template, its status and evidence (`status?`) |
+| GET | `/api/learned/match` | admin | which template some words would match, and whether it would act (`q`); never acts |
+| POST | `/api/learned/{id}` | admin | your say on a template (`status`: dropped, or shadow to put it back on trial) |
 | GET | `/api/modes` | admin | model mode, confidence line, which local models are awake, kinds earned and proposed |
 | POST | `/api/modes` | admin | set the mode (`mode`: cloud, balanced or private; `person?`) |
 | POST | `/api/modes/accept` | admin | say yes to a proposed kind (`kind`, like `light.on`); it is replayed through the local model first |
