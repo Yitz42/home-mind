@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (design phases 1 to 4)
+## Unreleased (design phases 1 to 5)
 - **Decision log** (phase 1, #30). Every action taken or refused is logged with how it was decided and its Home Assistant context ID. Outcomes are checked (match, mismatch, unknown) and overrides spotted; devices get outcome profiles. Logged requests can be replayed through the planner. See "The decision log" in the docs.
 - **Approvals** (phase 2). Locks, alarms, valves, garage doors, openers, heaters, ovens and extreme temperatures need a fresh approval on your phone (Face ID or the passcode); a spoken yes is no longer enough for them. Heating within normal limits needs a spoken yes. Per device you can choose ask me first, tell me after or just do it, never below what the code requires.
 - **Device access.** Each device is none, read or act. New locks, alarms, valves, garage doors, heating, cameras and microphones start hidden. Loosening waits 24 hours; every change is announced.
@@ -15,6 +15,7 @@
 - **Two times per fact:** `/api/as_of` answers what was true then, or what Home Mind believed then.
 - **Who is asking.** The panel answers as the signed-in Home Assistant person. **Read and write tokens not tied to a person are now guests** (household notes only): make one per person for Claude or other apps. Tokens expire after 90 days unless made with `days: 0`; tokens made before keep working.
 - **Measuring** (phase 4). A scorecard in three sections, never averaged: house (a frozen v1 set of your real requests replayed through today's planner), memory (your corrections) and safety (the daily check), each with a 90% interval and a pass, fail or unclear verdict. The v1 set is replayed weekly, with a notification if it gets worse. A shadow baseline (option `shadow_rate`, default 1 in 10) has the other model plan in the background, never acting, scored win/tie/loss by what happened, with cost per correct answer. A weekly labelling queue (about 15 minutes, with repeats for agreement and a gold set of 30 every quarter), burden per day, and response times by front end. All admin-only API; nothing is shown on Today.
+- **Home Mind as a voice assistant** (phase 5). The bridge (0.3.0) adds a Home Mind conversation agent: Home Assistant's own commands first ("Prefer handling commands locally"), then Home Mind, with "One moment." after 1.5 s and the answer streamed a sentence at a time. New `/api/converse`. A Claude link per person (`home_mind_bridge.person_link`, `?token=` on the link). Routine notices are held for the morning summary.
 
 ## 0.28.0
 Fitness goals, built on the scale, meal and watch data Home Mind already collects.

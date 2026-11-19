@@ -234,6 +234,8 @@ class App:
         from .day import Day
         self.day = Day(self.mind.store)
         self.ha.day = self.day           # the day's ask budget and rough-day quiet (ha.push)
+        from .day import AskBatch
+        self.ha.batcher = AskBatch(self.mind.store)      # routine notices wait for the morning check-in
         self.engine.event_handlers.setdefault("mobile_app_notification_action", []).append(
             lambda d: self.on_day_tap(d.get("action")))
         self.home.on_tell = self.tell_after
@@ -273,6 +275,7 @@ class App:
                                self.opts.get("morning_notify") or "")
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False
         self.morning.day = getattr(self, "day", None)
+        self.morning.batch = getattr(self.ha, "batcher", None)
         self.morning.checkin_on = self.opts.get("checkin_old_facts", True) is not False
         self.morning.checkin_days = int(self.opts.get("checkin_after_days") or 180)
         self.evening = Evening(self.mind.store, self.ha, self.opts.get("evening_time") or "21:00",
@@ -747,6 +750,91 @@ class App:
         except (ValueError, PermissionError) as e:
             return {"plan": plan, "error": str(e)}
 
+    async def answer(self, b, scope="admin"):
+        """self question (or a remark) answered: check-in, undo and why first, a "yes" to a pending action, then the
+        brain; by voice, privacy, the 6-second handoff and the check-in question. Shared by /api/ask and the voice
+        agent (/api/converse). b: the request body ({"question", "conversation_id", "voice", "user"...})."""
+        from .tokens import allows
+        t_ask = time.monotonic()
+        if not (b.get("question") or "").strip():
+            raise ValueError("give a question")
+        who, how = self.speaker_for(b)
+        from . import redflags, conversation as conv
+        if not redflags.check(b["question"]):
+            c = self.checkin_reply(b["question"], who or None) if hasattr(self, "checkin_reply") else None
+            if c:
+                return (dict(c, hits=[], model=None))
+            if getattr(self, "decisions", None) is not None:
+                if conv.UNDO.match(b["question"]) and allows(scope, "admin"):
+                    return (dict(await conv.undo(self, b.get("conversation_id"), "voice" if b.get("voice") else "ask"),
+                                  hits=[], model=None))
+                w = conv.why(self, b["question"], who)
+                if w:
+                    return (dict(w, hits=[], model=None))
+            task = conv.help_request(b["question"])
+            if task:
+                b["question"] = conv.HELP_PROMPT + task
+        if self.has_pending(b.get("conversation_id")) and allows(scope, "admin"):
+            # "yes" right after "Do you want me to open the garage door?" (asked by /api/do in this conversation)
+            done = await self.pending_reply(b["conversation_id"], b["question"])
+            if done is not None:
+                return await self._style(dict(done, hits=[], model=None), b["question"], who, bool(b.get("voice")),
+                                         "do")
+        phone = self.phone_of(who) if b.get("voice") and who and hasattr(self, "phone_of") else None
+        ask = self.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
+                         expand=bool(b.get("expand")), voice=bool(b.get("voice")),
+                         deadline=(b.get("deadline") or self.HANDOFF_LATE) if phone else b.get("deadline"),
+                         fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who)
+        if phone:
+            # past HANDOFF_SECONDS by voice: say so, and send the whole answer to the person's phone when it's ready
+            # (design step 19); without a phone the voice deadline and its best-note fallback stand as before
+            task = asyncio.ensure_future(ask)
+            done, _ = await asyncio.wait({task}, timeout=self.HANDOFF_SECONDS)
+            if not done:
+                async def finish():
+                    try:
+                        r = await task
+                        await self.ha.push(phone, {"title": "Home Mind", "message": r.get("answer") or
+                                                "Sorry, I couldn't find an answer."}, tier="important", now=True)
+                    except Exception:  # noqa: BLE001
+                        log.exception("voice handoff")
+                key = f"handoff-{id(task)}"
+                self._bg[key] = asyncio.ensure_future(finish())
+                self._bg[key].add_done_callback(lambda _t, k=key: self._bg.pop(k, None))
+                return ({"answer": "That's taking a moment. I'll send it to your phone.", "handoff": phone,
+                          "hits": [], "model": None})
+            res = task.result()
+        else:
+            res = await ask
+        if who is not None:
+            res["speaker_how"] = how
+        if getattr(self, "decisions", None) is not None:
+            try:
+                fe = b.get("front_end") or ("voice" if b.get("voice") else "api")
+                self.decisions.count("requests")
+                self.decisions.timing("ask", (time.monotonic() - t_ask) * 1000, fe, res.get("model"),
+                                   bool(res.get("fallback")) or res.get("model") in (self.mind.FALLBACK or []))
+                if not res.get("answer") or res.get("weak"):
+                    self.decisions.count("abstains")
+            except Exception:  # noqa: BLE001
+                log.exception("measure")
+        if b.get("voice") and who and not res.get("red_flag") and hasattr(self, "private_by_voice"):
+            res = await self.private_by_voice(res, who)
+        if b.get("voice") and not res.get("red_flag") and getattr(self, "day", None) is not None:
+            from .day import QUESTION, DAY_STARTS
+            # the check-in starts when the person first speaks, never as an alarm: once, after what they asked
+            if self.day.get(who or None) == "unknown" and datetime.now().hour >= DAY_STARTS and \
+                    not self.day.asked(who or None):
+                res["answer"] = f"{(res.get('answer') or '').rstrip()} {QUESTION}".strip()
+                res["checkin_asked"] = True
+        res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
+        return await self._style(res, b["question"], who, bool(b.get("voice")))
+
+    async def _style(self, res, *a):
+        """The persona (Jeeves) on an answer, when there is one; an app without it answers plainly."""
+        f = getattr(self, "styled", None)
+        return await f(res, *a) if f is not None and getattr(self, "persona", None) is not None else res
+
     async def push_counts(self):
         s = self.mind.store.stats()
         await self.ha.sensor("sensor.home_mind_items", s["items"],
@@ -1047,7 +1135,7 @@ class App:
                     try:
                         await self.ha.notify(title, msg, "home_mind_house")
                         if target:
-                            await self.ha.push(target, {"title": title, "message": msg})
+                            await self.ha.push(target, {"title": title, "message": msg}, batch=True)
                     except Exception as e:  # noqa: BLE001
                         log.warning("house notice: %s", e)
         if now - last.get("docs", 0) > 3600:
@@ -1768,83 +1856,30 @@ def build(app_state):
     async def models_check(_):
         return J(await A.models.check_all())
 
+    @r.post("/api/converse")
+    async def converse(q):
+        """One voice turn for the bridge's conversation agent: {"text", "conversation_id"?, "user_id"?, "device_id"?,
+        "area"?, "language"?, "front_end"?}. With Accept: application/x-ndjson the answer streams as events (an
+        acknowledgement at 1.5 s, then one sentence at a time); otherwise the events come back together."""
+        from . import voice
+        b = await read_body(q, text=str, conversation_id=str, user_id=str, device_id=str, area=str, language=str,
+                            front_end=str)
+        scope = q.get("scope", "admin")
+        if "ndjson" in (q.headers.get("Accept") or "") and hasattr(web, "StreamResponse"):
+            resp = web.StreamResponse(headers={"Content-Type": "application/x-ndjson", "Cache-Control": "no-cache"})
+            await resp.prepare(q)
+            async for ev in voice.converse(A, b, scope):
+                await resp.write(voice.ndjson(ev))
+            await resp.write_eof()
+            return resp
+        events = [ev async for ev in voice.converse(A, b, scope)]
+        return J(dict(events[-1], events=events[:-1]))
+
     @r.post("/api/ask")
     async def ask(q):
         b = model_ok(await read_body(q, question=str, conversation_id=str, speaker=str, user=str, deadline=float,
                                      front_end=str))
-        t_ask = time.monotonic()
-        if not (b.get("question") or "").strip():
-            raise ValueError("give a question")
-        who, how = A.speaker_for(b)
-        from . import redflags, conversation as conv
-        if not redflags.check(b["question"]):
-            c = A.checkin_reply(b["question"], who or None) if hasattr(A, "checkin_reply") else None
-            if c:
-                return J(dict(c, hits=[], model=None))
-            if getattr(A, "decisions", None) is not None:
-                if conv.UNDO.match(b["question"]) and allows(q.get("scope", "admin"), "admin"):
-                    return J(dict(await conv.undo(A, b.get("conversation_id"), "voice" if b.get("voice") else "ask"),
-                                  hits=[], model=None))
-                w = conv.why(A, b["question"], who)
-                if w:
-                    return J(dict(w, hits=[], model=None))
-            task = conv.help_request(b["question"])
-            if task:
-                b["question"] = conv.HELP_PROMPT + task
-        if A.has_pending(b.get("conversation_id")) and allows(q.get("scope", "admin"), "admin"):
-            # "yes" right after "Do you want me to open the garage door?" (asked by /api/do in this conversation)
-            done = await A.pending_reply(b["conversation_id"], b["question"])
-            if done is not None:
-                return J(await styled_(dict(done, hits=[], model=None), b["question"], who, bool(b.get("voice")), "do"))
-        phone = A.phone_of(who) if b.get("voice") and who and hasattr(A, "phone_of") else None
-        ask = A.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
-                         expand=bool(b.get("expand")), voice=bool(b.get("voice")),
-                         deadline=(b.get("deadline") or A.HANDOFF_LATE) if phone else b.get("deadline"),
-                         fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who)
-        if phone:
-            # past HANDOFF_SECONDS by voice: say so, and send the whole answer to the person's phone when it's ready
-            # (design step 19); without a phone the voice deadline and its best-note fallback stand as before
-            task = asyncio.ensure_future(ask)
-            done, _ = await asyncio.wait({task}, timeout=A.HANDOFF_SECONDS)
-            if not done:
-                async def finish():
-                    try:
-                        r = await task
-                        await A.ha.push(phone, {"title": "Home Mind", "message": r.get("answer") or
-                                                "Sorry, I couldn't find an answer."}, tier="important", now=True)
-                    except Exception:  # noqa: BLE001
-                        log.exception("voice handoff")
-                key = f"handoff-{id(task)}"
-                A._bg[key] = asyncio.ensure_future(finish())
-                A._bg[key].add_done_callback(lambda _t, k=key: A._bg.pop(k, None))
-                return J({"answer": "That's taking a moment. I'll send it to your phone.", "handoff": phone,
-                          "hits": [], "model": None})
-            res = task.result()
-        else:
-            res = await ask
-        if who is not None:
-            res["speaker_how"] = how
-        if getattr(A, "decisions", None) is not None:
-            try:
-                fe = b.get("front_end") or ("voice" if b.get("voice") else "api")
-                A.decisions.count("requests")
-                A.decisions.timing("ask", (time.monotonic() - t_ask) * 1000, fe, res.get("model"),
-                                   bool(res.get("fallback")) or res.get("model") in (A.mind.FALLBACK or []))
-                if not res.get("answer") or res.get("weak"):
-                    A.decisions.count("abstains")
-            except Exception:  # noqa: BLE001
-                log.exception("measure")
-        if b.get("voice") and who and not res.get("red_flag") and hasattr(A, "private_by_voice"):
-            res = await A.private_by_voice(res, who)
-        if b.get("voice") and not res.get("red_flag") and getattr(A, "day", None) is not None:
-            from .day import QUESTION, DAY_STARTS
-            # the check-in starts when the person first speaks, never as an alarm: once, after what they asked
-            if A.day.get(who or None) == "unknown" and datetime.now().hour >= DAY_STARTS and \
-                    not A.day.asked(who or None):
-                res["answer"] = f"{(res.get('answer') or '').rstrip()} {QUESTION}".strip()
-                res["checkin_asked"] = True
-        res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
-        return J(await styled_(res, b["question"], who, bool(b.get("voice"))))
+        return J(await A.answer(b, q.get("scope", "admin")))
 
     @r.post("/api/organize")
     async def organize(q):
