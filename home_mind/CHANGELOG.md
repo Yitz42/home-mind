@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.30.0
+Design phases 7 to 15, the fixes from ten expert reviews, answers that connect your own data, and Talk in the panel.
+Highlights: "why am I so gassy lately?" or "how is my health looking?" are answered from a brief of your readings,
+check-ins, symptoms, medicines, meals and calendar (set `deep_model` to a stronger model for the best answers); a
+Talk view with the mic, a kept thread and tap-to-answer buttons; red flags checked before everything and said word
+for word; learned answers, the forget list and weekly test restores, channels with their own limits, rooms, things
+and scenes, trackers and the medicines log, experiments, and other assistants as guests.
 - **Talk** in the panel (`talk.py`): a conversation by voice (the browser's speech recognition, answers read out,
   optional hands-free) or typing, one thread per person kept on the server, follow-ups understood, and the answers
   Home Mind expects shown as buttons (Yes/No, the check-in, "Which one", "A or B?", follow-ups after a connected
