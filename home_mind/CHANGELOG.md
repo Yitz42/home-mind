@@ -11,6 +11,10 @@
   on your own (otherwise sent to your phone).
 - **No "Just a second." in the phone app's chat:** the phone's Assist has a device too, so the acknowledgement now
   goes only to voice satellites (Home Assistant's satellite_id, where your version sends it).
+- **A house request just after the check-in question is a house request again.** For 15 minutes after "good, low or
+  rough today?" (by voice or the morning notification), 0.29.1 took "set the fan to low" as a low day and "ok, turn off
+  the kitchen lights" as a good one, and did neither request. A reply that names a device or a house verb is now never
+  taken as the check-in answer.
 
 ## 0.29.1
 Fixes from the first real conversation with the Home Mind voice agent:
