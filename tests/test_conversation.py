@@ -305,7 +305,9 @@ for said, want in (("I would say it's about goodish.", "good"), ("pretty much fi
                    ("not too bad", "good"), ("not great honestly", "low"), ("kind of a rough one", "rough")):
     check(f"check-in reply right after the question: {said!r} -> {want}", day_parse(said, expecting=True) == want,
           day_parse(said, expecting=True))
-for said in ("what's the weather?", "turn the lights off", "is the garage closed?"):
+for said in ("what's the weather?", "turn the lights off", "is the garage closed?", "set the fan to low",
+             "ok turn off the kitchen lights", "turn the lights down low", "not bad, can you turn on the den lamp",
+             "fan to 40"):
     check(f"not a check-in reply: {said!r}", day_parse(said, expecting=True) is None)
 check("not right after the question, 'about goodish' alone isn't taken as the day", day_parse("about goodish") is None)
 
