@@ -468,6 +468,194 @@ def test_90_day_stress_test():
           cap_rep["evicted_links"] >= 35 and cap_rep["protected_facts"] == facts_before)
 
 
+# ---- 10. Speed 1 Librarian routing, 1-hop expansion, and optional librarian_model -------------------------------
+def test_librarian_routing_and_1hop():
+    import asyncio
+    _, g, now = make_graph()
+
+    # Seed dish -> peanuts attribute + user allergy to peanuts + bimodal sleep + dormant ramen
+    g.record_with_hypotheses(
+        "user", "LIKES", "kung pao chicken",
+        hypotheses=[("LIKES", "chinese", "FOOD"), ("LIKES", "peanuts", "FOOD")],
+        category="FOOD", source_ref="meal:kp", ts=T0,
+    )
+    g.observe("user", "ALLERGIC_TO", "peanuts", evidence=EVIDENCE_DIRECT, category="HEALTH", ts=T0)
+    for d in range(15):
+        g.observe("user", "SLEEP_BASELINE", "sleep", evidence=EVIDENCE_SENSOR,
+                  value=7.0, unit="hours", context_tags=["weekday"], category="SLEEP", ts=T0 + d * DAY)
+        g.observe("user", "SLEEP_BASELINE", "sleep", evidence=EVIDENCE_SENSOR,
+                  value=9.0, unit="hours", context_tags=["weekend"], category="SLEEP", ts=T0 + d * DAY + 3600)
+    ramen = g.observe("user", "LIKES", "tonkotsu ramen", evidence=EVIDENCE_INFERRED,
+                      source_ref="m:ramen", category="FOOD", ts=T0)
+    now[0] = T0 + 20 * DAY
+    g.decay_sweep(now=now[0])
+
+    # Unrelated question produces zero bloat
+    unrel = g.retrieve("What is the garage door code?", now=now[0])
+    check("unrelated question retrieves zero graph links", unrel["links"] == [] and unrel["context"] == "")
+
+    # 1-hop safety expansion: asking about Kung Pao chicken surfaces ALLERGIC_TO peanuts!
+    kp = g.retrieve("Should I make Kung Pao chicken tonight?", now=now[0])
+    kp_pairs = {(x["relation"], x["target_name"]) for x in kp["links"]}
+    check("1-hop expansion surfaces ALLERGIC_TO peanuts from Kung Pao chicken",
+          ("ALLERGIC_TO", "peanuts") in kp_pairs)
+
+    # Context-tag filtering: weekend sleep pulls 9.0h baseline, not 7.0h weekday
+    we = g.retrieve("How much do I sleep on weekends?", now=now[0])
+    check("weekend sleep query isolates weekend baseline (~9.0h)",
+          len(we["links"]) == 1 and abs(we["links"][0]["stats"]["mean"] - 9.0) < 0.1)
+
+    # Historical scope pulls dormant ramen
+    hist = g.retrieve("Did I ever like tonkotsu ramen before?", now=now[0])
+    check("historical question sets HISTORICAL scope and recovers dormant link",
+          hist["plan"]["temporal_scope"] == "HISTORICAL"
+          and any(x["id"] == ramen["link"]["id"] for x in hist["links"]))
+
+    # Optional LLM Librarian: merges LLM JSON + deterministic hits, and falls back on broken JSON
+    class FakeModel:
+        def __init__(self, reply, fail=False):
+            self.reply, self.fail, self.calls = reply, fail, []
+            self.type = "ollama"
+
+        async def chat(self, sysmsg, msgs, **kw):
+            self.calls.append((sysmsg, msgs))
+            if self.fail:
+                raise RuntimeError("boom")
+            return {"text": self.reply, "ms": 12}
+
+    good_lib = FakeModel('{"target_categories": ["HEALTH"], "extracted_entities": ["peanuts"], "context_tags": [], "temporal_scope": "CURRENT_STATE"}')
+    plan = asyncio.run(g.route_with_model("Anything I should watch out for?", good_lib))
+    check("librarian_model merges LLM routing cleanly",
+          plan["source"] == "librarian_model" and "HEALTH" in plan["target_categories"] and "peanuts" in plan["extracted_entities"])
+
+    bad_lib = FakeModel("not valid json at all", fail=False)
+    fb = asyncio.run(g.route_with_model("How much do I sleep on weekends?", bad_lib))
+    check("bad librarian_model JSON falls back cleanly to deterministic",
+          fb["source"] == "deterministic" and "SLEEP" in fb["target_categories"])
+
+    err_lib = FakeModel("", fail=True)
+    fb2 = asyncio.run(g.route_with_model("How much do I sleep on weekends?", err_lib))
+    check("librarian_model error falls back cleanly to deterministic",
+          fb2["source"] == "deterministic" and "SLEEP" in fb2["target_categories"])
+
+
+# ---- 11. End-to-end Mind.context_for, Mind.ask, mark_shown, privacy, and capped 1-hop loop-back -----------------
+def test_mind_integration_and_loopback():
+    import asyncio
+    from homemind.mind import Mind
+
+    class FakeAnswerModel:
+        def __init__(self, fn, name="local", mtype="ollama"):
+            self.fn, self.name, self.type = fn, name, mtype
+            self.cfg = {"type": mtype, "url": ""}
+            self.calls = []
+
+        async def chat(self, sysmsg, msgs, **kw):
+            self.calls.append((sysmsg, msgs))
+            return {"text": self.fn(sysmsg, msgs, len(self.calls)), "ms": 15}
+
+    class FakeModels:
+        def __init__(self, **mp):
+            self._m = mp
+
+        def get(self, name):
+            return self._m[name]
+
+        def list(self):
+            return [{"name": k} for k in self._m]
+
+    async def run():
+        tmp = tempfile.mkdtemp()
+        now = [T0]
+
+        def answer_fn(sysmsg, msgs, n):
+            body = msgs[-1]["content"]
+            if "RECALLED FROM DORMANT" in body and "miso soup" in body:
+                return "You liked miso soup before."
+            if "MEMORY GRAPH (" in body and "austin" in body.lower() and "CONTESTED" in body:
+                return "Did you move from San Francisco to Austin?"
+            if "MEMORY GRAPH (" in body and "chicago" in body.lower():
+                return "You live in Chicago."
+            return "I don't know."
+
+        ans_model = FakeAnswerModel(answer_fn)
+        lib_model = FakeAnswerModel(lambda s, m, n: '{"target_categories": ["LOCATION"], "extracted_entities": ["chicago"], "context_tags": [], "temporal_scope": "CURRENT_STATE"}', name="lib")
+        mind = Mind(tmp, FakeModels(main=ans_model, lib=lib_model))
+        g = MemGraph(mind.store, clock=lambda: now[0])
+        mind.memgraph = g
+
+        # Seed household FACT + Alice personal allergy + contested location + dormant miso soup
+        chi = g.observe("user", "LIVES_IN", "chicago", evidence=EVIDENCE_DIRECT, category="LOCATION", ts=T0)
+        g.observe("user", "ALLERGIC_TO", "kiwi", evidence=EVIDENCE_DIRECT, owner="Alice", scope="personal", category="HEALTH", ts=T0)
+        miso = g.observe("user", "LIKES", "miso soup", evidence=EVIDENCE_INFERRED, source_ref="m:miso", category="FOOD", ts=T0)
+
+        # Advance 20 days -> miso soup becomes dormant (excluded from Pass 1 hot pull)
+        now[0] = T0 + 20 * DAY
+        g.decay_sweep(now=now[0])
+
+        # 1. Normal typed question uses MEMORY GRAPH FACT, strips LOW_MATCH, bumps shown_count!
+        r1 = await mind.ask("Where do I live?", model="main", fallback=False)
+        check("Mind.ask answers from MEMORY GRAPH FACT", "Chicago" in r1["answer"])
+        check("Mind.ask returns graph_links metadata",
+              bool(r1.get("graph_links")) and any(x["target"] == "chicago" for x in r1["graph_links"]))
+        check("system prompt includes honest MEMORY GRAPH framing",
+              "MEMORY GRAPH lines show" in ans_model.calls[-1][0])
+        check("mark_shown incremented shown_count on used FACT",
+              g.get_link(chi["link"]["id"])["shown_count"] >= 1)
+
+        # 2. Privacy isolation in Mind.context_for(): Alice sees kiwi allergy, Bob & guest do not.
+        from homemind.speakers import VIEWER
+        tok = VIEWER.set("Alice")
+        try:
+            _, _, ctx_alice = await mind.context_for(mind.store, "Any allergies I should avoid?")
+        finally:
+            VIEWER.reset(tok)
+        tok = VIEWER.set("Bob")
+        try:
+            _, _, ctx_bob = await mind.context_for(mind.store, "Any allergies I should avoid?")
+        finally:
+            VIEWER.reset(tok)
+        check("Mind.context_for respects personal graph privacy (Alice yes, Bob no)",
+              "kiwi" in ctx_alice and "kiwi" not in ctx_bob)
+
+        # 3. Voice skips librarian_model (no VRAM swap) while typed uses it when configured.
+        mind.librarian_model = "lib"
+        lib_before = len(lib_model.calls)
+        await mind.context_for(mind.store, "Where do I live?", voice=True)
+        check("voice skips librarian_model", len(lib_model.calls) == lib_before)
+        await mind.context_for(mind.store, "Where do I live?", voice=False)
+        check("typed query invokes configured librarian_model", len(lib_model.calls) == lib_before + 1)
+        mind.librarian_model = None
+
+        # 4. Capped 1-hop dormant loop-back (TRUE POSITIVE):
+        #    Question doesn't use historical phrasing -> Pass 1 excludes dormant miso soup -> model says "I don't know."
+        #    -> loop_back recovers dormant miso soup -> Pass 2 answers -> logged in mg_staging + shown_count bumped!
+        calls_before = len(ans_model.calls)
+        r_lb = await mind.ask("What about miso?", model="main", fallback=False)
+        check("loop-back recovers dormant link on typed DONT_KNOW (exactly 1 retry)",
+              r_lb.get("loop_back") is True and "miso soup" in r_lb["answer"].lower()
+              and len(ans_model.calls) == calls_before + 2)
+        lb_staging = [s for s in g.flagged_staging() if s["op"] == "LOOP_BACK_HIT"]
+        check("true-positive loop-back logs flagged LOOP_BACK_HIT in mg_staging & marks shown",
+              len(lb_staging) == 1 and g.get_link(miso["link"]["id"])["shown_count"] >= 1)
+
+        # 5. False-positive loop-back (model STILL says "I don't know." on Pass 2): zero new staging entries!
+        staging_before = len(g.flagged_staging())
+        g.observe("user", "LIKES", "durian cake", evidence=EVIDENCE_INFERRED, source_ref="m:dur", category="FOOD", ts=T0)
+        g.decay_sweep(now=now[0])
+        r_fp = await mind.ask("What about durian?", model="main", fallback=False)
+        check("false-positive loop-back does NOT log staging noise",
+              not r_fp.get("loop_back") and len(g.flagged_staging()) == staging_before)
+
+        # 6. Voice skips loop-back to protect voice latency.
+        calls_v = len(ans_model.calls)
+        r_v = await mind.ask("What about miso?", model="main", fallback=False, voice=True)
+        check("voice skips dormant loop-back (single LLM call)",
+              not r_v.get("loop_back") and len(ans_model.calls) == calls_v + 1)
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     for fn in (
         test_math,
@@ -479,7 +667,10 @@ if __name__ == "__main__":
         test_patches_staging_and_revert,
         test_privacy_and_purge,
         test_90_day_stress_test,
+        test_librarian_routing_and_1hop,
+        test_mind_integration_and_loopback,
     ):
         fn()
     print(f"\n{'PASS' if not FAILS else f'FAIL ({len(FAILS)})'}")
     sys.exit(1 if FAILS else 0)
+

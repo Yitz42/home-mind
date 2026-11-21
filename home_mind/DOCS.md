@@ -977,6 +977,7 @@ you turn them on are listed after the tables.
 | `voice_seconds` | 8 | Voice time limit (seconds) |
 | `embed_model` | empty | Embedding model (search by meaning) |
 | `rerank_model` | empty | Re-ranking model |
+| `librarian_model` | empty | Optional small model for memory graph routing on typed questions (empty = fast built-in SQLite router) |
 | `control_model` | empty | Local control model |
 | `rule_planner` | on | Plain commands without a model |
 | `model_mode` | balanced | cloud, balanced (the local model for kinds it has earned) or private (nothing leaves the house) |

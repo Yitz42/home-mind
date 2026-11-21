@@ -767,6 +767,7 @@ def spoken(text, limit=None, ids=()):
 # a voice question is being answered in this task (skips the slow reranker); a ContextVar, not an attribute, so a
 # typed question answered at the same time doesn't turn it off (or on) for the voice one
 VOICE = contextvars.ContextVar("homemind_voice", default=False)
+GRAPH_LINKS = contextvars.ContextVar("homemind_graph_links", default=None)
 
 
 class Mind:
@@ -838,6 +839,38 @@ class Mind:
                     pl = ""
                 if pl:
                     ctx = pl + "\n\n" + (ctx or "")
+        mg = getattr(self, "memgraph", None)
+        if mg is not None and store is self.store:
+            from . import privacy as _priv
+            from .speakers import VIEWER as _V
+            if not _priv.bulk(question):
+                viewer = _V.get()
+                try:
+                    lm = getattr(self, "librarian_model", None)
+                    if lm and not voice and getattr(self, "models", None) is not None:
+                        plan = await mg.route_with_model(question, self.models.get(lm), store=store, viewer=viewer)
+                    else:
+                        plan = mg.route_deterministic(question, viewer=viewer)
+                    gres = mg.retrieve(question, viewer=viewer, limit=6 if voice else 8, plan=plan)
+                except Exception as e:  # noqa: BLE001 - graph retrieval never breaks normal answers
+                    log.warning("memgraph retrieve: %s", e)
+                    gres = {"links": [], "context": ""}
+                glinks = gres.get("links") or []
+                gtxt = gres.get("context") or ""
+                if glinks and gtxt:
+                    if viewer == "" and voice:
+                        gtxt = _priv.mask_all(gtxt)
+                    holder = GRAPH_LINKS.get()
+                    if holder is not None:
+                        holder[:] = glinks
+                    if any(x.get("status") in ("FACT", "CONTESTED") for x in glinks) and LOW_MATCH in (ctx or ""):
+                        ctx = (ctx or "").replace(LOW_MATCH + "\n\n", "").replace(LOW_MATCH, "")
+                    gblock = (
+                        "MEMORY GRAPH (structured facts & learned patterns — direct = stated by user, "
+                        "inferred = pattern across entries, sensor_fact = observed telemetry):\n"
+                        + flag_instructions(gtxt)
+                    )
+                    ctx = gblock + "\n\n" + (ctx or "")
         cal = getattr(self, "calendars", None)
         if cal and store is self.store:
             days = cal.lines_for(question)
@@ -1514,8 +1547,15 @@ class Mind:
         question = self.resolve(question, conversation_id, store) if conversation_id else question
         if voice and deadline is None:
             deadline = self.VOICE_SECONDS
-        hits, procs, ctx = (await self.context_for(store, question, k, shelf, model, expand, voice)) if use_brain \
-            else ([], [], "")
+        graph_links = []
+        if use_brain:
+            gtok = GRAPH_LINKS.set(graph_links)
+            try:
+                hits, procs, ctx = await self.context_for(store, question, k, shelf, model, expand, voice)
+            finally:
+                GRAPH_LINKS.reset(gtok)
+        else:
+            hits, procs, ctx = [], [], ""
         from . import privacy
         from .speakers import VIEWER
         if VIEWER.get() == "" and privacy.bulk(question):
@@ -1549,6 +1589,11 @@ class Mind:
                 "Answer in one short sentence and include the exact value, name or title asked for.", oe)
         if use_brain and ("PANTRY (" in (ctx or "") or "PANTRY:" in (ctx or "")):
             sysmsg += (" PANTRY lines list the food currently in the house and when it expires: use them for what's on hand.")
+        if use_brain and "MEMORY GRAPH (" in (ctx or ""):
+            sysmsg += (" MEMORY GRAPH lines show structured facts and learned patterns: treat 'direct' FACTs as stated "
+                       "truths, frame 'inferred' or 'sensor_fact' patterns naturally as observed trends (never claim "
+                       "the user explicitly said them), and if a line is marked CONTESTED, briefly ask the user to "
+                       "confirm rather than guessing.")
         if use_brain and "REFERENCE (offline Wikipedia" in (ctx or ""):
             sysmsg += (" REFERENCE passages come from an offline encyclopedia: use them for general facts the memory "
                        "notes don't cover, never for facts about the user, and say an answer came from Wikipedia.")
@@ -1564,7 +1609,10 @@ class Mind:
         plain = content
         base_sys = sysmsg
         prior = self._history(conversation_id, store) if conversation_id and not privacy.bulk(question) else []
-        has_personal = any((h.get("meta") or {}).get("scope") == "personal" for h in hits)
+        has_personal = (
+            any((h.get("meta") or {}).get("scope") == "personal" for h in hits)
+            or any(g.get("scope") == "personal" for g in graph_links)
+        )
         stream_ok = bool(on_sentence and voice and not notes_first and not has_personal and not privacy.bulk(question))
         for i, m in enumerate(chain):
             m_obj = self.models.get(m)
@@ -1641,6 +1689,60 @@ class Mind:
                     "sources": sources_for(best["body"], [best], question) if best else []}
         self._down.pop(used, None)
         text, named = read_answer(r["text"], notes_first)
+        loop_back_used = False
+        loop_back_ids = set()
+        mg = getattr(self, "memgraph", None)
+        if (use_brain and mg is not None and store is self.store and not voice and not privacy.bulk(question)
+                and DONT_KNOW.search(text) and used):
+            try:
+                lb = mg.loop_back(question, viewer=VIEWER.get(),
+                                  exclude_ids=[g["id"] for g in graph_links], limit=6)
+            except Exception as e:  # noqa: BLE001
+                log.warning("memgraph loop_back: %s", e)
+                lb = {"links": [], "context": ""}
+            if lb.get("links") and lb.get("context"):
+                m_obj = self.models.get(used)
+                lb_block = (
+                    "MEMORY GRAPH (RECALLED FROM DORMANT / DEEP MEMORY):\n"
+                    + flag_instructions(lb["context"])
+                )
+                lb_ctx = lb_block + "\n\n" + (ctx or "").replace(LOW_MATCH + "\n\n", "").replace(LOW_MATCH, "")
+                lb_plain = answer_content(store, question, lb_ctx, self.ORDER)
+                lb_content = cloud_safe(lb_plain, question, m_obj, store)
+                lb_sys = base_sys
+                if "MEMORY GRAPH lines show" not in lb_sys:
+                    lb_sys += (" MEMORY GRAPH lines show structured facts and learned patterns: treat 'direct' FACTs "
+                               "as stated truths, frame 'inferred' or 'sensor_fact' patterns naturally as observed "
+                               "trends (never claim the user explicitly said them), and if a line is marked CONTESTED, "
+                               "briefly ask the user to confirm rather than guessing.")
+                lb_sys = lb_sys + ("\n\nProcedures you know:\n" + cloud_safe(proc_text, question, m_obj, store)
+                                   if procs else "") + (NOTES_FIRST if notes_first else "")
+                lb_msgs = []
+                for pq, pa in prior:
+                    lb_msgs.append({"role": "user", "content": cloud_safe(pq, question, m_obj, store)})
+                    lb_msgs.append({"role": "assistant", "content": cloud_safe(pa, question, m_obj, store)})
+                lb_msgs.append({"role": "user", "content": lb_content})
+                left = None if deadline is None else deadline - (time.time() - t0)
+                if left is None or left > 0.5:
+                    try:
+                        coro2 = m_obj.chat(lb_sys, lb_msgs)
+                        r2 = await (asyncio.wait_for(coro2, left) if left is not None else coro2)
+                        text2, named2 = read_answer(r2["text"], notes_first)
+                        if text2 and not DONT_KNOW.search(text2):
+                            r, text, named = r2, text2, named2
+                            graph_links = list(graph_links) + list(lb["links"])
+                            loop_back_ids = {g["id"] for g in lb["links"]}
+                            mg.log_loop_back_hit(question, list(loop_back_ids), viewer=VIEWER.get())
+                            loop_back_used = True
+                    except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
+                        log.warning("memgraph loop_back chat: %s", e)
+        if mg is not None and store is self.store and graph_links and not DONT_KNOW.search(text):
+            try:
+                used_ids = [i for i in mg.used_links(text, graph_links) if i not in loop_back_ids]
+                if used_ids:
+                    mg.mark_shown(used_ids)
+            except Exception:  # noqa: BLE001
+                pass
         byid = {h["id"]: h for h in hits}
         sources = (sources_for(" ".join(f"#{i}" for i in named if i in byid), hits, question)
                    if any(i in byid for i in named) and not DONT_KNOW.search(text) else sources_for(text, hits, question))
@@ -1667,6 +1769,15 @@ class Mind:
             text = " ".join(streamed) if streamed else (spoken(text, ids={h["id"] for h in hits}) or text)
         out = {"answer": text, "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"],
                "sources": sources, "weak": weak}
+        if graph_links:
+            out["graph_links"] = [
+                {"id": g["id"], "source": g.get("source_name"), "relation": g["relation"],
+                 "target": g.get("target_name"), "status": g["status"], "evidence": g["evidence"],
+                 "dormant": bool(g.get("dormant"))}
+                for g in graph_links
+            ]
+        if loop_back_used:
+            out["loop_back"] = True
         if streamed:
             out["_streamed"] = streamed
         if question != original:
