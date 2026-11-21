@@ -395,6 +395,7 @@ class App:
         self.overnight.known_only = bool(self.opts.get("people"))
         self.convlog.who = self.who_by_device
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
+        self.pantry.memgraph = self.memgraph
         self.mind.pantry = self.pantry
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
@@ -1202,16 +1203,21 @@ class App:
     DEEP_VOICE_SECONDS = 6.0
 
     def meal_ok(self, b, who, other=None):
-        """A meal/recipe idea request from what's at home: handled by Pantry.suggest()."""
+        """A meal/recipe idea or weekly meal plan request from what's at home: handled by Pantry."""
         if other or who == "" or b.get("use_brain") is False or getattr(self, "pantry", None) is None:
             return None
-        from .pantry import meal_request
-        return meal_request(b.get("question") or "")
+        from .pantry import meal_request, week_plan_request
+        q = b.get("question") or ""
+        w = week_plan_request(q)
+        if w:
+            return dict(w, kind="week")
+        m = meal_request(q)
+        return dict(m, kind="single") if m else None
 
     async def meal_answer(self, b, who, req, quick):
-        """Meal ideas from Pantry.suggest() (what's in stock, expiring soonest, fitted to today); falls back to the
-        usual ask path if no model returns a usable plan."""
-        from .pantry import format_plan
+        """Meal ideas or a weekly meal plan + shopping list from Pantry; falls back to the usual ask path if no
+        model returns a usable plan."""
+        from .pantry import format_plan, format_week_plan
         voice = bool(b.get("voice"))
         chosen = b.get("model") if b.get("model") not in (None, "", "auto") else None
         md = getattr(self, "modes", None)
@@ -1233,11 +1239,32 @@ class App:
         async def run():
             for m in chain:
                 try:
-                    plan = await self.pantry.suggest(req["meal"], model=m, n=2 if voice else 3, request=req["request"])
-                    text = format_plan(plan, voice=voice)
-                    if text:
-                        return {"answer": text, "hits": [], "model": plan.get("model") or m,
-                                "meals": plan.get("meals"), "pantry": True}
+                    if req.get("kind") == "week":
+                        plan = await self.pantry.plan_week(
+                            days=req.get("days", 7), meals=req.get("meals"),
+                            request=req.get("request") or "", model=m, viewer=who,
+                        )
+                        text = format_week_plan(plan, voice=voice)
+                        if text:
+                            added_shop = []
+                            if req.get("auto_shop") and plan.get("shopping_items"):
+                                try:
+                                    added_shop = await self.pantry.add_to_shopping(plan["shopping_items"])
+                                    if added_shop:
+                                        text += (f" I also added {len(added_shop)} items to your shopping list."
+                                                 if voice else
+                                                 f"\n\nAdded {len(added_shop)} items to your Home Assistant shopping list.")
+                                except Exception as e:  # noqa: BLE001
+                                    log.warning("auto-shop failed: %s", e)
+                            return {"answer": text, "hits": [], "model": plan.get("model") or m,
+                                    "week_plan": plan, "missing": [] if added_shop else (plan.get("shopping_items") or []),
+                                    "pantry": True}
+                    else:
+                        plan = await self.pantry.suggest(req["meal"], model=m, n=2 if voice else 3, request=req["request"])
+                        text = format_plan(plan, voice=voice)
+                        if text:
+                            return {"answer": text, "hits": [], "model": plan.get("model") or m,
+                                    "meals": plan.get("meals"), "pantry": True}
                 except Exception as e:  # noqa: BLE001 - try next model, then fall back to quick
                     log.warning("meal answer with %s: %s", m, e)
             return None
@@ -3539,7 +3566,8 @@ def build(app_state):
 
     @r.get("/api/pantry")
     async def pantry_list(q):
-        return J({"items": A.pantry.items(q.query.get("status", "in")), "goals": A.pantry.goals()})
+        return J({"items": A.pantry.items(q.query.get("status", "in")), "goals": A.pantry.goals(),
+                  "week_plan": A.pantry.week_plan()})
 
     @r.post("/api/pantry/{op}")
     async def pantry_op(q):
@@ -3563,7 +3591,7 @@ def build(app_state):
             data = await part.read(decode=False)
             return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
         b = model_ok(await read_body(q, optional=True, text=str, name=str, location=str, source=str, meal=str,
-                                     request=str, items=list))
+                                     request=str, items=list, slot=str))
         if not isinstance(b.get("amount", ""), (str, int, float)) or not isinstance(b.get("use_by", ""), (str, int, float)):
             raise ValueError("amount and use_by should be text (or a number)")
         try:
@@ -3598,6 +3626,26 @@ def build(app_state):
             if op == "suggest":
                 return J(await A.pantry.suggest(b.get("meal"), b.get("model"), num(b.get("n"), "n", 3, 1, 10),
                                                b.get("request") or ""))
+            if op == "week":
+                d_val = whole(b["days"], "days") if b.get("days") is not None else 7
+                if not (1 <= d_val <= 7):
+                    raise ValueError("days must be between 1 and 7")
+                meals_arg = b.get("meals")
+                if meals_arg is not None and not isinstance(meals_arg, (str, list)):
+                    raise ValueError("meals should be text or a list")
+                if isinstance(meals_arg, list) and not all(isinstance(x, str) for x in meals_arg):
+                    raise ValueError("meals items should be text")
+                return J(await A.pantry.plan_week(days=d_val, meals=meals_arg, request=b.get("request") or "",
+                                                  model=b.get("model"), viewer=VIEWER.get()))
+            if op == "swap":
+                if b.get("day_index") is None:
+                    raise ValueError("missing day_index")
+                d_idx = whole(b["day_index"], "day_index")
+                return J(await A.pantry.swap_meal(d_idx, slot=b.get("slot") or "dinner",
+                                                  request=b.get("request") or "", model=b.get("model"),
+                                                  viewer=VIEWER.get()))
+            if op == "plan_clear":
+                return J(A.pantry.clear_week_plan())
             if op == "shop":
                 return J({"added": await A.pantry.add_to_shopping(b.get("items") or [])})
             if op == "goals":

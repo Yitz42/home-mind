@@ -533,6 +533,20 @@
       <select id="m_meal" aria-label="meal"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select>
       <input id="m_req" placeholder="anything else? (quick, no cooking…)" style="width:240px"> <button class="go" onclick="meals()">Suggest</button></div>
     <div id="m_today" class="mute"></div><div id="m_out"></div></div>
+  <div class="card food"><div class="row"><h2 style="margin:0;flex:1">Weekly meal plan</h2>
+      <select id="w_days" aria-label="days"><option value="7">7 days</option><option value="5">5 days</option><option value="3">3 days</option></select>
+      <select id="w_slots" aria-label="meals"><option value="dinner">dinners</option><option value="lunch,dinner">lunches &amp; dinners</option><option value="breakfast,lunch,dinner">all 3 meals</option></select>
+      <input id="w_req" placeholder="theme or preferences (high protein, quick weeknights…)" style="width:240px">
+      <button class="go" onclick="weekPlan()">Build week</button>
+      <button class="hide" id="w_clear" onclick="clearWeek()">Clear</button></div>
+    <div id="w_summary" class="mute"></div>
+    <div id="w_out"></div>
+    <div id="w_shop_wrap" class="hide" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">
+      <div class="row"><h3 style="margin:0;flex:1">Shopping list <span class="mute" id="w_shop_sub"></span></h3>
+        <button class="go" id="w_shop_btn" onclick="shopWeek()">Add to shopping list</button></div>
+      <div id="w_shop_out"></div>
+      <div id="w_shop_msg" class="mute"></div>
+    </div></div>
   <div class="card"><div class="row"><h2 style="margin:0;flex:1">In the house</h2>
       <label class="go" style="background:var(--acc);color:#fff;border-radius:7px;padding:7px 14px;cursor:pointer">📷 Add from photo<input type="file" accept="image/*" capture="environment" id="p_photo" class="hide" onchange="photo(this)"></label></div>
     <div class="row"><input id="p_text" placeholder="e.g. chicken, 2 lb ground beef and a dozen eggs" style="flex:1">
@@ -1449,6 +1463,90 @@ async function pantry() {
         return `<div class="li"><span class="days-b ${cls}">${when}</span><div class="main"><div class="t">${esc(i.name)}</div><div class="sub">${esc(i.amount || '')}${i.amount ? ' · ' : ''}${esc(i.location)}</div></div>
       <div class="acts"><a onclick="puse(${jsq(i.name)},'used')">used</a><a onclick="puse(${jsq(i.name)},'tossed')">tossed</a><a class="mute" onclick="premove(${i.id})">remove</a></div></div>`; }).join('') || '<span class="mute">nothing yet: add from a photo or type what you bought</span>';
   const g = r.goals; $('#g_goals').value = (g.goals || []).join('\n'); $('#g_tired').value = g.tired_days || ''; $('#g_avoid').value = (g.avoid || []).join(', ');
+  renderWeekPlan(r.week_plan);
+}
+let _weekShop = [];
+function renderWeekPlan(plan) {
+  const sum = $('#w_summary'), out = $('#w_out'), wrap = $('#w_shop_wrap'), clr = $('#w_clear');
+  if (!plan || !(plan.days || []).length) {
+    sum.textContent = 'Build a 3, 5, or 7-day plan using what expires first, then send the needed groceries straight to Home Assistant.';
+    out.innerHTML = ''; wrap.classList.add('hide'); clr.classList.add('hide'); _weekShop = [];
+    return;
+  }
+  clr.classList.remove('hide');
+  sum.textContent = plan.summary || `${plan.days.length}-day meal plan`;
+  out.innerHTML = plan.days.map((d, di) => `<div style="margin:10px 0;padding:8px 0;border-bottom:1px solid var(--bd)">
+    <div style="font-weight:600;margin-bottom:4px">${esc(d.day)}</div>` +
+    (d.meals || []).map(m => `<div style="margin:6px 0">
+      <div class="row" style="gap:8px;align-items:baseline">
+        <b>${esc(m.name)}</b> <span class="mute">${esc(m.slot || '')} · ~${esc(m.protein_g ?? '?')} g protein · ~${esc(m.calories ?? '?')} kcal</span>
+        <a style="margin-left:auto" onclick="swapMeal(${di},${jsq(m.slot || 'dinner')},${jsq(d.day + ' ' + m.name)})">Swap</a>
+      </div>
+      ${m.why ? `<div class="mute">${esc(m.why)}</div>` : ''}
+      ${(m.uses || []).length ? `<div class="mute">uses ${esc(m.uses.join(', '))}</div>` : ''}
+      ${m.steps ? `<div class="mute">${esc(Array.isArray(m.steps) ? m.steps.map((s, i) => (i + 1) + '. ' + s).join('  ') : m.steps)}</div>` : ''}
+    </div>`).join('') + '</div>').join('');
+  const list = plan.shopping_list || [];
+  _weekShop = list.map(x => ({label: String(x.label || x.item || ''), aisle: x.aisle || 'other', meals: x.meals || [], checked: true}));
+  wrap.classList.remove('hide');
+  $('#w_shop_msg').textContent = '';
+  if (!_weekShop.length) {
+    $('#w_shop_sub').textContent = 'everything in stock';
+    $('#w_shop_out').innerHTML = '<span class="mute">You already have everything needed for this plan.</span>';
+    $('#w_shop_btn').classList.add('hide');
+    return;
+  }
+  $('#w_shop_btn').classList.remove('hide');
+  const byAisle = {};
+  _weekShop.forEach((x, idx) => { (byAisle[x.aisle] = byAisle[x.aisle] || []).push({x, idx}); });
+  $('#w_shop_out').innerHTML = Object.entries(byAisle).map(([aisle, rows]) =>
+    `<div style="margin:8px 0"><div class="mute" style="text-transform:capitalize;font-weight:600;margin-bottom:3px">${esc(aisle)}</div>` +
+    rows.map(({x, idx}) => `<label style="display:flex;gap:8px;align-items:baseline;margin:3px 0;cursor:pointer">
+      <input type="checkbox" checked onchange="toggleWeekItem(${idx})">
+      <span>${esc(x.label)}</span>
+      <span class="mute" style="font-size:12px">${esc((x.meals || []).join(' · '))}</span>
+    </label>`).join('') + '</div>').join('');
+  updateWeekShopBtn();
+}
+function toggleWeekItem(idx) {
+  if (_weekShop[idx]) _weekShop[idx].checked = !_weekShop[idx].checked;
+  updateWeekShopBtn();
+}
+function updateWeekShopBtn() {
+  const n = _weekShop.filter(x => x.checked).length;
+  $('#w_shop_sub').textContent = `${n} of ${_weekShop.length} items selected`;
+  $('#w_shop_btn').textContent = n ? `Add ${n} to shopping list` : 'Select items to add';
+}
+async function weekPlan() {
+  $('#w_summary').textContent = 'planning your week…';
+  $('#w_out').innerHTML = '<span class="mute">matching expiring stock, goals and tastes…</span>';
+  const r = await api('api/pantry/week', {
+    days: +$('#w_days').value || 7,
+    meals: $('#w_slots').value.split(','),
+    request: $('#w_req').value,
+  });
+  if (r.error) { $('#w_summary').textContent = r.error; $('#w_out').innerHTML = ''; return; }
+  if (!(r.days || []).length) { $('#w_summary').textContent = 'could not parse a plan'; $('#w_out').innerHTML = `<pre>${esc(r.raw || '')}</pre>`; return; }
+  renderWeekPlan(r);
+}
+async function swapMeal(dayIndex, slot, label) {
+  const req = prompt(`Swap ${label} — want something specific? (leave blank for any fresh idea)`, '');
+  if (req === null) return;
+  $('#w_summary').textContent = `swapping ${label}…`;
+  const r = await api('api/pantry/swap', {day_index: dayIndex, slot, request: req});
+  if (r.error) { $('#w_summary').textContent = r.error; return; }
+  renderWeekPlan(r);
+}
+async function clearWeek() {
+  await api('api/pantry/plan_clear', {});
+  renderWeekPlan(null);
+}
+async function shopWeek() {
+  const items = _weekShop.filter(x => x.checked).map(x => x.label);
+  if (!items.length) return;
+  $('#w_shop_msg').textContent = 'sending to Home Assistant…';
+  const r = await api('api/pantry/shop', {items});
+  $('#w_shop_msg').textContent = r.error ? r.error : `Added ${(r.added || []).length} item(s) to your shopping list.`;
 }
 async function padd() { const r = await api('api/pantry/add', {text: $('#p_text').value, location: $('#p_loc').value || null, source: 'web'}); $('#p_out').textContent = r.error || ('added ' + (r.added || []).map(a => a.name).join(', ')); $('#p_text').value = ''; pantry(); }
 async function premove(id) { await api('api/pantry/remove', {id}); pantry(); }

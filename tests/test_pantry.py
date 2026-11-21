@@ -253,6 +253,100 @@ async def main():
     # a guest does not trigger Pantry.suggest and does not receive prior conversation turns
     guest_ans = await ma.answer({"question": "What can I make with the large eggs?", "speaker": "", "conversation_id": "conv-meal"})
     assert not guest_ans.get("pantry") and len(seen_sys[-1][2]) == 1, (guest_ans, seen_sys[-1][2])
+
+    # ---- weekly meal plan + smart shopping list + single-meal swap ----
+    from homemind.pantry import build_shopping_list, week_plan_request, format_week_plan
+
+    assert week_plan_request("Plan my meals for the week") == {
+        "days": 7, "meals": ["dinner"], "request": "Plan my meals for the week", "auto_shop": False}
+    w5 = week_plan_request("Build a 5 day lunch and dinner meal plan and add to my shopping list")
+    assert w5 and w5["days"] == 5 and w5["meals"] == ["lunch", "dinner"] and w5["auto_shop"] is True, w5
+    assert week_plan_request("What is the wifi password?") is None
+
+    # Deterministic shopping list: merges matching quantities, subtracts fresh stock, groups by aisle!
+    sample_days = [
+        {"day": "Mon Nov 23", "meals": [
+            {"slot": "dinner", "name": "Chicken Broccoli Bowl", "uses": ["large eggs"],
+             "need": [{"item": "broccoli", "amount": "1 head", "aisle": "produce"},
+                      {"item": "chicken breast", "amount": "1 lb", "aisle": "meat & seafood"},
+                      {"item": "baby spinach", "amount": "1 bag", "aisle": "produce"}],
+             "protein_g": 45, "calories": 520, "why": "high protein", "steps": "Cook and serve."}]},
+        {"day": "Tue Nov 24", "meals": [
+            {"slot": "dinner", "name": "Spicy Chicken Stir Fry", "uses": [],
+             "need": [{"item": "broccoli", "amount": "2 heads", "aisle": "produce"},
+                      {"item": "chicken breast", "amount": "1 lb", "aisle": "meat & seafood"},
+                      {"item": "soy sauce", "amount": "1 bottle", "aisle": "pantry & dry"}],
+             "protein_g": 42, "calories": 490, "why": "overlaps broccoli & chicken", "steps": "Stir fry."}]},
+    ]
+    sl = build_shopping_list(sample_days, p2.items())
+    by_item = {x["item"].lower(): x for x in sl}
+    assert "baby spinach" not in by_item, sl          # already in stock -> subtracted!
+    assert by_item["broccoli"]["amount"] == "3 heads" and len(by_item["broccoli"]["meals"]) == 2, by_item
+    assert by_item["chicken breast"]["amount"] == "2 lb", by_item
+    assert [x["aisle"] for x in sl] == ["produce", "meat & seafood", "pantry & dry"], sl
+
+    # End-to-end plan_week, live recomputation after buying an item, swap_meal, and App.answer routing
+    week_reply = {"summary": "High-protein week using up eggs and spinach.", "days": sample_days}
+    swap_reply = {
+        "slot": "dinner", "name": "Garlic Salmon & Asparagus", "uses": [],
+        "need": [{"item": "salmon", "amount": "1 lb", "aisle": "meat & seafood"},
+                 {"item": "asparagus", "amount": "1 bunch", "aisle": "produce"}],
+        "protein_g": 40, "calories": 480, "why": "lighter fish night", "steps": "Roast 15 min.",
+    }
+
+    class WeekModel:
+        type, cfg = "mock", {}
+
+        async def chat(self, system, msgs, **k):
+            seen_sys.append((system, msgs[-1]["content"], list(msgs)))
+            if "replace ONE meal" in system:
+                return {"text": json.dumps(swap_reply), "ms": 1}
+            if "multi-day meal plan" in system:
+                return {"text": json.dumps(week_reply), "ms": 1}
+            return {"text": json.dumps(sample_plan), "ms": 1}
+
+    class WeekModels:
+        def __init__(self):
+            self.m = WeekModel()
+            self.models = {"haiku": self.m}
+
+        def get(self, n):
+            return self.m
+
+    wm = WeekModels()
+    p3 = Pantry(mind.store, ha, wm, tempfile.mkdtemp())
+    p3.add("large eggs", "6", "fridge")
+    p3.add("baby spinach", "1 bag", "fridge")
+    wp = await p3.plan_week(days=2, meals=["dinner"], request="high protein")
+    assert len(wp["days"]) == 2 and len(wp["shopping_list"]) == 3, wp
+    assert p3.week_plan()["shopping_items"] == ["3 heads broccoli", "2 lb chicken breast", "1 bottle soy sauce"], p3.week_plan()
+
+    # Adding soy sauce to pantry automatically removes it from saved week_plan()'s shopping list!
+    p3.add("soy sauce", "1 bottle", "pantry")
+    assert "1 bottle soy sauce" not in p3.week_plan()["shopping_items"], p3.week_plan()["shopping_items"]
+
+    # Swap day 1 dinner -> updates meal AND recomputes shopping list cleanly!
+    sw = await p3.swap_meal(1, slot="dinner", request="something lighter with fish")
+    assert sw["days"][1]["meals"][0]["name"] == "Garlic Salmon & Asparagus", sw
+    sw_items = {x["item"].lower() for x in sw["shopping_list"]}
+    assert "salmon" in sw_items and "asparagus" in sw_items and "soy sauce" not in sw_items, sw["shopping_list"]
+    assert sw["shopping_list"][0]["aisle"] == "produce"
+
+    # Formatters (screen + voice)
+    w_scr = format_week_plan(sw, voice=False)
+    w_voc = format_week_plan(sw, voice=True)
+    assert "Chicken Broccoli Bowl" in w_scr and "Garlic Salmon & Asparagus" in w_scr and "Shopping list (" in w_scr, w_scr
+    assert "\n" not in w_voc and "2-day meal plan" in w_voc, w_voc
+
+    # App.answer routes weekly meal plan asks and populates missing for Talk's shopping chip!
+    ma.models = wm
+    ma.pantry = p3
+    w_ans = await ma.answer({"question": "Help me build a 2 day meal plan for the week", "conversation_id": "conv-week"})
+    assert w_ans.get("pantry") and w_ans.get("week_plan") and w_ans.get("missing"), w_ans
+    assert "Chicken Broccoli Bowl" in w_ans["answer"] and "Shopping list" in w_ans["answer"], w_ans
+
+    p3.clear_week_plan()
+    assert p3.week_plan() is None
     print("PANTRY OK")
 
 
