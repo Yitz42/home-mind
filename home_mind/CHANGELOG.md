@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.31.6
+- The food database now really loads USDA's as-eaten (FNDDS) and Foundation foods: their nutrients are matched
+  through the release's own nutrient list (by id, or by the older SR number) instead of fixed ids only, so a release
+  that numbers them differently still loads. Both were being skipped (Foundation since the database was first
+  built). They're added to the existing database on their own; portion weights are no longer doubled when a set is
+  loaded again, and the status shows what each file held and what was kept.
+
 ## 0.31.5
 - Meal ideas on Home come as cards instead of a block of text: the name, protein and calories as chips, one line on
   why, what it uses from the pantry as pills (anything to buy dashed), the steps folded away, and buttons for "I'm

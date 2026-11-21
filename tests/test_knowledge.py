@@ -121,6 +121,20 @@ async def main():
     assert k.food_ready()
     assert k.food_counts() == {"sr_legacy": 3, "branded": 2, "survey": 2, "portions": 2}, k.food_counts()
     assert k.food("bowl of chili with beans")[0]["source"] == "USDA as eaten"     # 'bowl' isn't in the name
+    assert k._add_to_food_db({"survey": sv}) == 2 and k.food_counts()["portions"] == 2      # loading again: no doubles
+    assert k.load_report["survey"]["kept"] == 2 and "1003" in k.load_report["survey"]["nutrient_ids"]
+    # a release that writes nutrient ids differently ('1008.0', or ids known only through nutrient.csv's SR numbers)
+    odd = os.path.join(kd, "odd.zip")
+    make_zip(odd, {
+        "food.csv": [("fdc_id", "data_type", "description"), ("30", "survey_fndds_food", "Oatmeal, made with water")],
+        "nutrient.csv": [("id", "name", "unit_name", "nutrient_nbr"), ("9001", "Energy", "KCAL", "208"),
+                         ("9002", "Protein", "G", "203"), ("9003", "Fiber, total dietary", "G", "291")],
+        "food_nutrient.csv": [("id", "fdc_id", "nutrient_id", "amount"), ("1", "30", "9001", "71"),
+                              ("2", "30", "9002", "2.5"), ("3", "30", "1079.0", "1.7")],
+    })
+    assert k._add_to_food_db({"survey2": odd}) == 1
+    oat = k.food("oatmeal made with water")[0]
+    assert oat["per_100g"] == {"kcal": 71.0, "protein": 2.5, "fiber": 1.7}, oat
 
     # --- pantry: real numbers in meal ideas ---------------------------------------------------------------------------
     st = Store(tempfile.mktemp())
