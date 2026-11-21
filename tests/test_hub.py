@@ -103,6 +103,8 @@ for route in ('"/api/hub"', '"/api/checkins"', '"/api/log"', '"/api/todo"'):
 web = open(os.path.join(os.path.dirname(hub.__file__), "web", "index.html")).read()
 check("the page has no Talk tab any more", 'data-t="talk"' not in web)
 check("the page loads the hub", "api/hub" in web and "api/checkins" in web)
+check("home ask bar supports thread, sources, shopping chip, and comparison",
+      all(k in web for k in ('id="hb_hist"', 'id="hb_src"', 'id="hb_cmp"', "api/talk/new", "api/pantry/shop")))
 
 n1 = hub.needs(A, {"review": 1}, None, noon, "home", {"open": 0})
 check("1 note to check is singular", any(n["title"] == "1 note to check" for n in n1), n1)

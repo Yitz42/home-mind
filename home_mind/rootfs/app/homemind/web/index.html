@@ -189,13 +189,22 @@
   .hb-logs b { font:600 16px/1 var(--head) } .hb-logs .water { background:var(--house-bg); color:var(--house-ink) } .hb-logs .coffee { background:color-mix(in srgb, #8a5a2b 16%, var(--card)); color:color-mix(in srgb, #6f4424 80%, var(--ink)) }
   .hb-logs .meal { background:var(--food-bg); color:var(--food-ink) } .hb-logs .note { background:var(--mem-bg); color:var(--acc-ink) } .hb-logs button.on { border-color:currentColor }
   .hb-bar { order:2; border-radius:18px; background:var(--card); border:1.5px solid var(--mem-line); overflow:hidden } .hb-bar.mode { border-color:var(--acc) }
-  .hb-in { display:flex; align-items:center; gap:8px; min-height:52px; padding:0 6px 0 14px } .hb-in input { flex:1; min-width:0; border:0; background:none; outline:none; padding:0; min-height:40px; font-size:15px }
+  .hb-in { display:flex; align-items:center; gap:6px; min-height:52px; padding:0 6px 0 14px } .hb-in input { flex:1; min-width:0; border:0; background:none; outline:none; padding:0; min-height:40px; font-size:15px }
   .hb-pre { flex:none; padding:4px 10px; border-radius:99px; font-size:13px; font-weight:700; background:var(--mem-bg); color:var(--acc-ink) }
+  .hb-hist-btn { width:34px; height:34px; flex:none; border-radius:10px; border:0; background:transparent; color:var(--mute); display:flex; align-items:center; justify-content:center; cursor:pointer } .hb-hist-btn:hover { background:var(--card2); color:var(--ink) }
   .hb-go { width:40px; height:40px; flex:none; border-radius:12px; border:0; background:var(--acc); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer } .hb-go.on { background:var(--bad) }
   .hb-extra, .hb-ans { border-top:1px solid var(--line); padding:9px 12px 11px; background:color-mix(in srgb, var(--acc) 4%, var(--card)); display:flex; flex-direction:column; gap:8px }
-  .hb-ans-t { display:flex; gap:8px; align-items:flex-start; font-size:14px; white-space:pre-wrap } .hb-ans-t span { flex:1 } .hb-ans-t button { border:0; background:none; color:var(--mute); cursor:pointer; min-width:28px; min-height:28px }
+  .hb-ans-top { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--mute) } .hb-ans-top > span:first-child { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .hb-ans-acts { display:flex; align-items:center; gap:4px; flex:none } .hb-ans-acts button { border:0; background:none; color:var(--mute); cursor:pointer; font:inherit; font-size:12px; font-weight:600; padding:2px 6px; border-radius:8px; min-height:26px } .hb-ans-acts button:hover { background:var(--card2); color:var(--ink) }
+  .hb-ans-t { display:flex; gap:8px; align-items:flex-start; font-size:14px; line-height:1.45; white-space:pre-wrap } .hb-ans-t span { flex:1 }
+  .hb-hist { display:flex; flex-direction:column; gap:6px; max-height:210px; overflow-y:auto; padding-bottom:8px; border-bottom:1px solid var(--line); font-size:13px }
+  .hb-ht { display:flex; flex-direction:column; gap:1px; line-height:1.4; white-space:pre-wrap } .hb-ht b { font-size:11px; color:var(--mute); font-weight:600 } .hb-ht.you b { color:var(--acc-ink) }
+  .hb-src { display:flex; flex-wrap:wrap; gap:5px; align-items:center; font-size:12px; color:var(--mute) } .hb-src:empty { display:none }
+  .hb-src button, .hb-src span { border:1px solid var(--line); background:var(--card); color:var(--mute); border-radius:99px; padding:2px 9px; font:inherit; font-size:11px; line-height:1.5 } .hb-src button { cursor:pointer; color:var(--acc-ink); border-color:var(--mem-line) }
   .hb-chips { display:flex; flex-wrap:wrap; gap:6px } .hb-chips:empty { display:none }
   .hb-chips button, .hb-extra .c { min-height:34px; padding:0 12px; border-radius:99px; border:1px solid var(--mem-line); background:var(--card); color:var(--acc-ink); font:inherit; font-size:13px; font-weight:600; cursor:pointer }
+  .hb-chips button.shop { background:var(--food-bg); border-color:var(--food-line); color:var(--food-ink) } .hb-chips button:disabled { opacity:.65; cursor:default }
+  .hb-cmp { font-size:12px; border-top:1px solid var(--line); padding-top:8px; display:flex; flex-direction:column; gap:6px } .hb-cmp:empty { display:none } .hb-cmp summary { cursor:pointer; color:var(--mute); font-weight:600 } .hb-cmp .qt { margin-top:4px; white-space:pre-wrap; color:var(--ink) } .hb-cmp .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center } .hb-cmp button { min-height:28px; padding:0 10px; border-radius:99px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-size:12px; font-weight:600; cursor:pointer }
   .hb-need { order:4; padding:14px 16px; border-radius:20px; background:var(--card); border:1px solid var(--mem-line); display:flex; flex-direction:column; gap:10px }
   .hb-need .k { font-size:12px; font-weight:600; color:var(--acc-ink) } .hb-need .t { font-weight:700; font-size:15px } .hb-need .s { font-size:12px; color:var(--mute) }
   .hb-need .top { display:flex; gap:10px; align-items:flex-start } .hb-need .top > div { flex:1; display:flex; flex-direction:column; gap:2px } .hb-need .n { font-size:12px; color:var(--mute); white-space:nowrap }
@@ -291,9 +300,17 @@
       <div class="hb-bar" id="hb_bar">
         <div class="hb-in"><span class="hb-pre hide" id="hb_pre"></span>
           <input id="hb_q" placeholder="Ask, tell, or control anything…" aria-label="Ask, tell, or control anything" onkeydown="if (event.key === 'Enter') hbSend(); if (event.key === 'Escape') hbMode(null)" oninput="hbBtn()">
+          <button class="hb-hist-btn hide" id="hb_hist_btn" onclick="hbToggleHist()" aria-label="Recent conversation" title="Recent conversation"></button>
           <button class="hb-go" id="hb_go" onclick="hbGo()" aria-label="Speak"></button></div>
         <div class="hb-extra hide" id="hb_extra"></div>
-        <div class="hb-ans hide" id="hb_ans" aria-live="polite"><div class="hb-ans-t"><span id="hb_ans_t"></span><button onclick="hbClear()" aria-label="Close answer">✕</button></div><div class="hb-chips" id="hb_chips"></div></div>
+        <div class="hb-ans hide" id="hb_ans" aria-live="polite">
+          <div class="hb-hist hide" id="hb_hist"></div>
+          <div class="hb-ans-top"><span id="hb_ans_q"></span><span class="hb-ans-acts"><button class="hide" id="hb_hist_tog" onclick="hbToggleHist()">Thread</button><button class="hide" id="hb_new_btn" onclick="hbNew()">New</button><button onclick="hbClear()" aria-label="Close answer">✕</button></span></div>
+          <div class="hb-ans-t"><span id="hb_ans_t"></span></div>
+          <div class="hb-src" id="hb_src"></div>
+          <div class="hb-chips" id="hb_chips"></div>
+          <div class="hb-cmp" id="hb_cmp"></div>
+        </div>
       </div>
       <div class="hb-need hide" id="hb_need"></div>
       <div class="hb-stats" id="hb_stats_wrap">
@@ -742,13 +759,14 @@ async function loadMore() {
 
 // ---- Home (0.31): icons above the ask bar, answers that grow under it, status tabs, For you, tiles by situation ----
 let HUB = null, HC = null;
-const HB = {mode: null, stat: null, statDay: 6, win: null, rec: null, listening: false};
+const HB = {mode: null, stat: null, statDay: 6, win: null, rec: null, listening: false, turns: [], histOpen: false};
 const HB_SKIP = (() => { try { const o = JSON.parse(localStorage.getItem('hb_skip') || '{}'), now = Date.now(); Object.keys(o).forEach(k => { if (now - o[k] > 2 * 86400e3) delete o[k]; }); return o; } catch (e) { return {}; } })();
 const hbSaveSkip = () => { try { localStorage.setItem('hb_skip', JSON.stringify(HB_SKIP)); } catch (e) { /* storage off: skips last until reload */ } };
 const CK_TAGS = ['Headache', "Can't focus", 'Tired eyes', 'Anxious', 'Hungry'], CK_WORDS = ['clear', 'slight', 'mild', 'noticeable', 'heavy', "can't think"];
 const CK = {fog: 2, energy: 'ok', tags: [], note: '', ago: 0};
 const hbSvg = (p, s = 18, w = 2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 const HBI = {mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>', send: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  hist: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   cloud: '<path d="M7 18a4 4 0 1 1 .9-7.9A6 6 0 0 1 19 12a3 3 0 0 1 0 6z"/>', rain: '<path d="M7 15a4 4 0 1 1 .9-7.9A6 6 0 0 1 19 9a3 3 0 0 1 0 6zM8 19l-1 2M12 19l-1 2M16 19l-1 2"/>',
   drop: '<path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/>', power: '<path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>'};
@@ -760,7 +778,9 @@ function hbTod() { const h = new Date().getHours(); return h < 5 || h >= 21 ? 'n
 function hbWxIcon(state, s) { const x = String(state || ''); return hbSvg(/rain|pour|snow|hail|storm/.test(x) ? HBI.rain : /sun|clear/.test(x) ? HBI.sun : HBI.cloud, s, 1.8); }
 
 async function hubLoad() {
-  const [h, c] = await Promise.all([api('api/hub'), api('api/controls')]);
+  const [h, c, tk] = await Promise.all([api('api/hub'), api('api/controls'), api('api/talk')]);
+  HB.turns = tk && Array.isArray(tk.turns) ? tk.turns : [];
+  hbHistSync();
   if (!h || h.error || !h.logs || !h.status) { hbAnswer("Home Mind isn't answering" + (h && h.error ? ': ' + h.error : '') + ". Check the app's Log tab."); return; }
   HUB = h; HC = c && !c.error ? c : null; T = {room: HC ? HC.room : {}};
   $('#ver').textContent = 'v' + h.version;
@@ -836,24 +856,111 @@ async function hbSend(text, spoken) {
     hbAnswer(r.error || `Logged at ${r.at || hbClock(Date.now() / 1000)}: ${v}. I'll estimate the protein.`); setTimeout(hubLoad, 2500); return;
   }
   if (m === 'note') { if (!v) return; hbMode(null); const r = await api('api/remember', {text: v}); return hbAnswer(r.error || 'Saved to Memory.'); }
-  hbAnswer('…');
+  hbAnswer('…', [], {q: v});
   const r = await api('api/talk', {text: v, spoken: !!spoken});
-  if (r.error && !r.answer) return hbAnswer(r.error);
-  hbAnswer(r.answer, r.choices);
+  if (r.error && !r.answer) return hbAnswer(r.error, [], {q: v});
+  const now = Date.now() / 1000;
+  HB.turns.push({who: 'you', text: v, at: now}, {who: 'home mind', text: r.answer || '', at: now, choices: r.choices,
+    sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, pantry: r.pantry, deep: r.deep});
+  if (HB.turns.length > 100) HB.turns = HB.turns.slice(-100);
+  hbAnswer(r.answer, r.choices, {q: v, sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id});
   if (spoken && r.answer && window.speechSynthesis) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(r.answer)); }
   if (r.via === 'do' || r.checkin) setTimeout(hubLoad, 900);
 }
+function hbHistSync() {
+  const b = $('#hb_hist_btn');
+  b.innerHTML = hbSvg(HBI.hist, 17, 1.9);
+  b.classList.toggle('hide', !HB.turns.length);
+  const older = Math.max(0, Math.floor((HB.turns.length - 2) / 2));
+  const tog = $('#hb_hist_tog');
+  tog.classList.toggle('hide', older < 1);
+  tog.textContent = HB.histOpen ? 'Hide thread' : `Thread (${older})`;
+  $('#hb_new_btn').classList.toggle('hide', !HB.turns.length);
+  if (HB.histOpen) hbHistRender(); else $('#hb_hist').classList.add('hide');
+}
+function hbHistRender() {
+  const box = $('#hb_hist');
+  const prev = HB.turns.slice(0, Math.max(0, HB.turns.length - 2)).slice(-20);
+  box.innerHTML = '';
+  if (!prev.length) { box.classList.add('hide'); return; }
+  prev.forEach(t => {
+    const row = document.createElement('div'); row.className = 'hb-ht' + (t.who === 'you' ? ' you' : '');
+    const who = document.createElement('b'); who.textContent = (t.who === 'you' ? 'You' : 'Home Mind') + (t.at ? ' · ' + hbClock(t.at) : '');
+    const txt = document.createElement('span'); txt.textContent = t.text || '';
+    row.append(who, txt); box.append(row);
+  });
+  box.classList.remove('hide');
+  box.scrollTop = box.scrollHeight;
+}
+function hbToggleHist() {
+  if ($('#hb_ans').classList.contains('hide') && HB.turns.length) {
+    const last = HB.turns[HB.turns.length - 1], prev = HB.turns.length > 1 ? HB.turns[HB.turns.length - 2] : null;
+    const q = prev && prev.who === 'you' ? prev.text : '';
+    HB.histOpen = HB.turns.length > 2;
+    hbAnswer(last.text, last.choices, {q, sources: last.sources, missing: last.missing, quick: last.quick, compare_id: last.compare_id});
+    return;
+  }
+  HB.histOpen = !HB.histOpen;
+  hbHistSync();
+}
+async function hbNew() {
+  await api('api/talk/new', {});
+  HB.turns = []; HB.histOpen = false;
+  hbClear(); hbHistSync();
+}
 function hbAnswer(text, choices, o) {
-  o = o || {}; $('#hb_ans').classList.remove('hide'); $('#hb_ans_t').textContent = text || '';
+  o = o || {}; $('#hb_ans').classList.remove('hide');
+  $('#hb_ans_q').textContent = o.q ? `You: ${o.q}` : '';
+  $('#hb_ans_t').textContent = text || '';
+  const src = $('#hb_src'); src.innerHTML = '';
+  (o.sources || []).forEach(s => {
+    if (!s || !s.title) return;
+    if (s.id) {
+      const b = document.createElement('button'); b.type = 'button';
+      b.textContent = s.title + (s.noted ? ` · ${s.noted}` : '');
+      b.onclick = () => { go('memory'); item(s.id); };
+      src.append(b);
+    } else {
+      const sp = document.createElement('span'); sp.textContent = s.title; src.append(sp);
+    }
+  });
   const c = $('#hb_chips'); c.innerHTML = '';
+  if (o.missing && o.missing.length) {
+    const b = document.createElement('button'); b.className = 'shop';
+    const items = o.missing;
+    b.textContent = items.length <= 2 ? `+ Add ${items.join(', ')} to shopping list` : `+ Add ${items.length} missing items to shopping list`;
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Adding…';
+      const r = await api('api/pantry/shop', {items});
+      b.textContent = r && r.error ? r.error : 'Added to shopping list ✓';
+      if (!r || !r.error) setTimeout(hubLoad, 600);
+    };
+    c.append(b);
+  }
   (choices || []).forEach(l => { const b = document.createElement('button'); b.textContent = l; b.onclick = () => hbSend(l); c.append(b); });
   if (o.undo) {
     const b = document.createElement('button'); b.textContent = 'Undo';
     b.onclick = async () => { const r = await api('api/log', {kind: o.undo, n: -1}); if (!r.error) hbCounts(r); hbAnswer(r.error || 'Taken back.'); };
     c.append(b);
   }
+  const cmp = $('#hb_cmp'); cmp.innerHTML = '';
+  if (o.quick && o.quick.answer && o.compare_id) {
+    const d = document.createElement('details'), sm = document.createElement('summary'), qt = document.createElement('div');
+    sm.textContent = 'The quick answer, for comparison'; qt.className = 'qt'; qt.textContent = o.quick.answer;
+    d.append(sm, qt);
+    const row = document.createElement('div'); row.className = 'row';
+    const lab = document.createElement('span'); lab.className = 'mute'; lab.textContent = 'Which was better?';
+    row.append(lab);
+    for (const [k, t] of [['deep', 'This one'], ['quick', 'The quick one'], ['same', 'About the same']]) {
+      const b = document.createElement('button'); b.textContent = t;
+      b.onclick = async () => { const x = await api('api/answer_pick', {id: o.compare_id, pick: k}); row.textContent = (x && x.error) || 'Thanks, noted.'; };
+      row.append(b);
+    }
+    cmp.append(d, row);
+  }
+  hbHistSync();
 }
-function hbClear() { $('#hb_ans').classList.add('hide'); }
+function hbClear() { HB.histOpen = false; $('#hb_hist').classList.add('hide'); $('#hb_ans').classList.add('hide'); }
 function hbMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return hbAnswer("Voice input isn't available in this browser (it needs Chrome, Edge or Safari, and microphone access). Typing works the same.");
