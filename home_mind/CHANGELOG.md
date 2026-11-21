@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.31.3
+- Readings under Energy, Fog and Ready can be fixed: tap Sleep, HRV, Wakeups or Steps, type the right number and
+  Save. A fixed reading is marked "edited", stays over what the watch says, and "Undo edit" puts the watch's back.
+  A day with no sleep reading offers to add it (`/api/day_edit`).
+- Bigger close buttons on Home's windows and on the answer under the ask bar.
+
 ## 0.31.2
 - Home always shows four tiles: when the usual ones have nothing to show (no to-do list with due dates, no locks),
   Bedroom, Last night or Tomorrow fill in. On a phone the tiles grow to fill the screen below the status tabs.

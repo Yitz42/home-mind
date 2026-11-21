@@ -346,6 +346,43 @@ class Patterns:
                 row["events"] = sum(1 for e in ev if not e["meta"].get("all_day"))
             except Exception:  # noqa: BLE001
                 row["events"] = None
+        row.update(self.edits().get(row["day"], {}))
+        return row
+
+    # ---- corrections typed on Home (they beat the watch, kept apart so a refresh can't undo them) ----------------------
+    EDITABLE = {"sleep_h": (0, 16), "wakeups": (0, 30), "hrv": (5, 250), "steps_prev": (0, 100000)}
+
+    def edits(self):
+        return self.store.kv_get("day_edits", {}) or {}
+
+    def edit(self, day, key, value):
+        """Set (value) or clear (None) one reading for a day. Returns the saved row."""
+        if key not in self.EDITABLE:
+            raise ValueError(f"{key} can't be edited")
+        if not isinstance(day, date):
+            day = date.fromisoformat(str(day))
+        if day > date.today() or day < date.today() - timedelta(days=30):
+            raise ValueError("only the last 30 days can be edited")
+        ed = self.edits()
+        d = ed.setdefault(day.isoformat(), {})
+        if value is None:
+            d.pop(key, None)
+        else:
+            lo, hi = self.EDITABLE[key]
+            v = float(value)
+            if not lo <= v <= hi:
+                raise ValueError(f"{key} must be {lo} to {hi}")
+            d[key] = round(v, 1) if key == "sleep_h" else round(v)
+        if not d:
+            ed.pop(day.isoformat(), None)
+        self.store.kv_set("day_edits", ed)
+        row = self.get(day) or {"day": day.isoformat()}
+        if value is None:
+            row.pop(key, None)
+        else:
+            row[key] = d[key]
+        row["edited"] = sorted(d)
+        self.save(row)
         return row
 
     @staticmethod

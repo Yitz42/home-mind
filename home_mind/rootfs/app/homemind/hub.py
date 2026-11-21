@@ -63,6 +63,7 @@ LABELS = {"sleep_h": ("Sleep", " h", 1), "wakeups": ("Wakeups", "", 0), "hrv": (
 STAT_FACTORS = {"energy": ["sleep_h", "wakeups", "steps_prev", "caffeine_late_prev"],
                 "fog": ["sleep_h", "events", "caffeine_late_prev", "wakeups"],
                 "readiness": ["sleep_h", "hrv", "wakeups", "steps_prev"]}
+EDITABLE = ("sleep_h", "wakeups", "hrv", "steps_prev")
 LIVE = {"energy": ["protein", "coffee"], "fog": ["water"], "readiness": []}
 
 
@@ -89,13 +90,18 @@ def factors_for(rows, live, today):
             fs = []
             for k in keys + (LIVE[s] if is_today else []):
                 v = live.get(k) if k in live and is_today else r.get(k)
+                if k == "sleep_h" and v is None and r.get("day"):
+                    fs.append({"key": k, "label": LABELS[k][0], "value": "–", "tag": "add", "kind": "",
+                               "note": "No sleep reading. Tap to add it.", "raw": None, "edit": True, "edited": False})
+                    continue
                 if v is None or isinstance(v, bool) and k != "caffeine_late_prev":
                     continue
                 if not isinstance(v, (int, float)):
                     continue
                 tag, kind, note = _judge(k, v, base, live=is_today)
                 fs.append({"key": k, "label": LABELS[k][0], "value": _fmt(k, v), "tag": tag, "kind": kind,
-                           "note": note})
+                           "note": note, "raw": v, "edit": k in EDITABLE,
+                           "edited": k in (r.get("edited") or [])})
             days.append(fs)
         out[s] = days
     return out
@@ -277,7 +283,7 @@ async def build(A, now=None):
                       if (sig.get("sleep_hours") or seven[-1].get("sleep_h")) else "", "series": rd_s, "max": 100},
     }
     live = {"protein": t.get("protein_g") or 0, "water": counts["water"], "coffee": counts["coffee"]}
-    if sig.get("sleep_hours") is not None:
+    if sig.get("sleep_hours") is not None and "sleep_h" not in (seven[-1].get("edited") or []):
         seven[-1]["sleep_h"] = sig["sleep_hours"]
     ha = A.ha if getattr(A, "ha", None) and A.ha.available else None
     where = place(A)

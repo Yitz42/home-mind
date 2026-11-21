@@ -167,6 +167,7 @@ ROUTES = [
     ("GET", "/api/checkins", ["day", "days"]),
     ("POST", "/api/checkins", ["fog", "energy", "tags", "note", "at", "minutes_ago", "person"]),
     ("POST", "/api/log", ["kind", "n", "person"]),
+    ("POST", "/api/day_edit", ["day", "key", "value"]),
     ("POST", "/api/todo", ["op", "entity", "item", "uid"]),
     ("GET", "/api/learned", ["status"]),
     ("GET", "/api/learned/match", ["q"]),

@@ -116,5 +116,17 @@ check("1 note to check is singular", any(n["title"] == "1 note to check" for n i
 n2 = hub.needs(A, {"review": 2}, None, noon, "home", {"open": 0})
 check("2 notes to check is plural", any(n["title"] == "2 notes to check" for n in n2), n2)
 
+fx = hub.factors_for([{"day": "2026-11-20", "sleep_h": 7.0, "edited": ["sleep_h"], "steps_prev": 5000},
+                      {"day": "2026-11-21"}], {}, "2026-11-21")
+r0 = {f["key"]: f for f in fx["readiness"][0]}
+check("readings say they can be edited and which were", r0["sleep_h"]["edit"] and r0["sleep_h"]["edited"]
+      and r0["sleep_h"]["raw"] == 7.0 and r0["steps_prev"]["edit"] and not r0["steps_prev"]["edited"], r0)
+r1 = fx["readiness"][1]
+check("a day with no sleep offers to add it", len(r1) == 1 and r1[0]["key"] == "sleep_h" and r1[0]["raw"] is None
+      and r1[0]["edit"], r1)
+check("route /api/day_edit and the inline editor", '"/api/day_edit"' in src and "api/day_edit" in web
+      and "function hbFSave" in web)
+check("close buttons are 44px", ".hb-win-h button { width:44px; height:44px" in web)
+
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)
