@@ -363,7 +363,11 @@ class Overnight:
         if mg is not None:
             try:
                 from .memgraph import Janitor
+                pat = getattr(self, "patterns", None)
+                synced = mg.sync_patterns(pat, days=14, owner=getattr(self, "memgraph_owner", None)) if pat is not None else None
                 mg_rep = await Janitor(mg).run_nightly(model)
+                if synced is not None:
+                    mg_rep["sensor_sync"] = synced
             except Exception as e:  # noqa: BLE001
                 log.warning("memgraph janitor: %s", e)
         self.last = {"at": time.time(), "model": name, "turns": len(done), "filed": len(filed), "already_known": skipped,

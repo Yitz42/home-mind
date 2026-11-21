@@ -403,6 +403,20 @@ class App:
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
         self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
         self.mind.patterns = self.patterns
+        _ppl = self.people() or []
+        mg_owner = _ppl[0]["name"] if len(_ppl) == 1 else None
+        self.home.memgraph = self.memgraph
+        self.patterns.memgraph = self.memgraph
+        self.patterns.memgraph_owner = mg_owner
+        self.fitness.memgraph = self.memgraph
+        self.overnight.patterns = self.patterns
+        self.overnight.memgraph_owner = mg_owner
+        try:
+            synced = self.memgraph.sync_patterns(self.patterns, days=60, owner=mg_owner)
+            if synced.get("ingested"):
+                log.info("memgraph synced %d sensor readings from %d days", synced["ingested"], synced["days"])
+        except Exception as e:  # noqa: BLE001
+            log.warning("memgraph sensor sync: %s", e)
         if getattr(self, "experiments", None) is not None:
             self.experiments.patterns = self.patterns
         from .datafacts import DataFacts

@@ -285,6 +285,12 @@ class Home:
             self.store.remember(text=text, title=f"{c['name']}: {self.describe(eid).split(': ', 1)[1]}",
                                 kind="fact", shelf="home/" + ("devices" if c["kind"] == "device" else "readings"),
                                 tags=["home", c["domain"]], source="home", meta=meta)
+            mg = getattr(self, "memgraph", None)
+            if mg is not None and not first and c["kind"] == "device":
+                try:
+                    mg.ingest_device_state(eid, c, st, now)
+                except Exception:  # noqa: BLE001 - graph telemetry never breaks device logging
+                    pass
             filed += 1
         return filed
 

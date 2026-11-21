@@ -427,6 +427,12 @@ class Patterns:
         self.store.db.execute("INSERT OR REPLACE INTO days(day, data, updated) VALUES(?, ?, ?)",
                               (row["day"], json.dumps(row), time.time()))
         self.store.db.commit()
+        mg = getattr(self, "memgraph", None)
+        if mg is not None:
+            try:
+                mg.ingest_day_row(row, owner=getattr(self, "memgraph_owner", None))
+            except Exception:  # noqa: BLE001 - graph telemetry never breaks daily pattern storage
+                pass
 
     def get(self, day):
         r = self.store.db.execute("SELECT data FROM days WHERE day=?", (day.isoformat(),)).fetchone()
