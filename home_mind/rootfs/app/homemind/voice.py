@@ -36,6 +36,57 @@ def sentences(text):
     return [p.strip() for p in _SENT.split((text or "").strip()) if p.strip()]
 
 
+class SentenceStream:
+    """Turns a stream of token deltas into complete, speakable sentences as soon as each finishes."""
+
+    def __init__(self, emit, clean=None, hold_first_if=None):
+        self.emit = emit
+        self.clean = clean or (lambda s: s.strip())
+        self.hold_first_if = hold_first_if
+        self.buf = ""
+        self.held = []
+        self.emitted = []
+
+    def _send(self, raw):
+        s = self.clean(raw)
+        if not s:
+            return
+        if not self.emitted and not self.held and self.hold_first_if and self.hold_first_if(s):
+            self.held.append(s)
+            return
+        if self.held:
+            for h in self.held:
+                self.emitted.append(h)
+                self.emit(h)
+            self.held.clear()
+        self.emitted.append(s)
+        self.emit(s)
+
+    def feed(self, chunk):
+        if not chunk:
+            return
+        self.buf += chunk
+        parts = _SENT.split(self.buf)
+        if len(parts) <= 1:
+            return
+        for p in parts[:-1]:
+            if p.strip():
+                self._send(p)
+        self.buf = parts[-1]
+
+    def flush(self):
+        for h in self.held:
+            self.emitted.append(h)
+            self.emit(h)
+        self.held.clear()
+        rem, self.buf = self.buf.strip(), ""
+        if rem:
+            s = self.clean(rem)
+            if s:
+                self.emitted.append(s)
+                self.emit(s)
+
+
 def said_for(r):
     """What to say back for a do() result."""
     if r.get("answer"):
@@ -53,7 +104,7 @@ def said_for(r):
     return "OK."
 
 
-async def turn(app, body, scope="admin"):
+async def turn(app, body, scope="admin", on_sentence=None):
     """One turn: the result dict (what /api/converse finally says)."""
     text = (body.get("text") or "").strip()
     if not text:
@@ -95,6 +146,8 @@ async def turn(app, body, scope="admin"):
             return await app.answer(b, scope)        # safety goes to the phone, never this speaker (App.answer)
         fe = f"other:{oa['name']}"
         b["front_end"] = body.get("front_end") or fe
+    elif on_sentence is not None:
+        b["on_sentence"] = on_sentence
     if COMMAND.match(text) and allows(scope, "admin"):
         if oa:
             from .frontends import assistants_off
@@ -111,27 +164,65 @@ async def turn(app, body, scope="admin"):
 
 
 async def converse(app, body, scope="admin", ack_seconds=ACK_SECONDS):
-    """The turn as events (an async generator), with the acknowledgement if it takes more than ack_seconds."""
+    """The turn as events (an async generator), streaming sentences live as the model writes them, with a short
+    acknowledgement on a voice satellite if nothing is ready within ack_seconds."""
     t0 = time.monotonic()
-    work = asyncio.ensure_future(turn(app, body, scope))
+    q = asyncio.Queue()
+    emitted = []
+
+    def push(s):
+        if s:
+            emitted.append(s)
+            q.put_nowait(s)
+
+    work = asyncio.ensure_future(turn(app, body, scope, on_sentence=push))
     # only a voice device (a satellite) needs "One moment." to fill the silence; in the app's chat window the
     # acknowledgement just runs into the answer ("Let me check. I don't have...")
     # the phone app's Assist sends a device_id as well, so a satellite_id (newer Home Assistant) decides when sent
     spoken = bool(body.get("satellite_id")) if "satellite_id" in body else bool(body.get("device_id"))
-    done, _ = await asyncio.wait({work}, timeout=ack_seconds) if spoken else (set(), None)
     acked = None
-    if spoken and not done:
-        acked = ACKS[int(t0 * 10) % len(ACKS)]
-        yield {"type": "delta", "text": acked, "ack": True}
+    ack_at = t0 + ack_seconds
+    while not work.done() or not q.empty():
+        while not q.empty():
+            yield {"type": "delta", "text": q.get_nowait()}
+        if work.done():
+            break
+        get_task = asyncio.ensure_future(q.get())
+        wait_for = None
+        if spoken and acked is None and not emitted:
+            wait_for = max(0.0, ack_at - time.monotonic())
+        done, _ = await asyncio.wait({work, get_task}, timeout=wait_for, return_when=asyncio.FIRST_COMPLETED)
+        if get_task in done:
+            yield {"type": "delta", "text": get_task.result()}
+        else:
+            get_task.cancel()
+            try:
+                await get_task
+            except asyncio.CancelledError:
+                pass
+            if not done and spoken and acked is None and not emitted:
+                acked = ACKS[int(t0 * 10) % len(ACKS)]
+                yield {"type": "delta", "text": acked, "ack": True}
+    while not q.empty():
+        yield {"type": "delta", "text": q.get_nowait()}
     try:
         r = await work
     except Exception as e:  # noqa: BLE001 - the person always hears something
         r = {"answer": "Sorry, something went wrong there.", "error": f"{type(e).__name__}: {e}"}
-    for s in sentences(r.get("answer") or ""):
-        yield {"type": "delta", "text": s}
+    ans = (r.get("answer") or "").strip()
+    if emitted:
+        # emit any trailing sentence appended after streaming (such as the daily check-in question)
+        spoken_so_far = " ".join(emitted).strip()
+        if ans.startswith(spoken_so_far):
+            tail = ans[len(spoken_so_far):].strip()
+            for s in sentences(tail):
+                yield {"type": "delta", "text": s}
+    else:
+        for s in sentences(ans):
+            yield {"type": "delta", "text": s}
     keep = {k: r[k] for k in ("via", "red_flag", "checkin", "checkin_asked", "approval_sent", "confirm_needed",
                               "handoff", "private", "undo", "why", "error") if k in r}
-    yield {"type": "done", "answer": r.get("answer") or "", "continue": bool(r.get("continue")),
+    yield {"type": "done", "answer": ans, "continue": bool(r.get("continue")),
            "acked": acked, "ms": round((time.monotonic() - t0) * 1000), **keep}
 
 

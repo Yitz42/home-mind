@@ -708,10 +708,36 @@ VOICE_SYSTEM = (" This answer is spoken aloud: plain words only, no markdown, li
 VOICE_NOTE_MAX = 280        # characters of a note read out by voice when no model answered
 
 
+def speakable_units(t):
+    """Symbols and units a voice stumbles on, said as words (dates like 2026-11-21 are left intact)."""
+    t = re.sub(r"(\d)\s*[×x]\s*(\d)", r"\1 by \2", t)
+    t = re.sub(r"(\d(?::\d{2})?\s*[AP]M)\s*[–-]\s*(\d)", r"\1 to \2", t, flags=re.I)
+    t = re.sub(r"(?<![\d-])(\d{1,3}(?::\d{2})?)\s*–\s*(\d{1,3}(?::\d{2})?)(?![\d-])", r"\1 to \2", t)
+    t = re.sub(r"(?<![\d-])(\d{1,3})\s*-\s*(\d{1,3})(?![\d-])", r"\1 to \2", t)
+    t = re.sub(r"~\s*(\d)", r"about \1", t)
+    t = re.sub(r"\b(\d+)\s*h\s*0?(\d+)\s*min\b",
+               lambda m: f"{m.group(1)} {'hour' if m.group(1) == '1' else 'hours'} "
+                         f"{m.group(2)} {'minute' if m.group(2) == '1' else 'minutes'}", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*h\b", lambda m: f"{m.group(1)} {'hour' if m.group(1) == '1' else 'hours'}", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*°\s*F\b", r"\1 degrees Fahrenheit", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*°\s*C\b", r"\1 degrees Celsius", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*bpm\b", r"\1 beats per minute", t, flags=re.I)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*ms\b", r"\1 milliseconds", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*lb\b", r"\1 pounds", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*kg\b", r"\1 kilograms", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*kcal\b", r"\1 calories", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*g\b", r"\1 grams", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*mi\b", r"\1 miles", t)
+    t = re.sub(r"\b(\d+)\s*min\b", lambda m: f"{m.group(1)} {'minute' if m.group(1) == '1' else 'minutes'}", t)
+    t = re.sub(r"\s*—\s*", ", ", t)
+    t = re.sub(r"\s*·\s*", ", ", t)
+    return t
+
+
 def spoken(text, limit=None, ids=()):
     """An answer as it can be read aloud: no markdown, note #ids (ids: the notes it may cite; any other #3 is read as
-    "number 3") or web addresses (a speaker reads them out symbol by symbol), and, with limit, cut at a sentence end
-    near it (a whole manual read out as "the best matching note")."""
+    "number 3") or web addresses (a speaker reads them out symbol by symbol), units said as words, and, with limit,
+    cut at a sentence end near it (a whole manual read out as "the best matching note")."""
     t = text or ""
     ids = {str(i) for i in ids}
     t = re.sub(r"!?\[([^\]]*)\]\((?:https?://|www\.)[^)]*\)", r"\1", t)          # [text](url) -> text
@@ -727,6 +753,7 @@ def spoken(text, limit=None, ids=()):
     t = re.sub(r"(?<!\w)[*_](?=\S)(.+?)(?<=\S)[*_](?!\w)", r"\1", t)
     t = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*•]\s+|\d+[.)]\s+|>\s*)", "", t)
     t = re.sub(r"\s*\n+\s*", ". ", t.strip())
+    t = speakable_units(t)
     t = re.sub(r"\.\s*\.", ".", t)
     t = re.sub(r"\s+([,.;:!?])", r"\1", re.sub(r"[ \t]{2,}", " ", t)).strip()
     if t[:1].islower() and (text or "")[:1].isupper():
@@ -1328,7 +1355,7 @@ class Mind:
         return full
 
     async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False,
-                  voice=False, deadline=None, fallback=True, conversation_id=None, speaker=None):
+                  voice=False, deadline=None, fallback=True, conversation_id=None, speaker=None, on_sentence=None):
         """speaker: None = no speaker information (sees everything, as before); "" = unknown (household notes only,
         no secrets by voice, no bulk lists); a name = that person (their personal notes too). (#3, #48, #78)"""
         from .speakers import VIEWER
@@ -1348,7 +1375,7 @@ class Mind:
         vtok = VOICE.set(bool(voice))        # per question: two questions at once never see each other's flag
         try:
             out = await self._ask(question, model, use_brain, k, shelf, store, system, expand, voice, deadline, fallback,
-                                  conversation_id)
+                                  conversation_id, on_sentence=on_sentence)
         finally:
             VOICE.reset(vtok)
             VIEWER.reset(tok)
@@ -1357,7 +1384,7 @@ class Mind:
         return out
 
     async def _ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False,
-                   voice=False, deadline=None, fallback=True, conversation_id=None):
+                   voice=False, deadline=None, fallback=True, conversation_id=None, on_sentence=None):
         """Answer with a model. If it fails or is too slow, try the fallbacks (option "fallback", default Haiku through
         Home Assistant), and if none answers, give the best matching note. voice=True caps the whole answer at
         VOICE_SECONDS so a voice question never hangs."""
@@ -1532,10 +1559,13 @@ class Mind:
         content = answer_content(store, question, ctx, self.ORDER) if use_brain else question
         errors, r, used = [], None, None
         escalated, kept = False, None
+        streamed = []
         self._down = getattr(self, "_down", {})
         plain = content
         base_sys = sysmsg
         prior = self._history(conversation_id, store) if conversation_id and not privacy.bulk(question) else []
+        has_personal = any((h.get("meta") or {}).get("scope") == "personal" for h in hits)
+        stream_ok = bool(on_sentence and voice and not notes_first and not has_personal and not privacy.bulk(question))
         for i, m in enumerate(chain):
             m_obj = self.models.get(m)
             content = cloud_safe(plain, question, m_obj, store) if use_brain else plain
@@ -1557,12 +1587,23 @@ class Mind:
             if up and up(m) is False and i < len(chain) - 1:
                 errors.append(f"{m}: its computer isn't answering")      # skipped at once; a fallback answers
                 continue
+            can_esc = bool(route_info is not None and not escalated and i < len(chain) - 1 and
+                           m in self.route_lists()[0] and hits and not weak)
+            use_stream = stream_ok and hasattr(m_obj, "chat_stream") and getattr(m_obj, "type", "") in (
+                "openai", "ollama", "anthropic")
+            ss = None
             try:
-                coro = m_obj.chat(sysmsg, msgs)
+                if use_stream:
+                    from .voice import SentenceStream
+                    hit_ids = {h["id"] for h in hits}
+                    ss = SentenceStream(on_sentence, clean=lambda s: spoken(s, ids=hit_ids),
+                                        hold_first_if=(lambda s: bool(DONT_KNOW.search(s))) if can_esc else None)
+                    coro = m_obj.chat_stream(sysmsg, msgs, ss.feed)
+                else:
+                    coro = m_obj.chat(sysmsg, msgs)
                 r = await (asyncio.wait_for(coro, left) if left is not None else coro)
                 used = m
-                if route_info is not None and not escalated and i < len(chain) - 1 and \
-                        m in self.route_lists()[0] and DONT_KNOW.search(r.get("text") or "") and hits and not weak:
+                if can_esc and (ss is None or not ss.emitted) and DONT_KNOW.search(r.get("text") or ""):
                     # the local model didn't know although good notes were found: the next model gets one try
                     escalated = True
                     route_info["escalated"] = f"{m} didn't know"
@@ -1570,12 +1611,21 @@ class Mind:
                     kept = (r, m)
                     r = None
                     continue
+                if ss is not None:
+                    ss.flush()
+                    streamed = list(ss.emitted)
                 break
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                 errors.append(f"{m}: {type(e).__name__} {e}"[:200])
                 self._down[m] = time.time()
                 if re.search(r"Cannot connect|ClientConnector|timed out", str(e)) and hasattr(self.models, "mark"):
                     self.models.mark(m, False)
+                if ss is not None and ss.emitted:
+                    # already spoke at least one sentence: finish cleanly instead of restarting on a second model
+                    streamed = list(ss.emitted)
+                    r = {"text": " ".join(streamed), "ms": int((time.time() - t0) * 1000)}
+                    used = m
+                    break
         if r is None and kept is not None:
             r, used = kept                   # the next model failed too: the local answer stands
         if r is None:
@@ -1614,9 +1664,11 @@ class Mind:
         store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=logged,
                   ms=r["ms"], errors=errors or None, sources=[x["id"] for x in sources] or None, weak=weak or None)
         if voice:
-            text = spoken(text, ids={h["id"] for h in hits}) or text
+            text = " ".join(streamed) if streamed else (spoken(text, ids={h["id"] for h in hits}) or text)
         out = {"answer": text, "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"],
                "sources": sources, "weak": weak}
+        if streamed:
+            out["_streamed"] = streamed
         if question != original:
             out["understood_as"] = question
         if used != model:

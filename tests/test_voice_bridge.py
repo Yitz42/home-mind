@@ -192,6 +192,13 @@ def test_static():
     check("every option has a translation", all(f"  {o}:\n    name:" in tr for o in opts))
     check("no install step: the standard library only", "pip" not in open(os.path.join(ROOT, "home_mind_voice",
                                                                                      "Dockerfile")).read())
+    check("speakable keeps ISO dates and phone numbers intact",
+          B.speakable("Due 2026-11-21; call 555-1234.") == "Due 2026-11-21; call 555-1234.",
+          B.speakable("Due 2026-11-21; call 555-1234."))
+    check("speakable expands sleep, HRV, bpm, and ranges",
+          B.speakable("Slept 6 h 05 min, HRV 41 ms, 58 bpm, 12 AM–7 AM, 3–5.") ==
+          "Slept 6 hours 5 minutes, HRV 41 milliseconds, 58 beats per minute, 12 AM to 7 AM, 3 to 5.",
+          B.speakable("Slept 6 h 05 min, HRV 41 ms, 58 bpm, 12 AM–7 AM, 3–5."))
 
 
 test_static()
