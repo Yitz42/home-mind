@@ -1,0 +1,485 @@
+"""Tests for homemind.memgraph: neuro-symbolic memory graph, signed stability, canonical relation
+rules, direct/inferred/sensor_fact tiers, dormant decay, compaction-first storage caps,
+contradiction hysteresis, staging rollback, multi-person privacy, and a 90-day time-lapse stress test.
+
+  python tests/test_memgraph.py
+"""
+import os
+import sys
+import tempfile
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+sys.path.insert(0, os.path.join(ROOT, "home_mind", "rootfs", "app"))
+
+from homemind.store import Store
+from homemind.memgraph import (
+    MemGraph,
+    STATUS_THOUGHT, STATUS_IDEA, STATUS_FACT, STATUS_CONTESTED,
+    EVIDENCE_DIRECT, EVIDENCE_INFERRED, EVIDENCE_SENSOR,
+    DECAY_ZERO, DECAY_LOGISTIC, DECAY_LINEAR,
+    FACT_THRESHOLD, DORMANT_THRESHOLD,
+    decay_magnitude, welford_update, welford_std,
+)
+
+DAY = 86400.0
+T0 = 1_760_000_000.0  # fixed UTC anchor (2025-10-09)
+FAILS = []
+
+
+def check(name, cond, extra=""):
+    print(("ok   " if cond else "FAIL ") + name + (f"  ({extra})" if extra and not cond else ""))
+    if not cond:
+        FAILS.append(name)
+
+
+def make_graph():
+    tmp = tempfile.mkdtemp()
+    st = Store(os.path.join(tmp, "mind.db"))
+    now = [T0]
+    g = MemGraph(st, clock=lambda: now[0])
+    return st, g, now
+
+
+# ---- 1. Pure math sanity ----------------------------------------------------------------------------------------
+def test_math():
+    check("linear decay at dt=0 is identity", abs(decay_magnitude(0.30, DECAY_LINEAR, 0) - 0.30) < 1e-9)
+    check("linear decay reaches dormant <=0.10 in 10d", decay_magnitude(0.25, DECAY_LINEAR, 10) <= DORMANT_THRESHOLD)
+    check("logistic decay at dt=0 is exact identity", abs(decay_magnitude(0.75, DECAY_LOGISTIC, 0) - 0.75) < 1e-9)
+    check("logistic decay is gentle at 5d and steeper at 45d",
+          decay_magnitude(0.75, DECAY_LOGISTIC, 5) > 0.65 and decay_magnitude(0.75, DECAY_LOGISTIC, 45) < 0.20)
+    check("zero decay never decays over 365d", abs(decay_magnitude(1.0, DECAY_ZERO, 365) - 1.0) < 1e-9)
+
+    c, m, m2, mn, mx = 0, None, 0.0, None, None
+    for x in (18, 20, 22, 20, 20):
+        c, m, m2, mn, mx = welford_update(c, m, m2, mn, mx, x)
+    check("welford stats exact", c == 5 and abs(m - 20.0) < 1e-9 and abs(welford_std(c, m2) - 1.4142) < 0.01
+          and mn == 18.0 and mx == 22.0)
+
+
+# ---- 2. Canonical nodes, aliases, and declarative relation rules ------------------------------------------------
+def test_nodes_and_rules():
+    _, g, _ = make_graph()
+
+    n1 = g.upsert_node("Running", category="ACTIVITY", aliases=["jogging", "Morning Run"])
+    n2 = g.upsert_node("jogging", category="ACTIVITY")
+    n3 = g.upsert_node("morning_run", aliases=["trail jog"])
+    check("canonical node alias resolution avoids duplicates", n1["id"] == n2["id"] == n3["id"])
+    check("aliases merged cleanly", "jogging" in n3["aliases"] and "trail jog" in n3["aliases"])
+
+    rel, sgn, _ = g.resolve_relation("enjoys")
+    check("positive alias maps to LIKES (+1)", rel == "LIKES" and sgn == 1)
+    rel, sgn, _ = g.resolve_relation("DISLIKES")
+    check("negative alias maps to LIKES (-1)", rel == "LIKES" and sgn == -1)
+    rel, sgn, _ = g.resolve_relation("worsens")
+    check("negative correlation alias maps to CORRELATES_WITH (-1)", rel == "CORRELATES_WITH" and sgn == -1)
+
+    bad_raised = False
+    try:
+        g.resolve_relation("TOTALLY_MADE_UP_PREDICATE")
+    except ValueError:
+        bad_raised = True
+    check("unknown relation rejected by default", bad_raised)
+
+    # Custom rule with ALL optional fields left blank (None) inherits tier defaults cleanly.
+    g.define_rule("PLAYS_INSTRUMENT")
+    res = g.observe("user", "PLAYS_INSTRUMENT", "piano", evidence=EVIDENCE_DIRECT)
+    check("custom rule with blank fields works", res["changed"] and res["link"]["relation"] == "PLAYS_INSTRUMENT")
+    check("blank rule defaults to signed=True, ADDITIVE",
+          res["link"]["signed"] is True and res["link"]["exclusivity"] == "ADDITIVE")
+
+    # ALLERGIC_TO: unsigned, 1-point immediate FACT with zero decay.
+    al = g.observe("user", "ALLERGIC_TO", "shellfish", evidence=EVIDENCE_DIRECT, category="HEALTH")
+    check("ALLERGIC_TO promotes immediately to FACT with ZERO decay",
+          al["link"]["status"] == STATUS_FACT and al["link"]["decay_type"] == DECAY_ZERO
+          and al["link"]["stability_score"] == 1.0)
+    # 200 days later: still 1.0 FACT.
+    lnk_later = g.get_link(al["link"]["id"], now=T0 + 200 * DAY)
+    check("ALLERGIC_TO never decays over 200d", lnk_later["effective_stability"] == 1.0)
+
+
+# ---- 3. Meal -> cuisine/flavor/ingredient hypothesis fan-out & signed override ----------------------------------
+def test_hypothesis_fan_out_and_signed_override():
+    _, g, now = make_graph()
+
+    # Day 0: "I like Kung Pao chicken"
+    r1 = g.record_with_hypotheses(
+        "user", "LIKES", "kung pao chicken",
+        hypotheses=[("LIKES", "chinese", "FOOD"), ("LIKES", "spicy savory", "FOOD"), ("LIKES", "peanuts", "FOOD")],
+        category="FOOD", source_ref="meal:kung_pao", quote="I like Kung Pao chicken",
+    )
+    check("direct meal starts high (IDEA)", r1["primary"]["link"]["status"] == STATUS_IDEA
+          and r1["primary"]["link"]["evidence"] == EVIDENCE_DIRECT)
+    h_chinese = r1["hypotheses"][0]["link"]
+    h_peanuts = r1["hypotheses"][2]["link"]
+    check("inferred hypotheses start as low-stability THOUGHTs",
+          h_chinese["status"] == STATUS_THOUGHT and h_chinese["evidence"] == EVIDENCE_INFERRED
+          and h_chinese["stability_score"] < 0.40)
+
+    # Repeating the EXACT same source_ref must NOT double-count inferred stability!
+    s_before = h_chinese["stability_score"]
+    dup = g.observe("user", "LIKES", "chinese", evidence=EVIDENCE_INFERRED, source_ref="meal:kung_pao", category="FOOD")
+    check("same source_ref does not double-count inferred stability",
+          abs(dup["link"]["stability_score"] - s_before) < 1e-6 and dup["link"]["evidence_count"] == 1)
+
+    # Days 2, 4, 6: Three more distinct spicy Chinese meals -> chinese & spicy savory promote to FACT!
+    for day_off, dish in ((2, "dan dan noodles"), (4, "mapo tofu"), (6, "sichuan beef")):
+        now[0] = T0 + day_off * DAY
+        g.record_with_hypotheses(
+            "user", "LIKES", dish,
+            hypotheses=[("LIKES", "chinese", "FOOD"), ("LIKES", "spicy savory", "FOOD")],
+            category="FOOD", source_ref=f"meal:{dish}",
+        )
+
+    chinese_final = g.get_link(h_chinese["id"], now=now[0])
+    check("4 distinct dishes promote inferred 'chinese' to FACT",
+          chinese_final["status"] == STATUS_FACT and len(chinese_final["distinct_sources"]) == 4)
+
+    # Day 18: peanuts was never reinforced -> decays into dormant (NOT deleted!)
+    now[0] = T0 + 18 * DAY
+    sweep = g.decay_sweep(now=now[0])
+    peanuts_after = g.get_link(h_peanuts["id"], now=now[0])
+    check("unreinforced inferred 'peanuts' drifts to dormant, not deleted",
+          peanuts_after is not None and peanuts_after["dormant"] is True and sweep["went_dormant"] >= 1)
+
+    # Excluded from default hot query, but still reachable on explicit/loop-back recall.
+    hot = g.query(entities=["peanuts"], relations=["LIKES"], include_dormant=False, now=now[0])
+    deep = g.query(entities=["peanuts"], relations=["LIKES"], include_dormant=True, now=now[0])
+    check("dormant excluded from hot query, present in deep query", len(hot) == 0 and len(deep) == 1)
+    # Calling decay_sweep repeatedly at the same timestamp is 100% idempotent (no double-decay).
+    s_snap = g.get_link(h_peanuts["id"], now=now[0])["stability_score"]
+    g.decay_sweep(now=now[0])
+    check("repeated decay_sweep is idempotent (no double-decay)",
+          abs(g.get_link(h_peanuts["id"], now=now[0])["stability_score"] - s_snap) < 1e-9)
+
+    # Day 19: Direct negative statement "I don't like peanuts" flips the same link negative!
+    now[0] = T0 + 19 * DAY
+    neg = g.observe("user", "DISLIKES", "peanuts", evidence=EVIDENCE_DIRECT, category="FOOD",
+                    quote="Actually I don't like peanuts")
+    check("direct DISLIKES overrides weak inferred LIKES on same row",
+          neg["link"]["id"] == h_peanuts["id"] and neg["link"]["stability_score"] < -0.50
+          and neg["link"]["dormant"] is False and neg["link"]["evidence"] == EVIDENCE_DIRECT)
+    ctx = g.format_context([neg["link"]])
+    check("negative LIKES renders cleanly as DISLIKES in prompt context", "DISLIKES" in ctx and "peanuts" in ctx)
+
+
+# ---- 4. Domain-general sensor_fact (lights, sleep, steps) + bimodal context tags -------------------------------
+def test_sensor_facts_and_bimodal_tags():
+    _, g, now = make_graph()
+
+    # 20 light toggles in ONE evening on HABIT (max_per_day=1) must NOT rocket to FACT on day 1!
+    for i in range(20):
+        g.observe("user", "LIGHT_HABIT", "living room lights", evidence=EVIDENCE_SENSOR,
+                  value=25 + (i % 3), unit="pct", context_tags=["evening", "living room"],
+                  category="LIGHTING", ts=T0 + i * 60)
+    light_links = g.query(categories=["LIGHTING"], include_dormant=True, now=T0 + 1200)
+    check("20 same-day light toggles do not flood HABIT to FACT",
+          len(light_links) == 1 and light_links[0]["evidence_count"] == 1
+          and light_links[0]["status"] == STATUS_THOUGHT
+          and light_links[0]["stats"]["count"] == 20)
+
+    # Bimodal sleep baselines: 15 weekday nights (~7.0h) vs 15 weekend nights (~9.0h).
+    for d in range(15):
+        g.observe("user", "SLEEP_BASELINE", "sleep duration", evidence=EVIDENCE_SENSOR,
+                  value=7.0 + (d % 3 - 1) * 0.2, unit="hours", context_tags=["weekday"],
+                  category="SLEEP", ts=T0 + d * DAY)
+        g.observe("user", "SLEEP_BASELINE", "sleep duration", evidence=EVIDENCE_SENSOR,
+                  value=9.0 + (d % 3 - 1) * 0.2, unit="hours", context_tags=["weekend"],
+                  category="SLEEP", ts=T0 + d * DAY + 3600)
+
+    wd = g.query(categories=["SLEEP"], context_tags=["weekday"], now=T0 + 15 * DAY)
+    we = g.query(categories=["SLEEP"], context_tags=["weekend"], now=T0 + 15 * DAY)
+    check("bimodal sleep kept strictly separate (no 8.0h collapse)",
+          len(wd) == 1 and len(we) == 1
+          and abs(wd[0]["stats"]["mean"] - 7.0) < 0.05
+          and abs(we[0]["stats"]["mean"] - 9.0) < 0.05)
+    check("sensor_fact BASELINE promotes to FACT after >= 14 data points",
+          wd[0]["status"] == STATUS_FACT and we[0]["status"] == STATUS_FACT
+          and wd[0]["evidence"] == EVIDENCE_SENSOR)
+
+    # Direct user preference vs contradictory sensor_fact: sensor cannot silently flip direct FACT!
+    g.observe("user", "PREFERS", "bright living room", evidence=EVIDENCE_DIRECT, category="LIGHTING", ts=T0)
+    p2 = g.observe("user", "PREFERS", "bright living room", evidence=EVIDENCE_DIRECT, category="LIGHTING", ts=T0 + DAY)
+    check("2 direct statements establish PREFERS FACT", p2["link"]["status"] == STATUS_FACT)
+    s_contra = g.observe("user", "PREFERS", "bright living room", sign=-1, evidence=EVIDENCE_SENSOR,
+                         category="LIGHTING", ts=T0 + 2 * DAY)
+    check("single sensor contradiction cannot silently flip direct FACT sign",
+          s_contra["link"]["stability_score"] > 0 and s_contra["link"]["evidence"] == EVIDENCE_DIRECT)
+
+
+# ---- 5. Contradiction engine & demotion hysteresis --------------------------------------------------------------
+def test_contradictions_and_hysteresis():
+    _, g, now = make_graph()
+
+    # EXCLUSIVE: LIVES_IN San Francisco -> Austin
+    sf = g.observe("user", "LIVES_IN", "san francisco", evidence=EVIDENCE_DIRECT, category="LOCATION", ts=T0)
+    check("LIVES_IN direct promotes to FACT immediately", sf["link"]["status"] == STATUS_FACT)
+
+    # Hypothetical / sarcasm (gamma = 0.0) must cause ZERO mutation!
+    sarc = g.observe("user", "LIVES_IN", "mars", certainty=0.0, evidence=EVIDENCE_DIRECT, category="LOCATION", ts=T0 + DAY)
+    sf_check = g.get_link(sf["link"]["id"], now=T0 + DAY)
+    check("hypothetical gamma=0.0 makes zero change", not sarc["changed"] and sf_check["status"] == STATUS_FACT)
+
+    # Direct move to Austin (gamma = 1.0) drops SF below 0.85 -> CONTESTED with LOGISTIC decay re-enabled!
+    au = g.observe("user", "LIVES_IN", "austin", certainty=1.0, evidence=EVIDENCE_DIRECT, category="LOCATION", ts=T0 + 10 * DAY)
+    sf_after = g.get_link(sf["link"]["id"], now=T0 + 10 * DAY)
+    check("EXCLUSIVE contradiction demotes prior FACT to CONTESTED",
+          sf_after["status"] == STATUS_CONTESTED and sf_after["decay_type"] == DECAY_LOGISTIC
+          and sf_after["stability_score"] < FACT_THRESHOLD and len(au["contested_links"]) == 1)
+    ctx = g.format_context([sf_after])
+    check("CONTESTED prompt context prompts LLM to verify with user",
+          "CONTESTED" in ctx and "austin" in ctx and "verify with user" in ctx)
+
+    # SOFT_EXCLUSIVE: WORKS_AT Google; indirect mention (gamma=0.4) of OpenAI should NOT flip Google immediately.
+    goog = g.observe("user", "WORKS_AT", "google", evidence=EVIDENCE_DIRECT, category="CAREER", ts=T0)
+    g.observe("user", "WORKS_AT", "openai", certainty=0.4, evidence=EVIDENCE_DIRECT, category="CAREER", ts=T0 + 5 * DAY)
+    goog_mid = g.get_link(goog["link"]["id"], now=T0 + 5 * DAY)
+    check("SOFT_EXCLUSIVE indirect mention (gamma=0.4) retains FACT on first hit",
+          goog_mid["status"] == STATUS_FACT and goog_mid["stability_score"] >= FACT_THRESHOLD)
+
+    # Direct statement (gamma=1.0) DOES contest Google.
+    g.observe("user", "WORKS_AT", "openai", certainty=1.0, evidence=EVIDENCE_DIRECT, category="CAREER", ts=T0 + 6 * DAY)
+    goog_after = g.get_link(goog["link"]["id"], now=T0 + 6 * DAY)
+    check("SOFT_EXCLUSIVE direct mention (gamma=1.0) flips FACT to CONTESTED",
+          goog_after["status"] == STATUS_CONTESTED and goog_after["stability_score"] < FACT_THRESHOLD)
+
+    # Signed FACT contradiction on same row (LIKES coffee -> DISLIKES coffee)
+    g.observe("user", "LIKES", "coffee", evidence=EVIDENCE_DIRECT, category="FOOD", ts=T0)
+    c_fact = g.observe("user", "LIKES", "coffee", evidence=EVIDENCE_DIRECT, category="FOOD", ts=T0 + DAY)
+    check("coffee established as FACT", c_fact["link"]["status"] == STATUS_FACT)
+    c_contra = g.observe("user", "DISLIKES", "coffee", evidence=EVIDENCE_DIRECT, category="FOOD", ts=T0 + 10 * DAY)
+    check("contradicting signed FACT flips same row to CONTESTED",
+          c_contra["link"]["id"] == c_fact["link"]["id"] and c_contra["link"]["status"] == STATUS_CONTESTED)
+
+
+# ---- 6. Seasonal wake-up, compaction-first storage cap, and usage protection ------------------------------------
+def test_compaction_and_eviction():
+    _, g, now = make_graph()
+
+    # Seasonal habit goes dormant, then wakes up cleanly keeping history.
+    soup = g.observe("user", "LIKES", "ramen", evidence=EVIDENCE_INFERRED, source_ref="m1", category="FOOD", ts=T0)
+    g.observe("user", "LIKES", "ramen", evidence=EVIDENCE_INFERRED, source_ref="m2", category="FOOD", ts=T0 + DAY)
+    g.decay_sweep(now=T0 + 80 * DAY)
+    ramen_dormant = g.get_link(soup["link"]["id"], now=T0 + 80 * DAY)
+    check("seasonal ramen goes dormant after 80d unreinforced", ramen_dormant["dormant"] is True)
+    ramen_awake = g.observe("user", "LIKES", "ramen", evidence=EVIDENCE_INFERRED, source_ref="m3",
+                            category="FOOD", ts=T0 + 81 * DAY)
+    check("seasonal wake-up reactivates link preserving prior evidence_count",
+          ramen_awake["link"]["dormant"] is False and ramen_awake["link"]["evidence_count"] == 3)
+
+    # Create 40 daily step sensor episodes + 1 confirmed FACT + 15 noisy one-off dormant thoughts (1 of them shown!).
+    for d in range(40):
+        g.observe("user", "STEPS_BASELINE", "daily steps", evidence=EVIDENCE_SENSOR,
+                  value=8000 + d * 25, unit="steps", category="ACTIVITY", ts=T0 + d * DAY)
+    pinned_fact = g.observe("user", "ALLERGIC_TO", "tree nuts", evidence=EVIDENCE_DIRECT, category="HEALTH", ts=T0)
+
+    noise_ids = []
+    for i in range(15):
+        r = g.observe("user", "LIKES", f"random_snack_{i}", evidence=EVIDENCE_INFERRED,
+                      source_ref=f"s:{i}", category="FOOD", ts=T0)
+        noise_ids.append(r["link"]["id"])
+    # Mark noise_ids[0] as shown several times so usage-based retention protects it ahead of unused guesses!
+    g.mark_shown([noise_ids[0]], now=T0 + 2 * DAY)
+    g.mark_shown([noise_ids[0]], now=T0 + 3 * DAY)
+
+    # Advance 30 days -> noise thoughts go dormant; run storage cap enforcement.
+    rep = g.enforce_storage_cap(max_episodes=25, max_links=10, keep_recent_per_link=5, now=T0 + 45 * DAY)
+    check("storage cap compacts raw sensor episodes first", rep["compacted_episodes"] >= 20)
+    steps_lnk = g.query(categories=["ACTIVITY"], now=T0 + 45 * DAY)[0]
+    check("compacted episodes preserved as monthly rollups + live stats intact",
+          bool(steps_lnk["meta"].get("rollups")) and steps_lnk["stats"]["count"] == 40
+          and steps_lnk["status"] == STATUS_FACT)
+    check("storage cap evicts lowest-value dormant guesses while protecting FACTs",
+          rep["evicted_links"] > 0 and g.get_link(pinned_fact["link"]["id"]) is not None
+          and rep["protected_facts"] >= 2)
+    check("frequently shown dormant link survives ahead of never-shown guesses",
+          g.get_link(noise_ids[0]) is not None and noise_ids[0] not in rep["evicted_ids"])
+
+
+# ---- 7. Patch execution, staging triage, and deterministic rollback ---------------------------------------------
+def test_patches_staging_and_revert():
+    _, g, _ = make_graph()
+
+    n = g.apply_patch({"op": "CREATE_NODE", "canonical_name": "espresso", "aliases": ["double shot"], "category": "FOOD"})
+    check("CREATE_NODE patch works", n["node"]["canonical_name"] == "espresso")
+
+    r1 = g.apply_patch({
+        "op": "CREATE_LINK", "source": "user", "relation": "LIKES", "target": "double shot",
+        "evidence": EVIDENCE_DIRECT, "confidence": 0.55, "category": "FOOD",
+    })
+    check("low-confidence patch is flagged in staging", r1["flagged"] and "low_confidence" in r1["flag_reasons"])
+    flagged = g.flagged_staging()
+    check("flagged_staging returns pending flagged write", any(f["id"] == r1["staging_id"] for f in flagged))
+
+    # Bolster, then revert the bolster -> restores exact previous stability!
+    r2 = g.apply_patch({"op": "BOLSTER", "target_link_id": r1["link"]["id"], "certainty": 1.0, "confidence": 0.60})
+    check("BOLSTER promotes espresso to FACT", r2["link"]["status"] == STATUS_FACT)
+    g.revert_staging(r2["staging_id"])
+    reverted = g.get_link(r1["link"]["id"])
+    check("revert_staging restores exact before_state",
+          reverted["status"] == STATUS_IDEA and abs(reverted["stability_score"] - r1["link"]["stability_score"]) < 1e-6)
+
+    # Reverting the original CREATE_LINK removes the newly created link completely.
+    g.revert_staging(r1["staging_id"])
+    check("revert_staging on CREATE_LINK deletes bad link", g.get_link(r1["link"]["id"]) is None)
+
+
+# ---- 8. Multi-person privacy isolation & purge_owner ------------------------------------------------------------
+def test_privacy_and_purge():
+    _, g, _ = make_graph()
+
+    g.observe("user", "ALLERGIC_TO", "kiwi", evidence=EVIDENCE_DIRECT, owner="Alice", scope="personal", category="HEALTH")
+    g.observe("user", "ALLERGIC_TO", "mango", evidence=EVIDENCE_DIRECT, owner="Bob", scope="personal", category="HEALTH")
+    g.observe("user", "LIVES_IN", "seattle", evidence=EVIDENCE_DIRECT, scope="household", category="LOCATION")
+
+    alice_view = {x["target_name"] for x in g.query(viewer="Alice")}
+    bob_view = {x["target_name"] for x in g.query(viewer="Bob")}
+    guest_view = {x["target_name"] for x in g.query(viewer="")}
+    check("Alice sees own personal + household, not Bob's",
+          "kiwi" in alice_view and "seattle" in alice_view and "mango" not in alice_view)
+    check("Bob sees own personal + household, not Alice's",
+          "mango" in bob_view and "seattle" in bob_view and "kiwi" not in bob_view)
+    check("Guest sees household only", guest_view == {"seattle"})
+
+    removed = g.purge_owner("Alice")
+    check("purge_owner deletes Alice's personal rows and leaves Bob/household intact",
+          removed >= 2
+          and "kiwi" not in {x["target_name"] for x in g.query(viewer="Alice")}
+          and "mango" in {x["target_name"] for x in g.query(viewer="Bob")}
+          and "seattle" in {x["target_name"] for x in g.query(viewer="")})
+
+
+# ---- 9. 90-Day Synthetic Time-Lapse Stress Test -----------------------------------------------------------------
+def test_90_day_stress_test():
+    _, g, now = make_graph()
+
+    # Day 0: Foundational direct facts + allergy
+    g.observe("user", "LIVES_IN", "chicago", evidence=EVIDENCE_DIRECT, category="LOCATION", ts=T0)
+    g.observe("user", "ALLERGIC_TO", "peanuts", evidence=EVIDENCE_DIRECT, category="HEALTH", ts=T0)
+    g.observe("user", "WORKS_AT", "acme corp", evidence=EVIDENCE_DIRECT, category="CAREER", ts=T0)
+
+    # Simulate 90 days of life:
+    # - Weekday 20-min runs vs Weekend 85-min trail runs
+    # - Daily sleep (~7.1h weekday, ~8.6h weekend) & daily steps (~8500)
+    # - Evening living room dimming habit (~30% brightness)
+    # - Recurring spicy Sichuan meals + 50 one-off noise mentions
+    # - Day 45: sarcasm/hypothetical move to Tokyo (gamma=0.0)
+    # - Day 60: real career switch to Beta Labs (gamma=1.0)
+    dishes = ("kung pao tofu", "dan dan noodles", "mapo tofu", "sichuan eggplant", "chili dumplings")
+    for day in range(90):
+        t = T0 + day * DAY
+        now[0] = t
+        is_weekend = (day % 7) in (5, 6)
+        ctx = ["weekend"] if is_weekend else ["weekday"]
+
+        # Sleep & steps sensor telemetry
+        g.observe("user", "SLEEP_BASELINE", "sleep", evidence=EVIDENCE_SENSOR,
+                  value=(8.6 if is_weekend else 7.1) + ((day % 3) - 1) * 0.15,
+                  unit="hours", context_tags=ctx, category="SLEEP", ts=t)
+        g.observe("user", "STEPS_BASELINE", "daily steps", evidence=EVIDENCE_SENSOR,
+                  value=8500 + (day % 5) * 200, unit="steps", category="ACTIVITY", ts=t)
+
+        # Running every 3rd day (weekday vs weekend bimodal)
+        if day % 3 == 0:
+            g.observe("running", "RESULT_IN", "feels good", evidence=EVIDENCE_INFERRED,
+                      value=85.0 if is_weekend else 20.0, unit="min",
+                      context_tags=["weekend", "trail"] if is_weekend else ["weekday"],
+                      category="ACTIVITY", source_ref=f"run:{day}", ts=t)
+
+        # Evening light dimming habit (multiple pings per evening -> rate-capped to 1/day)
+        if day % 2 == 0:
+            for ping in range(3):
+                g.observe("user", "LIGHT_HABIT", "living room lights", evidence=EVIDENCE_SENSOR,
+                          value=30.0 + ping, unit="pct", context_tags=["evening"],
+                          category="LIGHTING", ts=t + ping * 300)
+
+        # Food meals every 10 days (days 5, 15, 25, 35, 45)
+        if day in (5, 15, 25, 35, 45):
+            dish = dishes[day // 10]
+            g.record_with_hypotheses(
+                "user", "LIKES", dish,
+                hypotheses=[("LIKES", "chinese", "FOOD"), ("LIKES", "spicy", "FOOD")],
+                category="FOOD", source_ref=f"meal:{dish}", ts=t,
+            )
+
+        # One-off noise thoughts (50 random mentions across first 50 days)
+        if day < 50:
+            g.observe("user", "LIKES", f"oneoff_noise_{day}", evidence=EVIDENCE_INFERRED,
+                      source_ref=f"noise:{day}", category="GENERAL", ts=t)
+
+        # Day 45: sarcasm about living in Tokyo (gamma=0.0)
+        if day == 45:
+            g.observe("user", "LIVES_IN", "tokyo", certainty=0.0, evidence=EVIDENCE_DIRECT,
+                      category="LOCATION", ts=t)
+
+        # Day 60: real job change to Beta Labs (gamma=1.0)
+        if day == 60:
+            g.observe("user", "WORKS_AT", "beta labs", certainty=1.0, evidence=EVIDENCE_DIRECT,
+                      category="CAREER", ts=t)
+
+        # Periodic nightly decay sweep
+        if day % 7 == 6:
+            g.decay_sweep(now=t)
+
+    t_end = T0 + 90 * DAY
+    g.decay_sweep(now=t_end)
+
+    # Verify 90-day outcomes BEFORE storage cap:
+    # 1. Zero noise links deleted before cap, but all 50 one-off noise links are dormant!
+    noise_total = g.store.db.execute(
+        "SELECT COUNT(*) FROM mg_links l JOIN mg_nodes n ON n.id=l.target_id WHERE n.canonical_name LIKE 'oneoff_noise_%'"
+    ).fetchone()[0]
+    noise_dormant = g.store.db.execute(
+        "SELECT COUNT(*) FROM mg_links l JOIN mg_nodes n ON n.id=l.target_id "
+        "WHERE n.canonical_name LIKE 'oneoff_noise_%' AND l.dormant=1"
+    ).fetchone()[0]
+    check("90d: all 50 one-off noise thoughts preserved as dormant (zero premature deletion)",
+          noise_total == 50 and noise_dormant == 50)
+
+    # 2. Sarcasm didn't touch Chicago FACT; real job switch contested Acme Corp.
+    loc = g.query(categories=["LOCATION"], now=t_end)
+    check("90d: sarcasm left Chicago FACT untouched",
+          len(loc) == 1 and loc[0]["target_name"] == "chicago" and loc[0]["status"] == STATUS_FACT)
+    career = {x["target_name"]: x for x in g.query(categories=["CAREER"], now=t_end)}
+    check("90d: career switch contested Acme Corp and established Beta Labs",
+          career["acme corp"]["status"] == STATUS_CONTESTED and career["beta labs"]["status"] == STATUS_FACT)
+
+    # 3. Multimodal habits & inferred food tastes promoted cleanly without bimodal collapse.
+    food_facts = {x["target_name"] for x in g.query(categories=["FOOD"], now=t_end) if x["status"] == STATUS_FACT}
+    check("90d: inferred 'chinese' and 'spicy' promoted to FACT",
+          "chinese" in food_facts and "spicy" in food_facts)
+
+    wd_run = g.query(entities=["running"], context_tags=["weekday"], now=t_end)
+    we_run = g.query(entities=["running"], context_tags=["weekend"], now=t_end)
+    check("90d: running weekday (~20m) vs weekend (~85m) kept separate",
+          len(wd_run) == 1 and len(we_run) == 1
+          and abs(wd_run[0]["stats"]["mean"] - 20.0) < 0.5
+          and abs(we_run[0]["stats"]["mean"] - 85.0) < 0.5)
+
+    lights = g.query(categories=["LIGHTING"], now=t_end)
+    check("90d: evening lighting habit stabilized via sensor_fact",
+          len(lights) == 1 and lights[0]["status"] == STATUS_FACT and abs(lights[0]["stats"]["mean"] - 31.0) < 0.5)
+
+    # 4. Trigger storage cap at Day 90 -> compacts episodes first, evicts dormant noise, keeps ALL FACTs!
+    facts_before = g.stats_summary()["facts"]
+    cap_rep = g.enforce_storage_cap(max_episodes=80, max_links=30, keep_recent_per_link=3, now=t_end)
+    check("90d storage cap: compacted hundreds of raw sensor episodes into rollups",
+          cap_rep["compacted_episodes"] >= 200 and cap_rep["remaining_episodes"] <= 100)
+    check("90d storage cap: evicted dormant noise while keeping 100% of FACTs",
+          cap_rep["evicted_links"] >= 35 and cap_rep["protected_facts"] == facts_before)
+
+
+if __name__ == "__main__":
+    for fn in (
+        test_math,
+        test_nodes_and_rules,
+        test_hypothesis_fan_out_and_signed_override,
+        test_sensor_facts_and_bimodal_tags,
+        test_contradictions_and_hysteresis,
+        test_compaction_and_eviction,
+        test_patches_staging_and_revert,
+        test_privacy_and_purge,
+        test_90_day_stress_test,
+    ):
+        fn()
+    print(f"\n{'PASS' if not FAILS else f'FAIL ({len(FAILS)})'}")
+    sys.exit(1 if FAILS else 0)
