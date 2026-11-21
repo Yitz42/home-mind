@@ -112,6 +112,10 @@ jobs:
         run: python tests/test_pantry.py
       - name: Brain-fog patterns
         run: python tests/test_patterns.py
+      - name: Check-ins by time
+        run: python tests/test_checkins.py
+      - name: Home page data
+        run: python tests/test_hub.py
       - name: Knowledge (food database, offline Wikipedia)
         run: python tests/test_knowledge.py
       - name: Today screen data

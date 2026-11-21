@@ -91,6 +91,8 @@ async def build(A, now=None):
         meta = json.loads(r["meta"] or "{}") if isinstance(r["meta"], str) else (r["meta"] or {})
         if not visible(meta):
             continue                # someone else's personal note (a person-bound token sees only its own)
+        if meta.get("drink"):
+            continue                # a quick-logged coffee (checkins.py) isn't a meal
         m = PROTEIN.search((r["title"] or "") + " " + (r["body"] or ""))
         g = float(m.group(1)) if m else meta.get("protein_g")
         out["meals"].append({"id": r["id"], "title": re.sub(r"^Ate:\s*", "", r["title"] or ""), "protein_g": g,

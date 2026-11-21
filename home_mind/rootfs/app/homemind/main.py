@@ -319,6 +319,8 @@ class App:
         self.mind.tiebreak = self.tiebreak
         from .day import Day
         self.day = Day(self.mind.store)
+        from .checkins import Checkins
+        self.checkins = Checkins(self.mind.store)    # check-ins by time, water and coffee (0.31)
         self.consent.day = self.day             # a clear day reads the check-in (consent.py)
         self.tracking.day = self.zones.day = self.day
         self.experiments.day = self.day
@@ -2863,6 +2865,80 @@ def build(app_state):
         A.day.set(b.get("state") or "", person, how="panel")
         from .day import REPLIES
         return J({"checkin": b["state"], "answer": REPLIES[b["state"]], "budget": A.day.budget(person)})
+
+    @r.get("/api/checkins")
+    async def checkins_get(q):
+        """Check-ins by time: ?day=YYYY-MM-DD (default today) and the last ?days= (default 7) as a series."""
+        from .checkins import TAGS as CK_TAGS, FOG_WORD
+        from .day import today as day_of
+        day = q.query.get("day") or day_of()
+        try:
+            datetime.fromisoformat(day)
+        except ValueError:
+            raise ValueError("day is YYYY-MM-DD") from None
+        days = num(q.query.get("days"), "days", 7, 1, 60)
+        return J({"day": day, "entries": A.checkins.entries(day=day), "series": A.checkins.series(days),
+                  "tags": CK_TAGS, "fog_words": FOG_WORD, "logs": A.checkins.counts()})
+
+    @r.post("/api/checkins")
+    async def checkins_add(q):
+        """{"fog"?: 0-5, "energy"?: low|ok|high, "tags"?: [...], "note"?, "at"? (seconds) or "minutes_ago"?}: one
+        check-in, as often as how you feel changes. Also answers the day's good / low / rough check-in."""
+        b = await read_body(q, fog=float, energy=str, tags=list, note=str, at=float, minutes_ago=float, person=str)
+        person = as_who(b, "person")
+        e = A.checkins.add(b.get("fog"), b.get("energy"), b.get("tags"), b.get("note") or "", b.get("at"),
+                           b.get("minutes_ago"), person)
+        try:
+            A.day.set(e["state"], person, how="panel")
+        except ValueError:
+            pass
+        from .day import today as day_of
+        if e["fog"] is not None and A.ha and A.ha.available and e["day"] == day_of():
+            try:                    # the fog helper Steady and the patterns read
+                from .patterns import E as PE
+                await A.ha.call("input_number", "set_value", {"entity_id": PE["fog"], "value": e["fog"]})
+                await A.patterns.refresh(1)
+            except Exception:  # noqa: BLE001
+                log.info("check-in: fog helper not updated", exc_info=True)
+        return J(e)
+
+    @r.get("/api/hub")
+    async def hub_get(_):
+        """Everything the Home screen shows around the ask bar (hub.py); the room and weather are /api/controls."""
+        from . import hub
+        return J(await hub.build(A))
+
+    @r.post("/api/todo")
+    async def todo_op(q):
+        """{"op": add|done|undo, "entity": "todo.…", "item"? (text, for add), "uid"? (for done / undo)}: the Home
+        screen's reminders and shopping list, kept in Home Assistant's to-do lists."""
+        b = await read_body(q, op=str, entity=str, item=str, uid=str)
+        ent = b.get("entity") or "todo.shopping_list"
+        if not re.fullmatch(r"todo\.[a-z0-9_]+", ent):
+            raise ValueError("entity is a todo.… list")
+        if not (A.ha and A.ha.available):
+            return J({"error": "Home Assistant is not reachable"}, status=503)
+        op = b.get("op")
+        if op == "add":
+            item = (b.get("item") or "").strip()[:200]
+            if not item:
+                raise ValueError("say what to add")
+            await A.ha.call("todo", "add_item", {"entity_id": ent, "item": item})
+        elif op in ("done", "undo"):
+            if not b.get("uid"):
+                raise ValueError("uid is the item to mark")
+            await A.ha.call("todo", "update_item", {"entity_id": ent, "item": b["uid"],
+                                                    "status": "completed" if op == "done" else "needs_action"})
+        else:
+            raise ValueError("op is add, done or undo")
+        return J({"ok": True, "op": op, "entity": ent})
+
+    @r.post("/api/log")
+    async def quick_log(q):
+        """{"kind": water|coffee, "n"?: 1..6 or -1 to take the last one back}: today's counts back."""
+        b = await read_body(q, kind=str, n=float, person=str)
+        return J(A.checkins.log(b.get("kind") or "", b.get("n") if b.get("n") is not None else 1,
+                                as_who(b, "person")))
 
     def need_measure():
         if getattr(A, "measure", None) is None:
