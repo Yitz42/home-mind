@@ -378,6 +378,8 @@ class App:
         self.overnight.enabled = self.opts.get("overnight_enabled", True) is not False
         self.overnight.structure_on = bool(self.opts.get("overnight_structure"))
         self.overnight.memgraph = self.memgraph
+        self.overnight.live_archivist = bool(self.archivist.model_name)
+        self.overnight.personal_rule = self.opts.get("personal_rule") or "first_person"
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False
@@ -395,6 +397,7 @@ class App:
         self.overnight.known_only = bool(self.opts.get("people"))
         self.convlog.who = self.who_by_device
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
+        self.pantry.memgraph = self.memgraph
         self.mind.pantry = self.pantry
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
@@ -1233,7 +1236,7 @@ class App:
         async def run():
             for m in chain:
                 try:
-                    plan = await self.pantry.suggest(req["meal"], model=m, n=2 if voice else 3, request=req["request"])
+                    plan = await self.pantry.suggest(req["meal"], model=m, n=2 if voice else 3, request=req["request"], viewer=who)
                     text = format_plan(plan, voice=voice)
                     if text:
                         return {"answer": text, "hits": [], "model": plan.get("model") or m,

@@ -834,6 +834,143 @@ def test_archivist_janitor_and_flywheel():
     asyncio.run(run())
 
 
+# ---- 13. Overnight Archivist fallback (no live archivist_model) + Pantry.suggest() MemGraph integration ---------
+def test_overnight_archivist_and_pantry_prefs():
+    import asyncio
+    import json
+    from homemind.overnight import Overnight, ConvLog
+    from homemind.pantry import Pantry
+
+    class FakeModel:
+        def __init__(self, fn, mtype="anthropic", url="https://api.anthropic.com"):
+            self.fn, self.type = fn, mtype
+            self.cfg = {"type": mtype, "url": url}
+            self.calls = []
+
+        async def chat(self, sysmsg, msgs, **kw):
+            self.calls.append((sysmsg, msgs))
+            return {"text": self.fn(sysmsg, msgs), "ms": 12}
+
+    class FakeModels:
+        def __init__(self, **mp):
+            self.models = mp
+
+        def get(self, name):
+            return self.models[name]
+
+    async def run():
+        tmp = tempfile.mkdtemp()
+        st = Store(os.path.join(tmp, "mind.db"))
+        g = MemGraph(st, clock=lambda: T0)
+
+        def ov_fn(sysmsg, msgs):
+            body = msgs[-1]["content"]
+            if sysmsg == "Reply with OK.":
+                return "OK"
+            if "background memory graph Archivist" in sysmsg:
+                if "mapo tofu" in body.lower():
+                    return json.dumps({"patches": [{
+                        "op": "CREATE_LINK", "source": "user", "relation": "LIKES", "target": "mapo tofu",
+                        "certainty": 1.0, "evidence": "direct", "category": "FOOD", "confidence": 0.92,
+                        "hypotheses": [{"relation": "LIKES", "target": "chinese", "category": "FOOD"}],
+                    }]})
+                if "sesame noodles" in body.lower():
+                    return json.dumps({"patches": [{
+                        "op": "CREATE_LINK", "source": "user", "relation": "LIKES", "target": "sesame noodles",
+                        "certainty": 1.0, "evidence": "direct", "category": "FOOD", "confidence": 0.90,
+                    }]})
+                return '{"patches": []}'
+            if "audit a flagged memory graph" in sysmsg:
+                return '{"verdict": "approve", "reason": "ok"}'
+            return '{"facts": []}'
+
+        ov_mdl = FakeModel(ov_fn)
+        cl = ConvLog(st)
+        cl.add(T0, "I really love mapo tofu!", "Noted!", "c1", None, "home_mind", speaker="Alice")
+        cl.add(T0 + 60, "I love sesame noodles and my alarm code is 4417.", "Got it!", "c1", None, "home_mind", speaker="Alice")
+        cl.add(T0 + 120, "I love guest tacos!", "Nice!", "c2", None, "home_mind")  # unknown guest
+
+        ov = Overnight(st, FakeModels(big=ov_mdl), cl, model="big")
+        ov.known_only = True
+        ov.keys_on = False
+        ov.memgraph = g
+        ov.live_archivist = False
+        rep = await ov.run()
+
+        check("Overnight.run() runs Archivist on daily user turns when live_archivist is False",
+              rep["memgraph"]["overnight_ingest"]["turns"] == 2
+              and rep["memgraph"]["overnight_ingest"]["patches"] == 2)
+        check("Overnight Archivist created Alice's mapo tofu + inferred chinese links and skipped guest",
+              len(g.query(entities=["mapo tofu"], relations=["LIKES"], viewer="Alice", include_dormant=True, now=T0)) == 1
+              and len(g.query(entities=["chinese"], relations=["LIKES"], viewer="Alice", include_dormant=True, now=T0)) == 1
+              and g.find_node("guest tacos") is None)
+        arch_prompts = [c[1][-1]["content"] for c in ov_mdl.calls if "background memory graph Archivist" in c[0]]
+        check("Overnight Archivist masked secret code 4417 before sending to cloud model",
+              all("4417" not in p for p in arch_prompts))
+
+        # When live_archivist is True, Overnight skips re-ingesting turns!
+        cl.add(T0 + 200, "I love pad thai!", "Yum!", "c3", None, "home_mind", speaker="Alice")
+        ov.live_archivist = True
+        rep2 = await ov.run()
+        check("Overnight skips Archivist ingest when live_archivist is True (no double-ingest)",
+              "overnight_ingest" not in rep2["memgraph"])
+
+        # 2. Pantry.suggest() integrates MemGraph allergies, dislikes, learned tastes, privacy, and mark_shown!
+        sh = g.observe("user", "ALLERGIC_TO", "shellfish", evidence=EVIDENCE_DIRECT, owner="Alice", scope="personal", category="HEALTH", ts=T0)
+        g.observe("user", "ALLERGIC_TO", "strawberries", evidence=EVIDENCE_DIRECT, owner="Bob", scope="personal", category="HEALTH", ts=T0)
+        ol = g.observe("user", "DISLIKES", "olives", evidence=EVIDENCE_DIRECT, scope="household", category="FOOD", ts=T0)
+        # Promote Alice's inferred 'chinese' and 'spicy savory' to IDEA/FACT
+        for i, dish in enumerate(("dan dan", "sichuan chicken", "chili tofu", "kung pao")):
+            g.observe("user", "LIKES", "chinese", evidence=EVIDENCE_INFERRED, source_ref=f"d:{i}", owner="Alice", scope="personal", category="FOOD", ts=T0 + i * DAY)
+            g.observe("user", "LIKES", "spicy savory", evidence=EVIDENCE_INFERRED, source_ref=f"d:{i}", owner="Alice", scope="personal", category="FOOD", ts=T0 + i * DAY)
+
+        meal_prompts = []
+        def meal_fn(sysmsg, msgs):
+            meal_prompts.append((sysmsg, msgs[-1]["content"]))
+            return json.dumps({
+                "focus": "High protein dinner",
+                "meals": [{
+                    "name": "Spicy Chinese Chicken Bowl",
+                    "meal": "dinner",
+                    "uses": ["chicken breast", "rice"],
+                    "missing": [],
+                    "why": "Uses chicken and matches your spicy chinese taste without shellfish or olives.",
+                    "protein_g": 42,
+                    "calories": 520,
+                    "steps": "Cook chicken with chili and soy sauce over rice.",
+                }],
+            })
+
+        class FakeHA:
+            async def state(self, eid):
+                return None
+
+        pantry_mdl = FakeModel(meal_fn, mtype="ollama", url="")
+        pt = Pantry(st, FakeHA(), FakeModels(haiku=pantry_mdl), tmp)
+        pt.memgraph = g
+        pt.add("chicken breast", "1 lb", "fridge")
+        pt.add("rice", "2 cups", "pantry")
+
+        await pt.suggest("dinner", model="haiku", viewer="Alice")
+        sys_p, user_p = meal_prompts[-1]
+        check("MEAL_SYSTEM enforces ALLERGY and LEARNED TASTES",
+              "ALLERGY" in sys_p and "LEARNED TASTES" in sys_p)
+        check("Pantry.suggest injects Alice's shellfish allergy, household dislike, and learned tastes (not Bob's)",
+              "ALLERGY: shellfish" in user_p and "dislike: olives" in user_p
+              and "strawberries" not in user_p
+              and "LEARNED TASTES" in user_p and "mapo tofu" in user_p and "chinese" in user_p)
+        check("Pantry.suggest credits mark_shown on used allergy and dislike links",
+              g.get_link(sh["link"]["id"])["shown_count"] >= 1
+              and g.get_link(ol["link"]["id"])["shown_count"] >= 1)
+
+        await pt.suggest("dinner", model="haiku", viewer="Bob")
+        _, bob_p = meal_prompts[-1]
+        check("Pantry.suggest isolates personal allergies per viewer (Bob sees strawberries, not shellfish)",
+              "ALLERGY: strawberries" in bob_p and "shellfish" not in bob_p and "dislike: olives" in bob_p)
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     for fn in (
         test_math,
@@ -848,9 +985,11 @@ if __name__ == "__main__":
         test_librarian_routing_and_1hop,
         test_mind_integration_and_loopback,
         test_archivist_janitor_and_flywheel,
+        test_overnight_archivist_and_pantry_prefs,
     ):
         fn()
     print(f"\n{'PASS' if not FAILS else f'FAIL ({len(FAILS)})'}")
     sys.exit(1 if FAILS else 0)
+
 
 
