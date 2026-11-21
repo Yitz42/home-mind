@@ -36,7 +36,7 @@ FDC_FILES = {           # newest at the time of writing; refresh() looks for new
     "branded": "FoodData_Central_branded_food_csv_2026-10-29.zip",
     "survey": "FoodData_Central_survey_food_csv_2024-10-31.zip",     # FNDDS: foods and dishes as eaten, portions
 }
-FOOD_VERSION = 4        # 2: FNDDS survey foods and portion weights; 3: counted, BOM-safe; 4: ids via nutrient.csv
+FOOD_VERSION = 5        # 5: FNDDS SR numbers; 2: FNDDS survey foods and portion weights; 3: counted, BOM-safe; 4: ids via nutrient.csv
 KIWIX_DIR = "https://download.kiwix.org/zim/wikipedia/"
 WIKI_FLAVOUR = "wikipedia_en_all_nopic"
 NUTRIENTS = {           # FoodData Central nutrient ids
@@ -262,7 +262,9 @@ class Knowledge:
 
     @staticmethod
     def _rows(z, suffix):
-        name = next((n for n in z.namelist() if n.endswith("/" + suffix) or n == suffix), None)
+        names = [n for n in z.namelist() if not n.startswith("__MACOSX")]
+        base = lambda n: n.replace("\\", "/").rsplit("/", 1)[-1].lower()  # noqa: E731
+        name = next((n for n in names if base(n) == suffix), None)
         if not name:
             return iter(())
         return csv.DictReader(io.TextIOWrapper(z.open(name), encoding="utf-8-sig", newline=""))
@@ -309,7 +311,7 @@ class Knowledge:
                 nid = _key(r.get("nutrient_id"))
                 if len(seen_ids) < 12:
                     seen_ids[nid] = seen_ids.get(nid, 0) + 1
-                col = NUTRIENTS.get(nid) or by_id.get(nid)
+                col = NUTRIENTS.get(nid) or by_id.get(nid) or NUTRIENT_NBR.get(nid)    # FNDDS writes SR numbers
                 if f is not None and col:
                     v = _num(r.get("amount") if r.get("amount") not in (None, "") else r.get("value"))
                     if v is not None:
@@ -334,7 +336,8 @@ class Knowledge:
         if load is None:
             load = self.load_report = {}
         load[kind] = {"in_file": len(foods), "kept": n, "portions": len(portions),
-                      "nutrient_ids": sorted(seen_ids)[:12], "columns": cols, "mapped_by_number": len(by_id)}
+                      "nutrient_ids": sorted(seen_ids)[:12], "columns": cols, "mapped_by_number": len(by_id),
+                      "files": [n for n in z.namelist() if n.lower().endswith(".csv")][:20]}
         if portions:
             ids = sorted({p[0] for p in portions})
             for i in range(0, len(ids), 500):
