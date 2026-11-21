@@ -30,6 +30,58 @@ def _use(*a):
             pass
 
 
+class _ThinkFilter:
+    """Strips <think>...</think> blocks from a token stream, even when tags split across chunks."""
+    OPEN, CLOSE = "<think>", "</think>"
+
+    def __init__(self):
+        self.buf = ""
+        self.inside = False
+
+    def feed(self, chunk):
+        if not chunk:
+            return ""
+        self.buf += chunk
+        out = []
+        while self.buf:
+            if self.inside:
+                i = self.buf.find(self.CLOSE)
+                if i >= 0:
+                    self.buf = self.buf[i + len(self.CLOSE):]
+                    self.inside = False
+                    continue
+                self.buf = self.buf[-(len(self.CLOSE) - 1):]
+                break
+            i = self.buf.find(self.OPEN)
+            if i >= 0:
+                if i:
+                    out.append(self.buf[:i])
+                self.buf = self.buf[i + len(self.OPEN):]
+                self.inside = True
+                continue
+            hold = 0
+            for k in range(min(len(self.buf), len(self.OPEN) - 1), 0, -1):
+                if self.OPEN.startswith(self.buf[-k:]):
+                    hold = k
+                    break
+            if hold:
+                if len(self.buf) > hold:
+                    out.append(self.buf[:-hold])
+                    self.buf = self.buf[-hold:]
+            else:
+                out.append(self.buf)
+                self.buf = ""
+            break
+        return "".join(out)
+
+    def flush(self):
+        if self.inside or not self.buf:
+            self.buf = ""
+            return ""
+        rem, self.buf = self.buf, ""
+        return rem
+
+
 class Model:
     def __init__(self, cfg, session):
         self.cfg = dict(cfg)
@@ -112,6 +164,160 @@ class Model:
         if getattr(self, "_cached", None):
             out["tokens_cached"] = self._cached
         return out
+
+    async def chat_stream(self, system, messages, on_delta, max_tokens=800, temperature=0.2, cache_until=None):
+        """Stream text deltas to on_delta(chunk) as they arrive (for openai, ollama, anthropic), returning the same
+        result dict as chat(). Types without streaming fall back cleanly to chat()."""
+        fn = getattr(self, f"_stream_{self.type}", None)
+        if fn is None or on_delta is None:
+            r = await self.chat(system, messages, max_tokens, temperature, cache_until)
+            if on_delta is not None and r.get("text"):
+                on_delta(r["text"])
+            return r
+        t0 = time.monotonic()
+        messages = self._with_cache(messages, cache_until)
+        self._cached = None
+        filt = _ThinkFilter()
+        parts = []
+
+        def emit(chunk):
+            clean = filt.feed(chunk)
+            if clean:
+                parts.append(clean)
+                on_delta(clean)
+
+        try:
+            tokens = await fn(system, messages, max_tokens, temperature, emit)
+            tail = filt.flush()
+            if tail:
+                parts.append(tail)
+                on_delta(tail)
+        except Exception as e:
+            _use(self.name, False, None, None, int((time.monotonic() - t0) * 1000))
+            if isinstance(e, asyncio.TimeoutError):
+                raise ModelError(f"{self.name}: timed out after {self.timeout.total:g}s") from e
+            if isinstance(e, aiohttp.ClientError):
+                raise ModelError(self._clean(f"{self.name}: {type(e).__name__}: {e}")) from e
+            raise
+        tin, tout = tokens if isinstance(tokens, tuple) else (None, None)
+        total = (tin or 0) + (tout or 0) if isinstance(tokens, tuple) else tokens
+        ms = int((time.monotonic() - t0) * 1000)
+        if self.type != "mock":
+            _use(self.name, True, tin, tout, ms)
+        text = "".join(parts).strip()
+        out = {"text": text, "ms": ms, "tokens": total if total else None,
+               "tokens_in": tin, "tokens_out": tout, "model": self.name}
+        if getattr(self, "_cached", None):
+            out["tokens_cached"] = self._cached
+        return out
+
+    async def _post_lines(self, url, payload, headers=None):
+        """POST a streaming JSON request and yield decoded lines, raising ModelError on HTTP >= 400."""
+        async with self.session.post(url, json=payload, headers=headers or {}, timeout=self.timeout) as r:
+            if r.status >= 400:
+                body = await r.text()
+                raise ModelError(self._clean(f"{self.name}: HTTP {r.status}: {body[:300]}"))
+            buf = b""
+            async for chunk in r.content.iter_any():
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    yield line.decode("utf-8", "replace").strip()
+            if buf.strip():
+                yield buf.decode("utf-8", "replace").strip()
+
+    async def _stream_openai(self, system, messages, max_tokens, temperature, emit):
+        import json
+        url = (self.cfg.get("url") or "http://localhost:11434/v1").rstrip("/")
+        if not url.endswith("/chat/completions"):
+            url = url + ("/chat/completions" if url.endswith("/v1") else "/v1/chat/completions")
+        headers = {"Authorization": f"Bearer {self.cfg['api_key']}"} if self.cfg.get("api_key") else {}
+        msgs = ([{"role": "system", "content": system}] if system else []) + messages
+        payload = {"model": self.cfg.get("model", ""), "messages": msgs, "max_tokens": max_tokens,
+                   "temperature": temperature, "stream": True}
+        tin, tout = 0, 0
+        async for line in self._post_lines(url, payload, headers):
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                j = json.loads(data)
+            except ValueError:
+                continue
+            u = j.get("usage") or {}
+            if u:
+                tin, tout = u.get("prompt_tokens") or tin, u.get("completion_tokens") or tout
+            ch = (j.get("choices") or [{}])[0]
+            delta = (ch.get("delta") or {}).get("content")
+            if isinstance(delta, str) and delta:
+                emit(delta)
+        return (tin, tout) if (tin or tout) else None
+
+    async def _stream_ollama(self, system, messages, max_tokens, temperature, emit):
+        import json
+        url = (self.cfg.get("url") or "http://localhost:11434").rstrip("/")
+        msgs = ([{"role": "system", "content": system}] if system else []) + messages
+        opts = {"num_predict": max_tokens, "temperature": temperature}
+        for k in ("num_gpu", "num_ctx", "num_thread"):
+            if self.cfg.get(k) is not None:
+                opts[k] = int(self.cfg[k])
+        body = {"model": self.cfg.get("model", ""), "messages": msgs, "stream": True, "think": False, "options": opts}
+        if self.cfg.get("keep_alive"):
+            body["keep_alive"] = self.cfg["keep_alive"]
+        tin, tout = 0, 0
+        async for line in self._post_lines(url + "/api/chat", body):
+            if not line:
+                continue
+            try:
+                j = json.loads(line)
+            except ValueError:
+                continue
+            txt = (j.get("message") or {}).get("content")
+            if isinstance(txt, str) and txt:
+                emit(txt)
+            if j.get("done"):
+                tin = j.get("prompt_eval_count") or tin
+                tout = j.get("eval_count") or tout
+        return (tin, tout) if (tin or tout) else None
+
+    async def _stream_anthropic(self, system, messages, max_tokens, temperature, emit):
+        import json
+        if not self.cfg.get("api_key"):
+            raise ModelError(f"{self.name}: needs api_key")
+        url = (self.cfg.get("url") or "https://api.anthropic.com").rstrip("/") + "/v1/messages"
+        sysp = system or ""
+        if sysp and self.cfg.get("cache") is not False and self._cacheable(sysp):
+            sysp = [{"type": "text", "text": sysp, "cache_control": {"type": "ephemeral"}}]
+        payload = {"model": self.cfg.get("model") or "claude-haiku-5-5", "max_tokens": max_tokens,
+                   "temperature": temperature, "system": sysp, "messages": messages, "stream": True}
+        headers = {"x-api-key": self.cfg["api_key"], "anthropic-version": "2023-06-01"}
+        tin, tout = 0, 0
+        async for line in self._post_lines(url, payload, headers):
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data:
+                continue
+            try:
+                j = json.loads(data)
+            except ValueError:
+                continue
+            t = j.get("type")
+            if t == "content_block_delta":
+                d = j.get("delta") or {}
+                if d.get("type") == "text_delta" and d.get("text"):
+                    emit(d["text"])
+            elif t == "message_start":
+                u = (j.get("message") or {}).get("usage") or {}
+                tin = (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (
+                    u.get("cache_creation_input_tokens") or 0)
+                self._cached = u.get("cache_read_input_tokens") or None
+            elif t == "message_delta":
+                u = j.get("usage") or {}
+                tout = u.get("output_tokens") or tout
+        return (tin, tout) if (tin or tout) else None
 
     async def check(self):
         try:

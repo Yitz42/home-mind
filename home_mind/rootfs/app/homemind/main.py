@@ -1117,23 +1117,35 @@ class App:
                 return await self._style(dict(done, hits=[], model=None), b["question"], who, bool(b.get("voice")),
                                          "do")
         phone = self.phone_of(who) if b.get("voice") and who and hasattr(self, "phone_of") else None
-        ask = self.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
-                         expand=bool(b.get("expand")), voice=bool(b.get("voice")),
-                         deadline=(b.get("deadline") or self.HANDOFF_LATE) if phone else b.get("deadline"),
-                         fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who)
         mk = getattr(self, "meal_ok", None)
         mr = mk(b, who, oa) if not urgent and mk is not None else None
         dk = getattr(self, "deep_ok", None)
+        use_deep = bool(not mr and not urgent and dk is not None and dk(b, who, oa))
+        raw_on_sent = b.get("on_sentence") if not mr and not use_deep else None
+        stream_state = {"started": False, "handed_off": False}
+
+        def on_sent(s):
+            if stream_state["handed_off"]:
+                return
+            stream_state["started"] = True
+            raw_on_sent(s)
+
+        ask = self.mind.ask(b["question"], b.get("model"), use_brain=b.get("use_brain", True),
+                         expand=bool(b.get("expand")), voice=bool(b.get("voice")),
+                         deadline=(b.get("deadline") or self.HANDOFF_LATE) if phone else b.get("deadline"),
+                         fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who,
+                         **({"on_sentence": on_sent} if raw_on_sent is not None else {}))
         if mr:
             ask = self.meal_answer(b, who, mr, ask)  # "what can I make with the large eggs?": Pantry.suggest()
-        elif not urgent and dk is not None and dk(b, who, oa):
+        elif use_deep:
             ask = self.deep_answer(b, who, ask)      # why / lately / how am I: the brief, connected (connect.py)
         if phone:
             # past HANDOFF_SECONDS by voice: say so, and send the whole answer to the person's phone when it's ready
             # (design step 19); without a phone the voice deadline and its best-note fallback stand as before
             task = asyncio.ensure_future(ask)
             done, _ = await asyncio.wait({task}, timeout=self.HANDOFF_SECONDS)
-            if not done:
+            if not done and not stream_state["started"]:
+                stream_state["handed_off"] = True
                 async def finish():
                     try:
                         r = await task
@@ -1146,7 +1158,7 @@ class App:
                 self._bg[key].add_done_callback(lambda _t, k=key: self._bg.pop(k, None))
                 return ({"answer": "That's taking a moment. I'll send it to your phone.", "handoff": phone,
                           "hits": [], "model": None})
-            res = task.result()
+            res = task.result() if done else await task
         else:
             res = await ask
         if who is not None:
@@ -2238,6 +2250,13 @@ class App:
                 return res
             if res.get("red_flag"):
                 return res          # a red flag's fixed words are said exactly: no persona, closer or emotion
+            if res.get("_streamed"):
+                # already streamed live sentence-by-sentence: keep the spoken text intact, just record the emotion
+                emotion = self.persona.emotion(res, question, name, await self.tired(), kind)
+                res["emotion"] = emotion
+                said = self.persona.__dict__.setdefault("_said", {})
+                said[self.persona._key(res["answer"])] = emotion
+                return res
             from . import frontends as FE
             from .mind import DONT_KNOW
             failed = bool(res.get("error")) or bool(DONT_KNOW.search(res.get("answer") or ""))

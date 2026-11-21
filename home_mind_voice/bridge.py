@@ -64,17 +64,27 @@ def emotion_of(text):
 
 
 def speakable(text):
-    """Symbols a voice stumbles on, said as words. The wording itself is left alone."""
+    """Symbols and units a voice stumbles on, said as words. The wording itself is left alone."""
     t = text or ""
     t = re.sub(r"(\d)\s*[×x]\s*(\d)", r"\1 by \2", t)
-    t = re.sub(r"(\d)\s*(?:–|-)\s*(\d)", r"\1 to \2", t)
-    t = re.sub(r"(\d(?::\d{2})?\s*[AP]M)\s*[–-]\s*(\d)", r"\1 to \2", t)
+    t = re.sub(r"(\d(?::\d{2})?\s*[AP]M)\s*[–-]\s*(\d)", r"\1 to \2", t, flags=re.I)
+    t = re.sub(r"(?<![\d-])(\d{1,3}(?::\d{2})?)\s*–\s*(\d{1,3}(?::\d{2})?)(?![\d-])", r"\1 to \2", t)
+    t = re.sub(r"(?<![\d-])(\d{1,3})\s*-\s*(\d{1,3})(?![\d-])", r"\1 to \2", t)
+    t = re.sub(r"~\s*(\d)", r"about \1", t)
+    t = re.sub(r"\b(\d+)\s*h\s*0?(\d+)\s*min\b",
+               lambda m: f"{m.group(1)} {'hour' if m.group(1) == '1' else 'hours'} "
+                         f"{m.group(2)} {'minute' if m.group(2) == '1' else 'minutes'}", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*h\b", lambda m: f"{m.group(1)} {'hour' if m.group(1) == '1' else 'hours'}", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*°\s*F\b", r"\1 degrees Fahrenheit", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*°\s*C\b", r"\1 degrees Celsius", t)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*bpm\b", r"\1 beats per minute", t, flags=re.I)
+    t = re.sub(r"\b(\d+(?:\.\d+)?)\s*ms\b", r"\1 milliseconds", t)
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*lb\b", r"\1 pounds", t)
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*kg\b", r"\1 kilograms", t)
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*kcal\b", r"\1 calories", t)
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*g\b", r"\1 grams", t)
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s*mi\b", r"\1 miles", t)
-    t = re.sub(r"\b(\d+)\s*min\b", r"\1 minutes", t)
+    t = re.sub(r"\b(\d+)\s*min\b", lambda m: f"{m.group(1)} {'minute' if m.group(1) == '1' else 'minutes'}", t)
     t = re.sub(r"\s*—\s*", ", ", t)
     t = re.sub(r"\s*·\s*", ", ", t)
     t = re.sub(r"[*_`#]+", "", t)

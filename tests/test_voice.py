@@ -285,6 +285,159 @@ mo.day.set("rough")
 run(mo.send())
 check("morning: none on a rough day", "While you were away" not in mha.pushed[-1])
 
+# ---- true voice streaming & spoken units -------------------------------------------------------------------------
+from homemind.mind import Mind, spoken  # noqa: E402
+from homemind.models import Model, _ThinkFilter  # noqa: E402
+
+# SentenceStream chunks tokens live and holds DONT_KNOW when escalation is enabled
+got_ss = []
+ss = V.SentenceStream(got_ss.append, clean=spoken)
+ss.feed("The room is 72°F ")
+check("SentenceStream: waits for complete sentence", got_ss == [])
+ss.feed("right now. You slept ")
+check("SentenceStream: emits sentence 1 immediately", got_ss == ["The room is 72 degrees Fahrenheit right now."], got_ss)
+ss.feed("6 h 05 min last night.")
+ss.flush()
+check("SentenceStream: flushes final sentence with unit expansion",
+      got_ss == ["The room is 72 degrees Fahrenheit right now.", "You slept 6 hours 5 minutes last night."], got_ss)
+
+# ISO dates and phone numbers are not mangled into 'to'
+check("spoken: preserves ISO dates and phone numbers",
+      spoken("Due 2026-11-21; call 555-1234.") == "Due 2026-11-21; call 555-1234.",
+      spoken("Due 2026-11-21; call 555-1234."))
+check("spoken: expands units, ranges, and ~",
+      spoken("HRV 41 ms, resting 58 bpm, ~28 g protein, 3×5 at 195 lb, 12 AM–7 AM.") ==
+      "HRV 41 milliseconds, resting 58 beats per minute, about 28 grams protein, 3 by 5 at 195 pounds, 12 AM to 7 AM.",
+      spoken("HRV 41 ms, resting 58 bpm, ~28 g protein, 3×5 at 195 lb, 12 AM–7 AM."))
+
+# _ThinkFilter strips <think>...</think> across split chunks
+tf = _ThinkFilter()
+out_tf = "".join(tf.feed(c) for c in ["<thi", "nk>hidden ", "thought</thi", "nk>Hello ", "world."]) + tf.flush()
+check("_ThinkFilter: strips split <think> tags", out_tf == "Hello world.", out_tf)
+
+# Model.chat_stream() across OpenAI SSE, Ollama NDJSON, and Anthropic SSE
+class FakeContent:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    async def iter_any(self):
+        for c in self._chunks:
+            yield c.encode()
+
+
+class FakeResp:
+    def __init__(self, chunks, status=200):
+        self.status, self.content = status, FakeContent(chunks)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def text(self):
+        return ""
+
+
+class FakeSess:
+    def __init__(self, chunks):
+        self.chunks = chunks
+        self.payloads = []
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        self.payloads.append((url, json))
+        return FakeResp(self.chunks)
+
+
+for mtype, cfg, chunks, want in [
+    ("openai", {"name": "o", "type": "openai", "url": "http://localhost:8080/v1", "model": "q"},
+     ['data: {"choices":[{"delta":{"content":"First. "}}]}\n',
+      'data: {"choices":[{"delta":{"content":"Second."}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}\n',
+      'data: [DONE]\n'], "First. Second."),
+    ("ollama", {"name": "ol", "type": "ollama", "url": "http://localhost:11434", "model": "q"},
+     ['{"message":{"content":"<think>shh</think>First. "},"done":false}\n',
+      '{"message":{"content":"Second."},"done":true,"prompt_eval_count":9,"eval_count":4}\n'], "First. Second."),
+    ("anthropic", {"name": "an", "type": "anthropic", "api_key": "k", "model": "claude"},
+     ['event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":12}}}\n',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"First. "}}\n',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Second."}}\n',
+      'event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":6}}\n'], "First. Second."),
+]:
+    sess = FakeSess(chunks)
+    mod = Model(cfg, sess)
+    deltas = []
+    res_s = run(mod.chat_stream("sys", [{"role": "user", "content": "hi"}], deltas.append))
+    check(f"chat_stream ({mtype}): streams deltas and sets stream=True",
+          res_s["text"] == want and "".join(deltas) == want and sess.payloads[0][1].get("stream") is True,
+          (res_s, deltas, sess.payloads))
+
+
+# Live converse(): sentence 1 arrives BEFORE turn finishes and skips the 'One moment.' ack
+class StreamingApp(App):
+    async def answer(self, b, scope="admin"):
+        cb = b.get("on_sentence")
+        await asyncio.sleep(0.03)
+        if cb:
+            cb("First sentence.")
+        await asyncio.sleep(0.25)
+        if cb:
+            cb("Second sentence.")
+        return {"answer": "First sentence. Second sentence. How's your day going — good, low or rough?",
+                "hits": [], "checkin_asked": True, "_streamed": ["First sentence.", "Second sentence."]}
+
+
+async def collect_timed(gen):
+    t0, out = time.monotonic(), []
+    async for x in gen:
+        out.append((time.monotonic() - t0, x))
+    return out
+
+timed_ev = run(collect_timed(V.converse(StreamingApp(), {"text": "how is the house?", "device_id": "sat1",
+                                                         "satellite_id": "sat.kitchen"}, ack_seconds=0.12)))
+d_texts = [e["text"] for _, e in timed_ev if e["type"] == "delta"]
+t_first = timed_ev[0][0]
+t_done = timed_ev[-1][0]
+check("converse live stream: sentence 1 arrives before done, skips ack, appends tail without duplicating",
+      d_texts == ["First sentence.", "Second sentence.", "How's your day going — good, low or rough?"] and
+      not any(e.get("ack") for _, e in timed_ev) and t_first < t_done - 0.1, (t_first, t_done, d_texts))
+
+# Mind.ask() streams household notes live, but buffers personal notes for private_by_voice
+class StreamStubModel:
+    type, cfg = "ollama", {}
+
+    async def chat_stream(self, system, msgs, on_delta, **k):
+        on_delta("The drill is in the garage. ")
+        on_delta("Second shelf.")
+        return {"text": "The drill is in the garage. Second shelf.", "ms": 5}
+
+    async def chat(self, system, msgs, **k):
+        return {"text": "Buffered personal reply.", "ms": 5}
+
+
+class StreamStubModels:
+    def __init__(self):
+        self.m = StreamStubModel()
+        self.models = {"local": self.m}
+
+    def get(self, n):
+        return self.m
+
+
+m_str = Mind(tempfile.mkdtemp(), StreamStubModels())
+m_str.store.remember(text="The drill is in the garage on the second shelf.", title="Drill location")
+m_str.store.remember(text="My diary secret is blue.", title="Diary secret",
+                     meta={"scope": "personal", "owner": "Dana"})
+live_pub = []
+r_pub = run(m_str.ask("Where is the drill?", model="local", voice=True, on_sentence=live_pub.append))
+check("Mind.ask: household note streams live via on_sentence",
+      live_pub == ["The drill is in the garage.", "Second shelf."] and r_pub.get("_streamed") == live_pub,
+      (live_pub, r_pub))
+live_priv = []
+r_priv = run(m_str.ask("What is my diary secret?", model="local", voice=True, speaker="Dana",
+                       on_sentence=live_priv.append))
+check("Mind.ask: personal note stays buffered (not live-streamed before privacy check)",
+      live_priv == [] and not r_priv.get("_streamed") and "Buffered" in r_priv["answer"], (live_priv, r_priv))
+
 print()
 print("FAILED: " + ", ".join(FAILS) if FAILS else "all passed")
 sys.exit(1 if FAILS else 0)
