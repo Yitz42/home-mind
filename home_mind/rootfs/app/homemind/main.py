@@ -92,7 +92,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
-            "paperless_url": "", "paperless_token": "", "rerank_model": "", "librarian_model": "", "control_model": "", "rule_planner": True,
+            "paperless_url": "", "paperless_token": "", "rerank_model": "", "librarian_model": "", "archivist_model": "", "control_model": "", "rule_planner": True,
             "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
             "compare_suites": ["recall", "tricky", "hard"], "use_preferences": True, "label_url": "",
             "telegram_token": "", "telegram_chats": [], "web_search": "off", "web_search_url": "", "web_search_key": "",
@@ -301,9 +301,17 @@ class App:
         self.symptoms = Symptoms(st9)
         self.known_issues = KnownIssues(st9)
         self.brief = Brief(self)
-        from .memgraph import MemGraph
+        from .memgraph import MemGraph, Archivist
         self.memgraph = MemGraph(st9)
         self.mind.memgraph = self.memgraph
+        self.archivist = Archivist(
+            self.memgraph, self.models,
+            model_name=self.opts.get("archivist_model") or None,
+            personal_rule=self.opts.get("personal_rule") or "first_person",
+        )
+        self.mind.archivist = self.archivist
+        if self.archivist.model_name:
+            self.tasks.append(self.archivist.start())
         from .talk import Talk
         self.talk = Talk(self)          # the panel's conversation: by voice or typing, with choices (talk.py)
         _forget_name = st9.on_forget_name
@@ -369,6 +377,7 @@ class App:
                                    self.opts.get("overnight_model") or None)
         self.overnight.enabled = self.opts.get("overnight_enabled", True) is not False
         self.overnight.structure_on = bool(self.opts.get("overnight_structure"))
+        self.overnight.memgraph = self.memgraph
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False

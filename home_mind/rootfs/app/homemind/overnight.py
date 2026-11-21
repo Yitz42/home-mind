@@ -358,11 +358,20 @@ class Overnight:
                 grown = {k: g[k] for k in ("kept", "review", "dropped", "known", "parser_misread")}
             except Exception as e:  # noqa: BLE001
                 log.warning("phrasebook: %s", e)
+        mg_rep = None
+        mg = getattr(self, "memgraph", None)
+        if mg is not None:
+            try:
+                from .memgraph import Janitor
+                mg_rep = await Janitor(mg).run_nightly(model)
+            except Exception as e:  # noqa: BLE001
+                log.warning("memgraph janitor: %s", e)
         self.last = {"at": time.time(), "model": name, "turns": len(done), "filed": len(filed), "already_known": skipped,
                      "unknown_voices": len(guests), "keys_added": keyed, "links_moved": relinked, "tagged_languages": tagged,
                      "reshelved": len(reshelved["moved"]), "reshelve_suggested": len(reshelved["suggested"]),
                      "ids": filed, **({"structure_read": read} if read is not None else {}),
-                     **({"phrasebook": grown} if grown is not None else {})}
+                     **({"phrasebook": grown} if grown is not None else {}),
+                     **({"memgraph": mg_rep} if mg_rep is not None else {})}
         self.store.kv_set("overnight_last", self.last)
         return self.last
 

@@ -2023,3 +2023,487 @@ class MemGraph:
                 "SELECT COUNT(*) FROM mg_staging WHERE flagged=1 AND audit_status='pending'"
             ).fetchone()[0],
         }
+
+    def ingest_sensor(self, metric, value, *, relation="BASELINE", unit=None,
+                      context_tags=(), category="GENERAL", ts=None,
+                      owner=None, scope="household", source_ref=""):
+        """Deterministic high-frequency sensor/telemetry ingestion (sleep, steps, lights, thermostat).
+        Writes as evidence='sensor_fact' with zero LLM cost and respects daily/min_points caps."""
+        now = float(self.clock() if ts is None else ts)
+        return self.observe(
+            "user", relation, metric,
+            evidence=EVIDENCE_SENSOR, value=value, unit=unit,
+            context_tags=context_tags, category=category,
+            source_ref=source_ref or f"sensor:{normalize_name(metric)}:{iso_day(now)}",
+            ts=now, owner=owner, scope=scope, record_staging=False,
+        )
+
+
+# ---- Speed 3 Async Read-Before-Write Archivist ------------------------------------------------------------------
+SARCASM_OR_HYPO = re.compile(
+    r"\b(?:just kidding|jk|lol jk|hypothetically|what if i|if i ever|if i worked|if i lived|"
+    r"imagine if i|pretend i|suppose i)\b",
+    re.I,
+)
+PURE_QUESTION_START = re.compile(
+    r"^\s*(?:what|where|when|who|why|how|which|is|are|was|were|do|does|did|can|could|should|would|will|have|has|any)\b",
+    re.I,
+)
+TRIVIAL_TURN = re.compile(
+    r"^\s*(?:ok|okay|thanks|thank you|got it|sure|yes|no|nope|yep|stop|cancel|never ?mind|cool|nice|great)[.!?\s]*$",
+    re.I,
+)
+
+ARCHIVIST_SYSTEM = (
+    "You are the background memory graph Archivist. Read ONLY the user's message and the existing candidate "
+    "graph links, then emit structured JSON patches for durable preferences, habits, facts, allergies, or "
+    "contradictions the user stated about themselves.\n"
+    "Rules:\n"
+    "- Allowed canonical relations ONLY: LIKES, DISLIKES, PREFERS, AVOIDS, HABIT, BASELINE, CORRELATES_WITH, "
+    "ALLERGIC_TO, LIVES_IN, WORKS_AT.\n"
+    "- Allowed categories: " + ", ".join(CATEGORIES) + ".\n"
+    "- Skip pure questions, commands, jokes, sarcasm, hypotheticals (if unsure, set certainty=0.0).\n"
+    "- If an existing candidate link matches, use op='BOLSTER' or op='DEMOTE' with its target_link_id.\n"
+    "- When a user states a concrete preference (e.g. 'I like Kung Pao chicken'), you may include up to 3 "
+    "tentative inferred 'hypotheses' (cuisine, flavor, ingredient) that will start as low-stability THOUGHTs.\n"
+    "- Never extract secrets, codes, passwords, or facts about third parties as user facts.\n"
+    'Reply with JSON only: {"patches": [{"op": "CREATE_LINK|BOLSTER|DEMOTE", "target_link_id": null, '
+    '"source": "user", "relation": "LIKES", "target": "...", "sign": 1, "certainty": 1.0, '
+    '"evidence": "direct", "category": "FOOD", "context_tags": [], "value": null, "unit": null, '
+    '"confidence": 0.9, "hypotheses": [{"relation": "LIKES", "target": "...", "category": "FOOD"}]}]}. '
+    'If nothing durable was stated, reply {"patches": []}.'
+)
+
+
+class Archivist:
+    """Speed 3 asynchronous Read-Before-Write graph writer with per-owner locks and zero reply latency."""
+
+    def __init__(self, memgraph, models=None, model_name=None, personal_rule="first_person", max_queue=64):
+        self.memgraph = memgraph
+        self.models = models
+        self.model_name = model_name
+        self.personal_rule = personal_rule
+        self.max_queue = int(max_queue)
+        self._locks = {}
+        self._queue = None
+        self._worker = None
+
+    def _lock_for(self, owner):
+        key = str(owner or "_").lower()
+        lk = self._locks.get(key)
+        if lk is None:
+            lk = asyncio.Lock()
+            self._locks[key] = lk
+        return lk
+
+    def should_skip(self, text):
+        s = str(text or "").strip()
+        if len(s) < 6 or TRIVIAL_TURN.match(s):
+            return True
+        if s.endswith("?") and PURE_QUESTION_START.match(s) and not re.search(r"\b(?:i |i'm |i've |my )", s, re.I):
+            return True
+        return False
+
+    def enqueue(self, user_text, *, owner=None, ts=None):
+        """Non-blocking enqueue after a reply is sent (zero hot-path latency).
+        Guests (owner == '') and trivial messages are ignored immediately."""
+        if owner == "" or not self.model_name or self.models is None:
+            return False
+        if self.should_skip(user_text):
+            return False
+        if self._queue is None:
+            self._queue = asyncio.Queue(maxsize=self.max_queue)
+        if self._queue.full():
+            return False
+        self._queue.put_nowait({"text": str(user_text), "owner": owner, "ts": ts})
+        return True
+
+    def start(self):
+        if self._queue is None:
+            self._queue = asyncio.Queue(maxsize=self.max_queue)
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(self._run_loop())
+        return self._worker
+
+    async def _run_loop(self):
+        while True:
+            item = await self._queue.get()
+            try:
+                await self.process_turn(item["text"], owner=item["owner"], ts=item["ts"])
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - background ingestion never crashes the add-on
+                pass
+            finally:
+                self._queue.task_done()
+
+    async def drain(self):
+        """Process all queued turns (useful in tests and graceful flush)."""
+        if self._queue is None:
+            return 0
+        n = 0
+        while not self._queue.empty():
+            item = self._queue.get_nowait()
+            try:
+                await self.process_turn(item["text"], owner=item["owner"], ts=item["ts"])
+                n += 1
+            finally:
+                self._queue.task_done()
+        return n
+
+    async def process_turn(self, user_text, *, owner=None, ts=None, model=None, timeout=15.0):
+        """Read-Before-Write ingestion for ONE user message under per-owner asyncio.Lock.
+        Masks secrets before calling the model, enforces sarcasm gamma=0, validates canonical predicates,
+        and applies patches + capped inferred hypotheses."""
+        if owner == "" or self.should_skip(user_text):
+            return {"applied": 0, "skipped": "guest_or_trivial", "results": []}
+
+        m_obj = model
+        if m_obj is None:
+            if not self.model_name or self.models is None:
+                return {"applied": 0, "skipped": "no_model", "results": []}
+            m_obj = self.models.get(self.model_name)
+
+        from . import privacy as sec
+        from .speakers import scope_for
+
+        now = float(self.memgraph.clock() if ts is None else ts)
+        # Mask any secrets/codes BEFORE the Archivist LLM ever sees the text!
+        safe_text = sec.mask_all(str(user_text or ""))
+        if SARCASM_OR_HYPO.search(safe_text):
+            return {"applied": 0, "skipped": "hypothetical_or_sarcasm", "results": []}
+
+        scope, link_owner = scope_for(safe_text, owner, self.personal_rule) if owner else ("household", None)
+
+        async with self._lock_for(link_owner):
+            # Read-Before-Write candidate pull so the Archivist bolsters/demotes existing links instead of duplicating!
+            cands = self.memgraph.retrieve(
+                safe_text, viewer=owner, include_dormant=True, limit=8, now=now, record_access=False
+            )
+            cand_lines = []
+            for lnk in cands.get("links") or ():
+                cand_lines.append(
+                    f"- id={lnk['id']} ({lnk.get('source_name')}) --[{lnk['relation']} | {lnk['status']} | "
+                    f"S:{lnk['stability_score']:.2f}]--> ({lnk.get('target_name')})"
+                )
+            prompt = f"User message: {safe_text}\n"
+            if cand_lines:
+                prompt += "Existing candidate links:\n" + "\n".join(cand_lines) + "\n"
+            else:
+                prompt += "Existing candidate links: (none)\n"
+
+            try:
+                r = await asyncio.wait_for(
+                    m_obj.chat(ARCHIVIST_SYSTEM, [{"role": "user", "content": prompt}], max_tokens=450, temperature=0),
+                    timeout,
+                )
+                parsed = self.memgraph._parse_json_obj(r.get("text") if isinstance(r, dict) else str(r))
+            except Exception as e:  # noqa: BLE001
+                return {"applied": 0, "error": str(e)[:160], "results": []}
+
+            patches = (parsed or {}).get("patches")
+            if not isinstance(patches, list):
+                return {"applied": 0, "results": []}
+
+            results = []
+            for p in patches[:MAX_FAN_OUT]:
+                if not isinstance(p, dict):
+                    continue
+                op = str(p.get("op") or "CREATE_LINK").upper()
+                if op not in ("CREATE_LINK", "BOLSTER", "DEMOTE", "CREATE_NODE", "UPDATE"):
+                    continue
+                # Normalize self-references ("I", "me", "myself") -> "user"
+                src = normalize_name(p.get("source") or "user")
+                if src in ("i", "me", "myself", "the user", "person", ""):
+                    src = "user"
+                rel = p.get("relation")
+                if op in ("CREATE_LINK", "BOLSTER", "DEMOTE") and p.get("target_link_id") is None:
+                    if not rel or not p.get("target"):
+                        continue
+                    try:
+                        self.memgraph.resolve_relation(rel, allow_unknown=False)
+                    except ValueError:
+                        continue  # reject unknown LLM-invented predicates!
+                certainty = float(p.get("certainty", 1.0))
+                if certainty <= 0.0:
+                    continue
+                conf = float(p.get("confidence", 0.85))
+                cat = str(p.get("category") or "GENERAL").upper()
+                if cat not in CATEGORIES:
+                    cat = "GENERAL"
+
+                hyps = p.get("hypotheses") or []
+                try:
+                    if op == "CREATE_LINK" and hyps and p.get("target_link_id") is None:
+                        clean_hyps = []
+                        for h in list(hyps)[:MAX_FAN_OUT]:
+                            if not isinstance(h, dict) or not h.get("target"):
+                                continue
+                            h_rel = h.get("relation") or rel
+                            try:
+                                self.memgraph.resolve_relation(h_rel, allow_unknown=False)
+                            except ValueError:
+                                continue
+                            clean_hyps.append({
+                                "relation": h_rel,
+                                "target": h["target"],
+                                "category": str(h.get("category") or cat).upper(),
+                                "sign": h.get("sign", 1),
+                            })
+                        res = self.memgraph.record_with_hypotheses(
+                            src, rel, p["target"], hypotheses=clean_hyps,
+                            category=cat, context_tags=p.get("context_tags") or (),
+                            quote=safe_text[:200], ts=now, owner=link_owner, scope=scope,
+                            certainty=certainty,
+                        )
+                        results.append(res["primary"])
+                    else:
+                        clean_patch = dict(p, op=op, source=src, category=cat, confidence=conf, quote=safe_text[:200])
+                        res = self.memgraph.apply_patch(clean_patch, ts=now, owner=link_owner, scope=scope)
+                        results.append(res)
+                except Exception:  # noqa: BLE001 - one bad patch never aborts valid siblings
+                    continue
+
+            return {"applied": len(results), "results": results}
+
+
+# ---- Offline Janitor (Overnight Audit, Decay, Compaction, Backfill) & Flywheel Export ---------------------------
+JANITOR_AUDIT_SYSTEM = (
+    "You audit a flagged memory graph mutation made by a smaller model. Decide whether the write is accurate "
+    "or should be reverted back to its before_state.\n"
+    'Reply with JSON only: {"verdict": "approve" or "revert", "reason": "short reason", '
+    '"corrected_patch": null or corrected JSON patch}.'
+)
+
+GOLDEN_REPLAY_EXAMPLES = (
+    {
+        "mode": "[RETRIEVE]",
+        "input": "What spicy dinner should I make tonight?",
+        "output": {"target_categories": ["FOOD"], "extracted_entities": [], "context_tags": ["evening"], "temporal_scope": "CURRENT_STATE"},
+        "golden": True,
+    },
+    {
+        "mode": "[RETRIEVE]",
+        "input": "How much do I sleep on weekends?",
+        "output": {"target_categories": ["SLEEP"], "extracted_entities": ["sleep"], "context_tags": ["weekend"], "temporal_scope": "CURRENT_STATE"},
+        "golden": True,
+    },
+    {
+        "mode": "[INGEST]",
+        "input": "If I lived in Tokyo, I'd eat ramen every day lol jk.",
+        "output": {"patches": []},
+        "golden": True,
+    },
+    {
+        "mode": "[INGEST]",
+        "input": "I'm allergic to peanuts.",
+        "output": {"patches": [{"op": "CREATE_LINK", "source": "user", "relation": "ALLERGIC_TO", "target": "peanuts", "certainty": 1.0, "evidence": "direct", "category": "HEALTH"}]},
+        "golden": True,
+    },
+    {
+        "mode": "[INGEST]",
+        "input": "I love Kung Pao chicken.",
+        "output": {"patches": [{"op": "CREATE_LINK", "source": "user", "relation": "LIKES", "target": "kung pao chicken", "certainty": 1.0, "evidence": "direct", "category": "FOOD", "hypotheses": [{"relation": "LIKES", "target": "chinese", "category": "FOOD"}, {"relation": "LIKES", "target": "spicy savory", "category": "FOOD"}]}]},
+        "golden": True,
+    },
+)
+
+
+class Janitor:
+    """Offline Janitor for Overnight upkeep: passive decay, compaction-first storage caps,
+    targeted flagged-staging audit with deterministic rollback, and optional small-batch backfill."""
+
+    DEFAULT_MAX_EPISODES = 5000
+    DEFAULT_MAX_LINKS = 2000
+
+    def __init__(self, memgraph):
+        self.memgraph = memgraph
+
+    async def audit_staging(self, model, limit=20, timeout=20.0):
+        """Audit ONLY flagged pending staging rows (CONTESTED, 0.85 boundary, loop_back, confidence < 0.70)."""
+        if model is None:
+            return {"audited": 0, "approved": 0, "reverted": 0, "kept_pending": 0}
+        from .privacy import is_cloud, mask_all
+
+        flagged = self.memgraph.flagged_staging(limit=limit)
+        approved = reverted = kept = 0
+        for row in flagged:
+            payload = {
+                "op": row["op"],
+                "flag_reasons": row["flag_reasons"],
+                "confidence": row["confidence"],
+                "patch": row["patch"],
+                "before_state": row["before_state"],
+                "after_state": row["after_state"],
+            }
+            msg = json.dumps(payload, default=str)[:2000]
+            if is_cloud(model):
+                msg = mask_all(msg)
+            try:
+                r = await asyncio.wait_for(
+                    model.chat(JANITOR_AUDIT_SYSTEM, [{"role": "user", "content": msg}], max_tokens=200, temperature=0),
+                    timeout,
+                )
+                dec = self.memgraph._parse_json_obj(r.get("text") if isinstance(r, dict) else str(r))
+            except Exception:  # noqa: BLE001
+                kept += 1
+                continue
+            verdict = str((dec or {}).get("verdict") or "").strip().lower()
+            reason = str((dec or {}).get("reason") or "")[:300]
+            corr = (dec or {}).get("corrected_patch")
+            note = json.dumps({"reason": reason, "corrected_patch": corr}) if corr else reason
+            if verdict == "approve":
+                with self.memgraph.store.lock:
+                    self.memgraph.store.db.execute(
+                        "UPDATE mg_staging SET audit_status='approved', reason=? WHERE id=?",
+                        (note, row["id"]),
+                    )
+                    self.memgraph.store.db.commit()
+                approved += 1
+            elif verdict == "revert":
+                self.memgraph.revert_staging(row["id"])
+                with self.memgraph.store.lock:
+                    self.memgraph.store.db.execute(
+                        "UPDATE mg_staging SET reason=? WHERE id=?",
+                        (note, row["id"]),
+                    )
+                    self.memgraph.store.db.commit()
+                reverted += 1
+            else:
+                kept += 1
+        return {"audited": approved + reverted + kept, "approved": approved, "reverted": reverted, "kept_pending": kept}
+
+    async def backfill_notes(self, model, limit=10):
+        """Optional small-batch cold-start backfill from existing active notes in items (respecting privacy/secrets)."""
+        if model is None or limit <= 0:
+            return {"checked": 0, "applied": 0}
+        cursor = int(self.memgraph.store.kv_get("memgraph_backfill_cursor") or 0)
+        rows = self.memgraph.store.db.execute(
+            "SELECT id, title, body, created, source, meta FROM items "
+            "WHERE id > ? AND status='active' AND kind NOT IN ('procedure','thing') "
+            "AND source NOT IN ('email','home','automations','calendar') "
+            "AND source NOT LIKE 'pack:%' ORDER BY id ASC LIMIT ?",
+            (cursor, int(limit)),
+        ).fetchall()
+        if not rows:
+            return {"checked": 0, "applied": 0}
+        arch = Archivist(self.memgraph)
+        applied = 0
+        last_id = cursor
+        for r in rows:
+            last_id = r["id"]
+            meta = json.loads(r["meta"] or "{}")
+            if meta.get("secret"):
+                continue
+            text = (r["body"] or r["title"] or "").strip()
+            owner = meta.get("owner") if meta.get("scope") == "personal" else None
+            res = await arch.process_turn(text, owner=owner, ts=r["created"], model=model)
+            applied += int(res.get("applied") or 0)
+        self.memgraph.store.kv_set("memgraph_backfill_cursor", last_id)
+        return {"checked": len(rows), "applied": applied, "cursor": last_id}
+
+    async def run_nightly(self, model=None, *, max_episodes=None, max_links=None,
+                          audit_limit=20, backfill_limit=0, now=None):
+        """Run nightly graph upkeep: passive decay -> storage-cap compaction/eviction -> flagged staging audit."""
+        t = float(self.memgraph.clock() if now is None else now)
+        decay = self.memgraph.decay_sweep(now=t)
+        cap = self.memgraph.enforce_storage_cap(
+            max_episodes=self.DEFAULT_MAX_EPISODES if max_episodes is None else int(max_episodes),
+            max_links=self.DEFAULT_MAX_LINKS if max_links is None else int(max_links),
+            now=t,
+        )
+        audit = await self.audit_staging(model, limit=audit_limit) if model is not None else {
+            "audited": 0, "approved": 0, "reverted": 0, "kept_pending": 0
+        }
+        out = {"decay": decay, "storage": cap, "audit": audit}
+        if backfill_limit and model is not None:
+            out["backfill"] = await self.backfill_notes(model, limit=backfill_limit)
+        return out
+
+
+def export_training_dataset(memgraph, *, output_path=None, max_examples=500, replay_ratio=0.30):
+    """Export audited staging decisions & true-positive loop-back misses as a secret-scrubbed 70/30
+    (new corrections / golden replay) dual-mode JSONL dataset for LoRA fine-tuning."""
+    from .privacy import mask_all
+
+    rows = memgraph.store.db.execute(
+        "SELECT * FROM mg_staging WHERE audit_status IN ('approved', 'reverted') "
+        "OR (op='LOOP_BACK_HIT' AND flagged=1) ORDER BY ts DESC LIMIT ?",
+        (int(max_examples),),
+    ).fetchall()
+
+    fresh = []
+    for r in rows:
+        patch = json.loads(r["patch"] or "{}")
+        if r["op"] == "LOOP_BACK_HIT":
+            q = mask_all(str(patch.get("question") or ""))
+            fresh.append({
+                "mode": "[RETRIEVE]",
+                "input": q,
+                "output": {"recovered_link_ids": patch.get("link_ids") or []},
+                "audit_status": r["audit_status"],
+                "golden": False,
+            })
+        else:
+            q = mask_all(str(patch.get("quote") or f"{patch.get('source', 'user')} {patch.get('relation', '')} {patch.get('target', '')}"))
+            target_out = {"patches": [patch]} if r["audit_status"] == "approved" else {"patches": []}
+            if r["audit_status"] == "reverted" and r["reason"]:
+                try:
+                    meta_r = json.loads(r["reason"])
+                    if isinstance(meta_r, dict) and meta_r.get("corrected_patch"):
+                        target_out = {"patches": [meta_r["corrected_patch"]]}
+                except ValueError:
+                    pass
+            fresh.append({
+                "mode": "[INGEST]",
+                "input": q,
+                "output": json.loads(mask_all(json.dumps(target_out))),
+                "audit_status": r["audit_status"],
+                "golden": False,
+            })
+
+    # Mix replay anchors to achieve ~replay_ratio (default 30% golden replay / 70% new corrections)
+    ratio = max(0.0, min(0.5, float(replay_ratio)))
+    if fresh and ratio > 0:
+        n_replay = max(1, int(round(len(fresh) * ratio / (1.0 - ratio))))
+    else:
+        n_replay = len(GOLDEN_REPLAY_EXAMPLES) if ratio > 0 else 0
+    replay = [dict(GOLDEN_REPLAY_EXAMPLES[i % len(GOLDEN_REPLAY_EXAMPLES)]) for i in range(n_replay)]
+    records = fresh + replay
+
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            for rec in records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    return {
+        "total": len(records),
+        "fresh": len(fresh),
+        "replay": len(replay),
+        "replay_share": round(len(replay) / len(records), 3) if records else 0.0,
+        "records": records,
+    }
+
+
+def eval_regression_gate(candidate, baseline, *, min_delta=0.02, max_hallucination=0.05):
+    """Deterministic LoRA promotion gate: requires >= +2% accuracy/F1 gain over baseline,
+    zero regression on golden replay, and hallucination rate <= 5%."""
+    c_acc = float(candidate.get("accuracy", 0.0))
+    b_acc = float(baseline.get("accuracy", 0.0))
+    c_gold = float(candidate.get("golden_score", 1.0))
+    b_gold = float(baseline.get("golden_score", 1.0))
+    c_hall = float(candidate.get("hallucination_rate", 0.0))
+
+    reasons = []
+    if c_acc - b_acc < float(min_delta) - 1e-9:
+        reasons.append(f"accuracy gain {c_acc - b_acc:+.3f} < required +{min_delta:.3f}")
+    if c_gold < b_gold - 1e-9:
+        reasons.append(f"golden replay regressed ({c_gold:.3f} < {b_gold:.3f})")
+    if c_hall > float(max_hallucination) + 1e-9:
+        reasons.append(f"hallucination rate {c_hall:.3f} > max {max_hallucination:.3f}")
+    return {
+        "promote": not reasons,
+        "delta": round(c_acc - b_acc, 4),
+        "reasons": reasons,
+    }
+
