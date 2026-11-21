@@ -153,6 +153,95 @@ async def main():
     assert await p.estimate(p.ate("snack: something")["id"]) is None     # a bad reply saves nothing
     assert meal_time("8am", _dt(2026, 11, 16, 13)) == _dt(2026, 11, 16, 8).timestamp()
     assert meal_time("11pm", _dt(2026, 11, 16, 13)) == _dt(2026, 11, 15, 23).timestamp() and meal_time("lunch") is None
+    # meal_request, format_plan, pantry context in Mind, and App.answer meal routing
+    from homemind.pantry import meal_request, format_plan, PANTRY_Q
+    from homemind.mind import Mind, OPEN_ENDED_SYSTEM
+    from homemind.main import App
+    r_eggs = meal_request("What can I make with the large eggs?")
+    assert r_eggs == {"meal": None, "request": "What can I make with the large eggs"}, r_eggs
+    assert meal_request("What should I cook for dinner?")["meal"] == "dinner"
+    assert meal_request("Suggest a quick breakfast")["meal"] == "breakfast"
+    assert meal_request("Give me a recipe with chicken") is not None
+    for non_meal in ("Remember I bought eggs", "I ate eggs", "Do I have any eggs?",
+                     "How much protein did I eat today?", "Why am I bloated after eating eggs?",
+                     "What is the wifi password?"):
+        assert meal_request(non_meal) is None, non_meal
+    assert PANTRY_Q.search("Do I have any milk in the fridge?") and not PANTRY_Q.search("What is the wifi password?")
+    sample_plan = {"focus": "normal", "meals": [
+        {"name": "Egg & Spinach Scramble", "uses": ["large eggs", "baby spinach"], "missing": ["feta"],
+         "why": "uses eggs due today", "protein_g": 28, "calories": 340, "steps": "Whisk and scramble."},
+        {"name": "Egg Rice Bowl", "uses": ["large eggs", "rice"], "protein_g": 24, "calories": 420,
+         "steps": "Fry egg over warm rice."}]}
+    screen_txt = format_plan(sample_plan, voice=False)
+    assert "1. Egg & Spinach Scramble (~28 g protein, ~340 kcal est.)" in screen_txt, screen_txt
+    assert "Need: feta" in screen_txt and "Steps: Whisk and scramble." in screen_txt, screen_txt
+    voice_txt = format_plan(sample_plan, voice=True)
+    assert "\n" not in voice_txt and "about 28 grams of protein" in voice_txt and voice_txt.endswith("Want the steps?"), voice_txt
+    assert format_plan({"meals": []}) is None
+
+    # Mind.context_for includes PANTRY for food questions and Mind._ask relaxes 1-sentence limit for open-ended asks
+    seen_sys = []
+
+    class CapModel:
+        type, cfg = "mock", {}
+
+        async def chat(self, system, msgs, **k):
+            seen_sys.append((system, msgs[-1]["content"], list(msgs)))
+            if "Reply with JSON only" in system:
+                return {"text": json.dumps(sample_plan), "ms": 1}
+            return {"text": "Scramble them with spinach.", "ms": 1}
+
+    class CapModels:
+        def __init__(self):
+            self.m = CapModel()
+            self.models = {"haiku": self.m}
+
+        def get(self, n):
+            return self.m
+
+    cm = CapModels()
+    mind = Mind(tempfile.mkdtemp(), cm)
+    p2 = Pantry(mind.store, ha, cm, tempfile.mkdtemp())
+    p2.add("large eggs", "6", "fridge", use_by=_dt.now().strftime("%Y-%m-%d"))
+    p2.add("baby spinach", "1 bag", "fridge")
+    mind.pantry = p2
+    _, _, ctx_food = await mind.context_for(mind.store, "Do I have large eggs in the fridge?")
+    assert "PANTRY (" in ctx_food and "large eggs" in ctx_food and "use today" in ctx_food, ctx_food
+    _, _, ctx_other = await mind.context_for(mind.store, "What is the wifi password?")
+    assert "PANTRY (" not in ctx_other, ctx_other
+
+    await mind.ask("What is the wifi password?", model="haiku")
+    assert "Answer in one short sentence" in seen_sys[-1][0]
+    await mind.ask("How do I organize my garage?", model="haiku")
+    assert OPEN_ENDED_SYSTEM in seen_sys[-1][0] and "Answer in one short sentence" not in seen_sys[-1][0]
+
+    # App.answer routes meal ideas (like the Home screen's 'Meal idea' button) to Pantry.suggest()
+    class MiniApp:
+        opts = {"connected_answers": True}
+        ha = FakeHA()
+        models = cm
+        pantry = p2
+        HANDOFF_LATE = 60
+        DEEP_VOICE_SECONDS = 6.0
+        speaker_for = lambda self, b: (b.get("speaker"), "given") if b.get("speaker") is not None else (None, "none")
+        has_pending = lambda self, cid: False
+        _style = lambda self, res, *a: asyncio.sleep(0, res)
+        meal_ok = App.meal_ok
+        meal_answer = App.meal_answer
+        _deep_chain = App._deep_chain
+        answer = App.answer
+
+    ma = MiniApp()
+    ma.mind = mind
+    ans = await ma.answer({"question": "What can I make with the large eggs?", "conversation_id": "conv-meal"})
+    assert ans.get("pantry") and "Egg & Spinach Scramble" in ans["answer"] and "large eggs" in ans["answer"], ans
+    # a follow-up in the same conversation receives the prior meal suggestion in messages
+    await ma.answer({"question": "How do I make the first one without spinach?", "conversation_id": "conv-meal"})
+    last_msgs = seen_sys[-1][2]
+    assert len(last_msgs) == 3 and last_msgs[1]["role"] == "assistant" and "Egg & Spinach Scramble" in last_msgs[1]["content"], last_msgs
+    # a guest does not trigger Pantry.suggest and does not receive prior conversation turns
+    guest_ans = await ma.answer({"question": "What can I make with the large eggs?", "speaker": "", "conversation_id": "conv-meal"})
+    assert not guest_ans.get("pantry") and len(seen_sys[-1][2]) == 1, (guest_ans, seen_sys[-1][2])
     print("PANTRY OK")
 
 
