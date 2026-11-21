@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.31.0
+A new Home page that runs the day from one screen, and check-ins by time instead of once a day.
+- **Home** replaces Today and Talk (`hub.py`, `/api/hub`). Log bubbles (water, coffee, meal, note) sit above the ask
+  bar and fill in the start of a sentence; the answer grows under the bar, with the choices as small buttons when it
+  isn't sure ("Which desk light?", Yes / No). Energy, Fog and Ready are folder tabs whose details (seven days, tap a
+  day; what went with it, each with a note on what to do and a tag) open right under them. A For you card shows one
+  real thing at a time (a check-in that's due, food at its date, notes to check, an automation idea, a door unlocked
+  while away). Four tiles are picked by the time of day and whether you're home (Reminders, Bedroom, Food, Calendar,
+  and Last night, Tonight, Tomorrow, House, Shopping in their moments); on a phone a tile opens as a window, on a
+  tablet or computer the tiles are open. The weather pulls down from the top.
+- **Check-ins by time** (`checkins.py`, `/api/checkins`): log fog, energy, tags and a note as often as it changes, for
+  now or earlier. Fog ratings still feed the patterns (the day's latest), and each check-in answers the day's
+  good / low / rough. Water counts and coffee as a drink with caffeine (`/api/log`).
+- Reminders and the shopping list on the tiles come from Home Assistant's to-do lists, tick off and add there
+  (`/api/todo`). Navigation is Home, Health, Food, Memory and Settings on a phone; Room, Worked out, Tests, Models and
+  Updates stay in the side bar on a computer and under Settings.
+
 ## 0.30.0
 Design phases 7 to 15, the fixes from ten expert reviews, answers that connect your own data, and Talk in the panel.
 Highlights: "why am I so gassy lately?" or "how is my health looking?" are answered from a brief of your readings,

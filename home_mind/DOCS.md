@@ -134,19 +134,36 @@ seconds the quick answer is said instead. A guest or another assistant never get
 (`/api/answer_pick`; totals at `/api/answer_picks`), so the new path is judged by you. Turn the whole thing off with
 `connected_answers: false`.
 
-## Talk: a conversation in the panel
-The **Talk** view (next to Today) is a conversation with Home Mind by voice or by typing. Tap the mic and speak (it
-uses the browser's own speech recognition: Chrome, Edge or Safari; if Home Assistant's frame blocks the microphone,
-open Home Mind in its own tab), or type. Answers to spoken turns are read out (*Speak answers*), and with *Keep
-listening* it listens again after each answer, as it always does when it's waiting on an answer.
+## Home: the panel's first page
+**Home** runs the day from one screen; the other pages (Health, Food, Memory, Settings) are for data and fine tuning.
+Top to bottom:
 
-- **It keeps the thread.** Each person has one conversation, kept on the server (the last 100 turns), so it's the
-  same on the phone and the computer, and follow-ups like "and yesterday?" or "yes" are understood. *New conversation*
-  starts afresh. A guest's turns are never kept.
-- **Answers it expects come as buttons**: Yes / No when an action needs a yes, Good / Low / Rough for the check-in
-  (asked once a day here too), the devices for "Which one...?", the options of an "A or B?" question, and after a
-  connected answer, "What could I try?" and "Show me the numbers". You can always type your own answer instead.
-- House commands work as with the voice assistant; connected answers come with the quick one beside them.
+- **Weather** in the corner (now, high / low, chance of rain). Tap it and the forecast pulls down from the top.
+- **Log bubbles**: water, coffee, meal and note, each with today's count. A tap puts its word at the front of the ask
+  bar so you finish the sentence: "Water · 2 glasses", "Ate · chicken bowl" (protein is estimated), "Note · ...".
+  Water and coffee also offer one-tap amounts, and an Undo after logging.
+- **The ask bar** (type, or tap the mic): questions, things to remember and house commands, in one kept thread per
+  person (the same conversation the voice assistant has, so "and yesterday?" or "yes" are understood). The answer
+  grows under the bar; when it isn't sure ("Which desk light?", "A or B?", Yes / No), the choices come as small
+  buttons there. Spoken questions are answered out loud.
+- **Energy, Fog and Ready**: the latest check-in and today's readiness. A tap opens the details right under the tab,
+  like a folder: seven days as bars (tap a day to see it), and what likely went with it (sleep, wakeups, HRV, steps,
+  a busy calendar, late coffee; today also protein, water and coffee so far), each with a short note on what to do and
+  a tag. On a wide screen the details stay open.
+- **For you**: one thing at a time, only real ones: a check-in that's due (four hours after the last, 8 AM to 10 PM),
+  food at its date, notes to check, an automation idea, or a door left unlocked while you're away (locking still asks
+  your phone). The X puts it aside.
+- **Four tiles**, picked by the time of day and whether you're home: Reminders (from Home Assistant to-do lists with a
+  due date), Bedroom (temperature, humidity, air, devices on), Food (protein and calories against your goals, what to
+  eat first), Calendar (the day as a strip and what's next), and in their moments Last night, Tonight, Tomorrow,
+  House and Shopping. On a phone a tap opens the tile as a window over the page (room controls, the shopping list, the
+  day's agenda...); on a tablet or computer the tiles are open already.
+
+**Check-ins by time.** Check in as often as how you feel changes: head fog 0-5, energy (low / OK / high), a few
+"also noticing" tags and a note, for now or a bit ago ("30 min ago"). Each is kept with its time
+(`/api/checkins`), the day's fog for the patterns is the latest one, and each also answers the day's good / low /
+rough check-in. Water is a count per day and coffee is filed as a drink with caffeine (`/api/log`), so the patterns'
+late-caffeine factor sees it.
 
 ## Who can reach Home Mind, and how much
 
@@ -1295,7 +1312,12 @@ note), 502 (a model failed) or 500.
 | POST | `/api/replay` | admin | replay logged requests through the planner without acting (`model?`, `limit?`, `frozen?`) |
 | GET | `/api/controls` | read | the Home tab: devices with their map spots, presets, comfort, weather, routines, plugs |
 | POST | `/api/controls/{op}` | admin | `act` (`entity`, `service`, `data`; allow-listed per domain, values clamped), `scene` (`name`), `routine` (`entity`, `on`) |
-| GET | `/api/today` | read | the Today page: readiness, fog, food to eat first, protein so far, the bedroom, what was learned |
+| GET | `/api/today` | read | readiness, fog, food to eat first, protein so far, the bedroom, what was learned |
+| GET | `/api/hub` | read | the Home page: place, log counts, Energy / Fog / Ready with seven days and factors, For you, food, reminders, calendar, house |
+| GET | `/api/checkins` | read | check-ins by time: a day's (`?day=`) and the last seven days' (`?days=`), plus water and coffee today |
+| POST | `/api/checkins` | write | one check-in: `{fog?, energy?, tags?, note?, minutes_ago?}` (as often as it changes) |
+| POST | `/api/log` | write | `{kind, n?}`: kind water or coffee, n -1 takes the last one back; today's counts |
+| POST | `/api/todo` | write | `{op, entity, item?, uid?}`: op add, done or undo on a Home Assistant to-do list, from the Home tiles |
 | GET | `/api/house` | read | habits, usual ranges, notable changes, suggested automations |
 | POST | `/api/house/learn` | write | work the habits out now |
 | POST | `/api/house/suggestion/{sid}/{op}` | write; create: admin | `create` (installs it switched off) or `dismiss` a suggested automation |

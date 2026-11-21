@@ -178,6 +178,83 @@
     .ph h1 { font-size:26px } .bento { grid-template-columns:1fr } .card { border-radius:16px; padding:14px 16px }
     .week { gap:6px } .days { gap:6px }
   }
+  /* Home (0.31): icons, the ask bar, status tabs, For you, tiles that open in place */
+  .hub { max-width:1180px !important } .hb-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px }
+  .hb-hi .sub { color:var(--mute); font-size:12px; white-space:nowrap } .hb-hi h1 { margin:0; font:700 22px/1.2 var(--head) }
+  .hb-wx { display:flex; align-items:center; gap:7px; min-height:44px; padding:0 12px; border-radius:14px; border:0; background:var(--card); color:var(--ink); font:inherit; cursor:pointer; flex:none }
+  .hb-wx b { font:600 18px var(--head) } .hb-wx .s { display:flex; flex-direction:column; line-height:1.15; font-size:11px; color:var(--mute) } .hb-wx .s b { font:600 11px Inter,system-ui,sans-serif; color:var(--ink) }
+  .hb-cols { display:flex; flex-direction:column; gap:10px } .hb-left { display:flex; flex-direction:column; gap:10px; min-width:0 }
+  .hb-logs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; order:1 }
+  .hb-logs button { display:flex; align-items:center; justify-content:center; gap:5px; min-height:42px; border-radius:99px; border:2px solid transparent; font:inherit; cursor:pointer }
+  .hb-logs b { font:600 16px/1 var(--head) } .hb-logs .water { background:var(--house-bg); color:var(--house-ink) } .hb-logs .coffee { background:color-mix(in srgb, #8a5a2b 16%, var(--card)); color:color-mix(in srgb, #6f4424 80%, var(--ink)) }
+  .hb-logs .meal { background:var(--food-bg); color:var(--food-ink) } .hb-logs .note { background:var(--mem-bg); color:var(--acc-ink) } .hb-logs button.on { border-color:currentColor }
+  .hb-bar { order:2; border-radius:18px; background:var(--card); border:1.5px solid var(--mem-line); overflow:hidden } .hb-bar.mode { border-color:var(--acc) }
+  .hb-in { display:flex; align-items:center; gap:8px; min-height:52px; padding:0 6px 0 14px } .hb-in input { flex:1; min-width:0; border:0; background:none; outline:none; padding:0; min-height:40px; font-size:15px }
+  .hb-pre { flex:none; padding:4px 10px; border-radius:99px; font-size:13px; font-weight:700; background:var(--mem-bg); color:var(--acc-ink) }
+  .hb-go { width:40px; height:40px; flex:none; border-radius:12px; border:0; background:var(--acc); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer } .hb-go.on { background:var(--bad) }
+  .hb-extra, .hb-ans { border-top:1px solid var(--line); padding:9px 12px 11px; background:color-mix(in srgb, var(--acc) 4%, var(--card)); display:flex; flex-direction:column; gap:8px }
+  .hb-ans-t { display:flex; gap:8px; align-items:flex-start; font-size:14px; white-space:pre-wrap } .hb-ans-t span { flex:1 } .hb-ans-t button { border:0; background:none; color:var(--mute); cursor:pointer; min-width:28px; min-height:28px }
+  .hb-chips { display:flex; flex-wrap:wrap; gap:6px } .hb-chips:empty { display:none }
+  .hb-chips button, .hb-extra .c { min-height:34px; padding:0 12px; border-radius:99px; border:1px solid var(--mem-line); background:var(--card); color:var(--acc-ink); font:inherit; font-size:13px; font-weight:600; cursor:pointer }
+  .hb-need { order:4; padding:14px 16px; border-radius:20px; background:var(--card); border:1px solid var(--mem-line); display:flex; flex-direction:column; gap:10px }
+  .hb-need .k { font-size:12px; font-weight:600; color:var(--acc-ink) } .hb-need .t { font-weight:700; font-size:15px } .hb-need .s { font-size:12px; color:var(--mute) }
+  .hb-need .top { display:flex; gap:10px; align-items:flex-start } .hb-need .top > div { flex:1; display:flex; flex-direction:column; gap:2px } .hb-need .n { font-size:12px; color:var(--mute); white-space:nowrap }
+  .hb-need .acts { display:flex; gap:8px } .hb-need .acts button { min-height:42px; border-radius:12px; font:inherit; font-size:14px; font-weight:600; cursor:pointer }
+  .hb-need .a { flex:1; border:0; background:var(--acc); color:#fff } .hb-need .x { width:42px; flex:none; border:1px solid var(--line); background:var(--card); color:var(--mute) }
+  .hb-stats { order:3; position:relative; z-index:6 } .hb-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; height:42px }
+  .hb-tabs button { display:flex; align-items:center; justify-content:center; gap:7px; height:42px; padding:0 8px; line-height:1; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; cursor:pointer }
+  .hb-tabs button span { font-size:13px; color:var(--mute) } .hb-tabs button b { font:700 18px/1 var(--head) }
+  .hb-tabs button.on { border-color:var(--mem-line); border-bottom:0; border-radius:14px 14px 0 0; box-shadow:0 2px 0 var(--card); position:relative; z-index:2 }
+  .hb-tabs.open button:not(.on) { height:34px; align-self:start; background:var(--card2) }
+  .hb-detail { display:none } .hb-right { position:relative; order:5 } .hb-tiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px }
+  .hb-tile { display:flex; flex-direction:column; gap:8px; padding:12px 12px 12px 14px; border-radius:20px; background:var(--card); border:1px solid var(--line); font:inherit; color:var(--ink); text-align:left; cursor:pointer; min-height:170px; overflow:hidden; min-width:0 }
+  .hb-tile.th-house { background:var(--house-bg); border-color:var(--house-line) } .hb-tile.th-food { background:var(--food-bg); border-color:var(--food-line) } .hb-tile.th-health { background:var(--health-bg); border-color:var(--health-line) }
+  .hb-tile .h { display:flex; justify-content:space-between; align-items:baseline; gap:6px; font-size:12px } .hb-tile .h b { font-weight:700 } .hb-tile .h span { color:var(--mute); font-size:11px }
+  .hb-tile .mid { flex:1; display:flex; flex-direction:column; justify-content:center; gap:2px; min-height:0 } .hb-tile .big { font:600 30px/1.05 var(--head) } .hb-tile .t1 { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis } .hb-tile .t2 { font-size:12px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .hb-row3 { display:flex; align-items:stretch } .hb-row3 > span { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px } .hb-row3 > i { width:1px; background:var(--house-line) } .hb-row3 .y { height:17px; display:flex; align-items:center; font-size:12px; font-weight:700; color:var(--house-ink) } .hb-row3 b { font-size:15px; line-height:1 }
+  .hb-fb { display:flex; flex-direction:column; gap:3px } .hb-fb .l { display:flex; justify-content:space-between; gap:6px; font-size:11px; white-space:nowrap } .hb-fb .l span { font-weight:600; color:var(--food-ink) } .hb-fb .l em { font-style:normal; color:var(--mute) }
+  .hb-track { position:relative; display:block; height:6px; border-radius:99px; background:color-mix(in srgb, var(--food) 22%, var(--card)) } .hb-track i { position:absolute; left:0; top:0; bottom:0; border-radius:99px; background:var(--food) } .hb-track u { position:absolute; left:80%; top:-2px; bottom:-2px; width:2px; border-radius:2px; background:var(--ink); opacity:.5 }
+  .hb-track.over i { background:var(--bad) }
+  .hb-strip { position:relative; display:block; height:18px; border-radius:6px; background:var(--card2) } .hb-strip i { position:absolute; top:0; bottom:0; border-radius:4px; background:var(--acc) } .hb-strip u { position:absolute; top:-3px; bottom:-3px; width:2px; background:#c43d3d }
+  .hb-hours { display:flex; justify-content:space-between; font-size:10px; color:var(--mute); margin-top:3px }
+  .hb-win { position:fixed; z-index:7; left:14px; right:14px; display:flex; flex-direction:column; border-radius:22px; background:var(--card); border:1px solid var(--line); box-shadow:0 18px 40px rgba(22,26,34,.18); overflow:hidden }
+  .hb-win.th-house { background:var(--house-bg); border-color:var(--house-line) } .hb-win.th-food { background:var(--food-bg); border-color:var(--food-line) } .hb-win.stat { border-color:var(--mem-line) }
+  .hb-win-h { display:flex; align-items:center; gap:10px; padding:12px 12px 8px 16px; border-bottom:1px solid var(--line) } .hb-win-h b { font:600 17px var(--head) } .hb-win-h .mute { flex:1; font-size:12px }
+  .hb-win-h button { width:34px; height:34px; border-radius:10px; border:0; background:var(--card2); color:var(--mute); cursor:pointer }
+  .hb-win-b { flex:1; min-height:0; overflow-y:auto; padding:12px 16px 14px; display:flex; flex-direction:column; gap:10px }
+  .hb-chart { display:flex; align-items:flex-end; gap:6px; height:84px; padding:8px 10px 0; border-radius:12px; background:var(--card2) }
+  .hb-chart button { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:4px; height:100%; padding:0; border:0; background:none; font:inherit; color:var(--mute); cursor:pointer }
+  .hb-chart button i { width:100%; max-width:26px; border-radius:6px 6px 2px 2px; background:var(--c); opacity:.35 } .hb-chart button.on i { opacity:1 } .hb-chart button span { font-size:10px; padding-bottom:4px } .hb-chart button.on span { color:var(--ink); font-weight:700 }
+  .hb-f { display:flex; flex-direction:column; gap:2px; padding:8px 0; border-top:1px solid var(--line) } .hb-f .a { display:flex; gap:10px; font-size:14px } .hb-f .a span { flex:1 } .hb-f .a b { font:600 14px Inter,system-ui,sans-serif }
+  .hb-f .b { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--mute) } .hb-f .b span { flex:1 } .hb-f .b em { font-style:normal; font-size:11px; font-weight:600; padding:2px 8px; border-radius:99px; background:var(--card2) }
+  .hb-f .b em.low { background:var(--food-bg); color:var(--food-ink) } .hb-f .b em.good { background:var(--house-bg); color:var(--house-ink) }
+  .hb-cta { display:flex; gap:8px } .hb-cta button { flex:1; min-height:42px; border-radius:12px; font:inherit; font-size:14px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--card); color:var(--ink) } .hb-cta button.p { border:0; background:var(--acc); color:#fff }
+  .hb-li { display:flex; align-items:center; gap:10px; min-height:44px; border-top:1px solid var(--line); font-size:14px } .hb-li:first-child { border-top:0 } .hb-li .m { flex:1; min-width:0; display:flex; flex-direction:column } .hb-li .m small { color:var(--mute); font-size:12px }
+  .hb-li input[type=checkbox] { width:20px; height:20px; min-height:0; accent-color:var(--acc) } .hb-li button { min-height:34px; padding:0 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-size:13px; font-weight:600; cursor:pointer } .hb-li button.on { background:var(--house); border-color:var(--house); color:var(--house-on) }
+  .hb-li .d { width:9px; height:9px; border-radius:99px; flex:none; background:var(--line) }
+  .hb-add { display:flex; gap:8px } .hb-add input { flex:1; min-width:0 } .hb-scenes { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px } .hb-scenes button { min-height:42px; border-radius:12px; border:1px solid var(--house-line); background:var(--card); color:var(--house-ink); font:inherit; font-size:13px; font-weight:600; cursor:pointer }
+  .hb-devs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px } .hb-devs button { display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-height:60px; padding:9px 12px; border-radius:14px; font:inherit; text-align:left; cursor:pointer; background:var(--card); color:var(--ink); border:1px solid var(--house-line) }
+  .hb-devs button b { font-size:13px } .hb-devs button span { font-size:12px; opacity:.85 } .hb-devs button.on { background:var(--house); color:var(--house-on); border-color:var(--house) }
+  .hb-shade { position:fixed; inset:0; z-index:20; background:rgba(22,26,34,.32) }
+  .hb-wxs { position:fixed; z-index:21; left:0; right:0; top:0; padding:16px 18px 10px; border-radius:0 0 26px 26px; background:var(--card); box-shadow:0 16px 40px rgba(22,26,34,.18); display:flex; flex-direction:column; gap:12px; animation:hbdown .28s cubic-bezier(.2,.8,.2,1); max-width:640px; margin:0 auto }
+  .hb-ck { position:fixed; z-index:21; left:0; right:0; bottom:0; max-height:92vh; overflow-y:auto; padding:10px 20px 22px; border-radius:24px 24px 0 0; background:var(--card); display:flex; flex-direction:column; gap:16px; animation:hbup .25s ease-out; max-width:560px; margin:0 auto }
+  @keyframes hbdown { from { transform:translateY(-100%) } to { transform:none } } @keyframes hbup { from { transform:translateY(100%) } to { transform:none } }
+  .hb-grab { align-self:center; width:40px; height:5px; border-radius:99px; background:var(--line); border:0; padding:0; cursor:pointer }
+  .hb-hrs { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:4px; text-align:center } .hb-hrs div { display:flex; flex-direction:column; gap:2px; padding:8px 0; border-radius:12px; background:var(--card2); font-size:11px; color:var(--mute) } .hb-hrs b { font-size:15px; color:var(--ink) }
+  .hb-seg { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:4px; border-radius:12px; background:var(--card2) } .hb-seg button { min-height:40px; border-radius:9px; border:0; background:none; color:var(--mute); font:inherit; font-weight:600; cursor:pointer } .hb-seg button.on { background:var(--card); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.1) }
+  .hb-tags { display:flex; flex-wrap:wrap; gap:8px } .hb-tags button { min-height:36px; padding:0 13px; border-radius:99px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-size:13px; cursor:pointer } .hb-tags button.on { background:var(--health); color:var(--health-on); border-color:var(--health); font-weight:600 }
+  .hb-fog { width:100%; accent-color:var(--health); min-height:0; padding:0 }
+  @media (max-width: 640px) { .hb-detail { display:none !important } }
+  @media (min-width: 641px) {
+    .hb-tile { min-height:330px; cursor:default } .hb-win { display:none !important } .hb-tabs.open button:not(.on) { height:42px; align-self:auto; background:var(--card) }
+    .hb-detail { display:flex; flex-direction:column; gap:10px; padding:14px 16px; background:var(--card); border:1px solid var(--mem-line); border-radius:0 20px 20px 20px; margin-top:-1px }
+    .hb-detail.mid { border-radius:20px } .hb-detail.end { border-radius:20px 0 20px 20px }
+    .hb-tile .scroll { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:10px }
+  }
+  @media (min-width: 1200px) {
+    .hb-cols { display:grid; grid-template-columns:400px minmax(0,1fr); gap:24px; align-items:start }
+    .hb-left .hb-stats { order:5 } .hb-left .hb-need { order:3 } .hb-right { order:0 } .hb-tile { min-height:calc(50vh - 70px) }
+  }
 </style>
 </head>
 <body>
@@ -185,55 +262,56 @@
 <nav id="nav" aria-label="Sections">
   <div class="brand"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--acc-ink)"><path d="M3 11l9-7 9 7M5 10v10h14V10M9 15a3 3 0 0 1 6 0"/></svg>Home Mind</div>
   <div class="grp">DAILY</div>
-  <button data-t="today" class="on"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8zM12 3v2M12 19v2M3 12h2M19 12h2"/></svg><span>Today</span></button>
-  <button data-t="talk"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Talk</span></button>
-  <button data-t="pantry" style="--tint:var(--food)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 3v8a2 2 0 0 0 2 2v8M10 3v8M16 3c-2 2-2 6 0 8v10"/></svg><span>Food</span></button>
+  <button data-t="today" class="on"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></button>
   <button data-t="health" style="--tint:var(--health)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span>Health</span></button>
+  <button data-t="pantry" style="--tint:var(--food)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 3v8a2 2 0 0 0 2 2v8M10 3v8M16 3c-2 2-2 6 0 8v10"/></svg><span>Food</span></button>
   <div class="grp">BRAIN</div>
   <button data-t="memory" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span>Memory</span><b class="badge hide" id="nav_review"></b></button>
   <button data-t="worked" class="sys" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/></svg><span>Worked out</span></button>
-  <button data-t="house" style="--tint:var(--house)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg><span>Home</span></button>
+  <button data-t="house" class="sys" style="--tint:var(--house)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg><span>Room</span></button>
   <div class="grp">SYSTEM</div>
-  <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>More</span></button>
+  <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>Settings</span></button>
   <button data-t="tests" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg><span>Tests</span></button>
   <button data-t="models" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16v10H4zM8 21h8M12 17v4"/></svg><span>Models</span></button>
   <button data-t="updates" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Updates</span></button>
   <div class="foot"><span class="dot"></span><span id="ver"></span></div>
 </nav>
 <main>
-<section id="today">
-  <div class="ph"><div><div class="sub" id="td_date"></div><h1 id="td_hello">Today</h1></div>
-    <div class="row" style="margin:0;flex:0 1 460px"><input id="td_q" placeholder="Ask anything, or search your notes…" style="flex:1;min-width:0" aria-label="Ask Home Mind"> <button class="go" onclick="todayAsk()">Ask</button></div></div>
-  <pre id="td_ans" class="hide"></pre>
-  <div class="bento">
-    <div class="card" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
-      <div class="ring"><svg width="110" height="110" viewBox="0 0 110 110" role="img" aria-label="Readiness"><circle cx="55" cy="55" r="46" fill="none" stroke="var(--line)" stroke-width="11"/><circle id="td_ring" cx="55" cy="55" r="46" fill="none" stroke="var(--acc)" stroke-width="11" stroke-linecap="round" stroke-dasharray="0 289" transform="rotate(-90 55 55)"/></svg>
-        <div class="v"><b id="td_ready">–</b><span>readiness</span></div></div>
-      <div style="flex:1;min-width:150px" id="td_sleep"></div>
+<section id="today" class="hub">
+  <div class="hb-head"><div class="hb-hi"><div class="sub" id="hb_when"></div><h1 id="hb_hello">Home</h1></div>
+    <button class="hb-wx hide" id="hb_wx" onclick="hbWx(true)" aria-label="Weather" aria-haspopup="dialog"></button></div>
+  <div class="hb-cols">
+    <div class="hb-left">
+      <div class="hb-logs" role="group" aria-label="Log">
+        <button class="water" id="hb_l_water" onclick="hbMode('water')" aria-label="Log water"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg><b id="hb_n_water">0</b></button>
+        <button class="coffee" id="hb_l_coffee" onclick="hbMode('coffee')" aria-label="Log coffee"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM16 10h2a2 2 0 0 1 0 4h-2M8 3v2M12 3v2"/></svg><b id="hb_n_coffee">0</b></button>
+        <button class="meal" id="hb_l_meal" onclick="hbMode('meal')" aria-label="Log a meal"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M16 3c-2 1.5-3 4-3 7h4V3M17 10v11"/></svg><b id="hb_n_meal">0</b></button>
+        <button class="note" id="hb_l_note" onclick="hbMode('note')" aria-label="Save a note"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/></svg></button>
+      </div>
+      <div class="hb-bar" id="hb_bar">
+        <div class="hb-in"><span class="hb-pre hide" id="hb_pre"></span>
+          <input id="hb_q" placeholder="Ask, tell, or control anything…" aria-label="Ask, tell, or control anything" onkeydown="if (event.key === 'Enter') hbSend(); if (event.key === 'Escape') hbMode(null)" oninput="hbBtn()">
+          <button class="hb-go" id="hb_go" onclick="hbGo()" aria-label="Speak"></button></div>
+        <div class="hb-extra hide" id="hb_extra"></div>
+        <div class="hb-ans hide" id="hb_ans" aria-live="polite"><div class="hb-ans-t"><span id="hb_ans_t"></span><button onclick="hbClear()" aria-label="Close answer">✕</button></div><div class="hb-chips" id="hb_chips"></div></div>
+      </div>
+      <div class="hb-need hide" id="hb_need"></div>
+      <div class="hb-stats" id="hb_stats_wrap">
+        <div class="hb-tabs" role="tablist" aria-label="Your status" id="hb_tabs"></div>
+        <div class="hb-detail" id="hb_detail" role="tabpanel"></div>
+      </div>
     </div>
-    <div class="card health">
-      <div class="hrow"><h2>How's your head?</h2><span class="mute" id="td_fogsub" style="font-size:12px;color:var(--health-ink)"></span></div>
-      <div class="fog" id="td_fog"></div>
-      <div class="scale"><span>clear</span><span>heavy fog</span></div>
-      <div class="mute" id="td_fognote" style="margin-top:10px;font-size:13px"></div>
-    </div>
-    <div class="card wide">
-      <div class="hrow" style="flex-wrap:wrap"><h2>Sleep &amp; fog this week</h2><div class="legend"><span><i style="background:var(--acc)"></i>sleep</span><span><i style="background:var(--food)"></i>under 6 h</span><span><i style="background:var(--health);border-radius:99px"></i>fog</span><span><i style="background:var(--house)"></i>readiness</span></div></div>
-      <div class="week" id="td_week"></div><div class="days" id="td_days"></div>
-    </div>
-    <div class="card food">
-      <div class="hrow"><h2>Eat these first</h2><a onclick="go('pantry')" style="color:var(--food-ink)">Suggest a meal</a></div>
-      <div class="tiles" id="td_soon"></div>
-      <div style="margin-top:12px"><div class="kv" style="padding:0 0 6px"><span>Protein today</span><b id="td_prot"></b></div><div class="meter"><i id="td_protbar" style="width:0"></i></div></div>
-      <div class="mute" id="td_food" style="margin-top:8px;font-size:13px"></div>
-    </div>
-    <div class="card">
-      <div class="hrow"><h2>Bedroom</h2><span id="td_housesub" style="font-size:12px;color:var(--house-ink)"></span></div>
-      <div class="room" id="td_room"></div>
-      <div class="mute" id="td_house" style="margin-top:10px;font-size:13px"></div>
+    <div class="hb-right" id="hb_right">
+      <div class="hb-tiles" id="hb_tiles"></div>
+      <section class="hb-win hide" id="hb_win" role="dialog" aria-labelledby="hb_win_t">
+        <div class="hb-win-h"><b id="hb_win_t"></b><span class="mute" id="hb_win_m"></span><button onclick="hbClose()" aria-label="Close">✕</button></div>
+        <div class="hb-win-b" id="hb_win_b"></div>
+      </section>
     </div>
   </div>
-  <a class="card mem" onclick="go('memory')" style="display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--ink)"><span><b>Remembered today</b> <span class="mute" id="td_mem"></span></span><span style="color:var(--acc-ink);font-weight:600">Memory ›</span></a>
+  <div class="hb-shade hide" id="hb_shade" onclick="hbWx(false); hbCk(false)"></div>
+  <section class="hb-wxs hide" id="hb_wxs" role="dialog" aria-label="Weather"></section>
+  <section class="hb-ck hide" id="hb_ck" role="dialog" aria-labelledby="hb_ck_t"></section>
 </section>
 <section id="health" class="hide">
   <div class="ph"><div><div class="sub" style="color:var(--health-ink)">Brain fog and what goes with it</div><h1>Health</h1></div><button class="go" style="background:var(--health);color:var(--health-on)" onclick="sendReport()">Send report now</button></div>
@@ -412,18 +490,6 @@
   <div class="card"><h2>Usual ranges</h2><table id="h_base"></table></div>
   </div>
 </section>
-<section id="talk" class="hide">
-  <div class="ph"><div><div class="sub">Talk or type. Follow-ups keep the thread.</div><h1>Talk</h1></div>
-    <div class="row" style="margin:0"><label class="mute"><input type="checkbox" id="tk_speak" checked> Speak answers</label>
-      <label class="mute"><input type="checkbox" id="tk_hands"> Keep listening</label>
-      <button class="soft" onclick="talkNew()">New conversation</button></div></div>
-  <div class="card talk"><div id="tk_thread" class="thread" aria-live="polite"></div>
-    <div id="tk_choices" class="choices"></div>
-    <div class="say"><button id="tk_mic" class="mic" onclick="talkMic()" aria-label="Talk"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
-      <input id="tk_in" placeholder="Type, or tap the mic and talk…" aria-label="Say something to Home Mind" style="flex:1;min-width:0" onkeydown="if (event.key === 'Enter') talkSend()">
-      <button class="go" onclick="talkSend()">Send</button></div>
-    <div id="tk_note" class="mute" style="font-size:12px;margin-top:6px"></div></div>
-</section>
 <section id="pantry" class="hide">
   <div class="ph"><div><div class="sub" style="color:var(--food-ink)" id="pa_sub">Food in the house</div><h1>Food</h1></div></div>
   <div class="card food"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
@@ -505,49 +571,6 @@ const nf = (v, d = 0) => v == null ? '–' : Number(v).toFixed(d);
 let T = null;
 const short = s => String(s || '').replace(/^Ate:\s*/, '').replace(/\s*\([^)]*\)\s*$/, '').replace(/^Weigh-in .*:\s+/, 'Weigh-in ').replace(/^Comfort:\s*/, '');
 function ring(el, v, max) { const c = 2 * Math.PI * 46; $(el).setAttribute('stroke-dasharray', `${Math.max(0, Math.min(1, (v || 0) / max)) * c} ${c}`); }
-async function loadToday() {
-  const t = await api('api/today');
-  if (!t || t.error || !Array.isArray(t.week)) {   // the app isn't answering (or answered with an error): say so, keep the page
-    $('#td_ans').classList.remove('hide'); $('#td_ans').textContent = "Home Mind isn't answering" + (t && t.error ? ': ' + t.error : '') + '. Check the app\'s Log tab.';
-    return;
-  }
-  T = t;
-  $('#ver').textContent = 'v' + t.version;
-  const now = new Date(), hr = now.getHours();
-  $('#td_hello').textContent = (hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening');
-  $('#td_date').textContent = now.toLocaleDateString([], {weekday: 'long', month: 'long', day: 'numeric'}) + (t.outside && t.outside.temp != null ? ` · ${Math.round(t.outside.temp)}° ${t.outside.state} outside` : '');
-  const sig = (t.day && t.day.signals) || {}, last = t.week[t.week.length - 1] || {};
-  const ready = sig.readiness ?? last.readiness;
-  $('#td_ready').textContent = nf(ready); ring('#td_ring', ready, 100);
-  const sl = t.week.filter(w => w.sleep_h != null), avg = sl.length ? sl.reduce((a, w) => a + w.sleep_h, 0) / sl.length : null;
-  $('#td_sleep').innerHTML = [['Sleep last night', sig.sleep_hours ?? last.sleep_h, v => nf(v, 1) + ' h'], ['In bed', last.bedtime, fmtH], ['Week average', avg, v => nf(v, 1) + ' h'],
-    ['Weight', t.day && t.day.weight ? t.day.weight.latest : null, v => nf(v, 1) + ' lb']].filter(r => r[1] != null).map(([k, v, f]) => `<div class="kv"><span>${k}</span><b>${f(v)}</b></div>`).join('')
-    + (t.day && t.day.tired ? `<div class="mute" style="font-size:12px;margin-top:4px">tired day: ${esc(t.day.tired_why.join(', '))}</div>` : '');
-  const fogToday = sig.fog_today ?? (last.day === now.toISOString().slice(0, 10) ? last.fog : null);
-  const rated = fogToday != null && t.week.some(w => w.day === new Date(now - now.getTimezoneOffset() * 6e4).toISOString().slice(0, 10) && w.fog != null);
-  $('#td_fog').innerHTML = [0, 1, 2, 3, 4, 5].map(n => `<button style="--l:${n}" class="${rated && fogToday === n ? 'on' : ''}" onclick="rateFog(${n})" aria-label="Fog ${n}">${n}</button>`).join('');
-  const miss = t.week.filter(w => w.fog == null).length;
-  $('#td_fogsub').textContent = rated ? 'rated today' : 'not rated today';
-  $('#td_fognote').textContent = `${t.fog_days} of ${t.fog_needed} rated days until patterns unlock` + (miss ? ` · ${miss} of the last 7 days missing` : '') + ' · report Saturday 8 AM';
-  const wk = t.week;
-  $('#td_week').innerHTML = wk.map(w => `<div class="col"><span class="fd ${w.fog == null ? 'none' : ''}">${w.fog == null ? '' : nf(w.fog)}</span><span class="h">${w.sleep_h == null ? 'no data' : nf(w.sleep_h, 1) + ' h'}</span>
-    <div class="bar ${w.sleep_h == null ? 'none' : w.sleep_h < 6 ? 'low' : ''}" style="${w.sleep_h == null ? '' : 'height:' + Math.round(Math.min(w.sleep_h, 10) / 9 * 92) + 'px'}"></div></div>`).join('');
-  $('#td_days').innerHTML = wk.map(w => `<span>${dayName(w.day)} · <span style="color:var(--house-ink)">${nf(w.readiness)}</span></span>`).join('');
-  $('#td_soon').innerHTML = t.soon.slice(0, 6).map(i => `<div class="tile ${i.days <= 2 ? 'hot' : ''}"><b>${i.days < 1 ? 'today' : Math.round(i.days) + 'd'}</b><span>${esc(i.name)}</span></div>`).join('') || '<span class="mute">nothing close to its date</span>';
-  $('#td_prot').textContent = `${Math.round(t.protein_g)} g` + (t.protein_target_g ? ` / ${t.protein_target_g} g` : '');
-  $('#td_protbar').style.width = t.protein_target_g ? Math.min(100, t.protein_g / t.protein_target_g * 100) + '%' : '0';
-  $('#td_food').textContent = (t.meals.length ? 'Ate: ' + t.meals.map(m => short(m.title) + (m.protein_g ? ` (${Math.round(m.protein_g)} g protein)` : '')).join(' · ') : 'No meals logged today') + (t.expired.length ? ` · ${t.expired.length} past its date (${t.expired.map(e => e.name).slice(0, 2).join(', ')})` : '');
-  const r = t.room || {};
-  const roomHtml = [['temp', v => nf(v) + '°'], ['humidity', v => nf(v) + '%'], ['aqi', v => nf(v)], ['filter', v => nf(v) + '%']].map(([k, f]) => `<div><b>${r[k] == null ? '–' : f(r[k])}</b><span>${k === 'aqi' ? 'air quality' : k}</span></div>`).join('');
-  $('#td_room').innerHTML = roomHtml;
-  const h = t.house || {};
-  $('#td_housesub').textContent = h.notable ? `${h.notable} notable today` : 'nothing unusual';
-  $('#td_house').textContent = `${h.habits || 0} habits learned · ${h.baselines || 0} usual ranges · ${h.suggestions || 0} suggested automations` + (t.comfort ? ` · comfort control ${t.comfort.enabled ? 'on' : 'off'}` : '');
-  $('#td_mem').textContent = t.remembered.length ? '· ' + t.remembered.slice(0, 4).map(x => short(x.title)).join(' · ') : '· nothing yet today';
-  $('#nav_review').textContent = t.review; $('#nav_review').classList.toggle('hide', !t.review);
-}
-async function rateFog(n) { await api('api/patterns/answer', {action: 'HM_FOG_' + n}); loadToday(); }
-async function todayAsk() { const q = $('#td_q').value.trim(); if (!q) return; $('#td_ans').classList.remove('hide'); $('#td_ans').textContent = '…'; const r = await api('api/ask', {question: q}); showAnswer('#td_ans', r); if (r.sleep || r.workout) { $('#td_q').value = ''; loadToday(); } }
 // a connected answer with the quick one beside it: a tap says which was better (/api/answer_pick)
 function showAnswer(sel, r, extra) {
   const el = $(sel); el.textContent = r.error || ((r.answer || '') + (extra || ''));
@@ -565,7 +588,6 @@ function showAnswer(sel, r, extra) {
   }
   box.append(q, row); el.append(box);
 }
-$('#td_q').addEventListener('keydown', e => e.key === 'Enter' && todayAsk());
 const TAGS = {sleep: ['SLEEP', 'var(--acc-ink)'], bed: ['SLEEP', 'var(--acc-ink)'], wake: ['SLEEP', 'var(--acc-ink)'], nap: ['SLEEP', 'var(--acc-ink)'], step: ['PACING', 'var(--food-ink)'], away: ['PACING', 'var(--food-ink)'], stress: ['STRESS', 'var(--bad)'], calm: ['STRESS', 'var(--bad)'],
   room: ['ROOM', 'var(--house-ink)'], pm: ['ROOM', 'var(--house-ink)'], voc: ['ROOM', 'var(--house-ink)'], aqi: ['ROOM', 'var(--house-ink)'], daylight: ['WEATHER', 'var(--house-ink)'], pressure: ['WEATHER', 'var(--house-ink)'], temp: ['WEATHER', 'var(--house-ink)'],
   caff: ['FOOD', 'var(--food-ink)'], meal: ['FOOD', 'var(--food-ink)'], late: ['FOOD', 'var(--food-ink)'], hrv: ['BODY', 'var(--health-ink)'], fluid: ['BODY', 'var(--health-ink)'], ready: ['BODY', 'var(--health-ink)'], readiness: ['BODY', 'var(--health-ink)'], outdoor: ['ROOM', 'var(--house-ink)'], cold: ['WEATHER', 'var(--house-ink)'], short: ['WEATHER', 'var(--house-ink)'], vote: ['ROOM', 'var(--house-ink)'], busy: ['PACING', 'var(--food-ink)'], cal: ['PACING', 'var(--food-ink)'], resting: ['BODY', 'var(--health-ink)'], night: ['BODY', 'var(--health-ink)'], wakeups: ['SLEEP', 'var(--acc-ink)']};
@@ -718,83 +740,308 @@ async function loadMore() {
   $('#events').innerHTML = Array.isArray(ev) ? (ev.map(e => `<div class="li"><div class="main"><div class="t">${esc(e.type)} <span class="sub">· ${ago(e.ts)}</span></div><div class="sub">${esc(String(e.data ?? '').slice(0, 140))}</div></div></div>`).join('') || '<span class="mute">nothing yet: searches, answers and changes show here</span>') : `<span class="bad">${esc(ev.error)}</span>`;
 }
 
-// ---- Talk: a conversation by voice or typing, with the answers Home Mind expects as buttons (/api/talk) ----
-let TK_REC = null, TK_LISTENING = false;
-function talkBubble(t) {
-  const d = document.createElement('div'); d.className = 'msg ' + (t.who === 'you' ? 'you' : 'hm') + (t.red_flag ? ' flag' : '');
-  d.textContent = t.text || '';
-  if (t.deep) { const g = document.createElement('span'); g.className = 'tag'; g.textContent = 'Connected answer, from your own data'; d.append(g); }
-  if (t.compare_id && t.quick) {
-    const box = document.createElement('div'); box.className = 'cmp';
-    const det = document.createElement('details'); const sm = document.createElement('summary'); sm.textContent = 'The quick answer, for comparison';
-    const qa = document.createElement('div'); qa.textContent = t.quick.answer; det.append(sm, qa);
-    const row = document.createElement('div'); row.style.marginTop = '6px';
-    for (const [k, l] of [['deep', 'This one'], ['quick', 'The quick one'], ['same', 'Same']]) {
-      const b = document.createElement('button'); b.textContent = l; b.className = 'soft';
-      b.onclick = async () => { const x = await api('api/answer_pick', {id: t.compare_id, pick: k}); row.textContent = x.error || 'Thanks, noted.'; };
-      row.append(b);
-    }
-    box.append(det, row); d.append(box);
+// ---- Home (0.31): icons above the ask bar, answers that grow under it, status tabs, For you, tiles by situation ----
+let HUB = null, HC = null;
+const HB = {mode: null, stat: null, statDay: 6, win: null, rec: null, listening: false};
+const HB_SKIP = (() => { try { const o = JSON.parse(localStorage.getItem('hb_skip') || '{}'), now = Date.now(); Object.keys(o).forEach(k => { if (now - o[k] > 2 * 86400e3) delete o[k]; }); return o; } catch (e) { return {}; } })();
+const hbSaveSkip = () => { try { localStorage.setItem('hb_skip', JSON.stringify(HB_SKIP)); } catch (e) { /* storage off: skips last until reload */ } };
+const CK_TAGS = ['Headache', "Can't focus", 'Tired eyes', 'Anxious', 'Hungry'], CK_WORDS = ['clear', 'slight', 'mild', 'noticeable', 'heavy', "can't think"];
+const CK = {fog: 2, energy: 'ok', tags: [], note: '', ago: 0};
+const hbSvg = (p, s = 18, w = 2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+const HBI = {mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>', send: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  cloud: '<path d="M7 18a4 4 0 1 1 .9-7.9A6 6 0 0 1 19 12a3 3 0 0 1 0 6z"/>', rain: '<path d="M7 15a4 4 0 1 1 .9-7.9A6 6 0 0 1 19 9a3 3 0 0 1 0 6zM8 19l-1 2M12 19l-1 2M16 19l-1 2"/>',
+  drop: '<path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/>', power: '<path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>'};
+const hbClock = t => new Date(t * 1000).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+const hbUntil = t => { const m = Math.round((t * 1000 - Date.now()) / 60000); if (m < 1) return 'now'; if (m < 60) return m + ' min'; const h = Math.floor(m / 60); return h >= 24 ? Math.round(h / 24) + ' d' : h + ' h ' + (m % 60) + ' m'; };
+const hbOrd = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
+const hbWide = () => innerWidth > 640;
+function hbTod() { const h = new Date().getHours(); return h < 5 || h >= 21 ? 'night' : h < 11 ? 'morning' : h < 17 ? 'afternoon' : 'evening'; }
+function hbWxIcon(state, s) { const x = String(state || ''); return hbSvg(/rain|pour|snow|hail|storm/.test(x) ? HBI.rain : /sun|clear/.test(x) ? HBI.sun : HBI.cloud, s, 1.8); }
+
+async function hubLoad() {
+  const [h, c] = await Promise.all([api('api/hub'), api('api/controls')]);
+  if (!h || h.error || !h.logs || !h.status) { hbAnswer("Home Mind isn't answering" + (h && h.error ? ': ' + h.error : '') + ". Check the app's Log tab."); return; }
+  HUB = h; HC = c && !c.error ? c : null; T = {room: HC ? HC.room : {}};
+  $('#ver').textContent = 'v' + h.version;
+  $('#nav_review').textContent = h.review; $('#nav_review').classList.toggle('hide', !h.review);
+  hbRender();
+}
+function hbRender() {
+  if (!HUB) return;
+  const now = new Date(), tod = hbTod();
+  $('#hb_hello').textContent = {morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening', night: 'Winding down'}[tod];
+  $('#hb_when').textContent = now.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'}) + ' · ' + now.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) + (HUB.place ? ' · ' + (HUB.place === 'home' ? 'Home' : 'Away') : '');
+  hbWxBtn();
+  $('#hb_n_water').textContent = HUB.logs.water; $('#hb_n_coffee').textContent = HUB.logs.coffee; $('#hb_n_meal').textContent = HUB.logs.meals;
+  hbTabs(); hbNeed(); hbTiles();
+  if (HB.win && !hbWide()) hbOpen(HB.win);
+}
+
+// ---- weather: the box in the header, a sheet that pulls down from the top ----
+function hbWxBtn() {
+  const w = HC && HC.weather, b = $('#hb_wx');
+  if (!w || w.temp == null) { b.classList.add('hide'); return; }
+  b.classList.remove('hide');
+  const d0 = (w.daily || [])[0] || {}, rain = Math.max(0, ...(w.hourly || []).map(x => x.rain || 0));
+  b.innerHTML = hbWxIcon(w.state, 20) + `<b>${Math.round(w.temp)}°</b><span class="s"><b>${d0.hi != null ? Math.round(d0.hi) + '° / ' + Math.round(d0.lo ?? d0.hi) + '°' : ''}</b><span>${rain ? rain + '% rain' : ''}</span></span>`;
+  b.setAttribute('aria-label', `Weather: ${String(w.state || '').replace(/-/g, ' ')}, ${Math.round(w.temp)} degrees. Show forecast`);
+}
+function hbWx(open) {
+  const el = $('#hb_wxs');
+  if (!open) { el.classList.add('hide'); if ($('#hb_ck').classList.contains('hide')) $('#hb_shade').classList.add('hide'); return; }
+  const w = HC && HC.weather; if (!w) return;
+  const d0 = (w.daily || [])[0] || {}, hr = t => new Date(t).toLocaleTimeString([], {hour: 'numeric'});
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:12px">${hbWxIcon(w.state, 40)}<div style="flex:1"><div style="display:flex;align-items:baseline;gap:8px"><b style="font:600 40px/1 var(--head)">${Math.round(w.temp)}°</b><b>${d0.hi != null ? Math.round(d0.hi) + '° / ' + Math.round(d0.lo ?? d0.hi) + '°' : ''}</b></div>
+      <span class="mute" style="font-size:13px">${esc(String(w.state || '').replace(/-/g, ' '))}${w.humidity != null ? ` · ${Math.round(w.humidity)}% humidity` : ''}</span></div></div>
+    <div class="hb-hrs">${(w.hourly || []).slice(0, 6).map(x => `<div><span>${esc(hr(x.t))}</span><b>${x.temp == null ? '–' : Math.round(x.temp) + '°'}</b><span style="color:var(--acc-ink)">${x.rain ? x.rain + '%' : '&nbsp;'}</span></div>`).join('')}</div>
+    <div>${(w.daily || []).slice(1, 5).map(x => `<div class="hb-li"><b style="width:44px">${esc(new Date(x.t).toLocaleDateString([], {weekday: 'short'}))}</b><span class="m mute">${esc(String(x.state || '').replace(/-/g, ' '))}</span><span><b>${x.hi == null ? '' : Math.round(x.hi) + '°'}</b> <span class="mute">${x.lo == null ? '' : Math.round(x.lo) + '°'}</span></span></div>`).join('')}</div>
+    <button class="hb-grab" onclick="hbWx(false)" aria-label="Close weather"></button>`;
+  el.classList.remove('hide'); $('#hb_shade').classList.remove('hide');
+}
+
+// ---- the bubbles fill the front of the bar; the answer grows under it, with choices when it isn't sure ----
+const HB_MODES = {water: {pre: 'Water', ph: 'how many? (1 glass)', chips: ['1 glass', '2 glasses', 'Bottle']}, coffee: {pre: 'Coffee', ph: 'how many? (1 cup)', chips: ['1 cup', '2 cups', 'Espresso']},
+  meal: {pre: 'Ate', ph: 'what did you have?'}, note: {pre: 'Note', ph: 'type a note…'}};
+function hbMode(m) {
+  HB.mode = HB.mode === m ? null : m;
+  ['water', 'coffee', 'meal', 'note'].forEach(k => $('#hb_l_' + k).classList.toggle('on', HB.mode === k));
+  const M = HB_MODES[HB.mode], ex = $('#hb_extra');
+  $('#hb_pre').classList.toggle('hide', !M); $('#hb_pre').textContent = M ? M.pre : '';
+  $('#hb_q').placeholder = M ? M.ph : 'Ask, tell, or control anything…'; $('#hb_bar').classList.toggle('mode', !!M);
+  if (!M) { ex.classList.add('hide'); ex.innerHTML = ''; hbBtn(); return; }
+  let chips = M.chips || [];
+  if (HB.mode === 'meal') chips = [...new Set(((HUB && HUB.food.meals) || []).map(x => short(x.title)).filter(Boolean))].slice(-3);
+  ex.innerHTML = (chips.length ? `<div class="hb-chips">${chips.map(c => `<button class="c" onclick="hbSend(${jsq(c)})">${esc(c)}</button>`).join('')}</div>` : '')
+    + `<div class="mute" style="font-size:12px">${HB.mode === 'note' ? 'Saved to Memory.' : HB.mode === 'meal' ? 'Type it, or tap one from today. Protein is estimated.' : 'Enter logs one.'} <a onclick="hbMode(null)">Cancel</a></div>`;
+  ex.classList.remove('hide'); hbBtn(); $('#hb_q').focus();
+}
+function hbBtn() { const send = !!$('#hb_q').value.trim() || !!HB.mode; $('#hb_go').innerHTML = hbSvg(send ? HBI.send : HBI.mic, 18, 2.2); $('#hb_go').title = send ? 'Send' : 'Speak'; $('#hb_go').ariaLabel = send ? 'Send' : 'Speak'; }
+function hbGo() { if ($('#hb_q').value.trim() || HB.mode) hbSend(); else hbMic(); }
+function hbCounts(r) { HUB.logs.water = r.water; HUB.logs.coffee = r.coffee; $('#hb_n_water').textContent = r.water; $('#hb_n_coffee').textContent = r.coffee; }
+async function hbSend(text, spoken) {
+  const v = (text !== undefined ? String(text) : $('#hb_q').value).trim(), m = HB.mode;
+  if (!v && !m) return;
+  $('#hb_q').value = ''; hbBtn();
+  if (m === 'water' || m === 'coffee') {
+    const n = Math.max(1, Math.min(6, parseInt(v, 10) || (/bottle/i.test(v) ? 2 : 1)));
+    hbMode(null); const r = await api('api/log', {kind: m, n});
+    if (r.error) return hbAnswer(r.error);
+    hbCounts(r);
+    return hbAnswer(m === 'water' ? `Logged water · ${r.water} today.` : `Logged coffee at ${hbClock(Date.now() / 1000)} · ${r.coffee} today.`, [], {undo: m});
   }
-  return d;
-}
-function talkChoices(list, expects) {
-  const c = $('#tk_choices'); c.innerHTML = '';
-  (list || []).forEach(l => { const b = document.createElement('button'); b.textContent = l; if (!expects) b.className = 'soft'; b.onclick = () => talkSend(l); c.append(b); });
-  if (expects === 'choice') $('#tk_in').placeholder = 'Tap an answer, or type your own…'; else $('#tk_in').placeholder = 'Type, or tap the mic and talk…';
-}
-function talkScroll() { const th = $('#tk_thread'); th.scrollTop = th.scrollHeight; }
-async function talkLoad() {
-  const r = await api('api/talk'); const th = $('#tk_thread'); th.innerHTML = '';
-  if (r.error) { th.textContent = r.error; return; }
-  if (r.guest) $('#tk_note').textContent = 'Talking as a guest: nothing personal, and nothing kept.';
-  (r.turns || []).forEach(t => th.append(talkBubble(t)));
-  if (!(r.turns || []).length) { const d = document.createElement('div'); d.className = 'msg hm'; d.textContent = 'Hi. Ask me anything, tell me how you are, or ask me to do something in the house.'; th.append(d); }
-  const last = (r.turns || []).slice(-1)[0];
-  talkChoices(last && last.who !== 'you' ? last.choices : ['How am I doing?', "What's on today?"], last && last.who !== 'you' ? last.expects : null);
-  if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
-    $('#tk_mic').disabled = true; $('#tk_mic').title = 'Voice input isn\'t available in this browser';
-    $('#tk_note').textContent = "Voice input isn't available here (it needs Chrome, Edge or Safari, and microphone access). Typing works the same.";
+  if (m === 'meal') {
+    if (!v) return; hbMode(null); hbAnswer('Logging…');
+    const r = await api('api/pantry/ate', {text: v, source: 'web'});
+    hbAnswer(r.error || `Logged at ${r.at || hbClock(Date.now() / 1000)}: ${v}. I'll estimate the protein.`); setTimeout(hubLoad, 2500); return;
   }
-  talkScroll();
-}
-async function talkSend(text, spoken) {
-  const v = (text !== undefined ? text : $('#tk_in').value).trim(); if (!v) return;
-  $('#tk_in').value = ''; talkChoices([]);
-  const th = $('#tk_thread'); th.append(talkBubble({who: 'you', text: v}));
-  const w = document.createElement('div'); w.className = 'msg hm wait'; w.textContent = 'Thinking'; th.append(w); talkScroll();
+  if (m === 'note') { if (!v) return; hbMode(null); const r = await api('api/remember', {text: v}); return hbAnswer(r.error || 'Saved to Memory.'); }
+  hbAnswer('…');
   const r = await api('api/talk', {text: v, spoken: !!spoken});
-  w.remove();
-  th.append(talkBubble(r.error ? {who: 'hm', text: r.error} : {who: 'hm', text: r.answer, deep: r.deep, red_flag: r.red_flag, quick: r.quick, compare_id: r.compare_id}));
-  talkChoices(r.choices, r.expects); talkScroll();
-  if (!r.error && spoken && $('#tk_speak').checked) talkSpeak(r.answer, () => { if ($('#tk_hands').checked || r.expects === 'choice') talkMic(true); });
+  if (r.error && !r.answer) return hbAnswer(r.error);
+  hbAnswer(r.answer, r.choices);
+  if (spoken && r.answer && window.speechSynthesis) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(r.answer)); }
+  if (r.via === 'do' || r.checkin) setTimeout(hubLoad, 900);
 }
-function talkSpeak(text, then) {
-  if (!window.speechSynthesis) { if (then) then(); return; }
-  speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 1.02; u.onend = () => { if (then) then(); }; speechSynthesis.speak(u);
+function hbAnswer(text, choices, o) {
+  o = o || {}; $('#hb_ans').classList.remove('hide'); $('#hb_ans_t').textContent = text || '';
+  const c = $('#hb_chips'); c.innerHTML = '';
+  (choices || []).forEach(l => { const b = document.createElement('button'); b.textContent = l; b.onclick = () => hbSend(l); c.append(b); });
+  if (o.undo) {
+    const b = document.createElement('button'); b.textContent = 'Undo';
+    b.onclick = async () => { const r = await api('api/log', {kind: o.undo, n: -1}); if (!r.error) hbCounts(r); hbAnswer(r.error || 'Taken back.'); };
+    c.append(b);
+  }
 }
-function talkMic(auto) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) return;
-  if (TK_LISTENING && !auto) { TK_REC && TK_REC.stop(); return; }
+function hbClear() { $('#hb_ans').classList.add('hide'); }
+function hbMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return hbAnswer("Voice input isn't available in this browser (it needs Chrome, Edge or Safari, and microphone access). Typing works the same.");
+  if (HB.listening) { if (HB.rec) HB.rec.stop(); return; }
   if (window.speechSynthesis) speechSynthesis.cancel();
-  TK_REC = new SR(); TK_REC.lang = navigator.language || 'en-US'; TK_REC.interimResults = true; TK_REC.continuous = false;
-  let final = '';
-  TK_REC.onstart = () => { TK_LISTENING = true; $('#tk_mic').classList.add('on'); $('#tk_note').textContent = 'Listening…'; };
-  TK_REC.onresult = e => { let interim = ''; for (const r of e.results) { if (r.isFinal) final = r[0].transcript; else interim += r[0].transcript; } $('#tk_in').value = final || interim; };
-  TK_REC.onerror = e => {
-    const n = $('#tk_note');
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-      n.textContent = 'Microphone access was blocked here. Allow it for this page, or ';
-      const a = document.createElement('a'); a.textContent = 'open Home Mind in its own tab'; a.onclick = () => window.open(location.href, '_blank'); n.append(a, '.');
-    } else n.textContent = e.error === 'no-speech' ? "I didn't hear anything." : 'Voice input stopped: ' + e.error;
-  };
-  TK_REC.onend = () => { TK_LISTENING = false; $('#tk_mic').classList.remove('on'); if ($('#tk_note').textContent === 'Listening…') $('#tk_note').textContent = ''; const v = (final || '').trim(); if (v) talkSend(v, true); };
-  try { TK_REC.start(); } catch (e) { $('#tk_note').textContent = 'Voice input could not start: ' + e.message; }
+  const rec = HB.rec = new SR(); rec.lang = navigator.language || 'en-US'; rec.interimResults = true; rec.continuous = false;
+  let fin = '';
+  rec.onstart = () => { HB.listening = true; $('#hb_go').classList.add('on'); $('#hb_q').placeholder = 'Listening…'; };
+  rec.onresult = e => { let it = ''; for (const r of e.results) { if (r.isFinal) fin = r[0].transcript; else it += r[0].transcript; } $('#hb_q').value = fin || it; };
+  rec.onerror = e => hbAnswer(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Microphone access was blocked here. Allow it for this page, or open Home Mind in its own tab.' : e.error === 'no-speech' ? "I didn't hear anything." : 'Voice input stopped: ' + e.error);
+  rec.onend = () => { HB.listening = false; $('#hb_go').classList.remove('on'); const M = HB_MODES[HB.mode]; $('#hb_q').placeholder = M ? M.ph : 'Ask, tell, or control anything…'; if (fin.trim()) hbSend(fin.trim(), true); else hbBtn(); };
+  try { rec.start(); } catch (e) { hbAnswer('Voice input could not start: ' + e.message); }
 }
-async function talkNew() { await api('api/talk/new', {}); talkLoad(); }
+
+// ---- Energy / Fog / Ready: folder tabs; the details open under them ----
+const HB_STATS = [['energy', 'Energy', 'Energy', 'var(--acc)', 'var(--ink)'], ['fog', 'Fog', 'Head fog', 'var(--health)', 'var(--health-ink)'], ['readiness', 'Ready', 'Readiness', 'var(--house)', 'var(--house-ink)']];
+const hbLab = (k, v) => v == null ? '–' : k === 'energy' ? (HUB.status.energy.labels[v] || '–') : String(Math.round(v));
+const hbDayName = i => i === HUB.days.length - 1 ? 'Today' : dayName(HUB.days[i]);
+function hbTabs() {
+  const sel = hbWide() ? (HB.stat || 'energy') : (HB.win && HB.win.startsWith('stat:') ? HB.win.slice(5) : null);
+  $('#hb_tabs').classList.toggle('open', !!sel);
+  $('#hb_tabs').innerHTML = HB_STATS.map(([k, l, , , ink]) => { const v = HUB.status[k].value; return `<button role="tab" aria-selected="${sel === k}" class="${sel === k ? 'on' : ''}" onclick="hbStat(${jsq(k)})"><span>${l}</span><b style="color:${ink}">${esc(v == null ? '–' : v)}</b></button>`; }).join('');
+  if (hbWide()) { const d = $('#hb_detail'); d.className = 'hb-detail' + (sel === 'fog' ? ' mid' : sel === 'readiness' ? ' end' : ''); d.innerHTML = hbStatBody(sel, true); }
+}
+function hbStat(k) {
+  HB.statDay = HUB.days.length - 1;
+  if (hbWide()) { HB.stat = k; hbTabs(); return; }
+  if (HB.win === 'stat:' + k) { hbClose(); return; }
+  hbOpen('stat:' + k);
+}
+function hbStatTitle(k) { const s = HUB.status[k], d = HB.statDay, today = d === HUB.days.length - 1; return `${HB_STATS.find(x => x[0] === k)[2]} · ${today ? 'today' : hbDayName(d)} · ${today && s.value != null ? s.value : hbLab(k, s.series[d])}`; }
+function hbStatBody(k, withTitle) {
+  const s = HUB.status[k], c = HB_STATS.find(x => x[0] === k)[3], day = HB.statDay, last = HUB.days.length - 1, today = day === last;
+  const bars = s.series.map((v, i) => `<button class="${i === day ? 'on' : ''}" style="--c:${c}" onclick="HB.statDay=${i}; hbRefreshStat()" aria-pressed="${i === day}" aria-label="${esc(hbDayName(i))}: ${esc(hbLab(k, v))}"><i style="height:${v == null ? 3 : Math.max(4, Math.round(v / s.max * 52))}px"></i><span>${esc(hbDayName(i))}</span></button>`).join('');
+  const fs = ((HUB.factors[k] || [])[day]) || [];
+  const rows = fs.map(f => `<div class="hb-f"><div class="a"><span>${esc(f.label)}</span><b>${esc(f.value)}</b></div><div class="b"><span>${esc(f.note)}</span>${f.tag ? `<em class="${esc(f.kind)}">${esc(f.tag)}</em>` : ''}</div></div>`).join('') || '<div class="mute" style="font-size:13px">No readings for that day.</div>';
+  return (withTitle ? `<b style="font:600 16px var(--head)">${esc(hbStatTitle(k))}</b>` : '') + `<div class="hb-chart">${bars}</div><div>${rows}</div>
+    <div class="hb-cta"><button class="p" onclick="${today ? 'hbCk(true)' : "go('health')"}">${today ? 'Check in now' : 'Open ' + esc(hbDayName(day)) + ' in Health'}</button>${today ? `<button onclick="go('health')">History</button>` : ''}</div>`;
+}
+function hbRefreshStat() { if (hbWide()) hbTabs(); else if (HB.win) hbOpen(HB.win); }
+
+// ---- For you: one thing at a time ----
+const hbNeeds = () => ((HUB && HUB.needs) || []).filter(n => !HB_SKIP[n.id]);
+function hbNeed() {
+  const list = hbNeeds(), el = $('#hb_need'), n = list[0];
+  if (!n) { el.classList.add('hide'); return; }
+  el.classList.remove('hide');
+  el.innerHTML = `<div class="top"><div><span class="k">${esc(n.kind)}</span><span class="t">${esc(n.title)}</span>${n.sub ? `<span class="s">${esc(n.sub)}</span>` : ''}</div><span class="n">${list.length > 1 ? '1 of ' + list.length : ''}</span></div>
+    <div class="acts"><button class="a" onclick="hbNeedAct()">${esc(n.a)}</button><button class="x" onclick="hbNeedSkip()" aria-label="Later" title="Later">✕</button></div>`;
+}
+function hbNeedAct() {
+  const n = hbNeeds()[0]; if (!n) return;
+  if (n.act === 'checkin') return hbCk(true);
+  HB_SKIP[n.id] = Date.now(); hbSaveSkip(); hbNeed();
+  if (n.act === 'go') go(n.go); else hbSend(n.text);
+}
+function hbNeedSkip() { const n = hbNeeds()[0]; if (!n) return; HB_SKIP[n.id] = Date.now(); hbSaveSkip(); hbNeed(); }
+
+// ---- tiles: four, picked by the time of day and where you are; small on a phone (tap to open), open on wider screens ----
+const HB_PICK = {away: ['house', 'shop', 'cal', 'rem', 'food'], morning: ['cal', 'sleep', 'food', 'room', 'rem'], afternoon: ['rem', 'room', 'food', 'cal', 'shop'],
+  evening: ['food', 'rem', 'cal', 'room', 'shop'], night: ['tonight', 'room', 'tomorrow', 'house', 'rem', 'shop']};
+function hbPick() {
+  const ok = k => k === 'rem' ? HUB.reminders.length > 0 : k === 'house' ? HUB.house.items.length > 0 : k === 'room' || k === 'tonight' ? !!HC && HUB.place !== 'away' : true;
+  const out = (HUB.place === 'away' ? HB_PICK.away : HB_PICK[hbTod()]).filter(ok);
+  ['shop', 'cal', 'food', 'rem'].forEach(k => { if (out.length < 4 && !out.includes(k) && ok(k)) out.push(k); });
+  return out.slice(0, 4);
+}
+function hbTiles() {
+  $('#hb_tiles').innerHTML = hbPick().map(k => {
+    const d = hbTile(k), head = `<div class="h"><b style="color:${d.ink}">${esc(d.title)}</b><span>${esc(d.meta || '')}</span></div>`;
+    return hbWide() ? `<section class="hb-tile ${d.cls}" aria-label="${esc(d.title)}">${head}<div class="scroll">${d.big()}</div></section>`
+      : `<button class="hb-tile ${d.cls}" onclick="hbOpen(${jsq(k)})" aria-haspopup="dialog">${head}${d.small()}</button>`;
+  }).join('');
+}
+const hbMid = (t1, big, t2, bigColor) => `<div class="mid">${t1 ? `<span class="t1">${esc(t1)}</span>` : ''}<span class="big" style="${bigColor ? 'color:' + bigColor + ';' : ''}${String(big).length > 9 ? 'font-size:22px' : ''}">${esc(big)}</span>${t2 ? `<span class="t2">${esc(t2)}</span>` : ''}</div>`;
+function hbFoodBars(f) {
+  const rows = [];
+  if (f.protein_target_g) rows.push(['Protein', f.protein_g, f.protein_target_g, 'g']);
+  if (f.calorie_target) rows.push(['Calories', f.calories, f.calorie_target, '']);
+  else if (f.calories) rows.push(['Calories', f.calories, null, '']);
+  return rows.map(([l, v, g, u]) => `<div class="hb-fb"><div class="l"><span>${l}</span><b>${Math.round(v).toLocaleString()}<em>${g ? '/' + Math.round(g).toLocaleString() + u : u}</em></b></div>${g ? `<span class="hb-track ${v > g ? 'over' : ''}"><i style="width:${Math.round(Math.min(v / g, 1.25) / 1.25 * 100)}%"></i><u></u></span>` : ''}</div>`).join('');
+}
+function hbStrip(evs) {
+  const lo = 8, hi = 23, pos = t => { const d = new Date(t * 1000); return Math.max(0, Math.min(100, ((d.getHours() + d.getMinutes() / 60) - lo) / (hi - lo) * 100)); };
+  const now = pos(Date.now() / 1000);
+  return `<div><span class="hb-strip">${evs.filter(e => !e.all_day).map(e => `<i style="left:${pos(e.start)}%;width:${Math.max(1.5, pos(e.end) - pos(e.start))}%"></i>`).join('')}<u style="left:${now}%"></u></span><div class="hb-hours"><span>8a</span><span>12p</span><span>4p</span><span>8p</span><span>11p</span></div></div>`;
+}
+const hbCheck = (title, sub, entity, uid) => `<label class="hb-li"><input type="checkbox" onchange="hbTodo('done', ${jsq(entity)}, ${jsq(uid)})"><span class="m">${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ''}</span></label>`;
+const hbAdd = (ph, entity) => `<div class="hb-add"><input placeholder="${esc(ph)}" aria-label="${esc(ph)}" onkeydown="if (event.key === 'Enter' && this.value.trim()) { hbTodo('add', ${jsq(entity)}, null, this.value.trim()); this.value = ''; }"><button class="go" onclick="const i = this.previousElementSibling; if (i.value.trim()) { hbTodo('add', ${jsq(entity)}, null, i.value.trim()); i.value = ''; }">Add</button></div>`;
+function hbTile(k) {
+  const now = Date.now() / 1000, F = HUB.food, R = (HC && HC.room) || {}, devs = HC ? HC.devices.filter(d => d.kind !== 'printer' && d.id !== 'all') : [];
+  const evs = (HUB.calendar.today || []).filter(e => !e.all_day), next = evs.filter(e => e.end > now), rems = HUB.reminders, shop = HUB.shopping;
+  const routine = HC ? (HC.routines || []).find(r => /bed/i.test(r.name)) : null;
+  const D = {
+    rem: {cls: '', ink: 'var(--acc-ink)', title: 'Reminders', meta: rems.length + ' open',
+      small: () => { const r = rems[0]; return r ? hbMid(r.title, r.due > now ? hbUntil(r.due) : r.timed ? 'overdue' : 'today', rems[1] ? 'Then ' + rems[1].title : (r.timed ? hbClock(r.due) : '')) : hbMid('', 'All clear', ''); },
+      big: () => (rems.map(r => hbCheck(r.title, r.timed ? hbClock(r.due) + (r.due < now ? ' · overdue' : '') : 'today', r.entity, r.uid)).join('') || '<span class="mute">Nothing due.</span>') + (rems[0] ? hbAdd('Remind me to…', rems[0].entity) : '')},
+    room: {cls: 'th-house', ink: 'var(--house-ink)', title: 'Bedroom', meta: '',
+      small: () => `<div class="mid"><span class="big" style="font-size:44px">${R.temp == null ? '–' : Math.round(R.temp) + '°'}</span></div><div class="hb-row3"><span><span class="y">${hbSvg(HBI.drop, 17)}</span><b>${R.humidity == null ? '–' : Math.round(R.humidity) + '%'}</b></span><i></i><span><span class="y">Air</span><b>${R.aqi == null ? '–' : Math.round(R.aqi)}</b></span><i></i><span><span class="y">${hbSvg(HBI.power, 17)}</span><b>${devs.filter(d => d.on).length}</b></span></div>`,
+      big: () => `<div class="hb-row3">${[['Temp', R.temp == null ? '–' : Math.round(R.temp) + '°'], ['Humidity', R.humidity == null ? '–' : Math.round(R.humidity) + '%'], ['Air', R.aqi == null ? '–' : Math.round(R.aqi)]].map(([l, v], i) => (i ? '<i></i>' : '') + `<span><span class="y">${l}</span><b>${v}</b></span>`).join('')}</div>
+        <div class="hb-scenes">${[['bedtime', 'Bedtime'], ['wake', 'Wake'], ['focus', 'Focus'], ['alloff', 'All off']].map(([s, l]) => `<button onclick="hbScene(${jsq(s)})">${l}</button>`).join('')}</div>
+        <div class="hb-devs">${devs.map(d => `<button class="${d.on ? 'on' : ''}" aria-pressed="${!!d.on}" ${d.available ? '' : 'disabled'} onclick="hbDev(${jsq(d.id)})"><b>${esc(d.name)}</b><span>${!d.available ? 'unavailable' : d.on ? (d.kind === 'climate' ? 'heat to ' + nf(d.level) + '°' : d.kind === 'light' ? nf(d.level) + '%' : 'on') : 'off'}</span></button>`).join('')}</div>
+        <a onclick="go('house')">All room controls ›</a>`},
+    food: {cls: 'th-food', ink: 'var(--food-ink)', title: {morning: 'Breakfast', evening: 'Dinner'}[hbTod()] || 'Food', meta: HUB.logs.meals + ' meals',
+      small: () => `<div class="mid" style="gap:8px">${hbFoodBars(F) || `<span class="big">${esc(F.protein_g)} g</span><span class="t2">protein today</span>`}${F.soon[0] ? `<span class="t2" style="color:var(--food-ink);font-weight:600">${esc(F.soon[0].name)}: ${F.soon[0].days < 1 ? 'use today' : Math.round(F.soon[0].days) + ' d'}</span>` : ''}</div>`,
+      big: () => `${hbFoodBars(F)}<div class="hb-cta"><button class="p" style="background:var(--food);color:var(--food-on)" onclick="hbSend('What should I eat now?')">What should I eat?</button><button onclick="hbMode('meal')">Log a meal</button></div>
+        ${F.soon.length ? `<b style="font-size:13px">Eat first</b>${F.soon.map(s => `<div class="hb-li"><span class="m">${esc(s.name)}</span><b style="color:${s.days < 1 ? 'var(--food-ink)' : 'var(--mute)'}">${s.days < 1 ? 'today' : Math.round(s.days) + ' d'}</b></div>`).join('')}` : ''}
+        <b style="font-size:13px">Shopping list</b>${shop.map(s => hbCheck(s.title, '', 'todo.shopping_list', s.uid)).join('') || '<span class="mute">Empty.</span>'}${hbAdd('Add an item', 'todo.shopping_list')}`},
+    cal: {cls: '', ink: 'var(--mute)', title: 'Calendar', meta: '',
+      small: () => { const e = next[0]; return hbStrip(evs) + (e ? hbMid(e.title, e.start > now ? 'in ' + hbUntil(e.start) : 'until ' + hbClock(e.end), next[1] ? 'Then ' + next[1].title + ' · ' + hbClock(next[1].start) : '', 'var(--acc-ink)') : hbMid('', 'Clear', 'Nothing else today')); },
+      big: () => hbStrip(evs) + '<b style="font-size:13px">Today</b>' + ((HUB.calendar.today || []).map(e => `<div class="hb-li"><b style="width:74px;font-size:12px;color:var(--mute)">${e.all_day ? 'all day' : hbClock(e.start)}</b><span class="m">${esc(e.title)}</span></div>`).join('') || '<span class="mute">Nothing on the calendar.</span>')
+        + '<b style="font-size:13px">Tomorrow</b>' + ((HUB.calendar.tomorrow || []).map(e => `<div class="hb-li"><b style="width:74px;font-size:12px;color:var(--mute)">${e.all_day ? 'all day' : hbClock(e.start)}</b><span class="m">${esc(e.title)}</span></div>`).join('') || '<span class="mute">Nothing yet.</span>')},
+    tonight: {cls: 'th-health', ink: 'var(--health-ink)', title: 'Tonight', meta: '',
+      small: () => hbMid('Bedtime', routine ? routine.time : '–', HC && HC.alarm ? 'alarm ' + HC.alarm : ''),
+      big: () => `<div class="hb-li"><span class="m">Bedtime routine<small>${esc(routine ? routine.sub : '')}</small></span><b>${esc(routine ? routine.time : '–')}</b></div><div class="hb-li"><span class="m">Alarm</span><b>${esc((HC && HC.alarm) || '–')}</b></div>
+        <div class="hb-cta"><button class="p" style="background:var(--health);color:var(--health-on)" onclick="hbScene('bedtime')">Start Bedtime now</button></div>`},
+    house: {cls: HUB.house.open ? 'th-food' : 'th-house', ink: HUB.house.open ? 'var(--food-ink)' : 'var(--house-ink)', title: 'House', meta: HUB.house.items.length + ' watched',
+      small: () => { const o = HUB.house.items.find(x => !x.ok && x.state !== 'unavailable'); return o ? hbMid(o.name, o.state, 'asks your phone before it moves', 'var(--bad)') : hbMid('', 'All secure', HUB.house.items.map(x => x.name).slice(0, 3).join(' · ')); },
+      big: () => HUB.house.items.map(x => `<div class="hb-li"><span class="d" style="background:${x.ok ? 'var(--house)' : 'var(--food)'}"></span><span class="m">${esc(x.name)}<small>${esc(x.state || '–')}</small></span>${x.ok ? '' : `<button onclick="hbSend(${jsq((x.kind === 'lock' ? 'lock' : 'close') + ' the ' + x.name)})">${x.kind === 'lock' ? 'Lock' : 'Close'}</button>`}</div>`).join('') + '<span class="mute" style="font-size:12px">Locks and the garage ask your phone before they move.</span>'},
+    sleep: {cls: 'th-health', ink: 'var(--health-ink)', title: 'Last night', meta: '',
+      small: () => { const f = ((HUB.factors.readiness || []).slice(-1)[0] || []).find(x => x.key === 'sleep_h'); return hbMid('', f ? f.value : '–', HUB.status.readiness.value != null ? 'ready ' + HUB.status.readiness.value : ''); },
+      big: () => hbStatBody('readiness', false)},
+    tomorrow: {cls: '', ink: 'var(--mute)', title: 'Tomorrow', meta: '',
+      small: () => { const e = (HUB.calendar.tomorrow || []).find(x => !x.all_day); return e ? hbMid(e.title, hbClock(e.start), HC && HC.alarm ? 'alarm ' + HC.alarm : '', 'var(--acc-ink)') : hbMid('', 'Free', HC && HC.alarm ? 'alarm ' + HC.alarm : ''); },
+      big: () => (HUB.calendar.tomorrow || []).map(e => `<div class="hb-li"><b style="width:74px;font-size:12px;color:var(--mute)">${e.all_day ? 'all day' : hbClock(e.start)}</b><span class="m">${esc(e.title)}</span></div>`).join('') || '<span class="mute">Nothing on the calendar.</span>'},
+    shop: {cls: 'th-food', ink: 'var(--food-ink)', title: 'Shopping', meta: '',
+      small: () => hbMid('', String(shop.length), shop.length ? shop.slice(0, 2).map(s => s.title).join(', ') : 'list is empty'),
+      big: () => (shop.map(s => hbCheck(s.title, '', 'todo.shopping_list', s.uid)).join('') || '<span class="mute">Empty.</span>') + hbAdd('Add an item', 'todo.shopping_list')},
+  };
+  return D[k];
+}
+function hbOpen(w) {
+  const stat = w.startsWith('stat:');
+  if (hbWide() && !stat) return;
+  HB.win = w;
+  const el = $('#hb_win'), k = stat ? w.slice(5) : w, d = stat ? null : hbTile(k);
+  el.className = 'hb-win' + (stat ? ' stat' : ' ' + d.cls);
+  const top = stat ? $('#hb_tabs').getBoundingClientRect().bottom - 1 : $('#hb_bar').getBoundingClientRect().bottom + 10;
+  el.style.top = Math.max(8, top) + 'px'; el.style.bottom = '74px';
+  el.style.borderRadius = stat ? `${k === 'energy' ? 0 : 22}px ${k === 'readiness' ? 0 : 22}px 22px 22px` : '22px';
+  $('#hb_win_t').textContent = stat ? hbStatTitle(k) : d.title; $('#hb_win_m').textContent = stat ? '' : (d.meta || '');
+  $('#hb_win_b').innerHTML = stat ? hbStatBody(k, false) : d.big();
+  if (stat) hbTabs();
+}
+function hbClose() { HB.win = null; $('#hb_win').classList.add('hide'); if (HUB) hbTabs(); }
+async function hbTodo(op, entity, uid, item) { const r = await api('api/todo', {op, entity, uid, item}); if (r.error) hbAnswer(r.error); setTimeout(hubLoad, 600); }
+async function hbScene(name) { const r = await api('api/controls/scene', {name}); hbAnswer(r.error || ({bedtime: 'Bedtime', wake: 'Wake', focus: 'Focus', alloff: 'All off'}[name] + ' is running.')); setTimeout(hubLoad, 900); }
+async function hbDev(id) {
+  const d = HC && HC.devices.find(x => x.id === id); if (!d) return;
+  const [service, data] = d.kind === 'climate' ? ['set_hvac_mode', {hvac_mode: d.on ? 'off' : 'heat'}] : d.kind === 'cover' ? [d.on ? 'close_cover_tilt' : 'open_cover_tilt', {}] : [d.on ? 'turn_off' : 'turn_on', {}];
+  const r = await api('api/controls/act', {entity: d.entity, service, data}); if (r.error) hbAnswer(r.error); setTimeout(hubLoad, 700);
+}
+
+// ---- the check-in sheet: as often as it changes, for now or a bit ago ----
+function hbCk(open) {
+  const el = $('#hb_ck');
+  if (!open) { el.classList.add('hide'); if ($('#hb_wxs').classList.contains('hide')) $('#hb_shade').classList.add('hide'); return; }
+  const last = HUB && HUB.checkin;
+  Object.assign(CK, {fog: last && last.fog != null ? last.fog : 2, energy: (last && last.energy) || 'ok', tags: [], note: '', ago: 0});
+  el.classList.remove('hide'); $('#hb_shade').classList.remove('hide'); hbCkDraw();
+}
+function hbCkTag(t) { CK.tags = CK.tags.includes(t) ? CK.tags.filter(x => x !== t) : CK.tags.concat([t]); hbCkDraw(); }
+function hbCkFog(v) { CK.fog = +v; $('#ck_fogv').textContent = CK.fog + ' · ' + CK_WORDS[CK.fog]; $('#ck_fog').setAttribute('aria-valuetext', CK.fog + ', ' + CK_WORDS[CK.fog]); }
+function hbCkDraw() {
+  const whens = [[0, 'Now'], [30, '30 min ago'], [60, '1 hour ago'], [120, '2 hours ago'], [240, '4 hours ago']];
+  $('#hb_ck').innerHTML = `<button class="hb-grab" onclick="hbCk(false)" aria-label="Close"></button>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2 id="hb_ck_t" style="margin:0;font:700 22px var(--head)">How are you feeling?</h2>
+      <select aria-label="When" onchange="CK.ago = +this.value">${whens.map(([v, l]) => `<option value="${v}" ${CK.ago === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div><div style="display:flex;justify-content:space-between;align-items:baseline"><label for="ck_fog" style="font-weight:600">Head fog</label><b id="ck_fogv" style="font:600 17px var(--head);color:var(--health-ink)">${CK.fog} · ${CK_WORDS[CK.fog]}</b></div>
+      <input id="ck_fog" class="hb-fog" type="range" min="0" max="5" step="1" value="${CK.fog}" oninput="hbCkFog(this.value)" aria-valuetext="${CK.fog}, ${esc(CK_WORDS[CK.fog])}">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--mute)"><span>0 clear</span><span>5 can't think</span></div></div>
+    <div><span id="ck_en_l" style="font-weight:600">Energy</span><div class="hb-seg" role="radiogroup" aria-labelledby="ck_en_l" style="margin-top:6px">${[['low', 'Low'], ['ok', 'OK'], ['high', 'High']].map(([e, l]) => `<button role="radio" aria-checked="${CK.energy === e}" class="${CK.energy === e ? 'on' : ''}" onclick="CK.energy = ${jsq(e)}; hbCkDraw()">${l}</button>`).join('')}</div></div>
+    <div><span style="font-weight:600">Also noticing</span><div class="hb-tags" style="margin-top:6px">${CK_TAGS.map(t => `<button aria-pressed="${CK.tags.includes(t)}" class="${CK.tags.includes(t) ? 'on' : ''}" onclick="hbCkTag(${jsq(t)})">${esc(t)}</button>`).join('')}</div></div>
+    <div><label for="ck_note" style="font-weight:600">Note <span class="mute" style="font-weight:400">(optional)</span></label><input id="ck_note" style="width:100%;margin-top:6px" value="${esc(CK.note)}" oninput="CK.note = this.value" placeholder="What's going on?"></div>
+    <div class="hb-cta"><button onclick="hbCk(false)">Cancel</button><button class="p" style="flex:2" onclick="hbCkSave()">Save check-in</button></div>`;
+}
+async function hbCkSave() {
+  const r = await api('api/checkins', {fog: CK.fog, energy: CK.energy, tags: CK.tags, note: CK.note, minutes_ago: CK.ago});
+  if (r.error) { alert(r.error); return; }
+  hbCk(false); hbAnswer(`Saved for ${r.time} · ${hbOrd(r.nth)} check-in today.`); hubLoad();
+}
+let HB_RS = null;
+if (typeof addEventListener === 'function') {   // (not in the test sandbox)
+  addEventListener('resize', () => { clearTimeout(HB_RS); HB_RS = setTimeout(() => { if (HUB) { if (hbWide()) hbClose(); hbRender(); } }, 200); });
+  addEventListener('keydown', e => { if (e.key === 'Escape') { hbWx(false); hbCk(false); hbClose(); } });
+}
 async function load(t) {
-  if (t === 'today') loadToday();
-  if (t === 'talk') talkLoad();
+  if (t === 'today') hubLoad();
   if (t === 'health') loadHealth();
   if (t === 'more') await loadMore();
   if (t === 'memory') { browse(''); recent(); review(); inbox(); docsList(); viewsList(); }
@@ -1219,7 +1466,7 @@ function homePlugs() {
 (function () { let q = ''; try { q = window.top.location.search; } catch (e) { q = location.search; }
   const m = /[?&]hm_thing=([^&]+)/.exec(q); let name = null; try { name = m && decodeURIComponent(m[1].replace(/\+/g, ' ')); } catch (e) {}
   if (name) setTimeout(() => thingPage(name), 300); })();
-load('today'); setInterval(() => !$('#today').classList.contains('hide') && loadToday(), 60000);
+hbBtn(); load('today'); setInterval(() => { if (!$('#today').classList.contains('hide') && !document.hidden && !HB.mode && !$('#hb_q').value && !HB.win) hubLoad(); }, 120000);
 </script>
 </body>
 </html>
