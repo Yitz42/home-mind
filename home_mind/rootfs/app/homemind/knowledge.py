@@ -36,17 +36,27 @@ FDC_FILES = {           # newest at the time of writing; refresh() looks for new
     "branded": "FoodData_Central_branded_food_csv_2026-10-29.zip",
     "survey": "FoodData_Central_survey_food_csv_2024-10-31.zip",     # FNDDS: foods and dishes as eaten, portions
 }
-FOOD_VERSION = 3        # 2: FNDDS survey foods and portion weights; 3: counted per kind, BOM-safe
+FOOD_VERSION = 4        # 2: FNDDS survey foods and portion weights; 3: counted, BOM-safe; 4: ids via nutrient.csv
 KIWIX_DIR = "https://download.kiwix.org/zim/wikipedia/"
 WIKI_FLAVOUR = "wikipedia_en_all_nopic"
 NUTRIENTS = {           # FoodData Central nutrient ids
     "1008": "kcal", "2047": "kcal_atwater", "2048": "kcal_atwater2", "1003": "protein", "1005": "carbs",
     "1004": "fat", "1079": "fiber", "2000": "sugar", "1063": "sugar_alt", "1093": "sodium",
 }
+NUTRIENT_NBR = {     # the same nutrients by their older SR numbers (nutrient.csv maps ids to these)
+    "208": "kcal", "957": "kcal_atwater", "958": "kcal_atwater2", "203": "protein", "205": "carbs", "204": "fat",
+    "291": "fiber", "269": "sugar", "539": "sugar_alt", "307": "sodium",
+}
 COLS = ["kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium"]
 PERSONAL = re.compile(r"\b(my|me|i|i'm|i've|i'd|mine|our|we|us|myself)\b", re.I)
 STOP = set("the a an of in on at to for is are was were be what who when where which how why does do did can could "
            "and or with from by about as it its that this than then there their into much many".split())
+
+
+def _key(x):
+    """An id as text without quotes, spaces or a trailing '.0' ('1008.0' -> '1008')."""
+    t = str(x or "").strip().strip('"')
+    return t[:-2] if t.endswith(".0") else t
 
 
 def _num(x):
@@ -162,7 +172,7 @@ class Knowledge:
         st = self.status.setdefault("food", {})
         # a food.db from before FNDDS: add the survey foods to it instead of downloading everything again
         add = os.path.exists(self.food_path) and st.get("state") == "ready" and (st.get("version") or 1) < FOOD_VERSION
-        files = {"survey": FDC_FILES["survey"]} if add else FDC_FILES
+        files = {k: FDC_FILES[k] for k in ("survey", "foundation")} if add else FDC_FILES
         st["state"] = "downloading"
         self._save()
         paths = {}
@@ -181,6 +191,7 @@ class Knowledge:
             await asyncio.to_thread(self._add_to_food_db, paths)
         else:
             await asyncio.to_thread(self._build_food_db, paths)
+        st["load"] = getattr(self, "load_report", {})
         counts = await asyncio.to_thread(self.food_counts)
         n = sum(v for k, v in counts.items() if k != "portions")
         st["counts"] = counts
@@ -260,10 +271,11 @@ class Knowledge:
         with zipfile.ZipFile(path) as z:
             foods = {}
             for r in self._rows(z, "food.csv"):
-                foods[r["fdc_id"]] = {"name": r["description"], "kind": kind}
+                if _key(r.get("fdc_id")) and r.get("description"):
+                    foods[_key(r["fdc_id"])] = {"name": r["description"], "kind": kind}
             if kind == "branded":
                 for r in self._rows(z, "branded_food.csv"):
-                    f = foods.get(r["fdc_id"])
+                    f = foods.get(_key(r.get("fdc_id")))
                     if f:
                         unit = (r.get("serving_size_unit") or "").lower()
                         size = _num(r.get("serving_size"))
@@ -274,7 +286,7 @@ class Knowledge:
             portions = []
             if kind != "branded":
                 for r in self._rows(z, "food_portion.csv"):
-                    if r["fdc_id"] not in foods:
+                    if _key(r.get("fdc_id")) not in foods:
                         continue
                     g = _num(r.get("gram_weight"))
                     text = (r.get("portion_description") or "").strip()
@@ -282,12 +294,24 @@ class Knowledge:
                         amt = _num(r.get("amount"))
                         text = " ".join(x for x in ((f"{amt:g}" if amt else ""), (r.get("modifier") or "").strip()) if x)
                     if g and text and not text.lower().startswith("quantity not specified"):
-                        portions.append((int(r["fdc_id"]), text[:80], g))
+                        portions.append((int(_key(r["fdc_id"])), text[:80], g))
+            by_id = {}                  # nutrient.csv: id -> column, through the SR number when the id isn't known
+            for r in self._rows(z, "nutrient.csv"):
+                nid, nbr = _key(r.get("id")), _key(r.get("nutrient_nbr") or r.get("number"))
+                col = NUTRIENTS.get(nid) or NUTRIENT_NBR.get(nbr)
+                if nid and col:
+                    by_id[nid] = col
+            seen_ids, cols = {}, None
             for r in self._rows(z, "food_nutrient.csv"):
-                f = foods.get(r["fdc_id"])
-                col = NUTRIENTS.get(r["nutrient_id"])
+                if cols is None:
+                    cols = list(r.keys())[:6]
+                f = foods.get(_key(r.get("fdc_id")))
+                nid = _key(r.get("nutrient_id"))
+                if len(seen_ids) < 12:
+                    seen_ids[nid] = seen_ids.get(nid, 0) + 1
+                col = NUTRIENTS.get(nid) or by_id.get(nid)
                 if f is not None and col:
-                    v = _num(r["amount"])
+                    v = _num(r.get("amount") if r.get("amount") not in (None, "") else r.get("value"))
                     if v is not None:
                         f[col] = v
         n = 0
@@ -306,8 +330,16 @@ class Knowledge:
         if rows:
             db.executemany("INSERT OR REPLACE INTO foods VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
             n += len(rows)
+        load = getattr(self, "load_report", None)
+        if load is None:
+            load = self.load_report = {}
+        load[kind] = {"in_file": len(foods), "kept": n, "portions": len(portions),
+                      "nutrient_ids": sorted(seen_ids)[:12], "columns": cols, "mapped_by_number": len(by_id)}
         if portions:
-            db.execute("DELETE FROM portions WHERE fdc_id IN (SELECT fdc_id FROM foods WHERE kind=?)", (kind,))
+            ids = sorted({p[0] for p in portions})
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                db.execute(f"DELETE FROM portions WHERE fdc_id IN ({','.join('?' * len(chunk))})", chunk)
             db.executemany("INSERT INTO portions VALUES (?,?,?)", portions)
         db.commit()
         return n
