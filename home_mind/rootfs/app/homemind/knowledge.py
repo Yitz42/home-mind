@@ -36,7 +36,7 @@ FDC_FILES = {           # newest at the time of writing; refresh() looks for new
     "branded": "FoodData_Central_branded_food_csv_2026-10-29.zip",
     "survey": "FoodData_Central_survey_food_csv_2024-10-31.zip",     # FNDDS: foods and dishes as eaten, portions
 }
-FOOD_VERSION = 5        # 5: FNDDS SR numbers; 2: FNDDS survey foods and portion weights; 3: counted, BOM-safe; 4: ids via nutrient.csv
+FOOD_VERSION = 6        # 6: no code-only portions; 5: FNDDS SR numbers; 2: FNDDS survey foods and portion weights; 3: counted, BOM-safe; 4: ids via nutrient.csv
 KIWIX_DIR = "https://download.kiwix.org/zim/wikipedia/"
 WIKI_FLAVOUR = "wikipedia_en_all_nopic"
 NUTRIENTS = {           # FoodData Central nutrient ids
@@ -295,7 +295,7 @@ class Knowledge:
                     if not text or text.lower().startswith("quantity not specified"):
                         amt = _num(r.get("amount"))
                         text = " ".join(x for x in ((f"{amt:g}" if amt else ""), (r.get("modifier") or "").strip()) if x)
-                    if g and text and not text.lower().startswith("quantity not specified"):
+                    if g and text and not text.lower().startswith("quantity not specified") and not text.isdigit():
                         portions.append((int(_key(r["fdc_id"])), text[:80], g))
             by_id = {}                  # nutrient.csv: id -> column, through the SR number when the id isn't known
             for r in self._rows(z, "nutrient.csv"):
@@ -383,9 +383,12 @@ class Knowledge:
             extra = len(re.findall(r"[a-z]+", d["name"].lower())) - hit
             brand_hit = bool(d.get("brand")) and any(w in (d["brand"] or "").lower() for w in words)
             generic = d["kind"] in ("foundation", "sr_legacy", "survey")
+            head = re.findall(r"[a-z]+", d["name"].lower())[:1]          # USDA names lead with the food: "Oatmeal, ..."
+            head_hit = generic and head and any(head[0].startswith(w.rstrip("s")) for w in words if len(w) > 2)
             d["rank"] = (hit * 3 + (4 if brand_hit else 0) + (2 if generic and not brand_hit else 0)
-                         - 0.4 * max(extra, 0) - (0.5 if "raw" not in d["name"].lower() and generic and
-                                                  "raw" in (name or "").lower() else 0))
+                         + (2.5 if head_hit else 0) + (0.5 if d["kind"] == "survey" else 0)
+                         - (0.2 if generic else 0.4) * max(extra, 0)
+                         - (0.5 if "raw" not in d["name"].lower() and generic and "raw" in (name or "").lower() else 0))
             out.append(d)
         out.sort(key=lambda d: -d["rank"])
         seen, uniq = set(), []
