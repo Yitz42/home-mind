@@ -144,6 +144,216 @@ def parse_plan(text):
     return plan
 
 
+AISLE_ORDER = ("produce", "meat & seafood", "dairy & eggs", "pantry & dry", "frozen", "other")
+AISLE_HINTS = {
+    "produce": ("apple", "avocado", "banana", "basil", "bell pepper", "berries", "broccoli", "cabbage", "carrot",
+                "cauliflower", "celery", "cilantro", "cucumber", "garlic", "ginger", "grape", "green onion", "herb",
+                "kale", "lemon", "lettuce", "lime", "mango", "melon", "mushroom", "onion", "orange", "parsley",
+                "peach", "pear", "pepper", "pineapple", "potato", "salad", "scallion", "spinach", "squash",
+                "strawberry", "sweet potato", "tomato", "vegetable", "zucchini"),
+    "meat & seafood": ("bacon", "beef", "chicken", "cod", "deli", "duck", "fish", "ground", "ham", "lamb",
+                       "meatball", "pork", "salmon", "sausage", "shrimp", "steak", "tilapia", "tofu", "tuna", "turkey"),
+    "dairy & eggs": ("butter", "cheese", "cottage cheese", "cream", "egg", "feta", "greek yogurt", "milk",
+                     "mozzarella", "parmesan", "sour cream", "yogurt"),
+    "frozen": ("frozen", "ice cream"),
+    "pantry & dry": ("almond", "bagel", "bean", "bread", "broth", "canned", "cashew", "cereal", "chickpea",
+                     "chili", "coconut milk", "coffee", "corn", "cracker", "curry", "flour", "honey", "hummus",
+                     "lentil", "noodle", "oat", "oil", "olive", "pasta", "peanut", "pita", "quinoa", "ramen",
+                     "rice", "salsa", "sauce", "seed", "soy sauce", "spice", "stock", "sugar", "tea", "tortilla",
+                     "vinegar", "walnut"),
+}
+
+WEEK_SYSTEM = (
+    "You build a practical multi-day meal plan for a household from what they already have at home plus a concise "
+    "grocery list. Put foods expiring soonest on the earliest days. Overlap fresh ingredients across days so nothing "
+    "goes to waste. Respect their goals, Avoid list, and any ALLERGY items strictly (never include an allergen). "
+    "Lean toward LEARNED TASTES when they fit. Keep weeknight meals realistic (under ~35 min). "
+    "Only list non-staple ingredients that aren't already in stock in 'need' (skip basic salt, pepper, cooking oil). "
+    "Keep every field short so the full week fits cleanly in JSON. "
+    'Reply with JSON only: {"summary": "one short sentence on the week\'s theme", '
+    '"days": [{"day": "Mon Nov 23", "meals": [{"slot": "dinner", "name": "short meal name", '
+    '"uses": ["in-stock items used"], '
+    '"need": [{"item": "ingredient", "amount": "qty + unit", "aisle": "produce|meat & seafood|dairy & eggs|pantry & dry|frozen|other"}], '
+    '"protein_g": number, "calories": number, "why": "short reason", "steps": "2-3 short steps"}]}]}')
+
+SWAP_SYSTEM = (
+    "You replace ONE meal in an existing weekly meal plan. Pick a fresh option that does NOT repeat any meal already "
+    "planned on other days, reuses ingredients already planned or in stock where sensible, respects all goals, Avoid "
+    "items, ALLERGY items strictly, and any user tweak request. Keep fields short. "
+    'Reply with JSON only: {"slot": "dinner", "name": "short meal name", "uses": ["in-stock items used"], '
+    '"need": [{"item": "ingredient", "amount": "qty + unit", "aisle": "produce|meat & seafood|dairy & eggs|pantry & dry|frozen|other"}], '
+    '"protein_g": number, "calories": number, "why": "short reason", "steps": "2-3 short steps"}')
+
+
+def guess_aisle(name, hint=""):
+    h = (hint or "").strip().lower()
+    for a in AISLE_ORDER:
+        if h == a or (h and h in a):
+            return a
+    low = _norm(name)
+    for a, kws in AISLE_HINTS.items():
+        if any(re.search(rf"\b{re.escape(k)}s?\b", low) for k in kws):
+            return a
+    return "other"
+
+
+def _stem(name):
+    n = _norm(name)
+    toks = [w[:-2] if w.endswith("es") and len(w) > 4 else (w[:-1] if w.endswith("s") and len(w) > 3 else w)
+            for w in n.split()]
+    return " ".join(toks)
+
+
+def _parse_qty(amount):
+    """Parse '2 lb', '1.5 cups', '1/2 dozen' -> (float, unit_stem) or None."""
+    s = (amount or "").strip().lower()
+    if not s:
+        return None
+    m = re.match(r"^(\d+(?:\.\d+)?|\d+/\d+)\s*(.*)$", s)
+    if not m:
+        return None
+    raw_n, unit = m.group(1), m.group(2).strip()
+    try:
+        val = float(raw_n.split("/")[0]) / float(raw_n.split("/")[1]) if "/" in raw_n else float(raw_n)
+    except (ValueError, ZeroDivisionError):
+        return None
+    u_norm = re.sub(r"s$", "", unit) if len(unit) > 2 and unit not in ("oz", "lbs") else unit
+    if u_norm == "lbs":
+        u_norm = "lb"
+    return val, u_norm, unit
+
+
+def _merge_amounts(amounts):
+    clean = [str(a).strip() for a in amounts if str(a or "").strip()]
+    if not clean:
+        return ""
+    if len(clean) == 1:
+        return clean[0]
+    parsed = [_parse_qty(a) for a in clean]
+    if all(parsed) and len({p[1] for p in parsed}) == 1:
+        total = sum(p[0] for p in parsed)
+        unit = parsed[0][1]
+        num_s = f"{total:g}"
+        if not unit:
+            return num_s
+        if total != 1 and unit not in ("lb", "oz", "g", "kg", "ml", "l", "tbsp", "tsp") and not unit.endswith("s"):
+            unit += "s"
+        return f"{num_s} {unit}"
+    # Different units: keep unique strings joined cleanly
+    return " + ".join(dict.fromkeys(clean))
+
+
+def _in_stock_match(item_name, stock_stems):
+    st = _stem(item_name)
+    if not st:
+        return False
+    if st in stock_stems:
+        return True
+    for s in stock_stems:
+        if len(st) >= 4 and (f" {st} " in f" {s} " or f" {s} " in f" {st} "):
+            return True
+    return False
+
+
+def build_shopping_list(days_list, in_stock_items=()):
+    """Deterministically build a deduplicated, aisle-grouped shopping list from a weekly plan,
+    subtracting fresh items already in stock and merging matching quantities."""
+    stock_stems = {
+        _stem(i.get("name") if isinstance(i, dict) else str(i))
+        for i in (in_stock_items or ())
+        if not (isinstance(i, dict) and i.get("days_left") is not None and i["days_left"] < 0)
+    }
+    stock_stems.discard("")
+
+    grouped = {}
+    for d in (days_list or ()):
+        if not isinstance(d, dict):
+            continue
+        day_lbl = (d.get("day") or "").split()[0] or "Day"
+        for m in (d.get("meals") or ()):
+            if not isinstance(m, dict):
+                continue
+            m_name = (m.get("name") or "").strip()
+            needs = m.get("need") if m.get("need") is not None else (m.get("missing") or [])
+            for raw in needs:
+                if isinstance(raw, dict):
+                    item = str(raw.get("item") or raw.get("name") or "").strip()
+                    amt = str(raw.get("amount") or "").strip()
+                    aisle = raw.get("aisle") or ""
+                else:
+                    s = str(raw or "").strip()
+                    if not s:
+                        continue
+                    q_m = re.match(r"^(\d+(?:[./]\d+)?\s*(?:lb|lbs|oz|g|kg|cup|cups|tbsp|tsp|can|cans|head|heads|bunch|bunches|clove|cloves|pack|packs|bag|bags|dozen|box|boxes|jar|jars|bottle|bottles)?)\s+(.+)$", s, re.I)
+                    if q_m and len(q_m.group(2).strip()) >= 2:
+                        amt, item = q_m.group(1).strip(), q_m.group(2).strip()
+                    else:
+                        amt, item = "", s
+                    aisle = ""
+                if not item or _in_stock_match(item, stock_stems):
+                    continue
+                key = _stem(item) or item.lower()
+                ent = grouped.setdefault(key, {
+                    "item": item,
+                    "amounts": [],
+                    "aisle": guess_aisle(item, aisle),
+                    "meals": [],
+                })
+                if amt:
+                    ent["amounts"].append(amt)
+                tag = f"{day_lbl}: {m_name}" if m_name else day_lbl
+                if tag not in ent["meals"]:
+                    ent["meals"].append(tag)
+
+    order_idx = {a: i for i, a in enumerate(AISLE_ORDER)}
+    out = []
+    for ent in grouped.values():
+        amt = _merge_amounts(ent["amounts"])
+        label = f"{amt} {ent['item']}".strip() if amt else ent["item"]
+        out.append({
+            "item": ent["item"],
+            "amount": amt,
+            "label": label,
+            "aisle": ent["aisle"],
+            "meals": ent["meals"],
+        })
+    out.sort(key=lambda x: (order_idx.get(x["aisle"], 99), x["item"].lower()))
+    return out
+
+
+def parse_week_plan(text):
+    """Parse the weekly meal plan JSON cleanly (tolerating surrounding prose or markdown fences)."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return {"summary": "", "days": []}
+    try:
+        obj = json.loads(m.group(0))
+        if not isinstance(obj, dict):
+            return {"summary": "", "days": []}
+    except ValueError:
+        return {"summary": "", "days": []}
+    days_out = []
+    for d in (obj.get("days") or ()):
+        if not isinstance(d, dict):
+            continue
+        meals = []
+        for ml in (d.get("meals") or ()):
+            if isinstance(ml, dict) and str(ml.get("name") or "").strip():
+                meals.append({
+                    "slot": str(ml.get("slot") or ml.get("meal") or "dinner").lower(),
+                    "name": str(ml["name"]).strip(),
+                    "uses": [str(x).strip() for x in (ml.get("uses") or ()) if str(x or "").strip()],
+                    "need": ml.get("need") if isinstance(ml.get("need"), list) else list(ml.get("missing") or ()),
+                    "protein_g": ml.get("protein_g"),
+                    "calories": ml.get("calories"),
+                    "why": str(ml.get("why") or "").strip(),
+                    "steps": ml.get("steps") or "",
+                })
+        if meals:
+            days_out.append({"day": str(d.get("day") or f"Day {len(days_out) + 1}").strip(), "meals": meals})
+    return {"summary": str(obj.get("summary") or "").strip(), "days": days_out}
+
+
 def _norm(name):
     n = re.sub(r"[^a-z ]", " ", (name or "").lower())
     return re.sub(r"\s+", " ", n).strip()
@@ -681,6 +891,193 @@ class Pantry:
                 pass
         return plan
 
+    # ---- weekly meal plan + smart shopping list -----------------------------------------------------------------------
+    WEEK_KV = "pantry_week_plan"
+
+    def _week_model(self, model=None):
+        names = [x for x in self.models.models if x != "mock"]
+        chosen = model or ("haiku" if "haiku" in names else names[0] if names else None)
+        if not chosen:
+            raise RuntimeError("no model connected")
+        return chosen
+
+    def _week_prefs_context(self, viewer=None):
+        """Return (avoid_items, taste_line) combining goals + optional MemGraph allergies/dislikes/tastes."""
+        g = self.goals()
+        avoid = list(g.get("avoid") or [])
+        seen = {a.lower() for a in avoid}
+        allergies, dislikes, likes_direct, likes_inferred, _ = self._graph_prefs(viewer=viewer)
+        for al in allergies:
+            if al.lower() not in seen:
+                avoid.insert(0, f"ALLERGY: {al}")
+                seen.add(al.lower())
+        for dl in dislikes:
+            if dl.lower() not in seen:
+                avoid.append(f"dislike: {dl}")
+                seen.add(dl.lower())
+        taste_parts = []
+        if likes_direct:
+            taste_parts.append("stated likes: " + ", ".join(likes_direct))
+        if likes_inferred:
+            taste_parts.append("observed cuisine/flavor patterns: " + ", ".join(likes_inferred))
+        taste_line = (f"LEARNED TASTES: {'; '.join(taste_parts)}\n" if taste_parts else "")
+        return avoid, taste_line
+
+    def week_plan(self):
+        """Saved weekly meal plan with shopping_list freshly recomputed against current in-stock pantry items."""
+        saved = self.store.kv_get(self.WEEK_KV)
+        if not isinstance(saved, dict) or not saved.get("days"):
+            return None
+        out = dict(saved)
+        out["shopping_list"] = build_shopping_list(out.get("days") or [], self.items())
+        out["shopping_items"] = [x["label"] for x in out["shopping_list"]]
+        return out
+
+    def clear_week_plan(self):
+        self.store.kv_set(self.WEEK_KV, None)
+        return {"cleared": True}
+
+    async def plan_week(self, days=7, meals=None, request="", model=None, viewer=None, start_date=None):
+        """Build and save a multi-day meal plan (1-7 days) plus a consolidated, aisle-grouped shopping list
+        computed deterministically against current pantry stock."""
+        n_days = max(1, min(7, int(days or 7)))
+        valid_slots = ("breakfast", "lunch", "dinner", "snack")
+        if isinstance(meals, str):
+            raw_slots = [s.strip().lower() for s in re.split(r"[,&+/\s]+", meals) if s.strip()]
+        else:
+            raw_slots = [str(s).strip().lower() for s in (meals or ()) if str(s).strip()]
+        slots = [s for s in dict.fromkeys(raw_slots) if s in valid_slots] or ["dinner"]
+
+        items = self.items()
+        day_info = await self.today()
+        g = self.goals()
+        chosen = self._week_model(model)
+
+        base_dt = start_date or datetime.now()
+        day_labels = [(base_dt + timedelta(days=i)).strftime("%a %b %d").replace(" 0", " ") for i in range(n_days)]
+
+        stock_lines = []
+        for i in items:
+            dl = i["days_left"]
+            when = ("past its date" if dl is not None and dl < 0 else
+                    "use today" if dl is not None and dl < 1 else
+                    f"{dl:.0f} days left" if dl is not None else "")
+            stock_lines.append(f"- {i['name']}{(' (' + i['amount'] + ')') if i['amount'] else ''}, {i['location']}, {when}")
+
+        avoid_items, taste_line = self._week_prefs_context(viewer=viewer)
+        protein_hint = (f"Protein target about {day_info['protein_target_g']} g/day.\n"
+                        if day_info.get("protein_target_g") else "")
+        content = (
+            f"Plan {n_days} days: {', '.join(day_labels)}.\n"
+            f"Meals per day: {', '.join(slots)}.\n"
+            f"Goals: {'; '.join(g.get('goals') or [])}\n"
+            + protein_hint
+            + (f"Avoid: {', '.join(avoid_items)}\n" if avoid_items else "")
+            + taste_line
+            + (f"Notes: {g['notes']}\n" if g.get("notes") else "")
+            + (f"Request: {request.strip()}\n" if (request or "").strip() else "")
+            + "\nIN THE HOUSE (soonest to expire first — use these on early days):\n"
+            + ("\n".join(stock_lines) or "- nothing recorded")
+        )
+        max_tok = min(4096, 900 + n_days * len(slots) * 260)
+        r = await self.models.get(chosen).chat(
+            WEEK_SYSTEM, [{"role": "user", "content": content}], max_tokens=max_tok, temperature=0.5,
+        )
+        parsed = parse_week_plan(r["text"])
+        if not parsed["days"]:
+            return {"summary": "", "days": [], "shopping_list": [], "shopping_items": [],
+                    "model": chosen, "raw": r["text"][:1500]}
+
+        # Normalize day labels cleanly to match requested dates
+        for idx, d in enumerate(parsed["days"][:n_days]):
+            if idx < len(day_labels) and not d.get("day"):
+                d["day"] = day_labels[idx]
+        parsed["days"] = parsed["days"][:n_days]
+
+        plan = {
+            "summary": parsed["summary"],
+            "days": parsed["days"],
+            "slots": slots,
+            "request": (request or "").strip(),
+            "model": chosen,
+            "created": time.time(),
+        }
+        self.store.kv_set(self.WEEK_KV, plan)
+        out = dict(plan)
+        out["shopping_list"] = build_shopping_list(out["days"], items)
+        out["shopping_items"] = [x["label"] for x in out["shopping_list"]]
+        return out
+
+    async def swap_meal(self, day_index, slot="dinner", request="", model=None, viewer=None):
+        """Replace ONE meal in the saved weekly meal plan and recompute the consolidated shopping list."""
+        saved = self.store.kv_get(self.WEEK_KV)
+        if not isinstance(saved, dict) or not saved.get("days"):
+            raise ValueError("no weekly meal plan saved yet")
+        idx = int(day_index)
+        if idx < 0 or idx >= len(saved["days"]):
+            raise ValueError(f"day_index must be between 0 and {len(saved['days']) - 1}")
+
+        target_day = saved["days"][idx]
+        slot_norm = str(slot or "dinner").strip().lower()
+        existing_pos = next((i for i, m in enumerate(target_day.get("meals") or ())
+                             if str(m.get("slot") or "").lower() == slot_norm), 0)
+        old_meal = (target_day.get("meals") or [{}])[existing_pos] if target_day.get("meals") else {}
+        other_meals = [
+            f"{d['day']} ({m.get('slot', 'dinner')}): {m['name']}"
+            for di, d in enumerate(saved["days"])
+            for mi, m in enumerate(d.get("meals") or ())
+            if not (di == idx and mi == existing_pos)
+        ]
+
+        items = self.items()
+        g = self.goals()
+        chosen = self._week_model(model or saved.get("model"))
+        avoid_items, taste_line = self._week_prefs_context(viewer=viewer)
+        stock_lines = [f"- {i['name']}{(' (' + i['amount'] + ')') if i['amount'] else ''} ({i['location']})"
+                       for i in items[:30]]
+        content = (
+            f"Replace {target_day['day']} {slot_norm}: currently '{old_meal.get('name', '')}'.\n"
+            + (f"User wants instead: {request.strip()}\n" if (request or "").strip() else "Give a different appealing option.\n")
+            + f"Goals: {'; '.join(g.get('goals') or [])}\n"
+            + (f"Avoid: {', '.join(avoid_items)}\n" if avoid_items else "")
+            + taste_line
+            + "Other meals already planned this week (do NOT repeat these):\n"
+            + ("\n".join(f"- {x}" for x in other_meals) or "- none")
+            + "\n\nIN THE HOUSE:\n" + ("\n".join(stock_lines) or "- nothing recorded")
+        )
+        r = await self.models.get(chosen).chat(
+            SWAP_SYSTEM, [{"role": "user", "content": content}], max_tokens=650, temperature=0.6,
+        )
+        m_json = re.search(r"\{.*\}", r.get("text") or "", re.S)
+        try:
+            obj = json.loads(m_json.group(0)) if m_json else {}
+        except ValueError:
+            obj = {}
+        if not isinstance(obj, dict) or not str(obj.get("name") or "").strip():
+            raise RuntimeError("model did not return a replacement meal")
+        new_meal = {
+            "slot": str(obj.get("slot") or slot_norm).lower(),
+            "name": str(obj["name"]).strip(),
+            "uses": [str(x).strip() for x in (obj.get("uses") or ()) if str(x or "").strip()],
+            "need": obj.get("need") if isinstance(obj.get("need"), list) else list(obj.get("missing") or ()),
+            "protein_g": obj.get("protein_g"),
+            "calories": obj.get("calories"),
+            "why": str(obj.get("why") or "").strip(),
+            "steps": obj.get("steps") or "",
+        }
+        days_copy = [dict(d, meals=list(d.get("meals") or ())) for d in saved["days"]]
+        if days_copy[idx]["meals"]:
+            days_copy[idx]["meals"][existing_pos] = new_meal
+        else:
+            days_copy[idx]["meals"].append(new_meal)
+        updated = dict(saved, days=days_copy, updated=time.time())
+        self.store.kv_set(self.WEEK_KV, updated)
+        out = dict(updated)
+        out["shopping_list"] = build_shopping_list(out["days"], items)
+        out["shopping_items"] = [x["label"] for x in out["shopping_list"]]
+        out["swapped"] = {"day_index": idx, "day": target_day["day"], "meal": new_meal}
+        return out
+
     # ---- for answers and the morning summary ----------------------------------------------------------------------------
     def soon(self, days=2):
         return [i for i in self.items() if i["days_left"] is not None and i["days_left"] <= days]
@@ -718,6 +1115,71 @@ MEAL_IDEA_Q = re.compile(
     r"\bwhat to (?:make|cook|eat)\b", re.I)
 
 MEAL_SLOT_Q = re.compile(r"\b(breakfast|lunch|dinner|snack)\b", re.I)
+
+WEEK_PLAN_Q = re.compile(
+    r"\b(?:weekly|week(?:'s)?)\s+(?:meal|dinner|lunch|breakfast|food)\s+plan\b|"
+    r"\b(?:plan|build|make|create|draft|put together)\b.{0,35}\b(?:meals?|dinners?|lunches?|menus?)\b.{0,25}\b(?:for the week|this week|next week|for \d+ days?)\b|"
+    r"\bmeal\s+plan\b.{0,25}\b(?:for the week|this week|next week|\d+\s+days?|shopping list|grocer(?:y|ies))\b|"
+    r"\b(?:help me )?(?:plan|build|make)\b.{0,25}\b(?:a )?meal\s+plan\b",
+    re.I,
+)
+
+
+def week_plan_request(question):
+    """If the question asks to build a multi-day / weekly meal plan (and shopping list), return
+    {'days', 'meals', 'request', 'auto_shop'}, else None."""
+    q = (question or "").replace("’", "'").strip()
+    if not q or len(q) > 280 or NOT_MEAL_IDEA_Q.search(q) or not WEEK_PLAN_Q.search(q):
+        return None
+    dm = re.search(r"\b([1-7])\s+days?\b", q, re.I)
+    days = int(dm.group(1)) if dm else 7
+    slots = [m.lower() for m in re.findall(r"\b(breakfast|lunch|dinner)\b", q, re.I)]
+    slots = list(dict.fromkeys(slots)) or ["dinner"]
+    auto_shop = bool(re.search(r"\b(?:add|send|put)\b.{0,25}\bshopping list\b", q, re.I))
+    return {"days": days, "meals": slots, "request": q.rstrip("?!. "), "auto_shop": auto_shop}
+
+
+def format_week_plan(plan, voice=False):
+    """Format a weekly meal plan + consolidated shopping list for screen or voice."""
+    days = [d for d in ((plan or {}).get("days") or ()) if isinstance(d, dict) and d.get("meals")]
+    if not days:
+        return None
+    shop = (plan or {}).get("shopping_list") or []
+    if voice:
+        first = days[0]["meals"][0]["name"]
+        second = days[1]["meals"][0]["name"] if len(days) > 1 else ""
+        lead = f"I built a {len(days)}-day meal plan starting {days[0]['day']} with {first}"
+        if second:
+            lead += f", then {second} on {days[1]['day']}"
+        lead += "."
+        if shop:
+            lead += f" Your shopping list has {len(shop)} items. Open the Food tab to swap any meal or send the list to Home Assistant."
+        else:
+            lead += " You already have everything you need in stock."
+        return lead
+
+    lines = []
+    if (plan or {}).get("summary"):
+        lines.append(plan["summary"])
+    for d in days:
+        m_bits = []
+        for m in d["meals"]:
+            tag = f"{m.get('slot', 'dinner').capitalize()}: " if len(d["meals"]) > 1 else ""
+            macros = f" (~{round(m['protein_g'])} g protein)" if isinstance(m.get("protein_g"), (int, float)) else ""
+            m_bits.append(f"{tag}{m['name']}{macros}")
+        lines.append(f"• {d['day']} — " + " | ".join(m_bits))
+    if shop:
+        lines.append("")
+        lines.append(f"Shopping list ({len(shop)} items needed beyond what's in stock):")
+        by_aisle = {}
+        for x in shop:
+            by_aisle.setdefault(x.get("aisle") or "other", []).append(x["label"])
+        for aisle in AISLE_ORDER:
+            if aisle in by_aisle:
+                lines.append(f"- {aisle.title()}: " + ", ".join(by_aisle[aisle]))
+    else:
+        lines.append("\nYou already have everything in stock for this plan.")
+    return "\n".join(lines)
 
 
 def meal_request(question):

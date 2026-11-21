@@ -365,6 +365,8 @@ class Overnight:
         if mg is not None:
             try:
                 from .memgraph import Archivist, Janitor
+                pat = getattr(self, "patterns", None)
+                synced = mg.sync_patterns(pat, days=14, owner=getattr(self, "memgraph_owner", None)) if pat is not None else None
                 ingested_turns = ingested_patches = 0
                 if not getattr(self, "live_archivist", False) and graph_turns:
                     arch = Archivist(mg, personal_rule=getattr(self, "personal_rule", "first_person"))
@@ -377,6 +379,8 @@ class Overnight:
                         ingested_turns += 1
                         ingested_patches += int(ares.get("applied") or 0)
                 mg_rep = await Janitor(mg).run_nightly(model)
+                if synced is not None:
+                    mg_rep["sensor_sync"] = synced
                 if not getattr(self, "live_archivist", False):
                     mg_rep["overnight_ingest"] = {"turns": ingested_turns, "patches": ingested_patches}
             except Exception as e:  # noqa: BLE001

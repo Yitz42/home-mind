@@ -66,6 +66,10 @@ async def answer(b, scope="admin"):
     asked.append(b)
     if b.get("force_deep"):
         return {"answer": "Try a few days without lentils.", "deep": True, "hits": []}
+    if "meal plan" in b["question"]:
+        return {"answer": "Weekly meal plan\nMonday...", "pantry": True, "hits": [],
+                "missing": ["broccoli (2 heads)", "soy sauce", "Soy sauce"],
+                "week_plan": {"days": [{"day": "Monday", "meals": [{"slot": "dinner", "name": "Stir Fry"}]}]}}
     if "eggs" in b["question"]:
         return {"answer": "1. Egg Scramble", "pantry": True, "hits": [],
                 "meals": [{"name": "Egg Scramble", "missing": ["feta", "avocado"]},
@@ -110,6 +114,10 @@ check("meal turn: missing items deduplicated and More meal ideas offered",
 rm2 = run(tk.turn(MEAL_FOLLOW, "Dana"))
 check("meal follow-up: re-asks the food question for different ideas",
       "eggs" in asked[-1]["question"] and "different ideas" in asked[-1]["question"], asked[-1])
+rw = run(tk.turn("Build a meal plan for the week", "Dana"))
+check("weekly meal turn: top-level missing items deduplicated and week_plan forwarded",
+      rw.get("pantry") and rw.get("missing") == ["broccoli (2 heads)", "soy sauce"]
+      and isinstance(rw.get("week_plan"), dict), rw)
 check("thread: per person", tk.thread("Sam")["turns"] == [])
 cid = th["conversation_id"]
 n = tk.new("Dana")

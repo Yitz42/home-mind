@@ -239,6 +239,14 @@
   .hb-f.ed { width:100%; text-align:left; background:none; border:0; border-top:1px solid var(--line); font:inherit; color:inherit; cursor:pointer; border-radius:0 } .hb-f.ed:active { background:var(--card2) } .hb-f .pen { font-style:normal; color:var(--mute); font-size:13px; margin-left:2px }
   .hb-fed { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px } .hb-fed input { width:96px; font-size:17px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink) } .hb-fed button { padding:9px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-weight:600; cursor:pointer } .hb-fed button.p { background:var(--acc); color:#fff; border:0 }
   .hb-fnote { display:block; font-size:11px; color:var(--mute); margin-top:2px } .hb-fb small { font-size:10px; font-weight:600; opacity:.7; text-transform:uppercase; letter-spacing:.04em }
+  .hb-meals { display:flex; flex-direction:column; gap:10px; margin-top:4px }
+  .hb-meal { background:var(--card); border:1px solid var(--food-line); border-radius:14px; padding:12px 14px; display:flex; flex-direction:column; gap:8px }
+  .hb-meal .t { display:flex; flex-direction:column; gap:4px } .hb-meal .t b { font:600 16px var(--head); color:var(--ink) }
+  .hb-meal .macros { display:flex; gap:6px; flex-wrap:wrap } .hb-meal .mc { font-size:12px; color:var(--food-ink); background:var(--food-bg); border-radius:99px; padding:2px 9px } .hb-meal .mc b { font-weight:700; margin-right:1px }
+  .hb-meal .why { margin:0; font-size:13px; color:var(--mute); line-height:1.4 }
+  .hb-meal .pills { display:flex; flex-wrap:wrap; gap:5px } .hb-meal .pills span { font-size:12px; padding:3px 9px; border-radius:99px; background:var(--card2); color:var(--ink) } .hb-meal .pills span.need { background:none; border:1px dashed var(--line); color:var(--mute) }
+  .hb-meal details summary { font-size:13px; font-weight:600; color:var(--acc-ink); cursor:pointer; list-style:none } .hb-meal details summary::before { content:'▸ '; } .hb-meal details[open] summary::before { content:'▾ '; } .hb-meal details p { margin:6px 0 0; font-size:13px; line-height:1.5 }
+  .hb-meal .acts { display:flex; gap:8px; flex-wrap:wrap } .hb-meal .acts button { padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-size:13px; font-weight:600; cursor:pointer } .hb-meal .acts button.p { background:var(--food); color:var(--food-on); border:0 }
   .hb-f .b em.low { background:var(--food-bg); color:var(--food-ink) } .hb-f .b em.good { background:var(--house-bg); color:var(--house-ink) }
   .hb-cta { display:flex; gap:8px } .hb-cta button { flex:1; min-height:42px; border-radius:12px; font:inherit; font-size:14px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--card); color:var(--ink) } .hb-cta button.p { border:0; background:var(--acc); color:#fff }
   .hb-li { display:flex; align-items:center; gap:10px; min-height:44px; border-top:1px solid var(--line); font-size:14px } .hb-li:first-child { border-top:0 } .hb-li .m { flex:1; min-width:0; display:flex; flex-direction:column } .hb-li .m small { color:var(--mute); font-size:12px }
@@ -314,7 +322,7 @@
         <div class="hb-ans hide" id="hb_ans" aria-live="polite">
           <div class="hb-hist hide" id="hb_hist"></div>
           <div class="hb-ans-top"><span id="hb_ans_q"></span><span class="hb-ans-acts"><button class="hide" id="hb_hist_tog" onclick="hbToggleHist()">Thread</button><button class="hide" id="hb_new_btn" onclick="hbNew()">New</button><button class="x" onclick="hbClear()" aria-label="Close answer">✕</button></span></div>
-          <div class="hb-ans-t"><span id="hb_ans_t"></span></div>
+          <div class="hb-ans-t"><span id="hb_ans_t"></span></div><div id="hb_meals" class="hb-meals hide"></div>
           <div class="hb-src" id="hb_src"></div>
           <div class="hb-chips" id="hb_chips"></div>
           <div class="hb-cmp" id="hb_cmp"></div>
@@ -525,6 +533,20 @@
       <select id="m_meal" aria-label="meal"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select>
       <input id="m_req" placeholder="anything else? (quick, no cooking…)" style="width:240px"> <button class="go" onclick="meals()">Suggest</button></div>
     <div id="m_today" class="mute"></div><div id="m_out"></div></div>
+  <div class="card food"><div class="row"><h2 style="margin:0;flex:1">Weekly meal plan</h2>
+      <select id="w_days" aria-label="days"><option value="7">7 days</option><option value="5">5 days</option><option value="3">3 days</option></select>
+      <select id="w_slots" aria-label="meals"><option value="dinner">dinners</option><option value="lunch,dinner">lunches &amp; dinners</option><option value="breakfast,lunch,dinner">all 3 meals</option></select>
+      <input id="w_req" placeholder="theme or preferences (high protein, quick weeknights…)" style="width:240px">
+      <button class="go" onclick="weekPlan()">Build week</button>
+      <button class="hide" id="w_clear" onclick="clearWeek()">Clear</button></div>
+    <div id="w_summary" class="mute"></div>
+    <div id="w_out"></div>
+    <div id="w_shop_wrap" class="hide" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">
+      <div class="row"><h3 style="margin:0;flex:1">Shopping list <span class="mute" id="w_shop_sub"></span></h3>
+        <button class="go" id="w_shop_btn" onclick="shopWeek()">Add to shopping list</button></div>
+      <div id="w_shop_out"></div>
+      <div id="w_shop_msg" class="mute"></div>
+    </div></div>
   <div class="card"><div class="row"><h2 style="margin:0;flex:1">In the house</h2>
       <label class="go" style="background:var(--acc);color:#fff;border-radius:7px;padding:7px 14px;cursor:pointer">📷 Add from photo<input type="file" accept="image/*" capture="environment" id="p_photo" class="hide" onchange="photo(this)"></label></div>
     <div class="row"><input id="p_text" placeholder="e.g. chicken, 2 lb ground beef and a dozen eggs" style="flex:1">
@@ -873,9 +895,9 @@ async function hbSend(text, spoken) {
   if (r.error && !r.answer) return hbAnswer(r.error, [], {q: v});
   const now = Date.now() / 1000;
   HB.turns.push({who: 'you', text: v, at: now}, {who: 'home mind', text: r.answer || '', at: now, choices: r.choices,
-    sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, pantry: r.pantry, deep: r.deep});
+    sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, pantry: r.pantry, deep: r.deep, meals: r.meals});
   if (HB.turns.length > 100) HB.turns = HB.turns.slice(-100);
-  hbAnswer(r.answer, r.choices, {q: v, sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id});
+  hbAnswer(r.answer, r.choices, {q: v, sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, meals: r.meals});
   if (spoken && r.answer && window.speechSynthesis) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(r.answer)); }
   if (r.via === 'do' || r.checkin) setTimeout(hubLoad, 900);
 }
@@ -909,7 +931,7 @@ function hbToggleHist() {
     const last = HB.turns[HB.turns.length - 1], prev = HB.turns.length > 1 ? HB.turns[HB.turns.length - 2] : null;
     const q = prev && prev.who === 'you' ? prev.text : '';
     HB.histOpen = HB.turns.length > 2;
-    hbAnswer(last.text, last.choices, {q, sources: last.sources, missing: last.missing, quick: last.quick, compare_id: last.compare_id});
+    hbAnswer(last.text, last.choices, {q, sources: last.sources, missing: last.missing, quick: last.quick, compare_id: last.compare_id, meals: last.meals});
     return;
   }
   HB.histOpen = !HB.histOpen;
@@ -920,10 +942,31 @@ async function hbNew() {
   HB.turns = []; HB.histOpen = false;
   hbClear(); hbHistSync();
 }
+function hbMealCard(m, i) {
+  const n = (v, u) => typeof v === 'number' ? `<span class="mc"><b>${Math.round(v)}</b>${u}</span>` : '';
+  const uses = (m.uses || []).filter(Boolean), miss = (m.missing || []).filter(Boolean);
+  return `<article class="hb-meal"><div class="t"><b>${esc(m.name)}</b><span class="macros">${n(m.protein_g, ' g protein')}${n(m.calories, ' kcal')}</span></div>
+    ${m.why ? `<p class="why">${esc(m.why)}</p>` : ''}
+    ${uses.length ? `<div class="pills">${uses.map(u => `<span>${esc(u)}</span>`).join('')}${miss.map(u => `<span class="need">+ ${esc(u)}</span>`).join('')}</div>` : ''}
+    ${m.steps ? `<details><summary>Steps</summary><p>${esc(m.steps)}</p></details>` : ''}
+    <div class="acts"><button class="p" onclick="hbMealAte(${i}, this)">I'm making this</button>${miss.length ? `<button onclick="hbMealShop(${i}, this)">Add ${miss.length === 1 ? esc(miss[0]) : miss.length + ' items'} to list</button>` : ''}</div></article>`;
+}
+async function hbMealAte(i, b) {
+  const m = HB.meals[i]; if (!m) return; b.disabled = true; b.textContent = 'Logging…';
+  const r = await api('api/pantry/ate', {text: m.name + (m.uses && m.uses.length ? ' (' + m.uses.join(', ') + ')' : ''), source: 'web'});
+  b.textContent = r && r.error ? r.error : 'Logged ✓'; if (!r || !r.error) setTimeout(hubLoad, 2500);
+}
+async function hbMealShop(i, b) {
+  const m = HB.meals[i]; if (!m) return; b.disabled = true;
+  const r = await api('api/pantry/shop', {items: m.missing}); b.textContent = r && r.error ? r.error : 'On the list ✓'; if (!r || !r.error) setTimeout(hubLoad, 600);
+}
 function hbAnswer(text, choices, o) {
   o = o || {}; $('#hb_ans').classList.remove('hide');
   $('#hb_ans_q').textContent = o.q ? `You: ${o.q}` : '';
-  $('#hb_ans_t').textContent = text || '';
+  const meals = (o.meals || []).filter(m => m && m.name).slice(0, 3);
+  $('#hb_ans_t').textContent = meals.length ? '' : (text || '');
+  const at = $('#hb_ans_t').parentElement; if (at && at.classList) at.classList.toggle('hide', !!meals.length);
+  const mb = $('#hb_meals'); mb.innerHTML = meals.map((m, i) => hbMealCard(m, i)).join(''); mb.classList.toggle('hide', !meals.length); HB.meals = meals;
   const src = $('#hb_src'); src.innerHTML = '';
   (o.sources || []).forEach(s => {
     if (!s || !s.title) return;
@@ -1420,6 +1463,90 @@ async function pantry() {
         return `<div class="li"><span class="days-b ${cls}">${when}</span><div class="main"><div class="t">${esc(i.name)}</div><div class="sub">${esc(i.amount || '')}${i.amount ? ' · ' : ''}${esc(i.location)}</div></div>
       <div class="acts"><a onclick="puse(${jsq(i.name)},'used')">used</a><a onclick="puse(${jsq(i.name)},'tossed')">tossed</a><a class="mute" onclick="premove(${i.id})">remove</a></div></div>`; }).join('') || '<span class="mute">nothing yet: add from a photo or type what you bought</span>';
   const g = r.goals; $('#g_goals').value = (g.goals || []).join('\n'); $('#g_tired').value = g.tired_days || ''; $('#g_avoid').value = (g.avoid || []).join(', ');
+  renderWeekPlan(r.week_plan);
+}
+let _weekShop = [];
+function renderWeekPlan(plan) {
+  const sum = $('#w_summary'), out = $('#w_out'), wrap = $('#w_shop_wrap'), clr = $('#w_clear');
+  if (!plan || !(plan.days || []).length) {
+    sum.textContent = 'Build a 3, 5, or 7-day plan using what expires first, then send the needed groceries straight to Home Assistant.';
+    out.innerHTML = ''; wrap.classList.add('hide'); clr.classList.add('hide'); _weekShop = [];
+    return;
+  }
+  clr.classList.remove('hide');
+  sum.textContent = plan.summary || `${plan.days.length}-day meal plan`;
+  out.innerHTML = plan.days.map((d, di) => `<div style="margin:10px 0;padding:8px 0;border-bottom:1px solid var(--bd)">
+    <div style="font-weight:600;margin-bottom:4px">${esc(d.day)}</div>` +
+    (d.meals || []).map(m => `<div style="margin:6px 0">
+      <div class="row" style="gap:8px;align-items:baseline">
+        <b>${esc(m.name)}</b> <span class="mute">${esc(m.slot || '')} · ~${esc(m.protein_g ?? '?')} g protein · ~${esc(m.calories ?? '?')} kcal</span>
+        <a style="margin-left:auto" onclick="swapMeal(${di},${jsq(m.slot || 'dinner')},${jsq(d.day + ' ' + m.name)})">Swap</a>
+      </div>
+      ${m.why ? `<div class="mute">${esc(m.why)}</div>` : ''}
+      ${(m.uses || []).length ? `<div class="mute">uses ${esc(m.uses.join(', '))}</div>` : ''}
+      ${m.steps ? `<div class="mute">${esc(Array.isArray(m.steps) ? m.steps.map((s, i) => (i + 1) + '. ' + s).join('  ') : m.steps)}</div>` : ''}
+    </div>`).join('') + '</div>').join('');
+  const list = plan.shopping_list || [];
+  _weekShop = list.map(x => ({label: String(x.label || x.item || ''), aisle: x.aisle || 'other', meals: x.meals || [], checked: true}));
+  wrap.classList.remove('hide');
+  $('#w_shop_msg').textContent = '';
+  if (!_weekShop.length) {
+    $('#w_shop_sub').textContent = 'everything in stock';
+    $('#w_shop_out').innerHTML = '<span class="mute">You already have everything needed for this plan.</span>';
+    $('#w_shop_btn').classList.add('hide');
+    return;
+  }
+  $('#w_shop_btn').classList.remove('hide');
+  const byAisle = {};
+  _weekShop.forEach((x, idx) => { (byAisle[x.aisle] = byAisle[x.aisle] || []).push({x, idx}); });
+  $('#w_shop_out').innerHTML = Object.entries(byAisle).map(([aisle, rows]) =>
+    `<div style="margin:8px 0"><div class="mute" style="text-transform:capitalize;font-weight:600;margin-bottom:3px">${esc(aisle)}</div>` +
+    rows.map(({x, idx}) => `<label style="display:flex;gap:8px;align-items:baseline;margin:3px 0;cursor:pointer">
+      <input type="checkbox" checked onchange="toggleWeekItem(${idx})">
+      <span>${esc(x.label)}</span>
+      <span class="mute" style="font-size:12px">${esc((x.meals || []).join(' · '))}</span>
+    </label>`).join('') + '</div>').join('');
+  updateWeekShopBtn();
+}
+function toggleWeekItem(idx) {
+  if (_weekShop[idx]) _weekShop[idx].checked = !_weekShop[idx].checked;
+  updateWeekShopBtn();
+}
+function updateWeekShopBtn() {
+  const n = _weekShop.filter(x => x.checked).length;
+  $('#w_shop_sub').textContent = `${n} of ${_weekShop.length} items selected`;
+  $('#w_shop_btn').textContent = n ? `Add ${n} to shopping list` : 'Select items to add';
+}
+async function weekPlan() {
+  $('#w_summary').textContent = 'planning your week…';
+  $('#w_out').innerHTML = '<span class="mute">matching expiring stock, goals and tastes…</span>';
+  const r = await api('api/pantry/week', {
+    days: +$('#w_days').value || 7,
+    meals: $('#w_slots').value.split(','),
+    request: $('#w_req').value,
+  });
+  if (r.error) { $('#w_summary').textContent = r.error; $('#w_out').innerHTML = ''; return; }
+  if (!(r.days || []).length) { $('#w_summary').textContent = 'could not parse a plan'; $('#w_out').innerHTML = `<pre>${esc(r.raw || '')}</pre>`; return; }
+  renderWeekPlan(r);
+}
+async function swapMeal(dayIndex, slot, label) {
+  const req = prompt(`Swap ${label} — want something specific? (leave blank for any fresh idea)`, '');
+  if (req === null) return;
+  $('#w_summary').textContent = `swapping ${label}…`;
+  const r = await api('api/pantry/swap', {day_index: dayIndex, slot, request: req});
+  if (r.error) { $('#w_summary').textContent = r.error; return; }
+  renderWeekPlan(r);
+}
+async function clearWeek() {
+  await api('api/pantry/plan_clear', {});
+  renderWeekPlan(null);
+}
+async function shopWeek() {
+  const items = _weekShop.filter(x => x.checked).map(x => x.label);
+  if (!items.length) return;
+  $('#w_shop_msg').textContent = 'sending to Home Assistant…';
+  const r = await api('api/pantry/shop', {items});
+  $('#w_shop_msg').textContent = r.error ? r.error : `Added ${(r.added || []).length} item(s) to your shopping list.`;
 }
 async function padd() { const r = await api('api/pantry/add', {text: $('#p_text').value, location: $('#p_loc').value || null, source: 'web'}); $('#p_out').textContent = r.error || ('added ' + (r.added || []).map(a => a.name).join(', ')); $('#p_text').value = ''; pantry(); }
 async function premove(id) { await api('api/pantry/remove', {id}); pantry(); }

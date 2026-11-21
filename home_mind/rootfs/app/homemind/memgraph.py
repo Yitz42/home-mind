@@ -777,6 +777,10 @@ class MemGraph:
             return STATUS_FACT, DECAY_ZERO
         if mag >= IDEA_THRESHOLD or current_status == STATUS_FACT:
             return STATUS_IDEA, DECAY_LOGISTIC
+        # Repeated sensor_fact observations (e.g. weekend sleep/steps) use gentle logistic decay so
+        # weekly patterns survive Mon-Fri gaps, while single-point glitches (count == 1) still decay linearly.
+        if eff_rule.get("evidence") == EVIDENCE_SENSOR and evidence_count >= 2:
+            return STATUS_THOUGHT, DECAY_LOGISTIC
         return STATUS_THOUGHT, DECAY_LINEAR
 
     # ---- core observation, bolster, contradiction, and fan-out --------------------------------------------------
@@ -2024,19 +2028,235 @@ class MemGraph:
             ).fetchone()[0],
         }
 
+    @staticmethod
+    def time_tags(ts, *, include_tod=True):
+        """Coarse day-type and time-of-day context tags from a local timestamp."""
+        dt = datetime.fromtimestamp(float(ts))
+        day_tag = "weekend" if dt.weekday() >= 5 else "weekday"
+        if not include_tod:
+            return [day_tag]
+        h = dt.hour
+        if 5 <= h < 12:
+            tod = "morning"
+        elif 12 <= h < 17:
+            tod = "afternoon"
+        elif 17 <= h < 22:
+            tod = "evening"
+        else:
+            tod = "night"
+        return [day_tag, tod]
+
+    def _has_sensor_ref(self, source_ref, owner=None, scope="household"):
+        if not source_ref:
+            return False
+        s_scope = "personal" if scope == "personal" and owner else "household"
+        s_owner = owner if s_scope == "personal" else None
+        ep = self.store.db.execute(
+            "SELECT 1 FROM mg_episodes WHERE source_ref=? AND COALESCE(owner,'')=? AND scope=? LIMIT 1",
+            (source_ref, s_owner or "", s_scope),
+        ).fetchone()
+        if ep:
+            return True
+        # Also check distinct_sources on links so compacted older days aren't double-counted on re-sync.
+        needle = f'%"{source_ref}"%'
+        lnk = self.store.db.execute(
+            "SELECT 1 FROM mg_links WHERE distinct_sources LIKE ? AND COALESCE(owner,'')=? AND scope=? LIMIT 1",
+            (needle, s_owner or "", s_scope),
+        ).fetchone()
+        return bool(lnk)
+
     def ingest_sensor(self, metric, value, *, relation="BASELINE", unit=None,
                       context_tags=(), category="GENERAL", ts=None,
-                      owner=None, scope="household", source_ref=""):
+                      owner=None, scope="household", source_ref="", dedupe_ref=True):
         """Deterministic high-frequency sensor/telemetry ingestion (sleep, steps, lights, thermostat).
-        Writes as evidence='sensor_fact' with zero LLM cost and respects daily/min_points caps."""
+        Writes as evidence='sensor_fact' with zero LLM cost, respects daily/min_points caps,
+        and deduplicates idempotently by source_ref so repeated refreshes never skew Welford stats."""
+        if value is None:
+            return {"changed": False, "reason": "no_value", "link": None, "contested_links": []}
+        try:
+            fval = float(value)
+        except (TypeError, ValueError):
+            return {"changed": False, "reason": "non_numeric", "link": None, "contested_links": []}
+        if not math.isfinite(fval):
+            return {"changed": False, "reason": "non_finite", "link": None, "contested_links": []}
         now = float(self.clock() if ts is None else ts)
+        ref = source_ref or f"sensor:{normalize_name(metric)}:{iso_day(now)}"
+        if dedupe_ref and self._has_sensor_ref(ref, owner=owner, scope=scope):
+            return {"changed": False, "reason": "duplicate_sensor_ref", "link": None, "contested_links": []}
         return self.observe(
             "user", relation, metric,
-            evidence=EVIDENCE_SENSOR, value=value, unit=unit,
+            evidence=EVIDENCE_SENSOR, value=fval, unit=unit,
             context_tags=context_tags, category=category,
-            source_ref=source_ref or f"sensor:{normalize_name(metric)}:{iso_day(now)}",
-            ts=now, owner=owner, scope=scope, record_staging=False,
+            source_ref=ref, ts=now, owner=owner, scope=scope, record_staging=False,
         )
+
+    def ingest_day_row(self, row, *, owner=None, scope=None):
+        """Idempotently ingest finalized daily watch/health/bedroom readings from a patterns.py day row.
+        Personal watch metrics (sleep, bedtime, steps, readiness, HRV, resting HR) stay personal when an
+        owner is provided; bedroom overnight climate stays household."""
+        if not isinstance(row, dict) or not row.get("day"):
+            return {"ingested": 0, "skipped": 0}
+        day_str = str(row["day"])
+        try:
+            dt = datetime.strptime(day_str, "%Y-%m-%d")
+        except ValueError:
+            return {"ingested": 0, "skipped": 0}
+        day_ts = dt.timestamp() + 12 * 3600
+        day_tag = "weekend" if dt.weekday() >= 5 else "weekday"
+
+        # Previous day's finalized step count belongs to day - 1's weekday/weekend bucket!
+        prev_ts = day_ts - 86400.0
+        prev_tag = "weekend" if datetime.fromtimestamp(prev_ts).weekday() >= 5 else "weekday"
+
+        p_scope = scope or ("personal" if owner else "household")
+        p_owner = owner if p_scope == "personal" else None
+
+        specs = [
+            # (field, metric, relation, unit, category, tags, ts, lo, hi, row_owner, row_scope)
+            ("sleep_h", "sleep", "SLEEP_BASELINE", "hours", "SLEEP", [day_tag], day_ts, 0.5, 20.0, p_owner, p_scope),
+            ("bedtime", "bedtime", "SLEEP_BASELINE", "hour", "SLEEP", [day_tag], day_ts, 18.0, 30.0, p_owner, p_scope),
+            ("steps_prev", "daily steps", "STEPS_BASELINE", "steps", "ACTIVITY", [prev_tag], prev_ts, 100.0, 100000.0, p_owner, p_scope),
+            ("readiness", "readiness", "BASELINE", "score", "HEALTH", [day_tag], day_ts, 1.0, 100.0, p_owner, p_scope),
+            ("hrv", "hrv", "BASELINE", "ms", "HEALTH", [day_tag], day_ts, 5.0, 300.0, p_owner, p_scope),
+            ("resting_hr", "resting heart rate", "BASELINE", "bpm", "HEALTH", [day_tag], day_ts, 30.0, 140.0, p_owner, p_scope),
+            ("room_night_temp", "bedroom overnight temperature", "BASELINE", "°F", "HOME", ["night", day_tag], day_ts, 35.0, 105.0, None, "household"),
+            ("room_night_hum", "bedroom overnight humidity", "BASELINE", "pct", "HOME", ["night", day_tag], day_ts, 5.0, 100.0, None, "household"),
+        ]
+        ingested = skipped = 0
+        for field, metric, rel, unit, cat, tags, ts_val, lo, hi, r_owner, r_scope in specs:
+            raw = row.get(field)
+            if raw is None:
+                continue
+            try:
+                v = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if not (lo <= v <= hi):
+                continue
+            ref = f"day:{day_str}:{field}"
+            res = self.ingest_sensor(
+                metric, v, relation=rel, unit=unit, context_tags=tags,
+                category=cat, ts=ts_val, owner=r_owner, scope=r_scope,
+                source_ref=ref, dedupe_ref=True,
+            )
+            if res.get("changed"):
+                ingested += 1
+            else:
+                skipped += 1
+        return {"ingested": ingested, "skipped": skipped}
+
+    def sync_patterns(self, patterns, days=60, *, owner=None, scope=None):
+        """Idempotently backfill/sync up to `days` of daily rows from patterns.py into sensor_fact baselines."""
+        if patterns is None:
+            return {"days": 0, "ingested": 0, "skipped": 0}
+        try:
+            rows = patterns.rows(int(days)) or []
+        except Exception:  # noqa: BLE001
+            return {"days": 0, "ingested": 0, "skipped": 0}
+        ingested = skipped = 0
+        for row in rows:
+            rep = self.ingest_day_row(row, owner=owner, scope=scope)
+            ingested += rep["ingested"]
+            skipped += rep["skipped"]
+        return {"days": len(rows), "ingested": ingested, "skipped": skipped}
+
+    def ingest_device_state(self, entity_id, catalog_entry, state, ts=None, *, owner=None, scope="household"):
+        """Ingest meaningful Home Assistant device preference signals (light brightness, thermostat setpoint,
+        fan speed) as sensor_fact HABIT links bucketed to 10-min windows to avoid slider chatter."""
+        if not catalog_entry or state in (None, "unavailable", "unknown"):
+            return {"changed": False, "reason": "ignored_state"}
+        dom = catalog_entry.get("domain") or str(entity_id or "").split(".")[0]
+        attrs = catalog_entry.get("attrs") or {}
+        name = normalize_name(catalog_entry.get("name") or entity_id or "")
+        if not name:
+            return {"changed": False, "reason": "no_name"}
+        now = float(self.clock() if ts is None else ts)
+        tags = self.time_tags(now, include_tod=True)
+        bucket = int(now // 600)
+
+        if dom == "light" and str(state).lower() == "on" and attrs.get("brightness") is not None:
+            try:
+                pct = round(float(attrs["brightness"]) / 2.55)
+            except (TypeError, ValueError):
+                return {"changed": False, "reason": "bad_brightness"}
+            if not (1 <= pct <= 100):
+                return {"changed": False, "reason": "out_of_range"}
+            return self.ingest_sensor(
+                name, pct, relation="HABIT", unit="pct", context_tags=tags,
+                category="LIGHTING", ts=now, owner=owner, scope=scope,
+                source_ref=f"ha:{entity_id}:{bucket}", dedupe_ref=True,
+            )
+
+        if dom == "climate" and attrs.get("temperature") is not None:
+            try:
+                temp = float(attrs["temperature"])
+            except (TypeError, ValueError):
+                return {"changed": False, "reason": "bad_temperature"}
+            if not (45.0 <= temp <= 95.0 or 10.0 <= temp <= 35.0):
+                return {"changed": False, "reason": "out_of_range"}
+            unit = catalog_entry.get("unit") or ("°C" if temp <= 35.0 else "°F")
+            return self.ingest_sensor(
+                name, temp, relation="HABIT", unit=unit, context_tags=tags,
+                category="HOME", ts=now, owner=owner, scope=scope,
+                source_ref=f"ha:{entity_id}:{bucket}", dedupe_ref=True,
+            )
+
+        if dom == "fan" and str(state).lower() == "on" and attrs.get("percentage") is not None:
+            try:
+                pct = float(attrs["percentage"])
+            except (TypeError, ValueError):
+                return {"changed": False, "reason": "bad_percentage"}
+            if not (1.0 <= pct <= 100.0):
+                return {"changed": False, "reason": "out_of_range"}
+            return self.ingest_sensor(
+                name, pct, relation="HABIT", unit="pct", context_tags=tags,
+                category="HOME", ts=now, owner=owner, scope=scope,
+                source_ref=f"ha:{entity_id}:{bucket}", dedupe_ref=True,
+            )
+
+        return {"changed": False, "reason": "unsupported_device"}
+
+    def ingest_workout(self, entries, ts=None, *, owner=None, scope="household", item_id=None):
+        """Ingest structured workout entries from fitness.py (duration/distance/weight) as ACTIVITY habits."""
+        if not entries:
+            return {"ingested": 0}
+        now = float(self.clock() if ts is None else ts)
+        tags = self.time_tags(now, include_tod=True)
+        day_str = iso_day(now)
+        ingested = 0
+        for idx, e in enumerate(entries):
+            if not isinstance(e, dict):
+                continue
+            ex = normalize_name(e.get("exercise") or "")
+            if not ex:
+                continue
+            val, unit = None, None
+            if e.get("minutes") is not None:
+                val, unit = e["minutes"], "min"
+            elif e.get("miles") is not None:
+                val, unit = e["miles"], "miles"
+            elif e.get("km") is not None:
+                val, unit = e["km"], "km"
+            elif e.get("distance") is not None:
+                val, unit = e["distance"], e.get("dist_unit") or "miles"
+            elif e.get("weight") is not None:
+                val, unit = e["weight"], e.get("unit") or "lb"
+            ref = f"workout:{item_id or day_str}:{idx}:{ex}"
+            if val is not None:
+                res = self.ingest_sensor(
+                    ex, val, relation="HABIT", unit=unit, context_tags=tags,
+                    category="ACTIVITY", ts=now, owner=owner, scope=scope,
+                    source_ref=ref, dedupe_ref=True,
+                )
+            else:
+                res = self.observe(
+                    "user", "HABIT", ex, evidence=EVIDENCE_SENSOR,
+                    context_tags=tags, category="ACTIVITY", source_ref=ref,
+                    ts=now, owner=owner, scope=scope, record_staging=False,
+                )
+            if res.get("changed"):
+                ingested += 1
+        return {"ingested": ingested}
 
 
 # ---- Speed 3 Async Read-Before-Write Archivist ------------------------------------------------------------------
