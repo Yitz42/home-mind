@@ -26,6 +26,7 @@ OR_Q = re.compile(r"(?:^|[.!?]\s+)([^.!?]*\b(?:or)\b[^.!?]*)\?\s*$", re.I)
 YES_NO = re.compile(r"\b(?:shall i|should i|do you want me to|want me to|ok to|okay to|is that right|say yes)\b[^.!?]*\?"
                     r"\s*$|\bsay yes\b", re.I)
 FOLLOW_UPS = ["What could I try?", "Show me the numbers"]
+MEAL_FOLLOW = "More meal ideas"
 
 
 def _person_key(viewer):
@@ -55,6 +56,8 @@ def choices_for(res, viewer=None):
             return [p[:1].upper() + p[1:] for p in parts], "choice"
     if res.get("deep"):
         return list(FOLLOW_UPS), None
+    if res.get("pantry") and res.get("meals"):
+        return [MEAL_FOLLOW], None
     return [], None
 
 
@@ -116,6 +119,10 @@ class Talk:
                 asked = [x for x in t["turns"][:-1] if x["who"] == "you"]
                 b["question"] = f"{asked[-1]['text'] if asked else ''} {text}".strip()
                 b["force_deep"] = True
+            elif text == MEAL_FOLLOW and prev and prev[-1].get("pantry"):
+                asked = [x for x in t["turns"][:-1] if x["who"] == "you" and x["text"] != MEAL_FOLLOW]
+                base = asked[-1]["text"].rstrip("?!. ") if asked else "What should I make?"
+                b["question"] = f"{base} (different ideas)"
             if viewer is not None:
                 b["speaker"] = viewer
             res = await app.answer(b, scope)
@@ -131,14 +138,26 @@ class Talk:
                     not day.asked(who):
                 res = dict(res, answer=f"{(res.get('answer') or '').rstrip()} {QUESTION}".strip(), checkin_asked=True)
         choices, expects = choices_for(res, viewer)
+        missing = []
+        for m in res.get("meals") or []:
+            if isinstance(m, dict):
+                for x in m.get("missing") or []:
+                    s = str(x).strip()
+                    if s and s.lower() not in {y.lower() for y in missing}:
+                        missing.append(s)
         out = {"answer": res.get("answer") or "", "choices": choices, "expects": expects, "via": res.get("via"),
                "conversation_id": cid}
         for k in ("deep", "model", "quick", "compare_id", "red_flag", "checkin", "checkin_asked", "confirm_needed",
-                  "private", "handoff", "error", "sources"):
+                  "private", "handoff", "error", "sources", "pantry", "meals"):
             if res.get(k) is not None:
                 out[k] = res[k]
+        if missing:
+            out["missing"] = missing
         t["turns"].append({"who": "home mind", "text": out["answer"], "at": self.clock(), "choices": choices,
                            "expects": expects, **({"deep": True} if res.get("deep") else {}),
+                           **({"pantry": True} if res.get("pantry") else {}),
+                           **({"missing": missing} if missing else {}),
+                           **({"sources": res["sources"]} if res.get("sources") else {}),
                            **({"red_flag": res["red_flag"]} if res.get("red_flag") else {}),
                            **({"quick": res["quick"], "compare_id": res["compare_id"]} if res.get("compare_id")
                               else {})})
@@ -146,4 +165,4 @@ class Talk:
         return out
 
 
-__all__ = ["Talk", "choices_for", "FOLLOW_UPS"]
+__all__ = ["Talk", "choices_for", "FOLLOW_UPS", "MEAL_FOLLOW"]

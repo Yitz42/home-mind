@@ -21,7 +21,7 @@ except ImportError:
     m.web = types.ModuleType("aiohttp.web")
     sys.modules["aiohttp"] = m
     sys.modules["aiohttp.web"] = m.web
-from homemind.talk import Talk, choices_for, FOLLOW_UPS  # noqa: E402
+from homemind.talk import Talk, choices_for, FOLLOW_UPS, MEAL_FOLLOW  # noqa: E402
 from homemind.day import Day, QUESTION  # noqa: E402
 from homemind.store import Store  # noqa: E402
 
@@ -52,6 +52,8 @@ check("choices: an 'A or B?' question", choices_for({"answer": "Did you mean the
       == ["The morning one", "The evening one"], choices_for({"answer": "Did you mean the morning one or the evening one?"}))
 check("choices: a connected answer offers follow-ups, not waiting", choices_for({"answer": "x", "deep": True}) ==
       (FOLLOW_UPS, None))
+check("choices: a pantry meal answer offers More meal ideas",
+      choices_for({"answer": "1. Omelette", "pantry": True, "meals": [{"name": "Omelette"}]}) == ([MEAL_FOLLOW], None))
 check("choices: a plain answer, none", choices_for({"answer": "The bins go out on Tuesday."}) == ([], None))
 
 # ---- turns -----------------------------------------------------------------------------------------------------
@@ -64,8 +66,13 @@ async def answer(b, scope="admin"):
     asked.append(b)
     if b.get("force_deep"):
         return {"answer": "Try a few days without lentils.", "deep": True, "hits": []}
+    if "eggs" in b["question"]:
+        return {"answer": "1. Egg Scramble", "pantry": True, "hits": [],
+                "meals": [{"name": "Egg Scramble", "missing": ["feta", "avocado"]},
+                          {"name": "Egg Bowl", "missing": ["Feta"]}]}
     if "gassy" in b["question"]:
         return {"answer": "Commonly beans; you had lentils 3 days.", "deep": True, "hits": [],
+                "sources": [{"id": 9, "title": "Dr Lee note", "noted": "Nov 10, 2026"}],
                 "quick": {"answer": "I don't know."}, "compare_id": "c1"}
     return {"answer": "Tuesday.", "hits": []}
 
@@ -95,7 +102,14 @@ r4 = run(tk.turn("open the garage door", "Dana"))
 check("turn: an action that needs a yes offers Yes and No", r4["choices"] == ["Yes", "No"] and r4["expects"] == "choice")
 th = tk.thread("Dana")
 check("thread: kept, with who said what and the choices", len(th["turns"]) == 8 and th["turns"][0]["who"] == "you"
-      and th["turns"][1].get("deep") and th["turns"][-1]["choices"] == ["Yes", "No"], th["turns"])
+      and th["turns"][1].get("deep") and th["turns"][1].get("sources") and th["turns"][-1]["choices"] == ["Yes", "No"], th["turns"])
+# meal suggestions: missing items deduplicated, More meal ideas follow-up works
+rm = run(tk.turn("What can I make with the large eggs?", "Dana"))
+check("meal turn: missing items deduplicated and More meal ideas offered",
+      rm.get("pantry") and rm.get("missing") == ["feta", "avocado"] and rm["choices"] == [MEAL_FOLLOW], rm)
+rm2 = run(tk.turn(MEAL_FOLLOW, "Dana"))
+check("meal follow-up: re-asks the food question for different ideas",
+      "eggs" in asked[-1]["question"] and "different ideas" in asked[-1]["question"], asked[-1])
 check("thread: per person", tk.thread("Sam")["turns"] == [])
 cid = th["conversation_id"]
 n = tk.new("Dana")
