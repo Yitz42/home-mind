@@ -239,6 +239,14 @@
   .hb-f.ed { width:100%; text-align:left; background:none; border:0; border-top:1px solid var(--line); font:inherit; color:inherit; cursor:pointer; border-radius:0 } .hb-f.ed:active { background:var(--card2) } .hb-f .pen { font-style:normal; color:var(--mute); font-size:13px; margin-left:2px }
   .hb-fed { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px } .hb-fed input { width:96px; font-size:17px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink) } .hb-fed button { padding:9px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-weight:600; cursor:pointer } .hb-fed button.p { background:var(--acc); color:#fff; border:0 }
   .hb-fnote { display:block; font-size:11px; color:var(--mute); margin-top:2px } .hb-fb small { font-size:10px; font-weight:600; opacity:.7; text-transform:uppercase; letter-spacing:.04em }
+  .hb-meals { display:flex; flex-direction:column; gap:10px; margin-top:4px }
+  .hb-meal { background:var(--card); border:1px solid var(--food-line); border-radius:14px; padding:12px 14px; display:flex; flex-direction:column; gap:8px }
+  .hb-meal .t { display:flex; flex-direction:column; gap:4px } .hb-meal .t b { font:600 16px var(--head); color:var(--ink) }
+  .hb-meal .macros { display:flex; gap:6px; flex-wrap:wrap } .hb-meal .mc { font-size:12px; color:var(--food-ink); background:var(--food-bg); border-radius:99px; padding:2px 9px } .hb-meal .mc b { font-weight:700; margin-right:1px }
+  .hb-meal .why { margin:0; font-size:13px; color:var(--mute); line-height:1.4 }
+  .hb-meal .pills { display:flex; flex-wrap:wrap; gap:5px } .hb-meal .pills span { font-size:12px; padding:3px 9px; border-radius:99px; background:var(--card2); color:var(--ink) } .hb-meal .pills span.need { background:none; border:1px dashed var(--line); color:var(--mute) }
+  .hb-meal details summary { font-size:13px; font-weight:600; color:var(--acc-ink); cursor:pointer; list-style:none } .hb-meal details summary::before { content:'▸ '; } .hb-meal details[open] summary::before { content:'▾ '; } .hb-meal details p { margin:6px 0 0; font-size:13px; line-height:1.5 }
+  .hb-meal .acts { display:flex; gap:8px; flex-wrap:wrap } .hb-meal .acts button { padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-size:13px; font-weight:600; cursor:pointer } .hb-meal .acts button.p { background:var(--food); color:var(--food-on); border:0 }
   .hb-f .b em.low { background:var(--food-bg); color:var(--food-ink) } .hb-f .b em.good { background:var(--house-bg); color:var(--house-ink) }
   .hb-cta { display:flex; gap:8px } .hb-cta button { flex:1; min-height:42px; border-radius:12px; font:inherit; font-size:14px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--card); color:var(--ink) } .hb-cta button.p { border:0; background:var(--acc); color:#fff }
   .hb-li { display:flex; align-items:center; gap:10px; min-height:44px; border-top:1px solid var(--line); font-size:14px } .hb-li:first-child { border-top:0 } .hb-li .m { flex:1; min-width:0; display:flex; flex-direction:column } .hb-li .m small { color:var(--mute); font-size:12px }
@@ -314,7 +322,7 @@
         <div class="hb-ans hide" id="hb_ans" aria-live="polite">
           <div class="hb-hist hide" id="hb_hist"></div>
           <div class="hb-ans-top"><span id="hb_ans_q"></span><span class="hb-ans-acts"><button class="hide" id="hb_hist_tog" onclick="hbToggleHist()">Thread</button><button class="hide" id="hb_new_btn" onclick="hbNew()">New</button><button class="x" onclick="hbClear()" aria-label="Close answer">✕</button></span></div>
-          <div class="hb-ans-t"><span id="hb_ans_t"></span></div>
+          <div class="hb-ans-t"><span id="hb_ans_t"></span></div><div id="hb_meals" class="hb-meals hide"></div>
           <div class="hb-src" id="hb_src"></div>
           <div class="hb-chips" id="hb_chips"></div>
           <div class="hb-cmp" id="hb_cmp"></div>
@@ -873,9 +881,9 @@ async function hbSend(text, spoken) {
   if (r.error && !r.answer) return hbAnswer(r.error, [], {q: v});
   const now = Date.now() / 1000;
   HB.turns.push({who: 'you', text: v, at: now}, {who: 'home mind', text: r.answer || '', at: now, choices: r.choices,
-    sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, pantry: r.pantry, deep: r.deep});
+    sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, pantry: r.pantry, deep: r.deep, meals: r.meals});
   if (HB.turns.length > 100) HB.turns = HB.turns.slice(-100);
-  hbAnswer(r.answer, r.choices, {q: v, sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id});
+  hbAnswer(r.answer, r.choices, {q: v, sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, meals: r.meals});
   if (spoken && r.answer && window.speechSynthesis) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(r.answer)); }
   if (r.via === 'do' || r.checkin) setTimeout(hubLoad, 900);
 }
@@ -909,7 +917,7 @@ function hbToggleHist() {
     const last = HB.turns[HB.turns.length - 1], prev = HB.turns.length > 1 ? HB.turns[HB.turns.length - 2] : null;
     const q = prev && prev.who === 'you' ? prev.text : '';
     HB.histOpen = HB.turns.length > 2;
-    hbAnswer(last.text, last.choices, {q, sources: last.sources, missing: last.missing, quick: last.quick, compare_id: last.compare_id});
+    hbAnswer(last.text, last.choices, {q, sources: last.sources, missing: last.missing, quick: last.quick, compare_id: last.compare_id, meals: last.meals});
     return;
   }
   HB.histOpen = !HB.histOpen;
@@ -920,10 +928,31 @@ async function hbNew() {
   HB.turns = []; HB.histOpen = false;
   hbClear(); hbHistSync();
 }
+function hbMealCard(m, i) {
+  const n = (v, u) => typeof v === 'number' ? `<span class="mc"><b>${Math.round(v)}</b>${u}</span>` : '';
+  const uses = (m.uses || []).filter(Boolean), miss = (m.missing || []).filter(Boolean);
+  return `<article class="hb-meal"><div class="t"><b>${esc(m.name)}</b><span class="macros">${n(m.protein_g, ' g protein')}${n(m.calories, ' kcal')}</span></div>
+    ${m.why ? `<p class="why">${esc(m.why)}</p>` : ''}
+    ${uses.length ? `<div class="pills">${uses.map(u => `<span>${esc(u)}</span>`).join('')}${miss.map(u => `<span class="need">+ ${esc(u)}</span>`).join('')}</div>` : ''}
+    ${m.steps ? `<details><summary>Steps</summary><p>${esc(m.steps)}</p></details>` : ''}
+    <div class="acts"><button class="p" onclick="hbMealAte(${i}, this)">I'm making this</button>${miss.length ? `<button onclick="hbMealShop(${i}, this)">Add ${miss.length === 1 ? esc(miss[0]) : miss.length + ' items'} to list</button>` : ''}</div></article>`;
+}
+async function hbMealAte(i, b) {
+  const m = HB.meals[i]; if (!m) return; b.disabled = true; b.textContent = 'Logging…';
+  const r = await api('api/pantry/ate', {text: m.name + (m.uses && m.uses.length ? ' (' + m.uses.join(', ') + ')' : ''), source: 'web'});
+  b.textContent = r && r.error ? r.error : 'Logged ✓'; if (!r || !r.error) setTimeout(hubLoad, 2500);
+}
+async function hbMealShop(i, b) {
+  const m = HB.meals[i]; if (!m) return; b.disabled = true;
+  const r = await api('api/pantry/shop', {items: m.missing}); b.textContent = r && r.error ? r.error : 'On the list ✓'; if (!r || !r.error) setTimeout(hubLoad, 600);
+}
 function hbAnswer(text, choices, o) {
   o = o || {}; $('#hb_ans').classList.remove('hide');
   $('#hb_ans_q').textContent = o.q ? `You: ${o.q}` : '';
-  $('#hb_ans_t').textContent = text || '';
+  const meals = (o.meals || []).filter(m => m && m.name).slice(0, 3);
+  $('#hb_ans_t').textContent = meals.length ? '' : (text || '');
+  const at = $('#hb_ans_t').parentElement; if (at && at.classList) at.classList.toggle('hide', !!meals.length);
+  const mb = $('#hb_meals'); mb.innerHTML = meals.map((m, i) => hbMealCard(m, i)).join(''); mb.classList.toggle('hide', !meals.length); HB.meals = meals;
   const src = $('#hb_src'); src.innerHTML = '';
   (o.sources || []).forEach(s => {
     if (!s || !s.title) return;

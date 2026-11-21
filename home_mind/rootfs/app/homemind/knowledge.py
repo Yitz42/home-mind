@@ -36,7 +36,7 @@ FDC_FILES = {           # newest at the time of writing; refresh() looks for new
     "branded": "FoodData_Central_branded_food_csv_2026-10-29.zip",
     "survey": "FoodData_Central_survey_food_csv_2024-10-31.zip",     # FNDDS: foods and dishes as eaten, portions
 }
-FOOD_VERSION = 2        # 2: FNDDS survey foods and portion weights
+FOOD_VERSION = 3        # 2: FNDDS survey foods and portion weights; 3: counted per kind, BOM-safe
 KIWIX_DIR = "https://download.kiwix.org/zim/wikipedia/"
 WIKI_FLAVOUR = "wikipedia_en_all_nopic"
 NUTRIENTS = {           # FoodData Central nutrient ids
@@ -178,9 +178,13 @@ class Knowledge:
         st["state"] = "building"
         self._save()
         if add:
-            n = (st.get("foods") or 0) + await asyncio.to_thread(self._add_to_food_db, paths)
+            await asyncio.to_thread(self._add_to_food_db, paths)
         else:
-            n = await asyncio.to_thread(self._build_food_db, paths)
+            await asyncio.to_thread(self._build_food_db, paths)
+        counts = await asyncio.to_thread(self.food_counts)
+        n = sum(v for k, v in counts.items() if k != "portions")
+        st["counts"] = counts
+        st["files"] = {k: os.path.getsize(p) for k, p in paths.items() if os.path.exists(p)}
         st.update(state="ready", foods=n, built=time.time(), version=FOOD_VERSION, source="USDA FoodData Central "
                   + ", ".join(f[:-4].split("_csv_")[-1] for f in FDC_FILES.values()))
         self._save()
@@ -213,6 +217,17 @@ class Knowledge:
         os.replace(tmp, self.food_path)
         return total
 
+    def food_counts(self):
+        """Foods per kind, and how many have portion weights (to check a build)."""
+        db = sqlite3.connect(self.food_path)
+        try:
+            out = {k: n for k, n in db.execute("SELECT kind, count(*) FROM foods GROUP BY kind")}
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='portions'").fetchone():
+                out["portions"] = db.execute("SELECT count(*) FROM portions").fetchone()[0]
+            return out
+        finally:
+            db.close()
+
     @staticmethod
     def _portion_table(db):
         db.execute("CREATE TABLE IF NOT EXISTS portions (fdc_id INTEGER, text TEXT, g REAL)")
@@ -239,7 +254,7 @@ class Knowledge:
         name = next((n for n in z.namelist() if n.endswith("/" + suffix) or n == suffix), None)
         if not name:
             return iter(())
-        return csv.DictReader(io.TextIOWrapper(z.open(name), encoding="utf-8", newline=""))
+        return csv.DictReader(io.TextIOWrapper(z.open(name), encoding="utf-8-sig", newline=""))
 
     def _load_zip(self, db, kind, path):
         with zipfile.ZipFile(path) as z:
@@ -312,9 +327,17 @@ class Knowledge:
                                  JOIN foods f ON f.fdc_id = foods_fts.rowid WHERE foods_fts MATCH ?
                                  ORDER BY score LIMIT 60""", (q,)).fetchall()
             if not rows:              # loosen: any of the words
+                q = " OR ".join(f'"{w}"' for w in words)
                 rows = db.execute("""SELECT f.*, bm25(foods_fts, 4.0, 2.0) AS score FROM foods_fts
                                      JOIN foods f ON f.fdc_id = foods_fts.rowid WHERE foods_fts MATCH ?
-                                     ORDER BY score LIMIT 60""", (" OR ".join(f'"{w}"' for w in words),)).fetchall()
+                                     ORDER BY score LIMIT 60""", (q,)).fetchall()
+            # the 400,000 branded products crowd the top 60; lab and as-eaten foods always get their own look
+            seen_ids = {r["fdc_id"] for r in rows}
+            rows += [r for r in db.execute("""SELECT f.*, bm25(foods_fts, 4.0, 2.0) AS score FROM foods_fts
+                                              JOIN foods f ON f.fdc_id = foods_fts.rowid WHERE foods_fts MATCH ?
+                                              AND f.kind != 'branded' ORDER BY score LIMIT 30""",
+                                          (" OR ".join(f'"{w}"' for w in words),)).fetchall()
+                     if r["fdc_id"] not in seen_ids]
         finally:
             db.close()
         out = []
