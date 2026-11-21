@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.31.8
+- Food lookups favour the USDA food a name leads with ("oatmeal" finds "Oatmeal, regular or quick, made with water",
+  not "Bread, oatmeal"), with dishes as eaten slightly ahead of lab entries. Portion lists drop USDA's bare code
+  numbers (a portion called "90000"); the as-eaten foods are reloaded once to clean them out.
+
 ## 0.31.7
 - USDA's as-eaten foods (FNDDS) load at last: that release writes the older SR nutrient numbers (208 for energy, 203
   for protein) in place of ids, and those are now read too. File names inside USDA's zips are matched without regard
