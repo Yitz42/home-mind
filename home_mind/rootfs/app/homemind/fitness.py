@@ -429,6 +429,17 @@ class Fitness:
                 notes.append(describe(e))
             if self.is_record(e, before=now):
                 notes[-1] += " — a new best"
+        mg = getattr(self, "memgraph", None)
+        if mg is not None:
+            try:
+                m = meta or {}
+                mg.ingest_workout(
+                    entries, ts=now, owner=m.get("owner"),
+                    scope=m.get("scope") or ("personal" if m.get("owner") else "household"),
+                    item_id=r.get("id"),
+                )
+            except Exception:  # noqa: BLE001 - graph telemetry never breaks workout logging
+                pass
         return {"id": r.get("id"), "entries": entries, "answer": "Logged: " + "; ".join(notes) + "."}
 
     def workouts(self, days=90, now=None, before=None):

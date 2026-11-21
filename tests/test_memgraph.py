@@ -834,6 +834,119 @@ def test_archivist_janitor_and_flywheel():
     asyncio.run(run())
 
 
+# ---- 13. Live sensor inputs (Patterns daily rows, Home HA devices, Fitness workouts) ----------------------------
+def test_live_sensor_inputs():
+    from datetime import date, timedelta
+    from homemind.patterns import Patterns
+    from homemind.home import Home
+    from homemind.fitness import Fitness
+
+    st, g, now = make_graph()
+
+    # 1. Patterns.save() -> MemGraph daily watch/health/bedroom baselines (idempotent + personal/household split)
+    pat = Patterns(st, None, None, {})
+    pat.memgraph = g
+    pat.memgraph_owner = "Alice"
+
+    base_day = date.today() - timedelta(days=21)
+    # Align base_day to Monday so 21 days has exactly 15 weekdays and 6 weekend days!
+    base_day = base_day - timedelta(days=base_day.weekday())
+    for i in range(21):
+        d = base_day + timedelta(days=i)
+        is_we = d.weekday() >= 5
+        row = {
+            "day": d.isoformat(),
+            "sleep_h": 8.8 if is_we else 7.0,
+            "bedtime": 24.5 if is_we else 23.0,
+            "steps_prev": 10500 if is_we else 7800,
+            "readiness": 78,
+            "hrv": 48,
+            "resting_hr": 56,
+            "room_night_temp": 68.0,
+            "room_night_hum": 45.0,
+        }
+        pat.save(row)
+        # Re-saving the exact same day multiple times (like patterns 4-min refresh) must NOT duplicate or skew stats!
+        if i == 0:
+            pat.save(row)
+            pat.save(row)
+
+    from datetime import datetime as _dt
+    t_after = _dt.combine(base_day + timedelta(days=21), _dt.min.time()).timestamp() + 12 * 3600
+    wd_sleep = g.query(categories=["SLEEP"], entities=["sleep"], context_tags=["weekday"], viewer="Alice", now=t_after)
+    we_sleep = g.query(categories=["SLEEP"], entities=["sleep"], context_tags=["weekend"], viewer="Alice", now=t_after)
+    check("Patterns.save builds weekday (15d, FACT) and weekend (6d) sleep baselines without duplicate skew",
+          len(wd_sleep) == 1 and wd_sleep[0]["stats"]["count"] == 15 and wd_sleep[0]["status"] == STATUS_FACT
+          and abs(wd_sleep[0]["stats"]["mean"] - 7.0) < 0.05
+          and len(we_sleep) == 1 and we_sleep[0]["stats"]["count"] == 6 and abs(we_sleep[0]["stats"]["mean"] - 8.8) < 0.05)
+
+    # Privacy split: Alice sees her personal watch HRV/sleep; Bob sees household bedroom temp, NOT Alice's HRV/sleep!
+    alice_health = {x["target_name"] for x in g.query(categories=["HEALTH"], viewer="Alice", include_dormant=True, now=t_after)}
+    bob_health = {x["target_name"] for x in g.query(categories=["HEALTH"], viewer="Bob", include_dormant=True, now=t_after)}
+    bob_home = {x["target_name"] for x in g.query(categories=["HOME"], viewer="Bob", include_dormant=True, now=t_after)}
+    check("watch health metrics stay personal to owner while bedroom climate stays household",
+          "hrv" in alice_health and "hrv" not in bob_health and "bedroom overnight temperature" in bob_home)
+
+    # Compaction-safe idempotent sync_patterns: compact episodes first, then re-sync -> 0 duplicates added!
+    g.compact_episodes(keep_recent_per_link=2, now=t_after)
+    resync = g.sync_patterns(pat, days=60, owner="Alice")
+    check("sync_patterns is 100% idempotent even after episode compaction",
+          resync["ingested"] == 0 and resync["skipped"] >= 100)
+
+    # 2. Home.log_changes() live device state ingestion (lights, thermostat, fan) + boot-dump skip + slider dedupe
+    home = Home(st, None)
+    home.memgraph = g
+    home.catalog = {
+        "light.living_room": {"domain": "light", "kind": "device", "name": "Living Room Lamp",
+                              "state": "on", "unit": "", "attrs": {"brightness": 77}},
+        "climate.bedroom": {"domain": "climate", "kind": "device", "name": "Bedroom Thermostat",
+                            "state": "cool", "unit": "°F", "attrs": {"temperature": 68}},
+        "fan.bedroom": {"domain": "fan", "kind": "device", "name": "Bedroom Fan",
+                        "state": "on", "unit": "", "attrs": {"percentage": 50}},
+    }
+    home.log_changes(first=True)
+    check("Home.log_changes(first=True) boot dump does not write HABIT links",
+          len(g.query(categories=["LIGHTING"], include_dormant=True)) == 0)
+
+    # Live state change -> ingests lighting, climate, and fan habits!
+    home.catalog["light.living_room"]["state"] = "off"
+    home.log_changes(first=False)
+    home.catalog["light.living_room"]["state"] = "on"
+    home.catalog["light.living_room"]["attrs"]["brightness"] = 77   # ~30%
+    home.catalog["climate.bedroom"]["attrs"]["temperature"] = 67
+    home.catalog["fan.bedroom"]["state"] = "off"
+    home.log_changes(first=False)
+    home.catalog["fan.bedroom"]["state"] = "on"
+    home.log_changes(first=False)
+
+    l_hits = g.query(categories=["LIGHTING"], include_dormant=True)
+    check("live light brightness change ingested as LIGHTING sensor_fact (~30%)",
+          len(l_hits) == 1 and l_hits[0]["evidence"] == EVIDENCE_SENSOR
+          and abs(l_hits[0]["stats"]["mean"] - 30.0) <= 1.0)
+    h_names = {x["target_name"] for x in g.query(categories=["HOME"], include_dormant=True)}
+    check("live thermostat setpoint and fan speed ingested as HOME habits",
+          "bedroom thermostat" in h_names and "bedroom fan" in h_names)
+
+    # Slider chatter within same 10-min bucket deduplicates cleanly
+    r_chatter = g.ingest_device_state(
+        "light.living_room", home.catalog["light.living_room"], "on", ts=T0 + 100
+    )
+    r_chatter2 = g.ingest_device_state(
+        "light.living_room", home.catalog["light.living_room"], "on", ts=T0 + 120
+    )
+    check("10-min bucket deduplicates rapid dimmer slider chatter",
+          r_chatter["changed"] is True and r_chatter2["changed"] is False)
+
+    # 3. Fitness.log() workouts -> ACTIVITY habit scoped to owner
+    fit = Fitness(st, pat)
+    fit.memgraph = g
+    fit.log("ran 3 miles in 28 min", when=T0 + 18 * 3600, meta={"owner": "Alice", "scope": "personal"})
+    w_alice = g.query(categories=["ACTIVITY"], entities=["run"], viewer="Alice", include_dormant=True)
+    w_bob = g.query(categories=["ACTIVITY"], entities=["run"], viewer="Bob", include_dormant=True)
+    check("Fitness.log ingests workout duration into ACTIVITY habit respecting personal owner",
+          len(w_alice) == 1 and abs(w_alice[0]["stats"]["mean"] - 28.0) < 0.1 and len(w_bob) == 0)
+
+
 if __name__ == "__main__":
     for fn in (
         test_math,
@@ -848,9 +961,11 @@ if __name__ == "__main__":
         test_librarian_routing_and_1hop,
         test_mind_integration_and_loopback,
         test_archivist_janitor_and_flywheel,
+        test_live_sensor_inputs,
     ):
         fn()
     print(f"\n{'PASS' if not FAILS else f'FAIL ({len(FAILS)})'}")
     sys.exit(1 if FAILS else 0)
+
 
 
