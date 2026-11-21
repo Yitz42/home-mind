@@ -108,6 +108,7 @@ MEAL_SYSTEM = (
     "protein and calories on those (ignore a match that is clearly a different food) and estimate only the rest. "
     "When one of the listed studies supports a choice, name it briefly in 'why' (for example 'beans lower LDL ~5%, "
     "26 trials'); call preliminary findings preliminary and never overstate them. Their stated dislikes beat any study. "
+    "Never include any listed ALLERGY item; lean toward LEARNED TASTES when they fit what's in stock. "
     "Keep every field short so the answer stays compact: meal name under 6 words, 'why' under 20 words, 'steps' "
     "under 35 words in total, and no text outside the JSON. "
     "Reply with JSON only: {\"focus\": \"one short line on today's "
@@ -768,7 +769,49 @@ class Pantry:
                 "protein_target_g": target}
 
     # ---- meals ------------------------------------------------------------------------------------------------------------
-    async def suggest(self, meal=None, model=None, n=3, request=""):
+    def _graph_prefs(self, viewer=None):
+        """Pull active FOOD/HEALTH preferences, dislikes, and hard allergies from MemGraph (respecting viewer privacy)."""
+        mg = getattr(self, "memgraph", None)
+        if mg is None:
+            return [], [], [], [], []
+        from .speakers import VIEWER
+        who = VIEWER.get() if viewer is None else viewer
+        seen = {}
+        try:
+            for lnk in mg.query(categories=["FOOD", "HEALTH"], viewer=who, include_dormant=False, limit=24, record_access=False):
+                seen[lnk["id"]] = lnk
+            for lnk in mg.query(relations=["ALLERGIC_TO"], viewer=who, include_dormant=False, limit=12, record_access=False):
+                seen[lnk["id"]] = lnk
+        except Exception:  # noqa: BLE001 - graph lookup never breaks meal planning
+            return [], [], [], [], []
+
+        allergies, dislikes, likes_direct, likes_inferred, used_links = [], [], [], [], []
+        for lnk in seen.values():
+            rel = lnk.get("relation")
+            tgt = (lnk.get("target_name") or "").strip()
+            if not tgt or lnk.get("status") == "CONTESTED":
+                continue
+            s_val = float(lnk.get("effective_stability", lnk.get("stability_score", 0.0)))
+            if rel == "ALLERGIC_TO":
+                if tgt not in allergies:
+                    allergies.append(tgt)
+                used_links.append(lnk)
+            elif rel in ("LIKES", "PREFERS") and lnk.get("status") in ("FACT", "IDEA"):
+                if lnk.get("signed") and s_val < 0:
+                    if tgt not in dislikes:
+                        dislikes.append(tgt)
+                    used_links.append(lnk)
+                elif s_val > 0:
+                    if lnk.get("evidence") == "direct":
+                        if tgt not in likes_direct:
+                            likes_direct.append(tgt)
+                    else:
+                        if tgt not in likes_inferred:
+                            likes_inferred.append(tgt)
+                    used_links.append(lnk)
+        return allergies[:8], dislikes[:8], likes_direct[:6], likes_inferred[:6], used_links
+
+    async def suggest(self, meal=None, model=None, n=3, request="", viewer=None):
         items = self.items()
         day = await self.today()
         g = self.goals()
@@ -794,10 +837,32 @@ class Pantry:
         if day.get("protein_target_g"):
             focus.append(f"Protein target about {day['protein_target_g']} g/day (1.6 g/kg for muscle; more adds nothing)")
         studies = nutrition.relevant([i["name"] for i in items])
+
+        allergies, dislikes, likes_direct, likes_inferred, g_links = self._graph_prefs(viewer=viewer)
+        avoid_items = list(g.get("avoid") or [])
+        seen_avoid = {a.lower() for a in avoid_items}
+        for al in allergies:
+            if al.lower() not in seen_avoid:
+                avoid_items.insert(0, f"ALLERGY: {al}")
+                seen_avoid.add(al.lower())
+        for dl in dislikes:
+            if dl.lower() not in seen_avoid:
+                avoid_items.append(f"dislike: {dl}")
+                seen_avoid.add(dl.lower())
+
+        taste_parts = []
+        if likes_direct:
+            taste_parts.append("stated likes: " + ", ".join(likes_direct))
+        if likes_inferred:
+            taste_parts.append("observed cuisine/flavor patterns: " + ", ".join(likes_inferred))
+        taste_line = (f"LEARNED TASTES (from memory graph — lean toward these when they fit): {'; '.join(taste_parts)}\n"
+                      if taste_parts else "")
+
         content = (f"Today: {datetime.now():%A %b %d, %I:%M %p}\n"
                    f"Today's focus: {'; '.join(focus)}\n"
                    f"Goals: {'; '.join(g.get('goals') or [])}\n"
-                   + (f"Avoid: {', '.join(g['avoid'])}\n" if g.get("avoid") else "")
+                   + (f"Avoid: {', '.join(avoid_items)}\n" if avoid_items else "")
+                   + taste_line
                    + (f"Notes: {g['notes']}\n" if g.get("notes") else "")
                    + f"Meal wanted: {meal or 'the next meal'}" + (f" ({request})" if request else "") + "\n"
                    f"Suggest {n} options.\n\nIN THE HOUSE (soonest to expire first):\n" + ("\n".join(lines) or "- nothing recorded")
@@ -811,6 +876,19 @@ class Pantry:
         plan["studies"] = [x["topic"] for x in studies]
         if not plan["meals"]:
             plan["raw"] = r["text"][:1500]
+        elif g_links and getattr(self, "memgraph", None) is not None:
+            try:
+                mg = self.memgraph
+                plan_text = json.dumps(plan["meals"])
+                shown = set(mg.used_links(plan_text, g_links))
+                # Always credit hard safety constraints (allergies/dislikes) that shaped the meal plan.
+                for lnk in g_links:
+                    if lnk.get("relation") == "ALLERGIC_TO" or float(lnk.get("stability_score", 0.0)) < 0:
+                        shown.add(lnk["id"])
+                if shown:
+                    mg.mark_shown(list(shown))
+            except Exception:  # noqa: BLE001
+                pass
         return plan
 
     # ---- weekly meal plan + smart shopping list -----------------------------------------------------------------------
@@ -828,41 +906,20 @@ class Pantry:
         g = self.goals()
         avoid = list(g.get("avoid") or [])
         seen = {a.lower() for a in avoid}
+        allergies, dislikes, likes_direct, likes_inferred, _ = self._graph_prefs(viewer=viewer)
+        for al in allergies:
+            if al.lower() not in seen:
+                avoid.insert(0, f"ALLERGY: {al}")
+                seen.add(al.lower())
+        for dl in dislikes:
+            if dl.lower() not in seen:
+                avoid.append(f"dislike: {dl}")
+                seen.add(dl.lower())
         taste_parts = []
-        mg = getattr(self, "memgraph", None)
-        if mg is not None:
-            from .speakers import VIEWER
-            who = VIEWER.get() if viewer is None else viewer
-            try:
-                links = {}
-                for lnk in mg.query(categories=["FOOD", "HEALTH"], viewer=who, include_dormant=False, limit=24, record_access=False):
-                    links[lnk["id"]] = lnk
-                for lnk in mg.query(relations=["ALLERGIC_TO"], viewer=who, include_dormant=False, limit=12, record_access=False):
-                    links[lnk["id"]] = lnk
-                direct_likes, inferred_likes = [], []
-                for lnk in links.values():
-                    if lnk.get("status") == "CONTESTED":
-                        continue
-                    tgt = (lnk.get("target_name") or "").strip()
-                    if not tgt:
-                        continue
-                    rel = lnk.get("relation")
-                    sv = float(lnk.get("effective_stability", lnk.get("stability_score", 0.0)))
-                    if rel == "ALLERGIC_TO" and tgt.lower() not in seen:
-                        avoid.insert(0, f"ALLERGY: {tgt}")
-                        seen.add(tgt.lower())
-                    elif rel in ("LIKES", "PREFERS") and lnk.get("status") in ("FACT", "IDEA"):
-                        if lnk.get("signed") and sv < 0 and tgt.lower() not in seen:
-                            avoid.append(f"dislike: {tgt}")
-                            seen.add(tgt.lower())
-                        elif sv > 0:
-                            (direct_likes if lnk.get("evidence") == "direct" else inferred_likes).append(tgt)
-                if direct_likes:
-                    taste_parts.append("stated likes: " + ", ".join(dict.fromkeys(direct_likes[:6])))
-                if inferred_likes:
-                    taste_parts.append("observed cuisine/flavor patterns: " + ", ".join(dict.fromkeys(inferred_likes[:6])))
-            except Exception:  # noqa: BLE001
-                pass
+        if likes_direct:
+            taste_parts.append("stated likes: " + ", ".join(likes_direct))
+        if likes_inferred:
+            taste_parts.append("observed cuisine/flavor patterns: " + ", ".join(likes_inferred))
         taste_line = (f"LEARNED TASTES: {'; '.join(taste_parts)}\n" if taste_parts else "")
         return avoid, taste_line
 

@@ -378,6 +378,8 @@ class App:
         self.overnight.enabled = self.opts.get("overnight_enabled", True) is not False
         self.overnight.structure_on = bool(self.opts.get("overnight_structure"))
         self.overnight.memgraph = self.memgraph
+        self.overnight.live_archivist = bool(self.archivist.model_name)
+        self.overnight.personal_rule = self.opts.get("personal_rule") or "first_person"
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False
@@ -1274,7 +1276,7 @@ class App:
                                     "week_plan": plan, "missing": [] if added_shop else (plan.get("shopping_items") or []),
                                     "pantry": True}
                     else:
-                        plan = await self.pantry.suggest(req["meal"], model=m, n=2 if voice else 3, request=req["request"])
+                        plan = await self.pantry.suggest(req["meal"], model=m, n=2 if voice else 3, request=req["request"], viewer=who)
                         text = format_plan(plan, voice=voice)
                         if text:
                             return {"answer": text, "hits": [], "model": plan.get("model") or m,
@@ -3639,7 +3641,7 @@ def build(app_state):
                 return J(A.pantry.remove(whole(b.get("id"))))
             if op == "suggest":
                 return J(await A.pantry.suggest(b.get("meal"), b.get("model"), num(b.get("n"), "n", 3, 1, 10),
-                                               b.get("request") or ""))
+                                               b.get("request") or "", viewer=VIEWER.get()))
             if op == "week":
                 d_val = whole(b["days"], "days") if b.get("days") is not None else 7
                 if not (1 <= d_val <= 7):
