@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.31.1
+Better answers from the Home bar, meal ideas wired to your pantry, multi-turn conversation history, and Home Ask bar UX improvements.
+- **Meal & recipe ideas from the ask bar and voice** (`pantry.py`, `main.py`): questions like "What can I make with the large eggs?" (including the Home screen's **Meal idea** button) now route to `Pantry.suggest()` using what's in stock, expiry dates, goals, and today's energy, formatted for screen or voice. Pantry inventory is also injected into `Mind.context_for()` for food and fridge questions.
+- **More natural open-ended answers & multi-turn history** (`mind.py`, `main.py`): open-ended asks (ideas, recipes, how-to, walkthroughs) can use general knowledge alongside your notes without inventing personal facts, and up to 4 recent turns are passed per conversation (cloud-safe and vault-masked, skipped for guests) across quick answers, meal suggestions, and connected answers.
+- **Connected answers `numbers_ok()` fix** (`connect.py`): leading zeros (`05` vs `5`), simple rounding (`41.4` → `41`), and `6 h 30 min` → `6.5` hours are accepted so valid connected answers aren't silently discarded back to the quick path.
+- **Home Ask bar UX** (`talk.py`, `web/index.html`, `hub.py`): shows the question you asked above the answer, adds a collapsible recent thread (`Thread (N)` / `New`) with a quick history toggle in the bar, clickable Memory source pills, a one-tap `+ Add … to shopping list` chip and `More meal ideas` button on meal replies, side-by-side connected-answer comparison (`/api/answer_pick`), and fixes `"1 note to check"` singularization.
+
 ## 0.31.0
 A new Home page that runs the day from one screen, and check-ins by time instead of once a day.
 - **Home** replaces Today and Talk (`hub.py`, `/api/hub`). Log bubbles (water, coffee, meal, note) sit above the ask
