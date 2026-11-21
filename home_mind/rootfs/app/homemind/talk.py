@@ -139,6 +139,10 @@ class Talk:
                 res = dict(res, answer=f"{(res.get('answer') or '').rstrip()} {QUESTION}".strip(), checkin_asked=True)
         choices, expects = choices_for(res, viewer)
         missing = []
+        for x in res.get("missing") or []:
+            s = str(x).strip()
+            if s and s.lower() not in {y.lower() for y in missing}:
+                missing.append(s)
         for m in res.get("meals") or []:
             if isinstance(m, dict):
                 for x in m.get("missing") or []:
@@ -148,7 +152,7 @@ class Talk:
         out = {"answer": res.get("answer") or "", "choices": choices, "expects": expects, "via": res.get("via"),
                "conversation_id": cid}
         for k in ("deep", "model", "quick", "compare_id", "red_flag", "checkin", "checkin_asked", "confirm_needed",
-                  "private", "handoff", "error", "sources", "pantry", "meals"):
+                  "private", "handoff", "error", "sources", "pantry", "meals", "week_plan"):
             if res.get(k) is not None:
                 out[k] = res[k]
         if missing:
