@@ -195,7 +195,7 @@
   .hb-go { width:40px; height:40px; flex:none; border-radius:12px; border:0; background:var(--acc); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer } .hb-go.on { background:var(--bad) }
   .hb-extra, .hb-ans { border-top:1px solid var(--line); padding:9px 12px 11px; background:color-mix(in srgb, var(--acc) 4%, var(--card)); display:flex; flex-direction:column; gap:8px }
   .hb-ans-top { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--mute) } .hb-ans-top > span:first-child { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  .hb-ans-acts { display:flex; align-items:center; gap:4px; flex:none } .hb-ans-acts button { border:0; background:none; color:var(--mute); cursor:pointer; font:inherit; font-size:12px; font-weight:600; padding:2px 6px; border-radius:8px; min-height:26px } .hb-ans-acts button:hover { background:var(--card2); color:var(--ink) }
+  .hb-ans-acts { display:flex; align-items:center; gap:4px; flex:none } .hb-ans-acts button { border:0; background:none; color:var(--mute); cursor:pointer; font:inherit; font-size:12px; font-weight:600; padding:2px 6px; border-radius:8px; min-height:26px } .hb-ans-acts button:hover { background:var(--card2); color:var(--ink) } .hb-ans-acts button.x { width:40px; height:40px; font-size:18px; color:var(--ink); background:var(--card2); border-radius:12px; margin-left:4px }
   .hb-ans-t { display:flex; gap:8px; align-items:flex-start; font-size:14px; line-height:1.45; white-space:pre-wrap } .hb-ans-t span { flex:1 }
   .hb-hist { display:flex; flex-direction:column; gap:6px; max-height:210px; overflow-y:auto; padding-bottom:8px; border-bottom:1px solid var(--line); font-size:13px }
   .hb-ht { display:flex; flex-direction:column; gap:1px; line-height:1.4; white-space:pre-wrap } .hb-ht b { font-size:11px; color:var(--mute); font-weight:600 } .hb-ht.you b { color:var(--acc-ink) }
@@ -229,13 +229,15 @@
   .hb-win { position:fixed; z-index:7; left:14px; right:14px; display:flex; flex-direction:column; border-radius:22px; background:var(--card); border:1px solid var(--line); box-shadow:0 18px 40px rgba(22,26,34,.18); overflow:hidden }
   .hb-win.th-house { background:var(--house-bg); border-color:var(--house-line) } .hb-win.th-food { background:var(--food-bg); border-color:var(--food-line) } .hb-win.stat { border-color:var(--mem-line) }
   .hb-win-h { display:flex; align-items:center; gap:10px; padding:12px 12px 8px 16px; border-bottom:1px solid var(--line) } .hb-win-h b { font:600 17px var(--head) } .hb-win-h .mute { flex:1; font-size:12px }
-  .hb-win-h button { width:34px; height:34px; border-radius:10px; border:0; background:var(--card2); color:var(--mute); cursor:pointer }
+  .hb-win-h button { width:44px; height:44px; border-radius:12px; border:0; background:var(--card2); color:var(--ink); font-size:20px; cursor:pointer; flex:none }
   .hb-win-b { flex:1; min-height:0; overflow-y:auto; padding:12px 16px 14px; display:flex; flex-direction:column; gap:10px }
   .hb-chart { display:flex; align-items:flex-end; gap:6px; height:84px; padding:8px 10px 0; border-radius:12px; background:var(--card2) }
   .hb-chart button { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:4px; height:100%; padding:0; border:0; background:none; font:inherit; color:var(--mute); cursor:pointer }
   .hb-chart button i { width:100%; max-width:26px; border-radius:6px 6px 2px 2px; background:var(--c); opacity:.35 } .hb-chart button.on i { opacity:1 } .hb-chart button span { font-size:10px; padding-bottom:4px } .hb-chart button.on span { color:var(--ink); font-weight:700 }
   .hb-f { display:flex; flex-direction:column; gap:2px; padding:8px 0; border-top:1px solid var(--line) } .hb-f .a { display:flex; gap:10px; font-size:14px } .hb-f .a span { flex:1 } .hb-f .a b { font:600 14px Inter,system-ui,sans-serif }
   .hb-f .b { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--mute) } .hb-f .b span { flex:1 } .hb-f .b em { font-style:normal; font-size:11px; font-weight:600; padding:2px 8px; border-radius:99px; background:var(--card2) }
+  .hb-f.ed { width:100%; text-align:left; background:none; border:0; border-top:1px solid var(--line); font:inherit; color:inherit; cursor:pointer; border-radius:0 } .hb-f.ed:active { background:var(--card2) } .hb-f .pen { font-style:normal; color:var(--mute); font-size:13px; margin-left:2px }
+  .hb-fed { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px } .hb-fed input { width:96px; font-size:17px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink) } .hb-fed button { padding:9px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-weight:600; cursor:pointer } .hb-fed button.p { background:var(--acc); color:#fff; border:0 }
   .hb-f .b em.low { background:var(--food-bg); color:var(--food-ink) } .hb-f .b em.good { background:var(--house-bg); color:var(--house-ink) }
   .hb-cta { display:flex; gap:8px } .hb-cta button { flex:1; min-height:42px; border-radius:12px; font:inherit; font-size:14px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--card); color:var(--ink) } .hb-cta button.p { border:0; background:var(--acc); color:#fff }
   .hb-li { display:flex; align-items:center; gap:10px; min-height:44px; border-top:1px solid var(--line); font-size:14px } .hb-li:first-child { border-top:0 } .hb-li .m { flex:1; min-width:0; display:flex; flex-direction:column } .hb-li .m small { color:var(--mute); font-size:12px }
@@ -310,7 +312,7 @@
         <div class="hb-extra hide" id="hb_extra"></div>
         <div class="hb-ans hide" id="hb_ans" aria-live="polite">
           <div class="hb-hist hide" id="hb_hist"></div>
-          <div class="hb-ans-top"><span id="hb_ans_q"></span><span class="hb-ans-acts"><button class="hide" id="hb_hist_tog" onclick="hbToggleHist()">Thread</button><button class="hide" id="hb_new_btn" onclick="hbNew()">New</button><button onclick="hbClear()" aria-label="Close answer">✕</button></span></div>
+          <div class="hb-ans-top"><span id="hb_ans_q"></span><span class="hb-ans-acts"><button class="hide" id="hb_hist_tog" onclick="hbToggleHist()">Thread</button><button class="hide" id="hb_new_btn" onclick="hbNew()">New</button><button class="x" onclick="hbClear()" aria-label="Close answer">✕</button></span></div>
           <div class="hb-ans-t"><span id="hb_ans_t"></span></div>
           <div class="hb-src" id="hb_src"></div>
           <div class="hb-chips" id="hb_chips"></div>
@@ -991,7 +993,7 @@ function hbTabs() {
   if (hbWide()) { const d = $('#hb_detail'); d.className = 'hb-detail' + (sel === 'fog' ? ' mid' : sel === 'readiness' ? ' end' : ''); d.innerHTML = hbStatBody(sel, true); }
 }
 function hbStat(k) {
-  HB.statDay = HUB.days.length - 1;
+  HB.statDay = HUB.days.length - 1; HB.fEdit = null;
   if (hbWide()) { HB.stat = k; hbTabs(); return; }
   if (HB.win === 'stat:' + k) { hbClose(); return; }
   hbOpen('stat:' + k);
@@ -1001,9 +1003,27 @@ function hbStatBody(k, withTitle) {
   const s = HUB.status[k], c = HB_STATS.find(x => x[0] === k)[3], day = HB.statDay, last = HUB.days.length - 1, today = day === last;
   const bars = s.series.map((v, i) => `<button class="${i === day ? 'on' : ''}" style="--c:${c}" onclick="HB.statDay=${i}; hbRefreshStat()" aria-pressed="${i === day}" aria-label="${esc(hbDayName(i))}: ${esc(hbLab(k, v))}"><i style="height:${v == null ? 3 : Math.max(4, Math.round(v / s.max * 52))}px"></i><span>${esc(hbDayName(i))}</span></button>`).join('');
   const fs = ((HUB.factors[k] || [])[day]) || [];
-  const rows = fs.map(f => `<div class="hb-f"><div class="a"><span>${esc(f.label)}</span><b>${esc(f.value)}</b></div><div class="b"><span>${esc(f.note)}</span>${f.tag ? `<em class="${esc(f.kind)}">${esc(f.tag)}</em>` : ''}</div></div>`).join('') || '<div class="mute" style="font-size:13px">No readings for that day.</div>';
+  const rows = fs.map(f => hbFRow(f, day)).join('') || '<div class="mute" style="font-size:13px">No readings for that day.</div>';
   return (withTitle ? `<b style="font:600 16px var(--head)">${esc(hbStatTitle(k))}</b>` : '') + `<div class="hb-chart">${bars}</div><div>${rows}</div>
     <div class="hb-cta"><button class="p" onclick="${today ? 'hbCk(true)' : "go('health')"}">${today ? 'Check in now' : 'Open ' + esc(hbDayName(day)) + ' in Health'}</button>${today ? `<button onclick="go('health')">History</button>` : ''}</div>`;
+}
+const HB_FUNIT = {sleep_h: ['h', 0.1, 16], wakeups: ['', 1, 30], hrv: ['ms', 1, 250], steps_prev: ['steps', 1, 100000]};
+function hbFRow(f, day) {
+  const inner = `<div class="a"><span>${esc(f.label)}</span><b>${esc(f.value)}</b>${f.edit ? '<i class="pen" aria-hidden="true">✎</i>' : ''}</div><div class="b"><span>${esc(f.note)}</span>${f.edited ? '<em>edited</em>' : f.tag ? `<em class="${esc(f.kind)}">${esc(f.tag)}</em>` : ''}</div>`;
+  if (!f.edit) return `<div class="hb-f">${inner}</div>`;
+  if (HB.fEdit !== f.key) return `<button class="hb-f ed" onclick="hbFOpen(${jsq(f.key)})" aria-label="Edit ${esc(f.label)}">${inner}</button>`;
+  const [u, st, mx] = HB_FUNIT[f.key] || ['', 1, 9999];
+  return `<div class="hb-f editing"><div class="a"><span>${esc(f.label)}</span></div>
+    <form class="hb-fed" onsubmit="hbFSave(${jsq(f.key)}, ${day}); return false"><input id="hb_fv" type="number" inputmode="decimal" min="0" max="${mx}" step="${st}" value="${f.raw == null ? '' : esc(f.raw)}" aria-label="${esc(f.label)}"><span class="mute">${esc(u)}</span>
+    <button class="p" type="submit">Save</button>${f.edited ? `<button type="button" onclick="hbFSave(${jsq(f.key)}, ${day}, true)">Undo edit</button>` : ''}<button type="button" onclick="HB.fEdit=null; hbRefreshStat()">Cancel</button></form></div>`;
+}
+function hbFOpen(k) { HB.fEdit = k; hbRefreshStat(); setTimeout(() => { const i = $('#hb_fv'); if (i && i.focus) { i.focus(); if (i.select) i.select(); } }, 30); }
+async function hbFSave(key, day, clear) {
+  const el = $('#hb_fv'), v = clear ? null : el && el.value !== '' ? Number(el.value) : null;
+  if (!clear && v == null) return;
+  const r = await api('api/day_edit', {day: HUB.days[day], key, value: v});
+  if (r && r.error) { hbAnswer(r.error); return; }
+  HB.fEdit = null; await hubLoad(); HB.statDay = day; hbRefreshStat();
 }
 function hbRefreshStat() { if (hbWide()) hbTabs(); else if (HB.win) hbOpen(HB.win); }
 

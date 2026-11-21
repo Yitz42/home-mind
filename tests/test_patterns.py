@@ -171,6 +171,27 @@ async def main():
     assert m and m[0]["caffeine"] and abs(m[0]["hour"] - 21.5) < 0.01
     row = p2.build_day(today, {})
     assert row["late_meal_prev"] == 21.5 and row["caffeine_late_prev"] == 1, row
+
+    # --- corrections typed on Home beat the watch, survive a rebuild, and can be undone --------------------------------
+    y = today - timedelta(days=1)
+    r = p2.edit(y.isoformat(), "sleep_h", 7.25)
+    assert r["sleep_h"] == 7.2 and r["edited"] == ["sleep_h"] and p2.get(y)["sleep_h"] == 7.2, r
+    assert p2.build_day(y, {})["sleep_h"] == 7.2
+    p2.edit(y, "steps_prev", 4000.4)
+    assert p2.get(y)["steps_prev"] == 4000 and p2.get(y)["edited"] == ["sleep_h", "steps_prev"]
+    p2.edit(y, "sleep_h", None)
+    assert "sleep_h" not in p2.get(y) and p2.get(y)["edited"] == ["steps_prev"]
+    for bad in (("fog", 3), ("sleep_h", 30), ("hrv", 1)):
+        try:
+            p2.edit(y, *bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    try:
+        p2.edit(today + timedelta(days=1), "sleep_h", 7)
+        raise AssertionError("future day")
+    except ValueError:
+        pass
     print("PATTERNS OK")
 
 

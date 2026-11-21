@@ -3001,6 +3001,13 @@ def build(app_state):
             raise ValueError("op is add, done or undo")
         return J({"ok": True, "op": op, "entity": ent})
 
+    @r.post("/api/day_edit")
+    async def day_edit(q):
+        """{"day": YYYY-MM-DD, "key": sleep_h|wakeups|hrv|steps_prev, "value": number or null to clear}: fix a reading."""
+        b = await read_body(q, day=str, key=str, value=float)
+        row = A.patterns.edit(b.get("day") or "", b.get("key") or "", b.get("value"))
+        return J({"day": row["day"], "row": row})
+
     @r.post("/api/log")
     async def quick_log(q):
         """{"kind": water|coffee, "n"?: 1..6 or -1 to take the last one back}: today's counts back."""

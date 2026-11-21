@@ -163,7 +163,8 @@ Top to bottom:
 "also noticing" tags and a note, for now or a bit ago ("30 min ago"). Each is kept with its time
 (`/api/checkins`), the day's fog for the patterns is the latest one, and each also answers the day's good / low /
 rough check-in. Water is a count per day and coffee is filed as a drink with caffeine (`/api/log`), so the patterns'
-late-caffeine factor sees it.
+late-caffeine factor sees it. Tap a reading under Energy, Fog or Ready (sleep, wakeups, HRV, steps) to fix it
+for that day, or add sleep the watch missed (`/api/day_edit`); a fixed reading stays over what the watch says.
 
 ## Who can reach Home Mind, and how much
 
@@ -1316,6 +1317,7 @@ note), 502 (a model failed) or 500.
 | GET | `/api/hub` | read | the Home page: place, log counts, Energy / Fog / Ready with seven days and factors, For you, food, reminders, calendar, house |
 | GET | `/api/checkins` | read | check-ins by time: a day's (`?day=`) and the last seven days' (`?days=`), plus water and coffee today |
 | POST | `/api/checkins` | write | one check-in: `{fog?, energy?, tags?, note?, minutes_ago?}` (as often as it changes) |
+| POST | `/api/day_edit` | write | `{day, key, value}`: fix a day's sleep_h, wakeups, hrv or steps_prev (null clears); kept over the watch |
 | POST | `/api/log` | write | `{kind, n?}`: kind water or coffee, n -1 takes the last one back; today's counts |
 | POST | `/api/todo` | write | `{op, entity, item?, uid?}`: op add, done or undo on a Home Assistant to-do list, from the Home tiles |
 | GET | `/api/house` | read | habits, usual ranges, notable changes, suggested automations |
