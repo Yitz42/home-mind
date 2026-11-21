@@ -90,7 +90,8 @@ PHOTO_INSTRUCTIONS = (
     "\"...\", \"amount\": \"...\", \"location\": \"fridge|freezer|pantry\", \"use_by\": \"YYYY-MM-DD or null\"}]}")
 
 MEAL_SYSTEM = (
-    "You suggest meals from what someone has at home. Use foods that expire soonest first. Fit today's focus and their "
+    "You suggest meals from what someone has at home. Use foods that expire soonest first, and if the request names "
+    "specific ingredients, feature them. Fit today's focus and their "
     "goals. Prefer real meals they can actually make in under 30 minutes unless asked otherwise; keep it practical. "
     "Only use pantry staples (salt, pepper, oil, common spices) beyond the listed food unless you put the extra "
     "ingredient in 'missing'. Give rough estimates only (protein in grams, calories), and say they are estimates. "
@@ -594,7 +595,83 @@ class Pantry:
         out = ["PANTRY (what's in the house, soonest to expire first):"]
         for i in items:
             dl = i["days_left"]
-            when = "past its date" if dl is not None and dl < 0 else f"{max(dl, 0):.0f} days left" if dl is not None else ""
+            when = ("past its date" if dl is not None and dl < 0 else
+                    "use today" if dl is not None and dl < 1 else
+                    f"{dl:.0f} days left" if dl is not None else "")
             out.append(f"- {i['name']}{(' (' + i['amount'] + ')') if i['amount'] else ''}: {i['location']}, {when}, "
                        f"added {datetime.fromtimestamp(i['added']):%b %d}")
         return "\n".join(out)
+
+
+PANTRY_Q = re.compile(
+    r"\b(?:pantry|fridge|refrigerator|freezer|groceries|grocery|food|eat|eating|cook|cooking|recipe|recipes|"
+    r"meal|meals|make (?:for|with)|dinner|lunch|breakfast|snack|expire|expiring|expires|expired|go bad|going bad|"
+    r"use up|do (?:i|we) have|have any|left in|ingredients?)\b", re.I)
+
+NOT_MEAL_IDEA_Q = re.compile(
+    r"^\s*(?:remember|log|note|ate|i ate|i had|i bought|i used|i finished|i tossed|used|finished|tossed|"
+    r"why|how many|how much)\b", re.I)
+
+MEAL_IDEA_Q = re.compile(
+    r"\bwhat (?:can|could|should) (?:i|we) (?:make|cook|eat|have|prepare|fix|whip up)\b|"
+    r"\b(?:suggest|recommend|give me|got any|any)\b.{0,40}\b(?:meals?|recipes?|breakfast|lunch|dinner|snacks?|"
+    r"dish(?:es)?|something to (?:eat|cook|make))\b|"
+    r"\b(?:meal|dinner|lunch|breakfast|snack|cooking|recipe) ideas?\b|"
+    r"\b(?:a )?recipes? (?:for|with|using)\b|"
+    r"\bwhat to (?:make|cook|eat)\b", re.I)
+
+MEAL_SLOT_Q = re.compile(r"\b(breakfast|lunch|dinner|snack)\b", re.I)
+
+
+def meal_request(question):
+    """If the question asks for meal/recipe ideas from what's at home, return {"meal", "request"}, else None."""
+    q = (question or "").replace("’", "'").strip()
+    if not q or len(q) > 240 or NOT_MEAL_IDEA_Q.search(q) or not MEAL_IDEA_Q.search(q):
+        return None
+    m = MEAL_SLOT_Q.search(q)
+    return {"meal": m.group(1).lower() if m else None, "request": q.rstrip("?!. ")}
+
+
+def format_plan(plan, voice=False):
+    """Turn a Pantry.suggest() plan into a clear answer for the Home bar, Talk, or voice. Returns None if empty."""
+    meals = [m for m in ((plan or {}).get("meals") or []) if isinstance(m, dict) and m.get("name")]
+    if not meals:
+        return None
+    if voice:
+        parts = []
+        for m in meals[:2]:
+            bits = [m["name"]]
+            if isinstance(m.get("protein_g"), (int, float)):
+                bits.append(f"about {round(m['protein_g'])} grams of protein")
+            uses = [str(u) for u in (m.get("uses") or []) if u][:3]
+            if uses:
+                bits.append("using " + ", ".join(uses))
+            parts.append(", ".join(bits))
+        lead = f"You could make {parts[0]}." + (f" Or {parts[1]}." if len(parts) > 1 else "")
+        return lead + " Want the steps?"
+    blocks = []
+    for i, m in enumerate(meals[:3], 1):
+        macros = []
+        if isinstance(m.get("protein_g"), (int, float)):
+            macros.append(f"~{round(m['protein_g'])} g protein")
+        if isinstance(m.get("calories"), (int, float)):
+            macros.append(f"~{round(m['calories'])} kcal")
+        head = f"{i}. {m['name']}" + (f" ({', '.join(macros)} est.)" if macros else "")
+        lines = [head]
+        uses = [str(u) for u in (m.get("uses") or []) if u]
+        why = (m.get("why") or "").strip()
+        if uses and why:
+            lines.append(f"Uses: {', '.join(uses)} — {why}")
+        elif uses:
+            lines.append(f"Uses: {', '.join(uses)}")
+        elif why:
+            lines.append(why)
+        missing = [str(x) for x in (m.get("missing") or []) if x]
+        if missing:
+            lines.append(f"Need: {', '.join(missing)}")
+        steps = (m.get("steps") or "").strip()
+        if steps:
+            lines.append(f"Steps: {steps}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+

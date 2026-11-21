@@ -194,6 +194,11 @@ check("numbers: an answer with numbers not in the brief is never given", not r.g
       r["answer"].startswith("I'm afraid"), r)
 check("numbers: it was asked again first", any("aren't in the brief" in c[1] for c in calls))
 check("numbers_ok: small counts and brief numbers pass", CN.numbers_ok("3 of 5 days, 2 nights", "3 of 5 days") == [])
+check("numbers_ok: leading zeros pass (05 vs 5)", CN.numbers_ok("6 hours 5 minutes", "sleep averaged 6 h 05 min") == [])
+check("numbers_ok: h/min decimal conversion passes (6 h 30 min -> 6.5)",
+      CN.numbers_ok("about 6.5 hours of sleep", "sleep averaged 6 h 30 min") == [])
+check("numbers_ok: simple rounding passes (41.4 -> 41)", CN.numbers_ok("HRV is 41 ms", "HRV averaged 41.4 ms") == [])
+check("numbers_ok: invented numbers still fail", CN.numbers_ok("about 9.2 hours", "sleep averaged 6 h 30 min") == ["9.2"])
 
 # private mode: local models only
 models["sonnet"] = FakeModel("sonnet", GOOD)

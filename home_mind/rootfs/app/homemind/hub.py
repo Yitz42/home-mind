@@ -210,7 +210,9 @@ def needs(A, t, latest, now, where, hs):
                     "sub": "It's at its date. Want a meal that uses it?", "a": "Meal idea", "act": "ask",
                     "text": f"What can I make with the {n}?"})
     if t.get("review"):
-        out.append({"id": f"review:{day_of(now)}", "kind": "Memory", "title": f"{t['review']} notes to check",
+        n_rev = t["review"]
+        out.append({"id": f"review:{day_of(now)}", "kind": "Memory",
+                    "title": f"{n_rev} {'note' if n_rev == 1 else 'notes'} to check",
                     "sub": "Quick yes / no on things I wasn't sure about.", "a": "Review", "act": "go", "go": "memory"})
     if (t.get("house") or {}).get("suggestions"):
         out.append({"id": f"auto:{day_of(now)}", "kind": "Idea", "title": "An automation idea from your habits",

@@ -381,6 +381,7 @@ class App:
         self.overnight.known_only = bool(self.opts.get("people"))
         self.convlog.who = self.who_by_device
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
+        self.mind.pantry = self.pantry
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
         self.pantry.knowledge = self.knowledge
@@ -1120,8 +1121,12 @@ class App:
                          expand=bool(b.get("expand")), voice=bool(b.get("voice")),
                          deadline=(b.get("deadline") or self.HANDOFF_LATE) if phone else b.get("deadline"),
                          fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who)
+        mk = getattr(self, "meal_ok", None)
+        mr = mk(b, who, oa) if not urgent and mk is not None else None
         dk = getattr(self, "deep_ok", None)
-        if not urgent and dk is not None and dk(b, who, oa):
+        if mr:
+            ask = self.meal_answer(b, who, mr, ask)  # "what can I make with the large eggs?": Pantry.suggest()
+        elif not urgent and dk is not None and dk(b, who, oa):
             ask = self.deep_answer(b, who, ask)      # why / lately / how am I: the brief, connected (connect.py)
         if phone:
             # past HANDOFF_SECONDS by voice: say so, and send the whole answer to the person's phone when it's ready
@@ -1170,6 +1175,58 @@ class App:
 
     DEEP_VOICE_SECONDS = 6.0
 
+    def meal_ok(self, b, who, other=None):
+        """A meal/recipe idea request from what's at home: handled by Pantry.suggest()."""
+        if other or who == "" or b.get("use_brain") is False or getattr(self, "pantry", None) is None:
+            return None
+        from .pantry import meal_request
+        return meal_request(b.get("question") or "")
+
+    async def meal_answer(self, b, who, req, quick):
+        """Meal ideas from Pantry.suggest() (what's in stock, expiring soonest, fitted to today); falls back to the
+        usual ask path if no model returns a usable plan."""
+        from .pantry import format_plan
+        voice = bool(b.get("voice"))
+        chosen = b.get("model") if b.get("model") not in (None, "", "auto") else None
+        md = getattr(self, "modes", None)
+        try:
+            private = md is not None and md.mode(who or None) == "private"
+        except Exception:  # noqa: BLE001
+            private = False
+        if chosen and b.get("fallback") is False:
+            chain = [chosen]
+        else:
+            chain = self._deep_chain(who)
+            if chosen and chosen not in chain and not private:
+                chain = [chosen] + chain
+            if not chain and not private:
+                chain = [x for x in (getattr(getattr(self, "models", None), "models", None) or {})
+                         if x != "mock"][:2]
+        chain = [m for m in chain if m and m != "mock"] or ([chosen] if chosen == "mock" else [])
+
+        async def run():
+            for m in chain:
+                try:
+                    plan = await self.pantry.suggest(req["meal"], model=m, n=2 if voice else 3, request=req["request"])
+                    text = format_plan(plan, voice=voice)
+                    if text:
+                        return {"answer": text, "hits": [], "model": plan.get("model") or m,
+                                "meals": plan.get("meals"), "pantry": True}
+                except Exception as e:  # noqa: BLE001 - try next model, then fall back to quick
+                    log.warning("meal answer with %s: %s", m, e)
+            return None
+
+        try:
+            res = await (asyncio.wait_for(run(), self.DEEP_VOICE_SECONDS) if voice else run())
+        except asyncio.TimeoutError:
+            res = None
+        if res is None:
+            return await quick
+        quick.close()
+        if b.get("conversation_id") and hasattr(self.mind, "_record_turn"):
+            self.mind._record_turn(b["conversation_id"], b["question"], res["answer"])
+        return res
+
     def deep_ok(self, b, who, other=None):
         """A question for the connected path: why, lately, how am I, really, busy (connect.wants_deep), asked by
         someone who may see personal data (not a guest, not another assistant), with the option on."""
@@ -1197,7 +1254,9 @@ class App:
         """The connected answer: the brief (code), a model to connect it, every number checked against the brief.
         quick is the usual path's coroutine: it runs alongside for the side-by-side, and answers if this can't."""
         from . import connect as CN
+        from .mind import cloud_safe
         q, voice = b["question"], bool(b.get("voice"))
+        conv_id = b.get("conversation_id")
         compare = self.opts.get("compare_answers", True) is not False and not voice and b.get("compare", True) is not False
         qt = asyncio.ensure_future(quick) if compare else None      # side by side: both at once
 
@@ -1208,18 +1267,25 @@ class App:
                 hits, _p, ctx = await self.mind.context_for(st, q, k=12, voice=voice)
             except Exception:  # noqa: BLE001
                 hits, ctx = [], ""
-            content = f"QUESTION: {q}\n\nBRIEF (their own data, gathered by code):\n{facts['text']}\n\n" \
-                      f"NOTES AND OTHER SOURCES:\n{ctx or '(none)'}"
+            prior = self.mind._history(conv_id, st) if conv_id and hasattr(self.mind, "_history") else []
             system = CN.DEEP_SYSTEM + (CN.VOICE_DEEP if voice else "")
             for m in self._deep_chain(who):
                 try:
-                    r = await self.models.get(m).chat(system, [{"role": "user", "content": content}],
-                                                      max_tokens=500 if not voice else 200, temperature=0.2)
+                    m_obj = self.models.get(m)
+                    safe_ctx = cloud_safe(ctx, q, m_obj, st) if ctx else ""
+                    content = f"QUESTION: {q}\n\nBRIEF (their own data, gathered by code):\n{facts['text']}\n\n" \
+                              f"NOTES AND OTHER SOURCES:\n{safe_ctx or '(none)'}"
+                    msgs = []
+                    for pq, pa in prior:
+                        msgs.append({"role": "user", "content": cloud_safe(pq, q, m_obj, st)})
+                        msgs.append({"role": "assistant", "content": cloud_safe(pa, q, m_obj, st)})
+                    msgs.append({"role": "user", "content": content})
+                    r = await m_obj.chat(system, msgs, max_tokens=500 if not voice else 200, temperature=0.2)
                     text = (r.get("text") or "").strip()
                     bad = CN.numbers_ok(text, facts["text"] + "\n" + (ctx or ""), q)
                     if bad:     # once more, told which numbers aren't in the brief
-                        r = await self.models.get(m).chat(system, [
-                            {"role": "user", "content": content}, {"role": "assistant", "content": text},
+                        r = await m_obj.chat(system, msgs + [
+                            {"role": "assistant", "content": text},
                             {"role": "user", "content": f"These numbers aren't in the brief: {', '.join(bad)}. "
                                                         "Answer again using only numbers from the brief."}],
                             max_tokens=500 if not voice else 200, temperature=0)
@@ -1255,6 +1321,8 @@ class App:
                 res = dict(res, quick={"answer": quick_res["answer"], "model": quick_res.get("model")}, compare_id=cid)
         else:
             quick.close()           # never started
+        if conv_id and hasattr(self.mind, "_record_turn"):
+            self.mind._record_turn(conv_id, q, res["answer"])
         return res
 
     def answer_pick(self, cid, pick):
@@ -2485,8 +2553,8 @@ def build(app_state):
                 ids = {e["id"] for e in evs}
                 res = [dict(e, score=99.0) for e in evs] + [h for h in res if h["id"] not in ids]
             # a question about food at home gets the pantry
-            if re.search(r"\b(pantry|fridge|freezer|groceries|food|eat|cook|make for|dinner|lunch|breakfast|snack|"
-                         r"expire|expiring|go bad|going bad|do i have|have any|left in)\b", p.get("q", ""), re.I):
+            from .pantry import PANTRY_Q
+            if PANTRY_Q.search(p.get("q", "")):
                 res = [{"id": 0, "title": "Pantry", "body": A.pantry.lines(), "shelf": "pantry", "kind": "note",
                         "updated": time.time(), "score": 97.0}] + res
             # a question about how a reading went ("coldest this week") gets a summary of its dated readings

@@ -629,21 +629,44 @@ VOICE_DEEP = (" This is spoken aloud: 2 or 3 short sentences, plain words, no nu
 NUM = re.compile(r"(?<![\w.])(\d+(?:[.,:]\d+)?)(?![\w])")
 
 
+HM_RX = re.compile(r"\b(\d+)\s*h\s*(\d{1,2})\s*min\b", re.I)
+
+
 def numbers_ok(answer, brief, question=""):
     """The numbers in the answer that aren't in the brief or the question (1 to 3 are allowed: counts like
-    'two of them' come out as words or small numbers)."""
-    have = set(NUM.findall(brief or "")) | set(NUM.findall(question or ""))
+    'two of them' come out as words or small numbers). Leading zeros ('05' vs '5'), simple rounding ('41.4' -> '41')
+    and '6 h 30 min' -> '6.5' count as the same number."""
+    src = f"{brief or ''}\n{question or ''}"
+    have = set(NUM.findall(src))
     have |= {h.replace(",", "") for h in have}
+    have |= {h.lstrip("0") or "0" for h in have if ":" in h}
+    have_vals = set()
+    for h in have:
+        if ":" in h:
+            continue
+        try:
+            v = float(h)
+        except ValueError:
+            continue
+        have_vals.update((v, float(round(v)), round(v, 1)))
+    for hh, mm in HM_RX.findall(src):
+        hrs = int(hh) + int(mm) / 60.0
+        have_vals.update((round(hrs, 1), round(hrs, 2), float(round(hrs))))
     bad = []
     for n in NUM.findall(answer or ""):
         x = n.replace(",", "")
         if x in have or n in have:
             continue
-        try:
-            if float(x.replace(":", ".")) <= 3:
+        if ":" in x:
+            if (x.lstrip("0") or "0") in have:
                 continue
-        except ValueError:
-            pass
+        else:
+            try:
+                v = float(x)
+                if v <= 3 or v in have_vals:
+                    continue
+            except ValueError:
+                pass
         bad.append(n)
     return bad
 

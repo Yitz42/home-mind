@@ -104,5 +104,10 @@ web = open(os.path.join(os.path.dirname(hub.__file__), "web", "index.html")).rea
 check("the page has no Talk tab any more", 'data-t="talk"' not in web)
 check("the page loads the hub", "api/hub" in web and "api/checkins" in web)
 
+n1 = hub.needs(A, {"review": 1}, None, noon, "home", {"open": 0})
+check("1 note to check is singular", any(n["title"] == "1 note to check" for n in n1), n1)
+n2 = hub.needs(A, {"review": 2}, None, noon, "home", {"open": 0})
+check("2 notes to check is plural", any(n["title"] == "2 notes to check" for n in n2), n2)
+
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)
