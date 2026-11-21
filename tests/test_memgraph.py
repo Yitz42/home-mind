@@ -656,6 +656,184 @@ def test_mind_integration_and_loopback():
     asyncio.run(run())
 
 
+# ---- 12. Speed 3 Archivist, ingest_sensor, Offline Janitor, Overnight hook, and 70/30 Flywheel -----------------
+def test_archivist_janitor_and_flywheel():
+    import asyncio
+    import json
+    from homemind.memgraph import Archivist, Janitor, export_training_dataset, eval_regression_gate
+    from homemind.mind import Mind
+    from homemind.overnight import Overnight, ConvLog
+
+    class FakeModel:
+        def __init__(self, fn, mtype="ollama", url=""):
+            self.fn, self.type = fn, mtype
+            self.cfg = {"type": mtype, "url": url}
+            self.calls = []
+
+        async def chat(self, sysmsg, msgs, **kw):
+            self.calls.append((sysmsg, msgs))
+            return {"text": self.fn(sysmsg, msgs, len(self.calls)), "ms": 10}
+
+    class FakeModels:
+        def __init__(self, **mp):
+            self._m = mp
+            self.models = mp
+
+        def get(self, name):
+            return self._m[name]
+
+        def list(self):
+            return [{"name": k, "type": v.type} for k, v in self._m.items()]
+
+    async def run():
+        tmp = tempfile.mkdtemp()
+        now = [T0]
+
+        def arch_fn(sysmsg, msgs, n):
+            body = msgs[-1]["content"]
+            if "kung pao chicken" in body.lower():
+                return json.dumps({"patches": [
+                    {"op": "CREATE_LINK", "source": "I", "relation": "LIKES", "target": "kung pao chicken",
+                     "certainty": 1.0, "evidence": "direct", "category": "FOOD", "confidence": 0.92,
+                     "hypotheses": [
+                         {"relation": "LIKES", "target": "chinese", "category": "FOOD"},
+                         {"relation": "LIKES", "target": "spicy savory", "category": "FOOD"},
+                     ]},
+                    # Unknown LLM-invented predicate must be silently rejected!
+                    {"op": "CREATE_LINK", "source": "user", "relation": "HALLUCINATED_REL", "target": "foo"},
+                ]})
+            if "Existing candidate links:" in body and "id=" in body and "espresso" in body.lower():
+                # Extract candidate id and emit BOLSTER (Read-Before-Write!)
+                import re as _re
+                lid = int(_re.search(r"id=(\d+)", body).group(1))
+                return json.dumps({"patches": [
+                    {"op": "BOLSTER", "target_link_id": lid, "certainty": 1.0, "confidence": 0.90}
+                ]})
+            if "espresso" in body.lower():
+                return json.dumps({"patches": [
+                    {"op": "CREATE_LINK", "source": "user", "relation": "LIKES", "target": "espresso",
+                     "certainty": 1.0, "evidence": "direct", "category": "FOOD", "confidence": 0.55}
+                ]})
+            if "bad guess" in body.lower():
+                return json.dumps({"patches": [
+                    {"op": "CREATE_LINK", "source": "user", "relation": "LIKES", "target": "anchovies",
+                     "certainty": 1.0, "evidence": "direct", "category": "FOOD", "confidence": 0.45}
+                ]})
+            return '{"patches": []}'
+
+        def janitor_fn(sysmsg, msgs, n):
+            body = msgs[-1]["content"]
+            if "anchovies" in body:
+                return '{"verdict": "revert", "reason": "user was joking", "corrected_patch": null}'
+            return '{"verdict": "approve", "reason": "consistent with user statement"}'
+
+        arch_mdl = FakeModel(arch_fn)
+        ans_mdl = FakeModel(lambda s, m, n: "Sounds tasty!")
+        jan_mdl = FakeModel(janitor_fn, mtype="anthropic", url="https://api.anthropic.com")
+        models = FakeModels(ans=ans_mdl, arch=arch_mdl, big=jan_mdl)
+
+        mind = Mind(tmp, models)
+        g = MemGraph(mind.store, clock=lambda: now[0])
+        arch = Archivist(g, models, model_name="arch")
+        mind.memgraph = g
+        mind.archivist = arch
+
+        # 1. Deterministic sensor_fact ingestion (zero LLM calls)
+        for d in range(15):
+            g.ingest_sensor("daily steps", 9000 + d * 10, relation="STEPS_BASELINE", unit="steps",
+                            category="ACTIVITY", ts=T0 + d * DAY)
+        st_hits = g.query(categories=["ACTIVITY"], now=T0 + 15 * DAY)
+        check("ingest_sensor builds sensor_fact BASELINE with zero LLM calls",
+              len(st_hits) == 1 and st_hits[0]["status"] == STATUS_FACT
+              and st_hits[0]["evidence"] == EVIDENCE_SENSOR and len(arch_mdl.calls) == 0)
+
+        # 2. Guest, trivial, and sarcasm guards skip LLM completely
+        check("guest enqueue rejected", arch.enqueue("I love pizza", owner="") is False)
+        check("trivial message skipped", arch.enqueue("thanks!", owner="Alice") is False)
+        sarc_res = await arch.process_turn("If I lived in Tokyo, I'd eat ramen every day lol jk.", owner="Alice")
+        check("sarcasm/hypothetical skipped before LLM",
+              sarc_res["applied"] == 0 and sarc_res.get("skipped") == "hypothetical_or_sarcasm" and len(arch_mdl.calls) == 0)
+
+        # 3. Secret masking BEFORE Archivist LLM sees user text + low-confidence flagging
+        await arch.process_turn("I love espresso and the garage door code is 4417.", owner="Alice", ts=T0)
+        check("secrets masked before Archivist LLM sees prompt",
+              len(arch_mdl.calls) == 1 and "4417" not in arch_mdl.calls[-1][1][-1]["content"])
+        esp_links = g.query(entities=["espresso"], viewer="Alice", include_dormant=True, now=T0)
+        check("Archivist created personal espresso link for Alice", len(esp_links) == 1 and esp_links[0]["owner"] == "Alice")
+
+        # 4. Read-Before-Write: second mention passes existing link id -> Archivist emits BOLSTER -> FACT!
+        await arch.process_turn("Seriously, I really enjoy espresso every morning.", owner="Alice", ts=T0 + DAY)
+        check("Read-Before-Write prompt included existing candidate link id",
+              f"id={esp_links[0]['id']}" in arch_mdl.calls[-1][1][-1]["content"])
+        esp_after = g.get_link(esp_links[0]["id"], now=T0 + DAY)
+        check("Read-Before-Write BOLSTER promoted espresso to FACT", esp_after["status"] == STATUS_FACT)
+
+        # 5. End-to-end Mind.ask() enqueues non-blocking Archivist turn -> hypothesis fan-out + rejects bogus rel
+        await mind.ask("I love Kung Pao chicken!", model="ans", fallback=False, speaker="Alice")
+        drained = await arch.drain()
+        check("Mind.ask enqueued user turn onto async Archivist queue", drained == 1)
+        kp_links = g.query(entities=["kung pao chicken"], relations=["LIKES"], viewer="Alice", include_dormant=True, now=T0 + DAY)
+        ch_links = g.query(entities=["chinese"], relations=["LIKES"], viewer="Alice", include_dormant=True, now=T0 + DAY)
+        check("Archivist fanned out direct dish + inferred cuisine and dropped unknown predicate",
+              len(kp_links) == 1 and len(ch_links) == 1 and g.find_node("foo", viewer="Alice") is None)
+
+        # 6. Offline Janitor: create a flagged bad write (anchovies) + run Overnight.run()!
+        bad_res = await arch.process_turn("I had a bad guess about anchovies.", owner="Alice", ts=T0 + 2 * DAY)
+        bad_lid = bad_res["results"][0]["link"]["id"]
+        check("flagged low-confidence anchovies link exists before Janitor audit", g.get_link(bad_lid) is not None)
+
+        # Wire into real Overnight.run()!
+        ov = Overnight(mind.store, models, ConvLog(mind.store), model="big")
+        ov.memgraph = g
+        ov.keys_on = False
+        rep = await ov.run()
+        check("Overnight.run() executed MemGraph Janitor and reported summary",
+              "memgraph" in rep and rep["memgraph"]["audit"]["audited"] >= 2)
+        check("Janitor reverted bad anchovies write and approved valid writes",
+              g.get_link(bad_lid) is None and rep["memgraph"]["audit"]["reverted"] >= 1
+              and rep["memgraph"]["audit"]["approved"] >= 1)
+
+        # 7. Optional small-batch cold-start backfill skips secret notes and advances cursor
+        mind.store.remember(text="The vault code is 9988.", meta={"secret": True})
+        mind.store.remember(text="I love Kung Pao chicken on Fridays.", kind="note")
+        bf = await Janitor(g).backfill_notes(arch_mdl, limit=10)
+        check("backfill_notes skips secret notes and advances cursor",
+              bf["checked"] >= 2 and all("9988" not in c[1][-1]["content"] for c in arch_mdl.calls))
+
+        # 8. 70/30 Flywheel dataset export (dual-mode [RETRIEVE] + [INGEST], scrubbed secrets) & regression gate
+        g.log_loop_back_hit("What about miso? code 4417", [kp_links[0]["id"]], viewer="Alice", ts=T0 + 3 * DAY)
+        out_path = os.path.join(tmp, "flywheel.jsonl")
+        exp = export_training_dataset(g, output_path=out_path, replay_ratio=0.30)
+        raw_jsonl = open(out_path, encoding="utf-8").read()
+        modes = {r["mode"] for r in exp["records"]}
+        check("flywheel export writes dual-mode [RETRIEVE] + [INGEST] JSONL with ~30% golden replay",
+              exp["fresh"] >= 2 and exp["replay"] >= 1 and 0.20 <= exp["replay_share"] <= 0.45
+              and "[RETRIEVE]" in modes and "[INGEST]" in modes)
+        check("flywheel export scrubs secret values before writing JSONL", "4417" not in raw_jsonl)
+
+        gate_ok = eval_regression_gate(
+            {"accuracy": 0.90, "golden_score": 0.96, "hallucination_rate": 0.02},
+            {"accuracy": 0.86, "golden_score": 0.95, "hallucination_rate": 0.03},
+        )
+        gate_small = eval_regression_gate(
+            {"accuracy": 0.87, "golden_score": 0.96, "hallucination_rate": 0.02},
+            {"accuracy": 0.86, "golden_score": 0.95, "hallucination_rate": 0.03},
+        )
+        gate_reg = eval_regression_gate(
+            {"accuracy": 0.92, "golden_score": 0.90, "hallucination_rate": 0.02},
+            {"accuracy": 0.86, "golden_score": 0.95, "hallucination_rate": 0.03},
+        )
+        gate_hall = eval_regression_gate(
+            {"accuracy": 0.92, "golden_score": 0.96, "hallucination_rate": 0.08},
+            {"accuracy": 0.86, "golden_score": 0.95, "hallucination_rate": 0.03},
+        )
+        check("regression gate promotes valid +4% gain and blocks <2% gain, golden regression, or >5% hallucination",
+              gate_ok["promote"] is True and gate_small["promote"] is False
+              and gate_reg["promote"] is False and gate_hall["promote"] is False)
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     for fn in (
         test_math,
@@ -669,8 +847,10 @@ if __name__ == "__main__":
         test_90_day_stress_test,
         test_librarian_routing_and_1hop,
         test_mind_integration_and_loopback,
+        test_archivist_janitor_and_flywheel,
     ):
         fn()
     print(f"\n{'PASS' if not FAILS else f'FAIL ({len(FAILS)})'}")
     sys.exit(1 if FAILS else 0)
+
 

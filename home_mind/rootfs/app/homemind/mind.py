@@ -1761,6 +1761,12 @@ class Mind:
             who = _V.get()       # the person asking, when known (a voice, a person token, Telegram): learned as theirs
             cl.add(time.time(), original, text, conversation_id, None, "home_mind",
                    **({"speaker": who, "how": "ask"} if who else {}))
+        arch = getattr(self, "archivist", None)
+        if arch is not None and store is self.store and not privacy.bulk(question):
+            try:
+                arch.enqueue(original, owner=VIEWER.get(), ts=time.time())
+            except Exception:  # noqa: BLE001 - background ingestion never breaks replies
+                pass
         from .privacy import mask_all
         logged = mask_all(text[:500]) if store.vault_key else text[:500]      # #66: no secret values in the log
         store.log("ask", None, question=question, model=used, ids=[h["id"] for h in hits], answer=logged,

@@ -95,6 +95,7 @@ options:
   paperless_token: ""
   rerank_model: ""
   librarian_model: ""
+  archivist_model: ""
   control_model: ""
   rule_planner: true
   approval_phone: ""
@@ -234,6 +235,7 @@ schema:
   paperless_token: password?
   rerank_model: str?
   librarian_model: str?
+  archivist_model: str?
   control_model: str?
   rule_planner: bool?
   approval_phone: str?

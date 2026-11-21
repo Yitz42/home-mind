@@ -135,6 +135,9 @@ configuration:
   librarian_model:
     name: Memory graph librarian model
     description: Optional small model that routes typed questions to categories and entities in the memory graph before retrieval (not used for voice). Empty = fast built-in SQLite router.
+  archivist_model:
+    name: Memory graph archivist model
+    description: Optional small model that reads your messages in the background after replies are sent and updates the memory graph (Read-Before-Write). Empty = off during chat (nightly Janitor decay and audit still run).
   rule_planner:
     name: Plain commands without a model
     description: Read plain house commands ("kitchen light off", "den lamp to 40%", "lights off and lock up") directly, with no model. Anything it can't read with certainty goes to the models as before.
