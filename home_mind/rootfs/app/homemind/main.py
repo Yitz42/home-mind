@@ -92,7 +92,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
-            "paperless_url": "", "paperless_token": "", "rerank_model": "", "control_model": "", "rule_planner": True,
+            "paperless_url": "", "paperless_token": "", "rerank_model": "", "librarian_model": "", "control_model": "", "rule_planner": True,
             "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
             "compare_suites": ["recall", "tricky", "hard"], "use_preferences": True, "label_url": "",
             "telegram_token": "", "telegram_chats": [], "web_search": "off", "web_search_url": "", "web_search_key": "",
@@ -172,6 +172,7 @@ class App:
     async def on_start(self, _app):
         await self.models.start()
         self.mind.rerank_model = self.opts.get("rerank_model") or None
+        self.mind.librarian_model = self.opts.get("librarian_model") or None
         if self.opts.get("embed_model"):
             from .embeddings import Embeddings
             try:
@@ -302,6 +303,7 @@ class App:
         self.brief = Brief(self)
         from .memgraph import MemGraph
         self.memgraph = MemGraph(st9)
+        self.mind.memgraph = self.memgraph
         from .talk import Talk
         self.talk = Talk(self)          # the panel's conversation: by voice or typing, with choices (talk.py)
         _forget_name = st9.on_forget_name

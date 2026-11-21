@@ -132,6 +132,9 @@ configuration:
   rerank_model:
     name: Re-ranking model
     description: One of your models re-orders the top notes for typed questions before the answer is written (not for voice). Empty = search's own order.
+  librarian_model:
+    name: Memory graph librarian model
+    description: Optional small model that routes typed questions to categories and entities in the memory graph before retrieval (not used for voice). Empty = fast built-in SQLite router.
   rule_planner:
     name: Plain commands without a model
     description: Read plain house commands ("kitchen light off", "den lamp to 40%", "lights off and lock up") directly, with no model. Anything it can't read with certainty goes to the models as before.

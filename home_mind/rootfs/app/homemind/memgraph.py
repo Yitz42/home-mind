@@ -22,6 +22,7 @@ Key design invariants:
 - Multi-person privacy: every node/link/episode/staging row respects owner/scope visibility
   (speakers.visible) and purge_owner().
 """
+import asyncio
 from datetime import datetime, timezone
 import json
 import math
@@ -92,6 +93,82 @@ MAX_DISTINCT_SOURCES = 64
 CATEGORIES = (
     "GENERAL", "FOOD", "HEALTH", "SLEEP", "ACTIVITY", "HOME",
     "LIGHTING", "HABITS", "CAREER", "LOCATION", "RELATIONSHIPS", "PREFERENCES",
+)
+
+# ---- Speed 1 Librarian routing cues (deterministic, sub-5ms, zero VRAM swap) ------------------------------------
+CATEGORY_PATTERNS = {
+    "FOOD": re.compile(
+        r"\b(?:eat|eating|meal|meals|dinner|lunch|breakfast|snack|cook|cooking|recipe|recipes|"
+        r"food|dish|dishes|cuisine|spicy|sweet|savory|sour|flavor|flavour|ingredient|ingredients|"
+        r"restaurant|takeout|coffee|tea|drink|drinks|hungry|craving|taste|tastes|like to eat|"
+        r"chinese|thai|italian|mexican|indian|japanese|sushi|ramen|noodles|chicken|tofu|peanut|peanuts)\b", re.I
+    ),
+    "HEALTH": re.compile(
+        r"\b(?:allerg\w*|intoleran\w*|sensitiv\w*|symptom\w*|headache|migraine|stomach|bloat\w*|"
+        r"medicine|medication|supplement|doctor|health|caffeine|lactose|gluten|dairy|nuts|shellfish)\b", re.I
+    ),
+    "SLEEP": re.compile(
+        r"\b(?:sleep|slept|sleeping|bedtime|wake|woke|nap|insomnia|tired|rested|rem|deep sleep|hours of sleep)\b", re.I
+    ),
+    "ACTIVITY": re.compile(
+        r"\b(?:step|steps|walk|walking|walked|run|running|ran|jog|jogging|workout|exercise|gym|"
+        r"trail|miles|km|cardio|active|activity|cycling|bike|swim)\b", re.I
+    ),
+    "LIGHTING": re.compile(
+        r"\b(?:light|lights|lighting|lamp|lamps|dim|dimmed|dimming|bright|brightness|warm light|cool light|cozy)\b", re.I
+    ),
+    "HOME": re.compile(
+        r"\b(?:thermostat|temperature|hvac|heater|ac|fan|blinds|curtains|living room|bedroom|kitchen|office|house|home)\b", re.I
+    ),
+    "HABITS": re.compile(
+        r"\b(?:habit|habits|routine|routines|usually|normally|typically|every day|everyday|daily|often|always|tend to)\b", re.I
+    ),
+    "CAREER": re.compile(
+        r"\b(?:work|works|working|job|company|employer|office|role|team|boss|coworker|career|commute)\b", re.I
+    ),
+    "LOCATION": re.compile(
+        r"\b(?:live|lives|living|city|town|moved|move|based in|hometown|neighborhood|address|state|country)\b", re.I
+    ),
+    "RELATIONSHIPS": re.compile(
+        r"\b(?:wife|husband|partner|spouse|mom|mother|dad|father|sister|brother|friend|family|kids|son|daughter)\b", re.I
+    ),
+    "PREFERENCES": re.compile(
+        r"\b(?:prefer|prefers|preferred|favorite|favourite|like|likes|dislike|dislikes|hate|hates|avoid|avoids|enjoy|enjoys)\b", re.I
+    ),
+}
+
+CONTEXT_TAG_PATTERNS = (
+    ("weekday", re.compile(r"\b(?:weekday|weekdays|workday|workdays|monday|tuesday|wednesday|thursday|friday)\b", re.I)),
+    ("weekend", re.compile(r"\b(?:weekend|weekends|saturday|sunday)\b", re.I)),
+    ("morning", re.compile(r"\b(?:morning|mornings|am|breakfast|wake)\b", re.I)),
+    ("afternoon", re.compile(r"\b(?:afternoon|afternoons|lunch)\b", re.I)),
+    ("evening", re.compile(r"\b(?:evening|evenings|dinner|tonight|pm)\b", re.I)),
+    ("night", re.compile(r"\b(?:night|nights|bedtime|late)\b", re.I)),
+    ("travel", re.compile(r"\b(?:travel|traveling|travelling|trip|hotel|away|vacation)\b", re.I)),
+    ("trail", re.compile(r"\b(?:trail|trails|mountain|hike|hiking)\b", re.I)),
+    ("living_room", re.compile(r"\bliving\s+room\b", re.I)),
+    ("bedroom", re.compile(r"\bbedroom\b", re.I)),
+    ("kitchen", re.compile(r"\bkitchen\b", re.I)),
+    ("office", re.compile(r"\b(?:home\s+)?office\b", re.I)),
+)
+
+HISTORICAL_Q = re.compile(
+    r"\b(?:used to|before|earlier|previously|last year|remember when|in the past|back when|ever liked|ever had|anymore|formerly)\b",
+    re.I,
+)
+
+LOOP_BACK_STOP = frozenset(
+    "the and for that this with from have what when where which who why how does did are was were "
+    "about into your my our their its his her some any much many like likes know remember tell".split()
+)
+
+LIBRARIAN_SYSTEM = (
+    "You route a user's question to a personal memory graph. "
+    "Pick only matching categories from: " + ", ".join(CATEGORIES) + ". "
+    'Reply with JSON only, no other text: '
+    '{"target_categories": [], "extracted_entities": [], "context_tags": [], '
+    '"temporal_scope": "CURRENT_STATE" or "HISTORICAL"}. '
+    "Keep lists short (0-4 items). If the question is unrelated to personal facts/habits/preferences, return empty lists."
 )
 
 
@@ -1561,6 +1638,354 @@ class MemGraph:
                 tail = f" [CONTESTED{f' vs {prev}' if prev else ''} — verify with user]"
             lines.append(f"({src}) --[{' | '.join(parts)}]--> ({tgt}){tail}")
         return "\n".join(lines)
+
+    # ---- Speed 1 Librarian routing, 1-hop retrieval, and Speed 2 capped loop-back -------------------------------
+    def _parse_json_obj(self, text):
+        if not text:
+            return None
+        s = str(text).strip()
+        m = re.search(r"\{.*\}", s, re.S)
+        if not m:
+            return None
+        try:
+            obj = json.loads(m.group(0))
+            return obj if isinstance(obj, dict) else None
+        except ValueError:
+            return None
+
+    def route_deterministic(self, question, viewer=None):
+        """Sub-5ms deterministic Speed 1 router: extracts categories, known node names/aliases,
+        coarse context_tags, and temporal_scope without any LLM call or VRAM swap."""
+        q = str(question or "")
+        q_norm = " " + re.sub(r"[^a-z0-9]+", " ", q.lower()).strip() + " "
+
+        cats = [cat for cat, rx in CATEGORY_PATTERNS.items() if rx.search(q)]
+        ctx_tags = [tag for tag, rx in CONTEXT_TAG_PATTERNS if rx.search(q)][:MAX_CONTEXT_TAGS]
+        temporal = "HISTORICAL" if HISTORICAL_Q.search(q) else "CURRENT_STATE"
+
+        # Match visible known nodes (canonical_name or alias, len >= 3, excluding generic "user").
+        matched = []
+        rows = self.store.db.execute("SELECT id, canonical_name, aliases, owner, scope FROM mg_nodes").fetchall()
+        for r in rows:
+            if not visible({"scope": r["scope"], "owner": r["owner"]}, viewer):
+                continue
+            names = [r["canonical_name"]] + list(json.loads(r["aliases"] or "[]"))
+            best_len = 0
+            for nm in names:
+                if not nm or nm == "user" or len(nm) < 3:
+                    continue
+                if f" {nm} " in q_norm:
+                    best_len = max(best_len, len(nm))
+            if best_len:
+                matched.append((best_len, r["canonical_name"]))
+        matched.sort(key=lambda x: (-x[0], x[1]))
+        entities = []
+        for _, name in matched:
+            if name not in entities:
+                entities.append(name)
+            if len(entities) >= 6:
+                break
+
+        return {
+            "target_categories": cats[:4],
+            "extracted_entities": entities,
+            "context_tags": normalize_tags(ctx_tags),
+            "temporal_scope": temporal,
+            "source": "deterministic",
+        }
+
+    async def route_with_model(self, question, model, store=None, viewer=None, timeout=4.0):
+        """Optional small-LLM Speed 1 Librarian router (option librarian_model).
+        Masks secrets for cloud models, merges LLM routing with deterministic node matches,
+        and falls back cleanly to route_deterministic() on timeout or bad JSON."""
+        base = self.route_deterministic(question, viewer=viewer)
+        if not model or not question:
+            return base
+        q_send = question
+        if store is not None:
+            from . import privacy as sec
+            from .store import names_in, words
+            if sec.is_cloud(model):
+                q_send = sec.mask(question, store.fix_typos(question), words, names_in)
+        try:
+            r = await asyncio.wait_for(
+                model.chat(LIBRARIAN_SYSTEM, [{"role": "user", "content": q_send}], max_tokens=120, temperature=0),
+                timeout,
+            )
+            plan = self._parse_json_obj(r.get("text") if isinstance(r, dict) else str(r))
+        except Exception:  # noqa: BLE001 - deterministic fallback always keeps answers working
+            return base
+        if not plan:
+            return base
+
+        valid_cats = set(CATEGORIES)
+        cats = list(base["target_categories"])
+        for c in (plan.get("target_categories") or ()):
+            cu = str(c or "").strip().upper()
+            if cu in valid_cats and cu not in cats:
+                cats.append(cu)
+        ents = list(base["extracted_entities"])
+        for e in (plan.get("extracted_entities") or ()):
+            ne = normalize_name(e)
+            if ne and ne != "user" and ne not in ents:
+                ents.append(ne)
+        tags = normalize_tags(list(base["context_tags"]) + list(plan.get("context_tags") or ()))
+        temp = str(plan.get("temporal_scope") or "").upper()
+        if temp not in ("CURRENT_STATE", "HISTORICAL"):
+            temp = base["temporal_scope"]
+        return {
+            "target_categories": cats[:5],
+            "extracted_entities": ents[:8],
+            "context_tags": tags,
+            "temporal_scope": temp,
+            "source": "librarian_model",
+        }
+
+    def _one_hop_links(self, seed_node_ids, viewer=None, include_dormant=False, now=None, limit=8):
+        """Follow 1-hop HAS_ATTRIBUTE/related edges from seed entities to surface relevant user preferences
+        or safety constraints (e.g. 'kung pao chicken' -> 'peanuts' -> ALLERGIC_TO peanuts)."""
+        if not seed_node_ids:
+            return []
+        t = float(self.clock() if now is None else now)
+        qmarks = ",".join("?" for _ in seed_node_ids)
+        rows = self.store.db.execute(
+            f"SELECT * FROM mg_links WHERE (source_id IN ({qmarks}) OR target_id IN ({qmarks})) "
+            "AND relation='HAS_ATTRIBUTE'",
+            list(seed_node_ids) + list(seed_node_ids),
+        ).fetchall()
+        neighbor_names = []
+        seen_ids = set(seed_node_ids)
+        for r in rows:
+            if not visible({"scope": r["scope"], "owner": r["owner"]}, viewer):
+                continue
+            other_id = r["target_id"] if r["source_id"] in seed_node_ids else r["source_id"]
+            if other_id not in seen_ids:
+                seen_ids.add(other_id)
+                n = self.get_node(other_id)
+                if n and n["canonical_name"] != "user":
+                    neighbor_names.append(n["canonical_name"])
+        if not neighbor_names:
+            return []
+        found = self.query(
+            entities=neighbor_names[:8], viewer=viewer,
+            include_dormant=include_dormant, limit=limit, now=t, record_access=False,
+        )
+        # Skip redundant HAS_ATTRIBUTE edges in the 1-hop result; surface actionable preferences/allergies/facts.
+        return [lnk for lnk in found if lnk["relation"] != "HAS_ATTRIBUTE"]
+
+    def retrieve(self, question, *, viewer=None, limit=8, now=None, plan=None,
+                 include_dormant=None, record_access=True):
+        """Speed 1 deterministic graph pull with 1-hop expansion and strict token-budget capping.
+        Returns {'links': [...], 'plan': {...}, 'context': str}."""
+        t = float(self.clock() if now is None else now)
+        plan = plan or self.route_deterministic(question, viewer=viewer)
+        cats = list(plan.get("target_categories") or ())
+        ents = list(plan.get("extracted_entities") or ())
+        ctx_tags = list(plan.get("context_tags") or ())
+        deep = (plan.get("temporal_scope") == "HISTORICAL") if include_dormant is None else bool(include_dormant)
+
+        if not cats and not ents:
+            return {"links": [], "plan": plan, "context": ""}
+
+        collected = {}
+        tiers = {}  # link_id -> precision tier (3 = entity direct, 2 = 1-hop, 1 = category)
+
+        # 1. Direct entity hits (highest precision)
+        if ents:
+            ent_hits = self.query(
+                entities=ents, context_tags=ctx_tags or None, viewer=viewer,
+                include_dormant=deep, limit=limit, now=t, record_access=False,
+            )
+            if not ent_hits and ctx_tags:
+                ent_hits = self.query(
+                    entities=ents, viewer=viewer, include_dormant=deep,
+                    limit=limit, now=t, record_access=False,
+                )
+            for h in ent_hits:
+                if h["relation"] == "HAS_ATTRIBUTE":
+                    continue
+                collected[h["id"]] = h
+                tiers[h["id"]] = 3
+
+            # 2. 1-hop neighbor expansion (e.g. dish -> peanuts -> ALLERGIC_TO peanuts)
+            seed_ids = []
+            for e in ents:
+                n = self.find_node(e, viewer=viewer)
+                if n:
+                    seed_ids.append(n["id"])
+            for h in self._one_hop_links(seed_ids, viewer=viewer, include_dormant=deep, now=t, limit=limit):
+                collected.setdefault(h["id"], h)
+                tiers[h["id"]] = max(tiers.get(h["id"], 0), 2)
+
+        # 3. Category hits (respecting context_tags when present, falling back to untagged if empty)
+        if cats:
+            cat_hits = self.query(
+                categories=cats, context_tags=ctx_tags or None, viewer=viewer,
+                include_dormant=deep, limit=limit, now=t, record_access=False,
+            )
+            if not cat_hits and ctx_tags:
+                cat_hits = self.query(
+                    categories=cats, viewer=viewer, include_dormant=deep,
+                    limit=limit, now=t, record_access=False,
+                )
+            for h in cat_hits:
+                if h["relation"] == "HAS_ATTRIBUTE":
+                    continue
+                collected.setdefault(h["id"], h)
+                tiers[h["id"]] = max(tiers.get(h["id"], 0), 1)
+
+        if not collected:
+            return {"links": [], "plan": plan, "context": ""}
+
+        prio = {STATUS_CONTESTED: 3, STATUS_FACT: 2, STATUS_IDEA: 1, STATUS_THOUGHT: 0}
+        ranked = sorted(
+            collected.values(),
+            key=lambda d: (
+                1 if d["status"] == STATUS_CONTESTED else 0,
+                tiers.get(d["id"], 0),
+                0 if d["dormant"] else 1,
+                prio.get(d["status"], 0),
+                abs(d.get("effective_stability", d["stability_score"])),
+                d["shown_count"],
+                d["last_stated_on"],
+            ),
+            reverse=True,
+        )[:int(limit)]
+
+        if record_access and ranked:
+            ids = [h["id"] for h in ranked]
+            qmarks = ",".join("?" for _ in ids)
+            with self.store.lock:
+                self.store.db.execute(
+                    f"UPDATE mg_links SET access_count = access_count + 1, last_accessed_on=? WHERE id IN ({qmarks})",
+                    [t] + ids,
+                )
+                self.store.db.commit()
+            for h in ranked:
+                h["access_count"] = int(h["access_count"]) + 1
+                h["last_accessed_on"] = t
+
+        return {"links": ranked, "plan": plan, "context": self.format_context(ranked)}
+
+    def loop_back(self, question, *, viewer=None, exclude_ids=(), limit=6, now=None):
+        """Speed 2 capped 1-hop deep recall (dormant + fuzzy node token overlap + category-wide dormant).
+        Called only when Pass 1 produced an 'I don't know' answer on a typed query.
+        Does NOT log to mg_staging until log_loop_back_hit() confirms a genuine true positive."""
+        t = float(self.clock() if now is None else now)
+        skip = {int(i) for i in (exclude_ids or ())}
+        plan = self.route_deterministic(question, viewer=viewer)
+
+        tokens = {
+            w for w in re.findall(r"[a-z0-9]{3,}", str(question or "").lower())
+            if w not in LOOP_BACK_STOP
+        }
+
+        # Fuzzy token match across visible node canonical names & aliases
+        fuzzy_ents = list(plan["extracted_entities"])
+        if tokens:
+            rows = self.store.db.execute("SELECT canonical_name, aliases, owner, scope FROM mg_nodes").fetchall()
+            for r in rows:
+                if not visible({"scope": r["scope"], "owner": r["owner"]}, viewer):
+                    continue
+                if r["canonical_name"] == "user":
+                    continue
+                words_in_node = set(re.findall(r"[a-z0-9]{3,}", r["canonical_name"]))
+                for al in json.loads(r["aliases"] or "[]"):
+                    words_in_node.update(re.findall(r"[a-z0-9]{3,}", al))
+                if tokens & words_in_node and r["canonical_name"] not in fuzzy_ents:
+                    fuzzy_ents.append(r["canonical_name"])
+
+        recovered = {}
+        if fuzzy_ents:
+            for h in self.query(
+                entities=fuzzy_ents[:10], viewer=viewer, include_dormant=True,
+                min_idea_stability=0.0, limit=limit * 2, now=t, record_access=False,
+            ):
+                if h["id"] not in skip and h["relation"] != "HAS_ATTRIBUTE":
+                    recovered[h["id"]] = h
+        if plan["target_categories"]:
+            for h in self.query(
+                categories=plan["target_categories"], viewer=viewer, include_dormant=True,
+                min_idea_stability=0.0, limit=limit * 2, now=t, record_access=False,
+            ):
+                if h["id"] not in skip and h["relation"] != "HAS_ATTRIBUTE":
+                    recovered.setdefault(h["id"], h)
+
+        if not recovered:
+            return {"links": [], "context": ""}
+
+        hits = sorted(
+            recovered.values(),
+            key=lambda d: (
+                1 if d["status"] == STATUS_CONTESTED else 0,
+                1 if d["status"] == STATUS_FACT else 0,
+                abs(d.get("effective_stability", d["stability_score"])),
+                d["evidence_count"],
+                d["last_stated_on"],
+            ),
+            reverse=True,
+        )[:int(limit)]
+
+        ids = [h["id"] for h in hits]
+        qmarks = ",".join("?" for _ in ids)
+        with self.store.lock:
+            self.store.db.execute(
+                f"UPDATE mg_links SET access_count = access_count + 1, last_accessed_on=? WHERE id IN ({qmarks})",
+                [t] + ids,
+            )
+            self.store.db.commit()
+        return {"links": hits, "context": self.format_context(hits)}
+
+    def log_loop_back_hit(self, question, link_ids, *, viewer=None, ts=None):
+        """Log a genuine true-positive Speed 2 loop-back miss into mg_staging for the Overnight Janitor / LoRA flywheel
+        and mark the recovered links as shown."""
+        ids = [int(i) for i in (link_ids or ()) if i is not None]
+        if not ids:
+            return None
+        now = float(self.clock() if ts is None else ts)
+        self.mark_shown(ids, now=now)
+        scope = "personal" if viewer else "household"
+        return self._record_staging(
+            op="LOOP_BACK_HIT",
+            link_id=ids[0],
+            patch={"op": "LOOP_BACK_HIT", "question": str(question or "")[:300], "link_ids": ids},
+            before_state=None,
+            after_state={"recovered_link_ids": ids},
+            confidence=0.65,
+            flag_reasons=["loop_back"],
+            ts=now,
+            owner=viewer or None,
+            scope=scope,
+        )
+
+    def used_links(self, answer_text, links):
+        """Heuristic: which injected graph links actually contributed to the model's answer (for mark_shown)."""
+        if not links or not answer_text:
+            return []
+        ans_low = str(answer_text).lower()
+        ans_words = set(re.findall(r"[a-z0-9]{3,}", ans_low))
+        used = []
+        for lnk in links:
+            tgt = (lnk.get("target_name") or "").lower()
+            src = (lnk.get("source_name") or "").lower()
+            cand_words = {
+                w for w in re.findall(r"[a-z0-9]{3,}", f"{tgt} {'' if src == 'user' else src}")
+                if w not in LOOP_BACK_STOP
+            }
+            if (tgt and tgt in ans_low) or (cand_words and (cand_words & ans_words)):
+                used.append(lnk["id"])
+                continue
+            # Also credit CONTESTED links when the model asks a clarifying question, or numeric baselines matched by value.
+            if lnk.get("status") == STATUS_CONTESTED and "?" in ans_low:
+                used.append(lnk["id"])
+                continue
+            st = lnk.get("stats") or {}
+            if st.get("mean") is not None:
+                m_int = str(int(round(float(st["mean"]))))
+                m_one = f"{float(st['mean']):.1f}"
+                if re.search(rf"\b(?:{re.escape(m_int)}|{re.escape(m_one)})\b", ans_low):
+                    used.append(lnk["id"])
+        return used
 
     # ---- multi-person privacy & purge ---------------------------------------------------------------------------
     def purge_owner(self, owner):
