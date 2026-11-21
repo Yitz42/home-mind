@@ -38,7 +38,7 @@ are in place: a model, the bridge, and a first note.
   password is on the fridge"). Questions about things never filed are answered "nothing in memory matched".
 - **Nothing is controlled** in the house until you choose the control list and switch controls on (next section).
 - Off by default: encryption, off-site backups, Telegram, web lookups, email, the Markdown folder, Homebox and
-  Paperless. On by default and worth a look: *Install new packs automatically*, *Food database* (about 450 MB) and
+  Paperless. On by default and worth a look: *Install new packs automatically*, *Food database* (about 450 MB, with USDA's survey foods for dishes as eaten and portion weights) and
   *Offline Wikipedia* (about 50 GB, downloaded at night): turn those two off if disk space is short.
 
 ## Controlling the house
@@ -154,8 +154,8 @@ Top to bottom:
   food at its date, notes to check, an automation idea, or a door left unlocked while you're away (locking still asks
   your phone). The X puts it aside.
 - **Four tiles**, picked by the time of day and whether you're home: Reminders (from Home Assistant to-do lists with a
-  due date), Bedroom (temperature, humidity, air, devices on), Food (protein and calories against your goals, what to
-  eat first), Calendar (the day as a strip and what's next), and in their moments Last night, Tonight, Tomorrow,
+  due date), Bedroom (temperature, humidity, air, devices on), Food (the two nutrients furthest off for the time of
+  day, out of protein, calories, carbs, fiber, sugar and fat; all six and what to eat first when opened), Calendar (the day as a strip and what's next), and in their moments Last night, Tonight, Tomorrow,
   House and Shopping. On a phone a tap opens the tile as a window over the page (room controls, the shopping list, the
   day's agenda...); on a tablet or computer the tiles are open already.
 
@@ -946,7 +946,7 @@ The answer comes back with `emotion`, the unstyled `plain` text, `persona`, and,
 Settings are on the System page (name, how it addresses you, wit off/low/normal, on/off, SSML), with a **Try** box and the examples. Your Home Assistant voice agent writes some answers itself: paste the **instructions for your voice agent** from that card into the agent's instructions so it sounds the same.
 
 ## Fitness goals (0.28)
-Set goals on the Health tab (or `POST /api/fitness/goals` with any of `weight_target` (lb), `weight_by` (YYYY-MM-DD), `calories`, `protein_g`, `steps`, `workouts_per_week`, `body_fat_target`, `sleep_hours`, `bedtime` (HH:MM); `null` clears one). Progress uses the scale's weigh-ins (a 7-day average and a 28-day trend), the meals you log (protein and calorie estimates) and the watch's steps and sleep.
+Set goals on the Health tab (or `POST /api/fitness/goals` with any of `weight_target` (lb), `weight_by` (YYYY-MM-DD), `calories`, `protein_g`, `carbs_g`, `fiber_g`, `sugar_g`, `fat_g`, `steps`, `workouts_per_week`, `body_fat_target`, `sleep_hours`, `bedtime` (HH:MM); `null` clears one). Progress uses the scale's weigh-ins (a 7-day average and a 28-day trend), the meals you log (estimates of protein, calories, carbs, fiber, sugar and fat) and the watch's steps and sleep.
 
 Log workouts in plain words by voice, chat or `POST /api/fitness/workout`: "squats 3x8 at 185", "deadlift 1x5 @ 275, pull ups 3x10", "ran 3 miles in 28 minutes", "30 min yoga". Kilograms and kilometres are converted. The answer says last time and any new best.
 

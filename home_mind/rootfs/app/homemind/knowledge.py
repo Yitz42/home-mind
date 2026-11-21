@@ -1,9 +1,10 @@
 """Knowledge: reference data kept on the Home Assistant machine, for facts that aren't about the user.
 
 Food (USDA FoodData Central)
-  Foundation Foods and SR Legacy (lab-measured generic foods) and Branded Foods (label data with UPC barcodes for
-  about 400,000 US products) go into knowledge/food.db: per 100 g and per serving - calories, protein, carbs, fat,
-  fiber, sugar, sodium. The pantry and meal logging use it so protein and calories are real numbers, not guesses.
+  Foundation Foods and SR Legacy (lab-measured generic foods), Branded Foods (label data with UPC barcodes for
+  about 400,000 US products) and FNDDS survey foods (foods and mixed dishes as people eat them, "chili with beans",
+  with gram weights for portions like "1 cup") go into knowledge/food.db: per 100 g and per serving - calories,
+  protein, carbs, fat, fiber, sugar, sodium. The pantry and meal logging use it so protein and calories are real numbers, not guesses.
 
 Wikipedia (Kiwix ZIM, English, text only)
   Downloaded once (about 50 GB, resumable, only inside the download window - default overnight), searched with the
@@ -33,7 +34,9 @@ FDC_FILES = {           # newest at the time of writing; refresh() looks for new
     "sr_legacy": "FoodData_Central_sr_legacy_food_csv_2018-04.zip",
     "foundation": "FoodData_Central_foundation_food_csv_2026-10-29.zip",
     "branded": "FoodData_Central_branded_food_csv_2026-10-29.zip",
+    "survey": "FoodData_Central_survey_food_csv_2024-10-31.zip",     # FNDDS: foods and dishes as eaten, portions
 }
+FOOD_VERSION = 2        # 2: FNDDS survey foods and portion weights
 KIWIX_DIR = "https://download.kiwix.org/zim/wikipedia/"
 WIKI_FLAVOUR = "wikipedia_en_all_nopic"
 NUTRIENTS = {           # FoodData Central nutrient ids
@@ -152,14 +155,18 @@ class Knowledge:
 
     # ---- food -----------------------------------------------------------------------------------------------------
     def food_ready(self):
-        return os.path.exists(self.food_path) and self.status.get("food", {}).get("state") == "ready"
+        st = self.status.get("food", {})
+        return os.path.exists(self.food_path) and st.get("state") == "ready" and (st.get("version") or 1) >= FOOD_VERSION
 
     async def build_food(self):
         st = self.status.setdefault("food", {})
+        # a food.db from before FNDDS: add the survey foods to it instead of downloading everything again
+        add = os.path.exists(self.food_path) and st.get("state") == "ready" and (st.get("version") or 1) < FOOD_VERSION
+        files = {"survey": FDC_FILES["survey"]} if add else FDC_FILES
         st["state"] = "downloading"
         self._save()
         paths = {}
-        for k, fn in FDC_FILES.items():
+        for k, fn in files.items():
             dest = os.path.join(self.dir, fn)
             if not os.path.exists(dest):
                 ok = await self._download(FDC + fn, dest, "food_dl")
@@ -170,8 +177,11 @@ class Knowledge:
             paths[k] = dest
         st["state"] = "building"
         self._save()
-        n = await asyncio.to_thread(self._build_food_db, paths)
-        st.update(state="ready", foods=n, built=time.time(), source="USDA FoodData Central "
+        if add:
+            n = (st.get("foods") or 0) + await asyncio.to_thread(self._add_to_food_db, paths)
+        else:
+            n = await asyncio.to_thread(self._build_food_db, paths)
+        st.update(state="ready", foods=n, built=time.time(), version=FOOD_VERSION, source="USDA FoodData Central "
                   + ", ".join(f[:-4].split("_csv_")[-1] for f in FDC_FILES.values()))
         self._save()
         for p in paths.values():          # keep the database, drop the zips
@@ -193,10 +203,32 @@ class Knowledge:
             CREATE VIRTUAL TABLE foods_fts USING fts5(name, brand, content='foods', content_rowid='fdc_id',
               tokenize='porter unicode61');
             CREATE INDEX foods_upc ON foods(upc);""")
+        self._portion_table(db)
         total = 0
         for kind, path in paths.items():
             total += self._load_zip(db, kind, path)
         db.execute("INSERT INTO foods_fts(rowid, name, brand) SELECT fdc_id, name, coalesce(brand, '') FROM foods")
+        db.commit()
+        db.close()
+        os.replace(tmp, self.food_path)
+        return total
+
+    @staticmethod
+    def _portion_table(db):
+        db.execute("CREATE TABLE IF NOT EXISTS portions (fdc_id INTEGER, text TEXT, g REAL)")
+        db.execute("CREATE INDEX IF NOT EXISTS portions_id ON portions(fdc_id)")
+
+    def _add_to_food_db(self, paths):
+        """Load more of FoodData Central into the existing food.db (copied, then swapped in)."""
+        tmp = self.food_path + ".build"
+        shutil.copyfile(self.food_path, tmp)
+        db = sqlite3.connect(tmp)
+        self._portion_table(db)
+        total = 0
+        for kind, path in paths.items():
+            db.execute("DELETE FROM foods WHERE kind=?", (kind,))
+            total += self._load_zip(db, kind, path)
+        db.execute("INSERT INTO foods_fts(foods_fts) VALUES('rebuild')")
         db.commit()
         db.close()
         os.replace(tmp, self.food_path)
@@ -224,6 +256,18 @@ class Knowledge:
                                  upc=(r.get("gtin_upc") or "").lstrip("0") or None,
                                  serving_g=size if unit in ("g", "grm", "ml", "mlt") else None,
                                  serving_text=(r.get("household_serving_fulltext") or "").strip() or None)
+            portions = []
+            if kind != "branded":
+                for r in self._rows(z, "food_portion.csv"):
+                    if r["fdc_id"] not in foods:
+                        continue
+                    g = _num(r.get("gram_weight"))
+                    text = (r.get("portion_description") or "").strip()
+                    if not text or text.lower().startswith("quantity not specified"):
+                        amt = _num(r.get("amount"))
+                        text = " ".join(x for x in ((f"{amt:g}" if amt else ""), (r.get("modifier") or "").strip()) if x)
+                    if g and text and not text.lower().startswith("quantity not specified"):
+                        portions.append((int(r["fdc_id"]), text[:80], g))
             for r in self._rows(z, "food_nutrient.csv"):
                 f = foods.get(r["fdc_id"])
                 col = NUTRIENTS.get(r["nutrient_id"])
@@ -247,6 +291,9 @@ class Knowledge:
         if rows:
             db.executemany("INSERT OR REPLACE INTO foods VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
             n += len(rows)
+        if portions:
+            db.execute("DELETE FROM portions WHERE fdc_id IN (SELECT fdc_id FROM foods WHERE kind=?)", (kind,))
+            db.executemany("INSERT INTO portions VALUES (?,?,?)", portions)
         db.commit()
         return n
 
@@ -277,7 +324,7 @@ class Knowledge:
             hit = sum(1 for w in words if re.search(rf"\b{re.escape(w.rstrip('s') if len(w) > 3 else w)}", text))
             extra = len(re.findall(r"[a-z]+", d["name"].lower())) - hit
             brand_hit = bool(d.get("brand")) and any(w in (d["brand"] or "").lower() for w in words)
-            generic = d["kind"] in ("foundation", "sr_legacy")
+            generic = d["kind"] in ("foundation", "sr_legacy", "survey")
             d["rank"] = (hit * 3 + (4 if brand_hit else 0) + (2 if generic and not brand_hit else 0)
                          - 0.4 * max(extra, 0) - (0.5 if "raw" not in d["name"].lower() and generic and
                                                   "raw" in (name or "").lower() else 0))
@@ -289,13 +336,26 @@ class Knowledge:
             if key not in seen:
                 seen.add(key)
                 uniq.append(d)
-        return [self._portion(d) for d in uniq[:limit]]
+        best = uniq[:limit]
+        if best:
+            db = sqlite3.connect(self.food_path)
+            try:
+                has = db.execute("SELECT 1 FROM sqlite_master WHERE name='portions'").fetchone()
+                for d in best:
+                    d["portions"] = [{"text": t, "g": g} for t, g in db.execute(
+                        "SELECT text, g FROM portions WHERE fdc_id=? ORDER BY g LIMIT 8", (d["fdc_id"],))] if has else []
+            finally:
+                db.close()
+        return [self._portion(d) for d in best]
 
     @staticmethod
     def _portion(d):
         res = {"name": d["name"].title() if d["name"].isupper() else d["name"], "brand": d.get("brand"),
-               "source": {"branded": "label", "foundation": "USDA lab", "sr_legacy": "USDA lab"}[d["kind"]],
+               "source": {"branded": "label", "foundation": "USDA lab", "sr_legacy": "USDA lab",
+                          "survey": "USDA as eaten"}.get(d["kind"], d["kind"]),
                "per_100g": {c: round(d[c], 1) for c in COLS if d.get(c) is not None}}
+        if d.get("portions"):
+            res["portions"] = d["portions"]
         if d.get("serving_g"):
             k = d["serving_g"] / 100
             res["serving"] = {"g": d["serving_g"], "text": d.get("serving_text"),

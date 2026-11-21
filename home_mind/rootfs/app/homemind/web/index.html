@@ -238,6 +238,7 @@
   .hb-f .b { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--mute) } .hb-f .b span { flex:1 } .hb-f .b em { font-style:normal; font-size:11px; font-weight:600; padding:2px 8px; border-radius:99px; background:var(--card2) }
   .hb-f.ed { width:100%; text-align:left; background:none; border:0; border-top:1px solid var(--line); font:inherit; color:inherit; cursor:pointer; border-radius:0 } .hb-f.ed:active { background:var(--card2) } .hb-f .pen { font-style:normal; color:var(--mute); font-size:13px; margin-left:2px }
   .hb-fed { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px } .hb-fed input { width:96px; font-size:17px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink) } .hb-fed button { padding:9px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-weight:600; cursor:pointer } .hb-fed button.p { background:var(--acc); color:#fff; border:0 }
+  .hb-fnote { display:block; font-size:11px; color:var(--mute); margin-top:2px } .hb-fb small { font-size:10px; font-weight:600; opacity:.7; text-transform:uppercase; letter-spacing:.04em }
   .hb-f .b em.low { background:var(--food-bg); color:var(--food-ink) } .hb-f .b em.good { background:var(--house-bg); color:var(--house-ink) }
   .hb-cta { display:flex; gap:8px } .hb-cta button { flex:1; min-height:42px; border-radius:12px; font:inherit; font-size:14px; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--card); color:var(--ink) } .hb-cta button.p { border:0; background:var(--acc); color:#fff }
   .hb-li { display:flex; align-items:center; gap:10px; min-height:44px; border-top:1px solid var(--line); font-size:14px } .hb-li:first-child { border-top:0 } .hb-li .m { flex:1; min-width:0; display:flex; flex-direction:column } .hb-li .m small { color:var(--mute); font-size:12px }
@@ -358,6 +359,10 @@
           <label>by <input id="fg_weight_by" type="date"></label>
           <label>Calories <input id="fg_calories" type="number" style="width:90px"></label>
           <label>Protein (g) <input id="fg_protein_g" type="number" style="width:80px" placeholder="auto"></label>
+          <label>Carbs max (g) <input id="fg_carbs_g" type="number" style="width:80px" placeholder="auto"></label>
+          <label>Fiber (g) <input id="fg_fiber_g" type="number" style="width:70px" placeholder="30"></label>
+          <label>Sugar max (g) <input id="fg_sugar_g" type="number" style="width:70px" placeholder="50"></label>
+          <label>Fat max (g) <input id="fg_fat_g" type="number" style="width:70px" placeholder="auto"></label>
           <label>Steps <input id="fg_steps" type="number" style="width:90px"></label>
           <label>Workouts/week <input id="fg_workouts_per_week" type="number" style="width:60px"></label>
           <label>Body fat % <input id="fg_body_fat_target" type="number" step="0.5" style="width:70px"></label>
@@ -639,7 +644,7 @@ async function loadHealth() {
   loadFitness(); loadPhrasebook(); loadLogs();
   $('#hl_exp').innerHTML = e && e.factor ? `<b style="color:var(--ink)">${esc(e.change || e.factor)}</b><br>${esc(e.start)} to ${esc(e.end)}` : 'None running. One unlocks when a suspect holds up, like keeping the same bedtime within 30 minutes every night.';
 }
-const FG = ['weight_target', 'weight_by', 'calories', 'protein_g', 'steps', 'workouts_per_week', 'body_fat_target', 'sleep_hours', 'bedtime'];
+const FG = ['weight_target', 'weight_by', 'calories', 'protein_g', 'carbs_g', 'fiber_g', 'sugar_g', 'fat_g', 'steps', 'workouts_per_week', 'body_fat_target', 'sleep_hours', 'bedtime'];
 async function loadFitness() {
   const f = await api('api/fitness');
   if (f.error) { $('#ft_lines').innerHTML = `<span class="bad">${esc(f.error)}</span>`; return; }
@@ -1062,12 +1067,27 @@ function hbTiles() {
   }).join('');
 }
 const hbMid = (t1, big, t2, bigColor) => `<div class="mid">${t1 ? `<span class="t1">${esc(t1)}</span>` : ''}<span class="big" style="${bigColor ? 'color:' + bigColor + ';' : ''}${String(big).length > 9 ? 'font-size:22px' : ''}">${esc(big)}</span>${t2 ? `<span class="t2">${esc(t2)}</span>` : ''}</div>`;
-function hbFoodBars(f) {
-  const rows = [];
-  if (f.protein_target_g) rows.push(['Protein', f.protein_g, f.protein_target_g, 'g']);
-  if (f.calorie_target) rows.push(['Calories', f.calories, f.calorie_target, '']);
-  else if (f.calories) rows.push(['Calories', f.calories, null, '']);
-  return rows.map(([l, v, g, u]) => `<div class="hb-fb"><div class="l"><span>${l}</span><b>${Math.round(v).toLocaleString()}<em>${g ? '/' + Math.round(g).toLocaleString() + u : u}</em></b></div>${g ? `<span class="hb-track ${v > g ? 'over' : ''}"><i style="width:${Math.round(Math.min(v / g, 1.25) / 1.25 * 100)}%"></i><u></u></span>` : ''}</div>`).join('');
+const HB_NUT = {protein: ['Protein', 'g'], calories: ['Calories', ''], carbs: ['Carbs', 'g'], fiber: ['Fiber', 'g'], sugar: ['Sugar', 'g'], fat: ['Fat', 'g']};
+function hbFoodRows(f) {
+  const T = f.totals || {protein: f.protein_g, calories: f.calories}, G = f.goals || {};
+  if (!f.goals) { if (f.protein_target_g) G.protein = [f.protein_target_g, 'min']; if (f.calorie_target) G.calories = [f.calorie_target, 'max']; }
+  const h = new Date().getHours() + new Date().getMinutes() / 60, pace = Math.max(0.15, Math.min(1, (h - 7) / 13));   // share of the day's food by now (7 am to 8 pm)
+  const partial = !T.full && (f.meals || []).length;   // no meal has more than protein and calories yet
+  return Object.keys(HB_NUT).filter(k => G[k] && T[k] != null && !(partial && !['protein', 'calories'].includes(k))).map(k => {
+    const [goal, kind] = G[k], v = T[k] || 0, frac = v / goal;
+    const off = kind === 'min' ? pace - frac : (frac > 1 ? 1 + (frac - 1) * 2 : frac - pace);
+    return {k, v, goal, kind, off, over: kind === 'max' && v > goal};
+  });
+}
+const nfmt = x => Math.round(x).toLocaleString();
+function hbFoodBars(f, all) {
+  let rows = hbFoodRows(f);
+  if (!all) {   // the two furthest off; protein first when nothing stands out
+    const pick = rows.slice().sort((a, b) => b.off - a.off).filter(r => r.off > 0.15).slice(0, 2);
+    for (const k of ['protein', 'calories', 'fiber']) if (pick.length < 2) { const r = rows.find(x => x.k === k && !pick.includes(x)); if (r) pick.push(r); }
+    rows = rows.filter(r => pick.includes(r));
+  }
+  return rows.map(r => { const [l, u] = HB_NUT[r.k]; return `<div class="hb-fb"><div class="l"><span>${l}${r.kind === 'max' && r.k !== 'calories' ? ' <small>max</small>' : ''}</span><b>${Math.round(r.v).toLocaleString()}<em>/${Math.round(r.goal).toLocaleString()}${u}</em></b></div><span class="hb-track ${r.over ? 'over' : ''}"><i style="width:${Math.round(Math.min(r.v / r.goal, 1.25) / 1.25 * 100)}%"></i><u></u></span>${all ? `<span class="hb-fnote">${r.kind === 'min' ? (r.v >= r.goal ? 'goal met' : nfmt(r.goal - r.v) + u + ' to go') : r.over ? 'over by ' + nfmt(r.v - r.goal) + u : nfmt(r.goal - r.v) + u + ' left'}</span>` : ''}</div>`; }).join('');
 }
 function hbStrip(evs) {
   const lo = 8, hi = 23, pos = t => { const d = new Date(t * 1000); return Math.max(0, Math.min(100, ((d.getHours() + d.getMinutes() / 60) - lo) / (hi - lo) * 100)); };
@@ -1092,7 +1112,7 @@ function hbTile(k) {
         <a onclick="go('house')">All room controls ›</a>`},
     food: {cls: 'th-food', ink: 'var(--food-ink)', title: {morning: 'Breakfast', evening: 'Dinner'}[hbTod()] || 'Food', meta: HUB.logs.meals + (HUB.logs.meals === 1 ? ' meal' : ' meals'),
       small: () => `<div class="mid" style="gap:8px">${hbFoodBars(F) || `<span class="big">${esc(F.protein_g)} g</span><span class="t2">protein today</span>`}${F.soon[0] ? `<span class="t2" style="color:var(--food-ink);font-weight:600">${esc(F.soon[0].name)}: ${F.soon[0].days < 1 ? 'use today' : Math.round(F.soon[0].days) + ' d'}</span>` : ''}</div>`,
-      big: () => `${hbFoodBars(F)}<div class="hb-cta"><button class="p" style="background:var(--food);color:var(--food-on)" onclick="hbSend('What should I eat now?')">What should I eat?</button><button onclick="hbMode('meal')">Log a meal</button></div>
+      big: () => `${hbFoodBars(F, true)}${F.totals && F.meals.length && F.totals.full < F.meals.length ? `<span class="hb-fnote">${F.meals.length - F.totals.full} of ${F.meals.length} meals have protein and calories only.</span>` : ''}<div class="hb-cta"><button class="p" style="background:var(--food);color:var(--food-on)" onclick="hbSend('What should I eat now?')">What should I eat?</button><button onclick="hbMode('meal')">Log a meal</button></div>
         ${F.soon.length ? `<b style="font-size:13px">Eat first</b>${F.soon.map(s => `<div class="hb-li"><span class="m">${esc(s.name)}</span><b style="color:${s.days < 1 ? 'var(--food-ink)' : 'var(--mute)'}">${s.days < 1 ? 'today' : Math.round(s.days) + ' d'}</b></div>`).join('')}` : ''}
         <b style="font-size:13px">Shopping list</b>${shop.map(s => hbCheck(s.title, '', 'todo.shopping_list', s.uid)).join('') || '<span class="mute">Empty.</span>'}${hbAdd('Add an item', 'todo.shopping_list')}`},
     cal: {cls: '', ink: 'var(--mute)', title: 'Calendar', meta: '',

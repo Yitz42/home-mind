@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.31.4
+- Meals now carry carbs, fiber, sugar and fat as well as protein and calories. The estimate uses the food database,
+  which adds USDA's FNDDS survey foods (dishes as people eat them, such as chili with beans or cheese pizza, with gram
+  weights for "1 cup" or "1 slice"). An existing food database gets the survey foods (about 64 MB) added on its own, without
+  downloading the rest again.
+- The Food tile on Home shows the two nutrients furthest off for the time of day (behind on protein or fiber, ahead
+  on sugar, carbs, fat or calories); opened, it shows all six with what's left. Goals for carbs, fiber, sugar and fat
+  on the Health tab; without them fiber is 30 g, sugar at most 50 g, and carbs and fat follow the calorie goal.
+- Today's meals logged before this are estimated again (`POST /api/pantry/estimate`) so they count too.
+
 ## 0.31.3
 - Readings under Energy, Fog and Ready can be fixed: tap Sleep, HRV, Wakeups or Steps, type the right number and
   Save. A fixed reading is marked "edited", stays over what the watch says, and "Undo edit" puts the watch's back.
