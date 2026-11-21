@@ -126,6 +126,8 @@ check("a day with no sleep offers to add it", len(r1) == 1 and r1[0]["key"] == "
       and r1[0]["edit"], r1)
 check("route /api/day_edit and the inline editor", '"/api/day_edit"' in src and "api/day_edit" in web
       and "function hbFSave" in web)
+check("meal answers render as cards with log and shopping buttons",
+      all(k in web for k in ("function hbMealCard", "hbMealAte(", "hbMealShop(", 'id="hb_meals"', "meals: r.meals")))
 check("close buttons are 44px", ".hb-win-h button { width:44px; height:44px" in web)
 
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")

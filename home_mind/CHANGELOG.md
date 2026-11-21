@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.31.5
+- Meal ideas on Home come as cards instead of a block of text: the name, protein and calories as chips, one line on
+  why, what it uses from the pantry as pills (anything to buy dashed), the steps folded away, and buttons for "I'm
+  making this" (logs it as a meal) and adding what's missing to the shopping list.
+- Food lookups always weigh USDA's lab and as-eaten foods, not just the 400,000 branded products that used to crowd
+  them out ("bowl of chili with beans" finds the dish, not a can of chili beans). The food database's status lists
+  how many foods of each kind it holds and how many portion weights, and the survey foods are loaded again with a
+  reader that copes with a byte-order mark.
+- `tools/convert_recipes.py`: works out per-serving nutrition for a recipe set without it (RecipeNLG) from the food
+  database, and compares the result with a set that has real numbers. For a spare computer, not Home Assistant.
+
 ## 0.31.4
 - Meals now carry carbs, fiber, sugar and fat as well as protein and calories. The estimate uses the food database,
   which adds USDA's FNDDS survey foods (dishes as people eat them, such as chili with beans or cheese pizza, with gram

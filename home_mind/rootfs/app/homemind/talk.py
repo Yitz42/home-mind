@@ -157,6 +157,7 @@ class Talk:
                            "expects": expects, **({"deep": True} if res.get("deep") else {}),
                            **({"pantry": True} if res.get("pantry") else {}),
                            **({"missing": missing} if missing else {}),
+                           **({"meals": res["meals"][:3]} if res.get("meals") else {}),
                            **({"sources": res["sources"]} if res.get("sources") else {}),
                            **({"red_flag": res["red_flag"]} if res.get("red_flag") else {}),
                            **({"quick": res["quick"], "compare_id": res["compare_id"]} if res.get("compare_id")

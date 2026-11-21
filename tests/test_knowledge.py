@@ -119,6 +119,8 @@ async def main():
     assert k.food("cheese pizza slice")[0]["portions"][0]["g"] == 107.0
     assert k.food("canned chickpeas")[0]["name"].startswith("Chickpeas")          # the old foods are still there
     assert k.food_ready()
+    assert k.food_counts() == {"sr_legacy": 3, "branded": 2, "survey": 2, "portions": 2}, k.food_counts()
+    assert k.food("bowl of chili with beans")[0]["source"] == "USDA as eaten"     # 'bowl' isn't in the name
 
     # --- pantry: real numbers in meal ideas ---------------------------------------------------------------------------
     st = Store(tempfile.mktemp())
