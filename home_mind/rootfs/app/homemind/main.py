@@ -300,6 +300,8 @@ class App:
         self.symptoms = Symptoms(st9)
         self.known_issues = KnownIssues(st9)
         self.brief = Brief(self)
+        from .memgraph import MemGraph
+        self.memgraph = MemGraph(st9)
         from .talk import Talk
         self.talk = Talk(self)          # the panel's conversation: by voice or typing, with choices (talk.py)
         _forget_name = st9.on_forget_name
@@ -308,6 +310,7 @@ class App:
             if _forget_name:
                 _forget_name(name)
             self.symptoms.purge_owner(name)
+            self.memgraph.purge_owner(name)
         st9.on_forget_name = _forget_name_too
         # phase 14: experiments and proposals
         from .experiments import Experiments
