@@ -24,6 +24,10 @@ GOALS = {
     "weight_by": (str, None, None),          # YYYY-MM-DD
     "protein_g": (int, 30, 400),             # a day; None = from body weight (1.6 g/kg)
     "calories": (int, 1200, 6000),           # a day
+    "carbs_g": (int, 20, 600),               # a day; None = 45% of the calorie goal
+    "fiber_g": (int, 10, 80),                # a day, at least; None = 30
+    "sugar_g": (int, 10, 300),               # a day, at most; None = 50
+    "fat_g": (int, 20, 300),                 # a day; None = 30% of the calorie goal
     "steps": (int, 500, 50000),              # a day
     "workouts_per_week": (int, 0, 14),
     "body_fat_target": (float, 3, 60),       # %

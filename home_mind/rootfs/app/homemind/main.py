@@ -3578,7 +3578,8 @@ def build(app_state):
                 if ids is not None and not isinstance(ids, list):
                     raise ValueError("ids should be a list of meal ids")
                 ids = [whole(i, "ids") for i in ids] if ids else \
-                    [r["id"] for r in (await today.build(A))["meals"] if r.get("protein_g") is None]
+                    [r["id"] for r in (await today.build(A))["meals"]
+                     if r.get("protein_g") is None or r.get("fiber_g") is None]
                 return J({"estimated": [x for x in [await A.pantry.estimate(i) for i in ids] if x]})
             if op in ("used", "tossed"):
                 names = [n for n, _ in A.pantry.parse_list(b["text"])] if b.get("text") else [b["name"]]

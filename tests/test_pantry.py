@@ -127,8 +127,9 @@ async def main():
         type, cfg = "mock", {}
 
         async def chat(self, system, msgs, **k):
-            Est.prompt = msgs[0]["content"]
-            return {"text": '{"protein_g": 24.6, "calories": 410}', "ms": 1}
+            Est.prompt, Est.system = msgs[0]["content"], system
+            return {"text": '{"protein_g": 24.6, "calories": 410, "carbs_g": 52.4, "fiber_g": 9, "sugar_g": 4, '
+                            '"fat_g": 8, "junk": 1}', "ms": 1}
     models.models["haiku"] = Est()
     models.get = lambda n: models.models["haiku"]
     p.add("Bumble Bee tuna", "2 cans", "pantry")
@@ -139,7 +140,9 @@ async def main():
     lg = p.ate("lunch: tuna and chickpea penne")          # now: always today
     assert lg["id"], lg
     e = await p.estimate(lg["id"])
-    assert e == {"id": lg["id"], "protein_g": 25, "calories": 410}, e
+    assert e == {"id": lg["id"], "protein_g": 25, "calories": 410, "carbs_g": 52, "fiber_g": 9, "sugar_g": 4,
+                 "fat_g": 8}, e
+    assert "fiber_g" in Est.system
     assert "Bumble Bee tuna" in Est.prompt, Est.prompt
     class _M:
         store = st
@@ -149,6 +152,14 @@ async def main():
     day = await today.build(_A)
     mine = [m for m in day["meals"] if m["id"] == lg["id"]][0]
     assert mine["protein_g"] == 25 and mine["estimated"] and day["protein_g"] >= 25, day
+    assert mine["fiber_g"] == 9 and mine["carbs_g"] == 52
+    from homemind import hub
+    tot = hub.food_totals({"meals": [mine, {"protein_g": 10, "calories": 200}], "protein_g": 35})
+    assert tot == {"protein": 35, "calories": 610, "carbs": 52, "fiber": 9, "sugar": 4, "fat": 8, "full": 1}, tot
+    gl = hub.food_goals({"calories": 2000}, 120)
+    assert gl["fiber"] == [30, "min"] and gl["sugar"] == [50, "max"] and gl["carbs"] == [225, "max"] \
+        and gl["fat"] == [67, "max"] and gl["protein"] == [120, "min"], gl
+    assert set(hub.food_goals({}, None)) == {"fiber", "sugar"}
     Est.chat = lambda self, *a, **k: asyncio.sleep(0, {"text": "no idea", "ms": 1})
     assert await p.estimate(p.ate("snack: something")["id"]) is None     # a bad reply saves nothing
     assert meal_time("8am", _dt(2026, 11, 16, 13)) == _dt(2026, 11, 16, 8).timestamp()

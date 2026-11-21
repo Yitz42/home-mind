@@ -107,6 +107,31 @@ def factors_for(rows, live, today):
     return out
 
 
+NUTRIENTS = (("protein", "protein_g"), ("carbs", "carbs_g"), ("fiber", "fiber_g"), ("sugar", "sugar_g"),
+             ("fat", "fat_g"))
+
+
+def food_totals(t):
+    """Today's grams of each nutrient over the meals that have it, and how many meals have the full set."""
+    meals = t.get("meals") or []
+    out = {"protein": round(t.get("protein_g") or 0), "calories": round(sum(m.get("calories") or 0 for m in meals))}
+    for name, key in NUTRIENTS[1:]:
+        out[name] = round(sum(m.get(key) or 0 for m in meals))
+    out["full"] = sum(1 for m in meals if m.get("fiber_g") is not None)
+    return out
+
+
+def food_goals(g, protein_target):
+    """{nutrient: [goal, 'min' | 'max']}: what the person set, else defaults (fiber 30, sugar 50, the rest from calories)."""
+    cal = g.get("calories") or g.get("kcal")
+    out = {"protein": [protein_target, "min"] if protein_target else None,
+           "calories": [cal, "max"] if cal else None,
+           "fiber": [g.get("fiber_g") or 30, "min"], "sugar": [g.get("sugar_g") or 50, "max"],
+           "carbs": [g.get("carbs_g") or (round(cal * 0.45 / 4) if cal else None), "max"],
+           "fat": [g.get("fat_g") or (round(cal * 0.30 / 9) if cal else None), "max"]}
+    return {k: v for k, v in out.items() if v and v[0]}
+
+
 async def _todo(ha, entity, status="needs_action"):
     try:
         r = await ha.post_json("services/todo/get_items?return_response", {"entity_id": entity, "status": status},
@@ -297,6 +322,7 @@ async def build(A, now=None):
         "food": {"protein_g": round(t.get("protein_g") or 0), "protein_target_g": t.get("protein_target_g"),
                  "calories": round(sum(m.get("calories") or 0 for m in t.get("meals") or [])),
                  "meals": t.get("meals") or [], "soon": (t.get("soon") or [])[:6],
+                 "totals": food_totals(t), "goals": food_goals({}, t.get("protein_target_g")),
                  "expired": len(t.get("expired") or [])},
         "reminders": [], "shopping": [], "calendar": calendar(A, now), "house": hs,
         "outside": t.get("outside"), "review": t.get("review") or 0,
@@ -306,6 +332,7 @@ async def build(A, now=None):
         try:
             g = fit.goals() or {}
             out["food"]["calorie_target"] = g.get("calories") or g.get("kcal")
+            out["food"]["goals"] = food_goals(g, out["food"].get("protein_target_g"))
         except Exception:  # noqa: BLE001
             pass
     if ha:

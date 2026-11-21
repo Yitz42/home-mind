@@ -95,6 +95,31 @@ async def main():
     assert k.by_upc("72655000123")["brand"] == "HEALTHY CHOICE"
     assert k.food("") == [] and k.food("the of") == []
 
+    # --- FNDDS survey foods added to an existing food.db, with portions -----------------------------------------------
+    from homemind.knowledge import FOOD_VERSION
+    assert not k.food_ready()                                   # a version-1 db wants the survey foods
+    sv = os.path.join(kd, "sv.zip")
+    make_zip(sv, {
+        "food.csv": [("fdc_id", "data_type", "description"), ("20", "survey_fndds_food", "Chili con carne with beans"),
+                     ("21", "survey_fndds_food", "Pizza, cheese, from restaurant or fast food, medium crust")],
+        "food_nutrient.csv": [("id", "fdc_id", "nutrient_id", "amount"), ("1", "20", "1003", "8.1"), ("2", "20", "1008", "110"),
+                              ("3", "20", "1005", "9.6"), ("4", "20", "1079", "3.2"), ("5", "20", "2000", "2.1"),
+                              ("6", "21", "1003", "10.4"), ("7", "21", "1008", "266")],
+        "food_portion.csv": [("id", "fdc_id", "seq_num", "amount", "measure_unit_id", "portion_description", "modifier",
+                              "gram_weight"),
+                             ("1", "20", "1", "", "9999", "1 cup", "", "253"),
+                             ("2", "20", "2", "", "9999", "Quantity not specified", "", "380"),
+                             ("3", "21", "1", "", "9999", "1 slice", "", "107")],
+    })
+    assert k._add_to_food_db({"survey": sv}) == 2
+    k.status["food"] = {"state": "ready", "version": FOOD_VERSION}
+    ch = k.food("bowl of chili with beans")[0]
+    assert ch["source"] == "USDA as eaten" and ch["per_100g"]["fiber"] == 3.2, ch
+    assert {"text": "1 cup", "g": 253.0} in ch["portions"] and all("Quantity" not in p["text"] for p in ch["portions"])
+    assert k.food("cheese pizza slice")[0]["portions"][0]["g"] == 107.0
+    assert k.food("canned chickpeas")[0]["name"].startswith("Chickpeas")          # the old foods are still there
+    assert k.food_ready()
+
     # --- pantry: real numbers in meal ideas ---------------------------------------------------------------------------
     st = Store(tempfile.mktemp())
     pan = Pantry(st, None, None, tempfile.mkdtemp())

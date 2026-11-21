@@ -97,6 +97,7 @@ async def build(A, now=None):
         g = float(m.group(1)) if m else meta.get("protein_g")
         out["meals"].append({"id": r["id"], "title": re.sub(r"^Ate:\s*", "", r["title"] or ""), "protein_g": g,
                              "calories": meta.get("calories"), "estimated": bool(meta.get("estimated")),
+                             **{k: meta.get(k) for k in ("carbs_g", "fiber_g", "sugar_g", "fat_g")},
                              "at": r["created"]})
         out["protein_g"] += g or 0
     for r in st.db.execute("SELECT id, title, source, shelf, meta, created FROM items WHERE created >= ? AND status='active' "

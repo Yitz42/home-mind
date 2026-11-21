@@ -23,6 +23,14 @@ from datetime import datetime, timedelta
 
 from . import nutrition
 
+
+def _f(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
 log = logging.getLogger("homemind.pantry")
 
 # typical days until use, by where it's kept: (fridge, freezer, pantry). Rough, on the safe side.
@@ -290,7 +298,10 @@ class Pantry:
         else:
             return ""
         kcal = f", {vals['kcal']:.0f} kcal" if vals.get("kcal") is not None else ""
-        return f" [{src} match '{n['name']}': {vals['protein']} g protein{kcal} {per}]"
+        more = "".join(f", {vals[c]} g {c}" for c in ("carbs", "fiber", "sugar", "fat") if vals.get(c) is not None)
+        por = n.get("portions") or []
+        por = "; portions: " + ", ".join(f"{x['text']} = {x['g']:g} g" for x in por[:3]) if por else ""
+        return f" [{src} match '{n['name']}': {vals['protein']} g protein{kcal}{more} {per}{por}]"
 
     def ate(self, text, when=None, source="api"):
         """Log what was eaten or drunk (for the fog patterns: how late, caffeine). Doesn't change the pantry."""
@@ -336,9 +347,10 @@ class Pantry:
         if not model:
             return None
         r = await self.models.get(model).chat(
-            "Estimate the protein (grams) and calories in what someone ate. Use the nutrition given in [brackets] "
-            "when it fits the food, scaled to the amount eaten; otherwise use typical values for a normal portion. "
-            "Reply with JSON only: {\"protein_g\": number, \"calories\": number}",
+            "Estimate the nutrition in what someone ate. Use the nutrition given in [brackets] when it fits the food, "
+            "scaled to the amount eaten (portion weights are given where known); otherwise use typical values for a "
+            "normal portion. Reply with JSON only: {\"protein_g\": number, \"calories\": number, \"carbs_g\": "
+            "number, \"fiber_g\": number, \"sugar_g\": number, \"fat_g\": number}",
             [{"role": "user", "content": f"Ate: {text}\nWhat we know:\n{self.meal_hints(text)}"}],
             max_tokens=200, temperature=0)
         m = re.search(r"\{.*?\}", r.get("text") or "", re.S)
@@ -350,10 +362,17 @@ class Pantry:
         if not (0 <= p <= 200 and 0 <= c <= 4000):
             return None
         meta = json.loads(row["meta"] or "{}") if isinstance(row["meta"], str) else dict(row["meta"] or {})
-        meta.update(protein_g=round(p), calories=round(c), estimated=True)
+        more = {}
+        for k, hi in (("carbs_g", 600), ("fiber_g", 100), ("sugar_g", 300), ("fat_g", 300)):
+            v = _f(est.get(k))
+            if v is not None and 0 <= v <= hi:
+                more[k] = round(v)
+        if meta.get("protein_g") is not None and not meta.get("estimated"):
+            p = meta["protein_g"]           # a number the person gave stays
+        meta.update(protein_g=round(p), calories=round(c), estimated=True, **more)
         self.store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), int(iid)))
         self.store.db.commit()
-        return {"id": int(iid), "protein_g": round(p), "calories": round(c)}
+        return {"id": int(iid), "protein_g": round(p), "calories": round(c), **more}
 
     def remove(self, iid):
         """Delete a line entered by mistake (used or tossed keep a record; this doesn't)."""
