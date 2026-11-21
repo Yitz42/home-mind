@@ -16,6 +16,7 @@ The room, the devices and the weather come from /api/controls (home_ctrl.py), wh
 Every part is optional: a missing sensor, list or calendar leaves its field empty.
 """
 import logging
+import re
 import statistics as stats
 import time
 from datetime import datetime, timedelta
@@ -142,6 +143,16 @@ async def shopping(ha):
     return [{"title": it.get("summary") or "", "uid": it.get("uid")} for it in await _todo(ha, SHOPPING)][:20]
 
 
+DATED = re.compile(r"\s*\((?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day \w+ \d{1,2},? \d{4}\)\s*$")
+
+
+def clean_title(t):
+    """Calendar notes are filed with the date in the title ("Stop the Bleed (Saturday Nov 21 2026)"); the tiles show
+    the event's name."""
+    t = DATED.sub("", str(t or "")).strip()
+    return "Busy" if not t or t.lower() == "(no title)" else t
+
+
 def calendar(A, now):
     cal = getattr(A, "calendars", None)
     if cal is None:
@@ -158,7 +169,8 @@ def calendar(A, now):
                     en = datetime.fromisoformat(m["end"]).timestamp() if m.get("end") else s + 3600
                 except (KeyError, ValueError):
                     continue
-                evs.append({"title": e.get("title") or "", "start": s, "end": en, "all_day": bool(m.get("all_day"))})
+                evs.append({"title": clean_title(e.get("title")), "start": s, "end": en,
+                            "all_day": bool(m.get("all_day"))})
         except Exception:  # noqa: BLE001
             log.info("calendar for the Home screen", exc_info=True)
         out[name] = evs

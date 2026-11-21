@@ -253,7 +253,12 @@
   .hb-seg { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:4px; border-radius:12px; background:var(--card2) } .hb-seg button { min-height:40px; border-radius:9px; border:0; background:none; color:var(--mute); font:inherit; font-weight:600; cursor:pointer } .hb-seg button.on { background:var(--card); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.1) }
   .hb-tags { display:flex; flex-wrap:wrap; gap:8px } .hb-tags button { min-height:36px; padding:0 13px; border-radius:99px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-size:13px; cursor:pointer } .hb-tags button.on { background:var(--health); color:var(--health-on); border-color:var(--health); font-weight:600 }
   .hb-fog { width:100%; accent-color:var(--health); min-height:0; padding:0 }
-  @media (max-width: 640px) { .hb-detail { display:none !important } }
+  @media (max-width: 640px) {
+    .hb-detail { display:none !important }
+    .hub { display:flex; flex-direction:column; min-height:calc(100dvh - 96px) }   /* the tiles take whatever height is left */
+    .hb-cols { flex:1 } .hb-right { flex:1; display:flex; flex-direction:column; min-height:330px }
+    .hb-tiles { flex:1; grid-template-rows:repeat(2, minmax(150px, 1fr)) } .hb-tile { min-height:0 }
+  }
   @media (min-width: 641px) {
     .hb-tile { min-height:330px; cursor:default } .hb-win { display:none !important } .hb-tabs.open button:not(.on) { height:42px; align-self:auto; background:var(--card) }
     .hb-detail { display:flex; flex-direction:column; gap:10px; padding:14px 16px; background:var(--card); border:1px solid var(--mem-line); border-radius:0 20px 20px 20px; margin-top:-1px }
@@ -1025,8 +1030,9 @@ const HB_PICK = {away: ['house', 'shop', 'cal', 'rem', 'food'], morning: ['cal',
 function hbPick() {
   const ok = k => k === 'rem' ? HUB.reminders.length > 0 : k === 'house' ? HUB.house.items.length > 0 : k === 'room' || k === 'tonight' ? !!HC && HUB.place !== 'away' : true;
   const out = (HUB.place === 'away' ? HB_PICK.away : HB_PICK[hbTod()]).filter(ok);
-  ['shop', 'cal', 'food', 'rem'].forEach(k => { if (out.length < 4 && !out.includes(k) && ok(k)) out.push(k); });
-  return out.slice(0, 4);
+  const more = k => k === 'room' ? !!HC : k === 'sleep' ? HUB.status.readiness.series.some(v => v != null) : k === 'tomorrow' ? (HUB.calendar.tomorrow || []).length > 0 : ok(k);
+  ['food', 'cal', 'shop', 'room', 'sleep', 'tomorrow', 'rem'].forEach(k => { if (out.length < 4 && !out.includes(k) && more(k)) out.push(k); });
+  return out.slice(0, 4);   // always four when there's anything to show
 }
 function hbTiles() {
   $('#hb_tiles').innerHTML = hbPick().map(k => {
@@ -1064,7 +1070,7 @@ function hbTile(k) {
         <div class="hb-scenes">${[['bedtime', 'Bedtime'], ['wake', 'Wake'], ['focus', 'Focus'], ['alloff', 'All off']].map(([s, l]) => `<button onclick="hbScene(${jsq(s)})">${l}</button>`).join('')}</div>
         <div class="hb-devs">${devs.map(d => `<button class="${d.on ? 'on' : ''}" aria-pressed="${!!d.on}" ${d.available ? '' : 'disabled'} onclick="hbDev(${jsq(d.id)})"><b>${esc(d.name)}</b><span>${!d.available ? 'unavailable' : d.on ? (d.kind === 'climate' ? 'heat to ' + nf(d.level) + '°' : d.kind === 'light' ? nf(d.level) + '%' : 'on') : 'off'}</span></button>`).join('')}</div>
         <a onclick="go('house')">All room controls ›</a>`},
-    food: {cls: 'th-food', ink: 'var(--food-ink)', title: {morning: 'Breakfast', evening: 'Dinner'}[hbTod()] || 'Food', meta: HUB.logs.meals + ' meals',
+    food: {cls: 'th-food', ink: 'var(--food-ink)', title: {morning: 'Breakfast', evening: 'Dinner'}[hbTod()] || 'Food', meta: HUB.logs.meals + (HUB.logs.meals === 1 ? ' meal' : ' meals'),
       small: () => `<div class="mid" style="gap:8px">${hbFoodBars(F) || `<span class="big">${esc(F.protein_g)} g</span><span class="t2">protein today</span>`}${F.soon[0] ? `<span class="t2" style="color:var(--food-ink);font-weight:600">${esc(F.soon[0].name)}: ${F.soon[0].days < 1 ? 'use today' : Math.round(F.soon[0].days) + ' d'}</span>` : ''}</div>`,
       big: () => `${hbFoodBars(F)}<div class="hb-cta"><button class="p" style="background:var(--food);color:var(--food-on)" onclick="hbSend('What should I eat now?')">What should I eat?</button><button onclick="hbMode('meal')">Log a meal</button></div>
         ${F.soon.length ? `<b style="font-size:13px">Eat first</b>${F.soon.map(s => `<div class="hb-li"><span class="m">${esc(s.name)}</span><b style="color:${s.days < 1 ? 'var(--food-ink)' : 'var(--mute)'}">${s.days < 1 ? 'today' : Math.round(s.days) + ' d'}</b></div>`).join('')}` : ''}

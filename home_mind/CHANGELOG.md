@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.31.2
+- Home always shows four tiles: when the usual ones have nothing to show (no to-do list with due dates, no locks),
+  Bedroom, Last night or Tomorrow fill in. On a phone the tiles grow to fill the screen below the status tabs.
+- Calendar titles on Home drop the date filed with them ("Stop the Bleed", not "Stop the Bleed (Saturday Nov 21
+  2026)"); untitled events show as Busy. "1 meal", not "1 meals".
+
 ## 0.31.1
 Better answers from the Home bar, meal ideas wired to your pantry, multi-turn conversation history, and Home Ask bar UX improvements.
 - **Meal & recipe ideas from the ask bar and voice** (`pantry.py`, `main.py`): questions like "What can I make with the large eggs?" (including the Home screen's **Meal idea** button) now route to `Pantry.suggest()` using what's in stock, expiry dates, goals, and today's energy, formatted for screen or voice. Pantry inventory is also injected into `Mind.context_for()` for food and fridge questions.
