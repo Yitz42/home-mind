@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.31.7
+- USDA's as-eaten foods (FNDDS) load at last: that release writes the older SR nutrient numbers (208 for energy, 203
+  for protein) in place of ids, and those are now read too. File names inside USDA's zips are matched without regard
+  to folder or capital letters, and the load report lists each zip's files.
+
 ## 0.31.6
 - The food database now really loads USDA's as-eaten (FNDDS) and Foundation foods: their nutrients are matched
   through the release's own nutrient list (by id, or by the older SR number) instead of fixed ids only, so a release

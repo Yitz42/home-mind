@@ -135,6 +135,14 @@ async def main():
     assert k._add_to_food_db({"survey2": odd}) == 1
     oat = k.food("oatmeal made with water")[0]
     assert oat["per_100g"] == {"kcal": 71.0, "protein": 2.5, "fiber": 1.7}, oat
+    sr_nbr = os.path.join(kd, "nbr.zip")             # FNDDS 2021-2023 writes the SR numbers in food_nutrient.csv
+    make_zip(sr_nbr, {
+        "Folder/Food.csv": [("fdc_id", "data_type", "description"), ("40", "survey_fndds_food", "Lentil soup, home made")],
+        "Folder/food_nutrient.csv": [("id", "fdc_id", "nutrient_id", "amount"), ("1", "40", "208", "62"),
+                                     ("2", "40", "203", "3.9"), ("3", "40", "291", "2.4"), ("4", "40", "269", "1.1")],
+    })
+    assert k._add_to_food_db({"survey3": sr_nbr}) == 1 and "Food.csv" in k.load_report["survey3"]["files"][0]
+    assert k.food("lentil soup")[0]["per_100g"] == {"kcal": 62.0, "protein": 3.9, "fiber": 2.4, "sugar": 1.1}
 
     # --- pantry: real numbers in meal ideas ---------------------------------------------------------------------------
     st = Store(tempfile.mktemp())
