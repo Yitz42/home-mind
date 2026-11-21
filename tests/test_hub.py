@@ -97,6 +97,11 @@ A.home.catalog["person.yitz"]["state"] = "home"
 h3 = asyncio.run(hub.build(A, noon))
 check("at home the open door isn't nagged about", not any(n["id"].startswith("open:") for n in h3["needs"]))
 
+check("calendar titles lose the filed date", hub.clean_title("Stop the Bleed (Saturday Nov 21 2026)") == "Stop the Bleed"
+      and hub.clean_title("(no title) (Saturday Nov 21 2026)") == "Busy")
+web0 = open(os.path.join(os.path.dirname(hub.__file__), "web", "index.html")).read()
+check("tiles fall back to fill four (room, last night, tomorrow)", "'room', 'sleep', 'tomorrow'" in web0)
+check("phone tiles take the height that's left", "min-height:calc(100dvh - 96px)" in web0)
 src = open(os.path.join(os.path.dirname(hub.__file__), "main.py")).read()
 for route in ('"/api/hub"', '"/api/checkins"', '"/api/log"', '"/api/todo"'):
     check(f"route {route}", route in src)
