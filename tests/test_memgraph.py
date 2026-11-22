@@ -1084,6 +1084,68 @@ def test_live_sensor_inputs():
           len(w_alice) == 1 and abs(w_alice[0]["stats"]["mean"] - 28.0) < 0.1 and len(w_bob) == 0)
 
 
+# ---- 15. Brain Graph visualizer snapshot, note links overlay, and confirm/forget/delete edits -------------------
+def test_brain_graph_snapshot_and_edits():
+    st, g, now = make_graph()
+    r1 = g.observe("user", "ALLERGIC_TO", "peanuts", category="HEALTH", owner="Alice", scope="personal",
+                   quote="I am allergic to peanuts; pin 4417", ts=T0)
+    r2 = g.observe("user", "DISLIKES", "olives", category="FOOD", scope="household",
+                   quote="Never put olives on pizza", ts=T0)
+    r3 = g.observe("user", "LIKES", "ramen", category="FOOD", evidence="inferred", owner="Alice", scope="personal",
+                   ts=T0)
+    # Add two linked regular notes + one secret linked note to test include_notes=True privacy
+    n_a = st.remember("Replace every 3 months", title="Furnace filter", shelf="home/hvac")
+    n_b = st.remember("16x25x1 MERV 11 filter", title="HVAC manual", shelf="home/hvac")
+    n_sec = st.remember("Code is 9988", title="Alarm PIN", shelf="home/security", meta={"secret": True})
+    with st.lock:
+        st.db.execute("INSERT INTO links(a, b, kind) VALUES (?,?,?)", (n_a["id"], n_b["id"], "related"))
+        st.db.execute("INSERT INTO links(a, b, kind) VALUES (?,?,?)", (n_a["id"], n_sec["id"], "related"))
+        st.db.commit()
+
+    # Viewer privacy + display_relation + secret scrubbing on episodes + note overlay
+    snap_a = g.snapshot(viewer="Alice", include_dormant=True, include_notes=True, now=T0)
+    snap_b = g.snapshot(viewer="Bob", include_dormant=True, include_notes=True, now=T0)
+    a_targets = {l["target_name"] for l in snap_a["links"] if l["kind"] == "graph"}
+    b_targets = {l["target_name"] for l in snap_b["links"] if l["kind"] == "graph"}
+    check("Brain Graph snapshot respects personal privacy (Alice sees peanuts/ramen, Bob sees olives only)",
+          {"peanuts", "olives", "ramen"} <= a_targets and b_targets == {"olives"}, (a_targets, b_targets))
+
+    olives_lnk = next(l for l in snap_a["links"] if l["target_name"] == "olives")
+    peanuts_lnk = next(l for l in snap_a["links"] if l["target_name"] == "peanuts")
+    check("Brain Graph snapshot renders signed negative LIKES as DISLIKES and scrubs secret quotes",
+          olives_lnk["display_relation"] == "DISLIKES"
+          and "4417" not in str(peanuts_lnk.get("episodes")), (olives_lnk, peanuts_lnk))
+
+    note_links = [l for l in snap_a["links"] if l["kind"] == "note"]
+    check("Brain Graph include_notes overlays non-secret note links and hides secret notes",
+          len(note_links) == 1 and "Alarm PIN" not in str(note_links), note_links)
+
+    # Confirm inferred THOUGHT -> promotes to FACT
+    ramen_id = r3["link"]["id"]
+    conf = g.confirm_link(ramen_id, viewer="Alice", now=T0 + 3600)
+    check("confirm_link promotes inferred link to FACT with high stability",
+          conf["status"] == STATUS_FACT and conf["stability_score"] >= 0.9 and not conf["dormant"], conf)
+
+    # Bob cannot confirm or forget Alice's personal link; guest cannot edit any link
+    for fn, exc_t, label in (
+        (lambda: g.confirm_link(ramen_id, viewer="Bob"), KeyError, "cross-person confirm blocked"),
+        (lambda: g.forget_link(r2["link"]["id"], viewer=""), PermissionError, "guest forget blocked"),
+    ):
+        try:
+            fn()
+            check(label, False)
+        except exc_t:
+            check(label, True)
+
+    # Soft hide (dormant) + hard delete
+    hid = g.forget_link(ramen_id, viewer="Alice", delete=False, now=T0 + 7200)
+    check("forget_link(delete=False) marks link dormant", hid["dormant"] is True and hid["stability_score"] == 0.0, hid)
+    dres = g.forget_link(ramen_id, viewer="Alice", delete=True, now=T0 + 7200)
+    snap_after = g.snapshot(viewer="Alice", include_dormant=True, now=T0 + 7200)
+    check("forget_link(delete=True) permanently removes link",
+          dres.get("deleted") is True and all(l["target_name"] != "ramen" for l in snap_after["links"]))
+
+
 if __name__ == "__main__":
     for fn in (
         test_math,
@@ -1100,6 +1162,7 @@ if __name__ == "__main__":
         test_archivist_janitor_and_flywheel,
         test_live_sensor_inputs,
         test_overnight_archivist_and_pantry_prefs,
+        test_brain_graph_snapshot_and_edits,
     ):
         fn()
     print(f"\n{'PASS' if not FAILS else f'FAIL ({len(FAILS)})'}")

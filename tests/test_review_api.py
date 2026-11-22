@@ -273,6 +273,8 @@ ROUTES = [
     ("GET", "/api/connections", []),
     ("POST", "/api/email/check", []),
     ("GET", "/api/preferences", []),
+    ("GET", "/api/memgraph/graph", ["dormant", "category", "notes", "limit"]),
+    ("POST", "/api/memgraph/link/{id}/{op}", []),
     ("GET", "/api/control_model/dataset", ["part", "paraphrase"]),
     ("GET", "/api/thing", ["name"]),
     ("GET", "/api/label", ["text", "name", "base", "scale"]),
@@ -367,6 +369,8 @@ def paths_for(path):
                      ("/api/fitness/{op}", "fitness_op"), ("/api/phrasebook/{op}", "phrasebook_op")):
         if path == key:
             return [key.replace("{op}", o) for o in OPS[opk]]
+    if path == "/api/memgraph/link/{id}/{op}":
+        return [f"/api/memgraph/link/1/{op}" for op in ("confirm", "forget", "delete", "nope")] + [f"/api/memgraph/link/{i}/confirm" for i in BAD_PATH["id"]]
     if path == "/api/house/suggestion/{sid}/{op}":
         return [f"/api/house/suggestion/{s}/{o}" for s in ["1"] + BAD_PATH["sid"] for o in OPS["suggestion_op"]]
     if path == "/api/control/run/{action}":
