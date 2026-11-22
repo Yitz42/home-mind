@@ -949,9 +949,11 @@ async function hbSend(text, spoken) {
   if (r.error && !r.answer) return hbAnswer(r.error, [], {q: v});
   const now = Date.now() / 1000;
   HB.turns.push({who: 'you', text: v, at: now}, {who: 'home mind', text: r.answer || '', at: now, choices: r.choices,
-    sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, pantry: r.pantry, deep: r.deep, meals: r.meals});
+    sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, pantry: r.pantry, deep: r.deep,
+    meals: r.meals, automation_draft: r.automation_draft});
   if (HB.turns.length > 100) HB.turns = HB.turns.slice(-100);
-  hbAnswer(r.answer, r.choices, {q: v, sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id, meals: r.meals});
+  hbAnswer(r.answer, r.choices, {q: v, sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id,
+    meals: r.meals, automation_draft: r.automation_draft});
   if (spoken && r.answer && window.speechSynthesis) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(r.answer)); }
   if (r.via === 'do' || r.checkin) setTimeout(hubLoad, 900);
 }
@@ -985,7 +987,8 @@ function hbToggleHist() {
     const last = HB.turns[HB.turns.length - 1], prev = HB.turns.length > 1 ? HB.turns[HB.turns.length - 2] : null;
     const q = prev && prev.who === 'you' ? prev.text : '';
     HB.histOpen = HB.turns.length > 2;
-    hbAnswer(last.text, last.choices, {q, sources: last.sources, missing: last.missing, quick: last.quick, compare_id: last.compare_id, meals: last.meals});
+    hbAnswer(last.text, last.choices, {q, sources: last.sources, missing: last.missing, quick: last.quick,
+      compare_id: last.compare_id, meals: last.meals, automation_draft: last.automation_draft});
     return;
   }
   HB.histOpen = !HB.histOpen;
@@ -1034,6 +1037,28 @@ function hbAnswer(text, choices, o) {
     }
   });
   const c = $('#hb_chips'); c.innerHTML = '';
+  if (o.automation_draft && o.automation_draft.config && o.automation_draft.installable) {
+    const ad = o.automation_draft;
+    const b = document.createElement('button'); b.className = 'shop';
+    b.textContent = '+ Install switched off';
+    b.onclick = async () => {
+      let pin = '';
+      if (ad.needs_pin) {
+        pin = prompt('This automation unlocks or opens the house — enter your automation PIN:', '') || '';
+        if (!pin) return;
+      }
+      b.disabled = true; b.textContent = 'Installing…';
+      const r = await api('api/automations/install', {config: ad.config, enable: false, pin});
+      if (r && r.installed) {
+        b.textContent = 'Installed switched off ✓';
+        setTimeout(hubLoad, 900);
+      } else {
+        b.disabled = false;
+        b.textContent = (r && (r.error || (r.problems && r.problems[0]))) || 'Could not install';
+      }
+    };
+    c.append(b);
+  }
   if (o.missing && o.missing.length) {
     const b = document.createElement('button'); b.className = 'shop';
     const items = o.missing;

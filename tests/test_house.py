@@ -260,6 +260,45 @@ async def draft_tests():
         {"triggers": [{"trigger": "template", "value_template": "{{ is_state('sensor.nope', 'on') }}"}],
          "actions": [{"action": "light.turn_on", "target": {"entity_id": "light.desk"}}]}, ents, sv) == [])
     check("an automation's id comes from its name", autodraft.slug("Desk lamp off at 11!") == "home_mind_desk_lamp_off_at_11")
+    # Ask / Talk automation-request detection & plain-English summary
+    check("detects 'Can you set up an automation to...'",
+          bool(autodraft.automation_request("Can you set up an automation to turn off the Bedroom Lights and the Heater Bedroom Temp when I leave?")))
+    check("detects 'Create an automation that...'",
+          bool(autodraft.automation_request("Create an automation that turns off the desk lamp at 11 pm")))
+    check("detects 'Automate turning off...'",
+          bool(autodraft.automation_request("Automate turning off the porch light at sunrise")))
+    check("ignores questions about existing automations",
+          autodraft.automation_request("What automations do I have?") is None
+          and autodraft.automation_request("Did the bedroom automation run last night?") is None
+          and autodraft.automation_request("Turn off the bedroom light") is None)
+    r_ok = await autodraft.draft(Model(good), "turn the desk light off at 11 pm", states, svcs)
+    sum_ok = autodraft.draft_summary(r_ok)
+    check("draft_summary: clean draft is installable without PIN",
+          sum_ok["installable"] and not sum_ok["needs_pin"] and sum_ok["alias"] == "Desk off", sum_ok)
+    txt_ok = autodraft.format_draft(r_ok)
+    check("format_draft: screen summary shows alias, trigger, action, and install hint",
+          "Desk off" in txt_ok and "23:00:00" in txt_ok and "light.turn_off" in txt_ok and "Install switched off" in txt_ok, txt_ok)
+    txt_v = autodraft.format_draft(r_ok, voice=True)
+    check("format_draft: voice summary is compact", "\n" not in txt_v and "Desk off" in txt_v, txt_v)
+    # PIN configured -> needs_pin=True, installable=True (UI prompts for PIN on click)
+    r_pin = await autodraft.draft(Model(bad), "open the garage at 7", states, svcs, pin="1234")
+    sum_pin = autodraft.draft_summary(r_pin)
+    check("draft_summary: opening draft with configured PIN is installable with needs_pin",
+          sum_pin["installable"] and sum_pin["needs_pin"], sum_pin)
+    # PIN NOT configured -> hard problem, installable=False
+    r_nopin = await autodraft.draft(Model(bad), "open the garage at 7", states, svcs, pin="")
+    sum_nopin = autodraft.draft_summary(r_nopin)
+    check("draft_summary: opening draft without configured PIN is not installable",
+          (not sum_nopin["installable"]) and sum_nopin["needs_pin"], sum_nopin)
+    # Missing entity -> hard problem, installable=False
+    broken = json.dumps({"alias": "Broken", "triggers": [{"trigger": "time", "at": "07:00:00"}],
+                         "actions": [{"action": "light.turn_off", "target": {"entity_id": "light.nonexistent"}}]})
+    r_bad = await autodraft.draft(Model(broken), "turn off nonexistent light", states, svcs)
+    sum_bad = autodraft.draft_summary(r_bad)
+    check("draft_summary: unknown entity marks draft not installable",
+          not sum_bad["installable"] and any("no such entity" in p for p in sum_bad["problems"]), sum_bad)
+    check("format_draft: reports fix needed on broken draft",
+          "Needs a fix" in autodraft.format_draft(r_bad), autodraft.format_draft(r_bad))
 
 
 asyncio.run(engine_tests())

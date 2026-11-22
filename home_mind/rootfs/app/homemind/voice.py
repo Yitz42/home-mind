@@ -148,7 +148,8 @@ async def turn(app, body, scope="admin", on_sentence=None):
         b["front_end"] = body.get("front_end") or fe
     elif on_sentence is not None:
         b["on_sentence"] = on_sentence
-    if COMMAND.match(text) and allows(scope, "admin"):
+    from .autodraft import automation_request
+    if not automation_request(text) and COMMAND.match(text) and allows(scope, "admin"):
         if oa:
             from .frontends import assistants_off
             if assistants_off(app.mind.store):
@@ -160,7 +161,7 @@ async def turn(app, body, scope="admin", on_sentence=None):
                         **({"continue": True} if r.get("confirm_needed") else {}))
     r = await app.answer(b, scope)
     cont = bool(r.get("confirm_needed") or r.get("checkin_asked"))
-    return dict(r, via="ask", **({"continue": True} if cont else {}))
+    return dict(r, via=r.get("via") or "ask", **({"continue": True} if cont else {}))
 
 
 async def converse(app, body, scope="admin", ack_seconds=ACK_SECONDS):

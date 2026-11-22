@@ -1149,11 +1149,13 @@ class App:
                 return await self._style(dict(done, hits=[], model=None), b["question"], who, bool(b.get("voice")),
                                          "do")
         phone = self.phone_of(who) if b.get("voice") and who and hasattr(self, "phone_of") else None
+        ak = getattr(self, "automation_ok", None)
+        ar = ak(b, who, oa, scope) if not urgent and ak is not None else None
         mk = getattr(self, "meal_ok", None)
-        mr = mk(b, who, oa) if not urgent and mk is not None else None
+        mr = mk(b, who, oa) if not ar and not urgent and mk is not None else None
         dk = getattr(self, "deep_ok", None)
-        use_deep = bool(not mr and not urgent and dk is not None and dk(b, who, oa))
-        raw_on_sent = b.get("on_sentence") if not mr and not use_deep else None
+        use_deep = bool(not ar and not mr and not urgent and dk is not None and dk(b, who, oa))
+        raw_on_sent = b.get("on_sentence") if not ar and not mr and not use_deep else None
         stream_state = {"started": False, "handed_off": False}
 
         def on_sent(s):
@@ -1167,7 +1169,9 @@ class App:
                          deadline=(b.get("deadline") or self.HANDOFF_LATE) if phone else b.get("deadline"),
                          fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who,
                          **({"on_sentence": on_sent} if raw_on_sent is not None else {}))
-        if mr:
+        if ar:
+            ask = self.automation_answer(b, who, ar, ask)  # "set up an automation to...": autodraft.draft()
+        elif mr:
             ask = self.meal_answer(b, who, mr, ask)  # "what can I make with the large eggs?": Pantry.suggest()
         elif use_deep:
             ask = self.deep_answer(b, who, ask)      # why / lately / how am I: the brief, connected (connect.py)
@@ -1218,6 +1222,63 @@ class App:
         return await self._style(res, b["question"], who, bool(b.get("voice")))
 
     DEEP_VOICE_SECONDS = 6.0
+
+    def automation_ok(self, b, who, other=None, scope="admin"):
+        """An automation-creation request ('set up an automation to...'): drafted & validated via autodraft."""
+        from .tokens import allows
+        from .autodraft import automation_request
+        if other or who == "" or not allows(scope, "write") or b.get("use_brain") is False:
+            return None
+        return automation_request(b.get("question") or "")
+
+    async def automation_answer(self, b, who, req_text, quick):
+        """Draft & check a Home Assistant automation using real HA entities/services; falls back cleanly on error."""
+        from .autodraft import draft_summary, format_draft
+        voice = bool(b.get("voice"))
+        chosen = b.get("model") if b.get("model") not in (None, "", "auto") else None
+        md = getattr(self, "modes", None)
+        try:
+            private = md is not None and md.mode(who or None) == "private"
+        except Exception:  # noqa: BLE001
+            private = False
+        if chosen and b.get("fallback") is False:
+            chain = [chosen]
+        else:
+            chain = self._deep_chain(who) if hasattr(self, "_deep_chain") else []
+            if chosen and chosen not in chain and not private:
+                chain = [chosen] + chain
+            if not chain and not private:
+                chain = [x for x in (getattr(getattr(self, "models", None), "models", None) or {})
+                         if x != "mock"][:2]
+        chain = [m for m in chain if m and m != "mock"] or ([chosen] if chosen == "mock" else [])
+
+        async def run():
+            last_err = None
+            for m in chain:
+                try:
+                    res = await self.draft_automation(req_text, model=m)
+                    info = draft_summary(res)
+                    text = format_draft(res, voice=voice)
+                    return {"answer": text, "hits": [], "model": m,
+                            "automation_draft": info, "via": "autodraft"}
+                except Exception as e:  # noqa: BLE001
+                    last_err = e
+                    log.warning("automation draft with %s: %s", m, e)
+            if last_err is not None:
+                return {"answer": f"I couldn't reach Home Assistant or a model to draft that automation: {str(last_err)[:180]}",
+                        "hits": [], "model": None}
+            return None
+
+        try:
+            res = await (asyncio.wait_for(run(), self.DEEP_VOICE_SECONDS) if voice else run())
+        except asyncio.TimeoutError:
+            res = None
+        if res is None:
+            return await quick
+        quick.close()
+        if b.get("conversation_id") and hasattr(self.mind, "_record_turn"):
+            self.mind._record_turn(b["conversation_id"], b["question"], res["answer"])
+        return res
 
     def meal_ok(self, b, who, other=None):
         """A meal/recipe idea or weekly meal plan request from what's at home: handled by Pantry."""
@@ -2432,7 +2493,8 @@ class App:
             raise ValueError("say what the automation should do")
         states, services = await self.house_lists()
         name = model or self.opts.get("overnight_model") or (self.models.list() or [{}])[0].get("name")
-        return await autodraft.draft(self.models.get(name), request, states, services)
+        return await autodraft.draft(self.models.get(name), request, states, services,
+                                     pin=str(self.opts.get("automation_pin") or ""))
 
     async def install_automation(self, cfg, enable=False, pin=""):
         """Install a drafted automation, checked again here: never trust a config because it was drafted."""
