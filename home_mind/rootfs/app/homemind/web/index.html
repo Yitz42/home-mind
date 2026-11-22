@@ -1843,6 +1843,7 @@ const MP_COLORS = {A: '#d97706', B: '#0ea5e9', C: '#16a34a', D: '#a855f7', E: '#
 const MP_STYLE_LBL = {fresh: 'Fresh', twice: 'Cook once, eat twice', prep: 'Prep day'};
 const MP = {
   step: 'pick', style: 'twice', brush: 'quick', req: '',
+  prepDay: '', prepTime: '15:00', calMsg: '', calBusy: false,
   days: [], cal: {}, grid: {}, layouts: {}, plan: null,
   undoGrid: null, undoStyle: null, applied: null, toast: '', shopOpen: false, busy: false,
 };
@@ -1867,6 +1868,10 @@ function mpDefaultGrid(days, cal) {
   Object.keys(cal || {}).forEach(k => { g[k] = 'skip'; });
   return g;
 }
+function mpDefaultPrepDay() {
+  const sun = MP.days.find(d => d.weekday === 'sun');
+  return (sun && sun.weekday) || (MP.days[0] && MP.days[0].weekday) || 'sun';
+}
 function mpLoad(plan, calInfo) {
   MP.days = (calInfo && Array.isArray(calInfo.days) && calInfo.days.length) ? calInfo.days : mpDefaultDays();
   MP.cal = (calInfo && calInfo.calendar_skips) || (plan && plan.calendar_skips) || {};
@@ -1875,6 +1880,8 @@ function mpLoad(plan, calInfo) {
   if (MP.plan) {
     MP.style = MP.plan.style || MP.style;
     MP.req = MP.plan.request || MP.req;
+    if (MP.plan.prep_day) MP.prepDay = MP.plan.prep_day;
+    if (MP.plan.prep_time) MP.prepTime = MP.plan.prep_time;
     if (MP.plan.grid && Object.keys(MP.plan.grid).length) MP.grid = Object.assign({}, MP.plan.grid);
     else if (!Object.keys(MP.grid).length) MP.grid = mpDefaultGrid(MP.days, MP.cal);
     MP.step = 'plan';
@@ -1882,13 +1889,20 @@ function mpLoad(plan, calInfo) {
     if (!Object.keys(MP.grid).length) MP.grid = mpDefaultGrid(MP.days, MP.cal);
     MP.step = 'pick';
   }
+  if (!MP.prepDay) MP.prepDay = mpDefaultPrepDay();
   renderWeekPlan(MP.plan);
 }
 function mpStep(s) {
   if (s === 'plan' && !MP.plan) { mpBuild(); return; }
   MP.step = s; mpRender();
 }
-function mpStyle(s) { MP.style = s; mpRender(); }
+function mpStyle(s) {
+  MP.style = s;
+  if (s === 'prep' && !MP.prepDay) MP.prepDay = mpDefaultPrepDay();
+  mpRender();
+}
+function mpPrepDay(wd) { MP.prepDay = wd; mpRender(); }
+function mpPrepTime(v) { MP.prepTime = v || '15:00'; }
 function mpBrush(b) { MP.brush = b; mpRender(); }
 function mpSetReq(v) { MP.req = v; }
 function mpPaint(k) { MP.grid[k] = (MP.grid[k] === MP.brush && MP.brush !== 'normal') ? 'normal' : MP.brush; mpRender(); }
@@ -1910,6 +1924,8 @@ function mpApplyTpl(kind) {
   if (!tpl || !tpl.grid) return;
   MP.undoGrid = Object.assign({}, MP.grid); MP.undoStyle = MP.style;
   MP.style = tpl.style || MP.style;
+  if (tpl.prep_day) MP.prepDay = tpl.prep_day;
+  if (tpl.prep_time) MP.prepTime = tpl.prep_time;
   const next = {};
   MP.days.forEach((d, i) => {
     MP_SLOTS.forEach(s => {
@@ -1928,7 +1944,8 @@ function mpUndoTpl() {
   MP.undoGrid = null; MP.applied = null; MP.toast = ''; mpRender();
 }
 async function mpSaveUsual() {
-  const r = await api('api/pantry/layout', {kind: 'usual', style: MP.style, grid: MP.grid});
+  const r = await api('api/pantry/layout', {kind: 'usual', style: MP.style, grid: MP.grid,
+    prep_day: MP.style === 'prep' ? MP.prepDay : '', prep_time: MP.style === 'prep' ? MP.prepTime : ''});
   if (r.error) { MP.toast = r.error; mpRender(); return; }
   MP.layouts = r.layouts || MP.layouts;
   MP.undoGrid = null; MP.applied = 'usual';
@@ -1981,7 +1998,13 @@ function mpRender() {
       + `</div>`
       + `<div class="mp-box"><b style="font-size:12px">Cooking style</b><div class="mp-grid3">`
       + styles.map(([v, t, d]) => `<button onclick="mpStyle(${jsq(v)})" class="mp-opt ${MP.style === v ? 'on' : ''}"><b>${esc(t)}</b><span>${esc(d)}</span></button>`).join('')
-      + `</div></div>`
+      + `</div>`
+      + (MP.style === 'prep'
+        ? `<div class="mp-brushbar" style="margin:8px 0 0;padding-top:8px;border-top:1px solid var(--line)"><b style="font-size:12px">Prep day:</b><div class="mp-brush">`
+          + MP.days.map(d => `<button onclick="mpPrepDay(${jsq(d.weekday)})" class="${MP.prepDay === d.weekday ? 'on' : ''}">${esc(d.short)} ${esc(d.day_num)}</button>`).join('')
+          + `</div><input type="time" value="${esc(MP.prepTime)}" onchange="mpPrepTime(this.value)" aria-label="Prep time" style="min-height:30px;padding:3px 7px;font-size:12px"></div>`
+        : '')
+      + `</div>`
       + `<div class="mp-brushbar"><b style="font-size:12px">Effort — tap a meal to set:</b><div class="mp-brush">`
       + ['reheat', 'quick', 'normal', 'big'].map(k => `<button onclick="mpBrush(${jsq(k)})" class="${MP.brush === k ? 'on' : ''}">${MP_EFF[k][0]} ${esc(MP_EFF[k][1])}</button>`).join('')
       + `</div><span class="mute" style="font-size:12px">✕ on a meal or day skips it</span></div>`;
@@ -2005,10 +2028,15 @@ function mpRender() {
       + `<span class="mp-chip">~${esc(hrs)} h cooking</span>`
       + (MP.plan && MP.plan.style ? `<span class="mp-chip">${esc(MP_STYLE_LBL[MP.plan.style] || MP.plan.style)}</span>` : '');
     const pp = MP.plan && MP.plan.prep_plan;
-    $('#mp_prep').innerHTML = (pp && (pp.title || (pp.items || []).length))
-      ? `<div class="mp-prep"><div style="font-weight:600">🍳 ${esc(pp.title || 'Prep session')}</div>`
-        + (pp.items || []).map(it => `<div class="mp-prep-line" style="--bc:${esc(MP_COLORS[it.batch_id] || 'var(--food)')}"><span class="mp-dot"></span><span>${esc(it.text)}</span></div>`).join('')
-        + `</div>` : '';
+    const hasPrep = !!((pp && (pp.title || (pp.items || []).length)) || (MP.plan && (MP.plan.prep_day || MP.plan.style === 'prep')));
+    const prepDayLbl = MP.plan && MP.plan.prep_date ? ` · ${MP.plan.prep_date}${MP.plan.prep_time ? ' at ' + MP.plan.prep_time : ''}` : '';
+    $('#mp_prep').innerHTML = hasPrep
+      ? `<div class="mp-prep"><div class="row" style="margin:0;justify-content:space-between;align-items:center"><div style="font-weight:600">🍳 ${esc((pp && pp.title) || 'Prep session')}<span class="mute" style="font-weight:400">${esc(prepDayLbl)}</span></div>`
+        + `<button class="soft" style="min-height:30px;padding:4px 10px;font-size:12px" onclick="mpAddCal('prep')"${MP.calBusy ? ' disabled' : ''}>📅 Add prep to calendar</button></div>`
+        + ((pp && pp.items) || []).map(it => `<div class="mp-prep-line" style="--bc:${esc(MP_COLORS[it.batch_id] || 'var(--food)')}"><span class="mp-dot"></span><span>${esc(it.text)}</span></div>`).join('')
+        + (MP.calMsg ? `<div class="mute" style="margin-top:6px;font-size:12px">${esc(MP.calMsg)}</div>` : '')
+        + `</div>`
+      : (MP.calMsg ? `<div class="mp-prep" style="font-size:12px">${esc(MP.calMsg)}</div>` : '');
   }
 
   $('#mp_hdr').innerHTML = '<div></div>' + MP_SLOTS.map(s => MP.step === 'pick'
@@ -2065,6 +2093,7 @@ function mpRender() {
     const buyN = _weekShop.length;
     $('#mp_footer').innerHTML =
       `<div class="mp-foot"><button class="soft" onclick="mpStep('pick')">✎ Change</button>`
+      + `<button class="soft" onclick="mpAddCal('all')"${MP.calBusy ? ' disabled' : ''}>📅 Add week to calendar</button>`
       + `<button class="go" style="flex:1;justify-content:center" onclick="mpReviewShop()">🛒 ${MP.shopOpen ? 'Hide' : 'Review'} ${buyN} item${buyN === 1 ? '' : 's'} to buy</button></div>`;
   }
 }
@@ -2117,18 +2146,28 @@ function updateWeekShopBtn() {
   $('#w_shop_btn').textContent = n ? `Add ${n} to shopping list` : 'Select items to add';
 }
 async function mpBuild() {
-  MP.busy = true; mpRender();
+  MP.busy = true; MP.calMsg = ''; mpRender();
   const r = await api('api/pantry/week', {
     days: MP.days.length || 7,
     style: MP.style,
     grid: MP.grid,
     request: MP.req,
+    prep_day: MP.style === 'prep' ? MP.prepDay : '',
+    prep_time: MP.style === 'prep' ? MP.prepTime : '',
   });
   MP.busy = false;
   if (r.error) { $('#w_summary').textContent = r.error; mpRender(); return; }
   if (!(r.days || []).length) { $('#w_summary').textContent = 'Could not parse a plan from the model.'; mpRender(); return; }
   MP.step = 'plan'; MP.shopOpen = false;
   renderWeekPlan(r);
+}
+async function mpAddCal(include) {
+  MP.calBusy = true; MP.calMsg = 'Adding to Home Assistant calendar…'; mpRender();
+  const r = await api('api/pantry/calendar', {include: include || 'prep', prep_time: MP.prepTime});
+  MP.calBusy = false;
+  if (r.error) { MP.calMsg = r.error; mpRender(); return; }
+  MP.calMsg = `Added ${r.count || 0} event${r.count === 1 ? '' : 's'} to ${r.calendar_name || r.calendar || 'calendar'} ✓`;
+  mpRender();
 }
 async function mpSkipPlanned(dayIndex, slot) {
   const r = await api('api/pantry/plan_cell', {day_index: dayIndex, slot, action: 'skip'});

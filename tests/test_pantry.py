@@ -485,6 +485,45 @@ async def main():
     sw_r = await p3.swap_meal(1, slot="lunch", request="cold sandwich instead")
     assert "REHEAT / PACK ONLY" in reheat_prompts[-1] and sw_r["days"][1]["meals"][0]["effort"] == "reheat", reheat_prompts[-1]
 
+    # Prep day & time persistence + adding prep session / full week to Home Assistant calendar
+    p3.save_week_layout("usual", "prep", {"0|lunch": "reheat", "0|dinner": "big"}, start_date=base_mon,
+                        prep_day="sun", prep_time="14:30")
+    assert p3.week_layouts()["usual"]["prep_day"] == "sun" and p3.week_layouts()["usual"]["prep_time"] == "14:30"
+
+    class PrepCalHA:
+        available = True
+
+        def __init__(self):
+            self.calls = []
+
+        async def state(self, eid):
+            return None
+
+        async def states(self):
+            return [
+                {"entity_id": "calendar.mind_journal", "attributes": {"friendly_name": "Mind Journal"}},
+                {"entity_id": "calendar.personal", "attributes": {"friendly_name": "Personal"}},
+            ]
+
+        async def call(self, dom, svc, data):
+            self.calls.append((dom, svc, data))
+            return []
+
+    cal_ha = PrepCalHA()
+    p3.ha = cal_ha
+    reheat_prompts.clear()
+    rp2 = await p3.plan_week(days=2, grid={"0|dinner": "big", "1|lunch": "reheat"}, style="prep",
+                             start_date=base_mon, prep_day="mon", prep_time="14:30")
+    assert "Prep day: Mon Nov 23 at 14:30" in reheat_prompts[0], reheat_prompts[0]
+    assert rp2["prep_day"] == "mon" and rp2["prep_date"] == "2026-11-23" and rp2["prep_time"] == "14:30", rp2
+    c_prep = await p3.add_to_calendar(include="prep")
+    assert c_prep["calendar"] == "calendar.personal" and c_prep["count"] == 1, c_prep
+    assert cal_ha.calls[0][2]["start_date_time"] == "2026-11-23 14:30:00", cal_ha.calls[0]
+    cal_ha.calls.clear()
+    c_all = await p3.add_to_calendar(include="all")
+    assert c_all["count"] == 3, c_all
+    assert any(c[2]["summary"].startswith("Reheat: Beef Chili Reheat") for c in cal_ha.calls), cal_ha.calls
+
     print("PANTRY OK")
 
 

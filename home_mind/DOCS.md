@@ -1360,7 +1360,7 @@ note), 502 (a model failed) or 500.
 | GET | `/api/phrasebook/export` | read | every active pair, for training |
 | POST | `/api/phrasebook/{op}` | write | `add` (`said`, `plain`), `approve`/`reject`/`remove` (`id`), `try` (`text`, `model?`), `grow` (`model?`, `n?`), `eval` (`model?`, `limit?`) |
 | GET | `/api/pantry` | read | pantry items and goals |
-| POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`), `used`, `tossed`, `remove`, `suggest`, `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
+| POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`), `used`, `tossed`, `remove`, `suggest`, `week` (`prep_day?`, `prep_time?`), `layout`, `plan_cell`, `swap`, `plan_clear`, `calendar` (`include`: `prep` or `all`), `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
 | GET | `/api/patterns` | read | brain-fog report, findings, experiment and daily rows (`days`) |
 | POST | `/api/patterns/{op}` | write | `refresh`, `send`, `experiment`, `ask`, `answer`, `weather` |
 | GET | `/api/journal` | read | daily journal summaries |
