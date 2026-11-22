@@ -129,6 +129,18 @@ check("route /api/day_edit and the inline editor", '"/api/day_edit"' in src and 
 check("meal answers render as cards with log and shopping buttons",
       all(k in web for k in ("function hbMealCard", "hbMealAte(", "hbMealShop(", 'id="hb_meals"', "meals: r.meals")))
 check("close buttons are 44px", ".hb-win-h button { width:44px; height:44px" in web)
+check("fitness section wired in nav and script", 'data-t="fitness"' in web and 'id="fitness"' in web and "async function fitLoad" in web)
+from homemind.fitness import Fitness
+A.fitness = Fitness(st, A.patterns)
+A.fitness.set_goals({"calories": 2200, "protein_g": 160})
+A.fitness.set_prefs({"sync_adaptive": True})
+h_ad = asyncio.run(hub.build(A, noon))
+check("hub food syncs adaptive daily targets when enabled",
+      h_ad["food"]["calorie_target"] == A.fitness.daily_plan(noon)["targets"]["calories"]
+      and h_ad["food"]["protein_target_g"] == A.fitness.daily_plan(noon)["targets"]["protein_g"], h_ad["food"])
+A.fitness.set_prefs({"sync_adaptive": False})
+h_bl = asyncio.run(hub.build(A, noon))
+check("hub food uses baseline targets when sync_adaptive is off", h_bl["food"]["calorie_target"] == 2200, h_bl["food"])
 
 print(f"\n{'all passed' if not fails else str(fails) + ' failed'}")
 sys.exit(1 if fails else 0)

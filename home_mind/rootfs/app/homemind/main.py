@@ -413,6 +413,7 @@ class App:
         self.patterns.memgraph = self.memgraph
         self.patterns.memgraph_owner = mg_owner
         self.fitness.memgraph = self.memgraph
+        self.fitness.calendars = self.calendars
         self.overnight.patterns = self.patterns
         self.overnight.memgraph_owner = mg_owner
         from .trainer import Trainer
@@ -3488,7 +3489,7 @@ def build(app_state):
 
     @r.get("/api/fitness")
     async def fitness_get(_):
-        return J(A.fitness.status())
+        return J(A.fitness.dashboard(viewer=VIEWER.get()))
 
     @r.get("/api/fitness/review")
     async def fitness_review(_):
@@ -3518,7 +3519,26 @@ def build(app_state):
         if op == "goals":
             from .fitness import GOALS
             b = await read_body(q, optional=True, **{k: (float, str) for k in GOALS})
-            return J({"goals": A.fitness.set_goals(b)})
+            return J({"goals": A.fitness.set_goals(b), "baseline": A.fitness.auto_baseline()})
+        if op == "reset_goals":
+            b = await read_body(q, optional=True, key=str)
+            return J({"baseline": A.fitness.reset_goals(b.get("key") or None), "goals": A.fitness.goals()})
+        if op == "prefs":
+            b = await read_body(q, optional=True, sync_adaptive=bool, use_memgraph=bool, use_calendar=bool,
+                                split=str, equip=str, mins=(float, str), note=str)
+            return J({"prefs": A.fitness.set_prefs(b), "daily": A.fitness.daily_plan(viewer=VIEWER.get())})
+        if op == "routine":
+            b = await read_body(q, optional=True, split=str, equip=str, mins=(float, str), note=str)
+            r_out = A.fitness.generate_routine(
+                split=b.get("split"), equip=b.get("equip"), mins=b.get("mins"),
+                note=b.get("note"), viewer=VIEWER.get(),
+            )
+            return J({"routine": r_out, "prefs": A.fitness.prefs()})
+        if op == "weigh":
+            b = await read_body(q, weight=(float, str), unit=str, scope=str, speaker=str)
+            who = A.speaker_for(b)[0]
+            meta = {"said_by": who, "scope": "personal", "owner": who} if who and b.get("scope") != "household" else {}
+            return J(A.fitness.log_weigh_in(b.get("weight"), unit=b.get("unit") or "lb", meta=meta))
         if op == "workout":
             b = await read_body(q, text=str, at=float, scope=str, speaker=str)
             who = A.speaker_for(b)[0]
