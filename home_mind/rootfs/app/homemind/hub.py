@@ -330,9 +330,24 @@ async def build(A, now=None):
     fit = getattr(A, "fitness", None)
     if fit:
         try:
-            g = fit.goals() or {}
+            g = dict(fit.goals() or {})
+            bl = fit.auto_baseline(now) if hasattr(fit, "auto_baseline") else None
+            if bl and isinstance(bl.get("effective"), dict):
+                for k, v in bl["effective"].items():
+                    if g.get(k) in (None, "") and v not in (None, ""):
+                        g[k] = v
+            pt = out["food"].get("protein_target_g")
+            if hasattr(fit, "prefs") and hasattr(fit, "daily_plan") and fit.prefs().get("sync_adaptive", True):
+                dp = fit.daily_plan(now)
+                t_dp = dp.get("targets") or {}
+                if t_dp.get("calories"):
+                    g["calories"] = t_dp["calories"]
+                if t_dp.get("protein_g"):
+                    pt = t_dp["protein_g"]
+                    out["food"]["protein_target_g"] = pt
+                out["food"]["adaptive_mode"] = dp.get("mode_label")
             out["food"]["calorie_target"] = g.get("calories") or g.get("kcal")
-            out["food"]["goals"] = food_goals(g, out["food"].get("protein_target_g"))
+            out["food"]["goals"] = food_goals(g, pt)
         except Exception:  # noqa: BLE001
             pass
     if ha:

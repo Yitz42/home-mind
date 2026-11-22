@@ -351,8 +351,114 @@ def test_sleep_goals_and_logs():
         check("a workout id isn't a sleep log", True)
 
 
+def test_auto_baseline_and_daily():
+    st, clk = fresh()
+    # Scale entry with BMR, weight, and body fat
+    st.remember(text="Weigh-in: 180 lb", title="Weigh-in: 180.0 lb", kind="fact", shelf="body/weight",
+                meta={"weight": 180.0, "body_fat": 22.0, "basal_metabolic_rate": 1780.0, "muscle_mass": 133.0, "bmi": 25.5},
+                at=NOW - DAY)
+    pat = Patterns(steps=[8200, 8400, 7900, 8100, 8500, 8300, 8000], sleep=[7.4] * 7)
+    fi = Fitness(st, patterns=pat)
+    bl = fi.auto_baseline()
+    check("auto_baseline derives TDEE from BMR", bl["tdee"] and 2100 <= bl["tdee"] <= 3100, bl)
+    check("auto_baseline computes calories & protein", bl["auto"]["calories"] >= 1500 and bl["auto"]["protein_g"] >= 120, bl["auto"])
+    check("auto_baseline starts unpinned", bl["pinned"] == {}, bl["pinned"])
+    # Pin one goal, verify effective uses pinned value while others stay Auto
+    fi.set_goals({"weight_target": 172.0, "protein_g": 165})
+    bl2 = fi.auto_baseline()
+    check("pinned goals tracked", bl2["pinned"].get("weight_target") and bl2["pinned"].get("protein_g"), bl2["pinned"])
+    check("weight deficit lowers auto calories", bl2["auto"]["calories"] < bl["auto"]["calories"], (bl["auto"]["calories"], bl2["auto"]["calories"]))
+    check("effective uses pinned protein", bl2["effective"]["protein_g"] == 165)
+    # Single-key reset unpins only that key
+    bl3 = fi.reset_goals("protein_g")
+    check("single reset unpins protein_g only", "protein_g" not in bl3["pinned"] and bl3["pinned"].get("weight_target"), bl3["pinned"])
+    # Reset all returns everything to Auto
+    bl4 = fi.reset_goals()
+    check("reset all unpins every goal", bl4["pinned"] == {}, bl4["pinned"])
+
+    # Daily plan: normal lift day
+    dp = fi.daily_plan()
+    check("daily_plan lift mode on normal sleep", dp["mode"] == "lift" and dp["deltas"]["calories"] == 150 and dp["deltas"]["protein_g"] == 10, dp)
+    # Low-sleep recovery swap
+    fi_tired = Fitness(st, patterns=Patterns(steps=[8000] * 7, sleep=[7.2, 7.3, 7.1, 7.4, 7.0, 7.2, 5.2]))
+    dp_rec = fi_tired.daily_plan()
+    check("daily_plan low sleep switches to recovery", dp_rec["mode"] == "recovery" and dp_rec["deltas"]["steps"] == -1500 and dp_rec["deltas"]["bedtime_min"] == -30, dp_rec)
+    # Catch-up day (low yesterday steps)
+    fi_catch = Fitness(st, patterns=Patterns(steps=[8000, 8000, 8000, 8000, 8000, 4200, 4200], sleep=[7.5] * 7))
+    dp_cu = fi_catch.daily_plan()
+    check("daily_plan low steps triggers catch-up", dp_cu["mode"] == "catchup" and dp_cu["deltas"]["steps"] >= 500, dp_cu)
+    # Rest day when weekly workout target already hit (on prior days, not today)
+    fi.set_goals({"workouts_per_week": 3})
+    for d_ago in (5, 3, 1):
+        clk.t = NOW - d_ago * DAY
+        fi.log("bench press 3x8 at 155")
+    clk.t = NOW
+    dp_rest = fi.daily_plan()
+    check("daily_plan switches to rest when weekly target met", dp_rest["mode"] == "rest" and dp_rest["deltas"]["calories"] == -150, dp_rest)
+
+
+def test_routine_analytics_and_dashboard():
+    st, clk = fresh()
+    # Prior lifts: bench progresses (+5 lb), OHP stalled across 4 sessions -> 10% deload
+    clk.t = NOW - 30 * DAY
+    fi = Fitness(st)
+    fi.log("overhead press 3x5 at 115")
+    for d_ago in (21, 14, 7):
+        clk.t = NOW - d_ago * DAY
+        fi.log("overhead press 3x5 at 110")
+    clk.t = NOW - 2 * DAY
+    fi.log("bench press 3x8 at 160, ran 3 miles in 27 min")
+    clk.t = NOW
+
+    class FakeMG:
+        def query(self, **kw):
+            return [{"source_name": "yitz", "relation": "has_issue", "target_name": "right knee pain"}]
+
+    class FakeCal:
+        def events_on(self, d):
+            return [{"title": "Flight to NYC"}] if d.strftime("%a") == "Fri" else []
+
+    fi.memgraph = FakeMG()
+    fi.calendars = FakeCal()
+    rt = fi.generate_routine(split="ul", equip="gym", mins=45, note="upper focus")
+    upper_a = rt["days"][0]
+    lower_a = rt["days"][1]
+    upper_b = rt["days"][2]
+    ex_by = {e["name"].lower(): e for e in upper_a["exercises"]}
+    check("routine progresses bench +5 lb", ex_by["bench press"]["wt"] == 165 and ex_by["bench press"]["tag"] == "+5 lb", ex_by["bench press"])
+    check("routine deloads stalled OHP by 10%", ex_by["overhead press"]["kind"] == "deload" and ex_by["overhead press"]["wt"] < 110, ex_by["overhead press"])
+    check("MemGraph swaps walking lunges for knee-safe step-ups", any("Knee-Safe" in e["name"] for e in lower_a["exercises"]), lower_a["exercises"])
+    check("Calendar trims busy Friday to 30m Express", upper_b["mins"] == 30 and "Express" in upper_b["title"], upper_b)
+
+    # Muscle volume skips cardio runs (3 OHP at -7d + 3 bench at -2d = 6 Push, 0 Core)
+    vol = {v["group"]: v["sets"] for v in fi.muscle_volume(7)}
+    check("muscle_volume counts push sets and ignores cardio", vol["Push"] == 6 and vol["Core"] == 0, vol)
+    cd = fi.cardio_summary(45)
+    check("cardio_summary computes week miles & pace", cd["week_miles"] == 3.0 and cd["best_pace"] == 9.0, cd)
+    ls = fi.lift_series(120)
+    check("lift_series includes bench press & overhead press", "bench press" in ls and "overhead press" in ls, list(ls))
+
+    # Weigh-in logging & validation
+    wr = fi.log_weigh_in(177.2, "lb")
+    check("log_weigh_in logs weigh-in", wr["weight"] == 177.2 and fi.weigh_ins(7)[-1]["weight"] == 177.2, wr)
+    for bad_w in (True, float("inf"), 10, "abc"):
+        try:
+            fi.log_weigh_in(bad_w)
+            check(f"log_weigh_in rejects {bad_w!r}", False)
+        except ValueError:
+            check(f"log_weigh_in rejects {bad_w!r}", True)
+
+    # Full dashboard superset check
+    dash = fi.dashboard()
+    for k in ("goals", "progress", "today", "workouts", "records", "stalls", "suggestions", "lines",
+              "baseline", "daily", "routine", "weigh_ins_30d", "lift_series", "cardio", "volume",
+              "week_days", "streak_weeks", "review", "prefs"):
+        check(f"dashboard includes {k}", k in dash)
+
+
 for fn in [test_parse, test_goals, test_trend_and_progress, test_tally_and_snacks, test_workouts, test_adjust,
-           test_floor, test_fast_loss, test_mind_logging, test_sleep_goals_and_logs]:
+           test_floor, test_fast_loss, test_mind_logging, test_sleep_goals_and_logs,
+           test_auto_baseline_and_daily, test_routine_analytics_and_dashboard]:
     try:
         fn()
     except Exception as e:  # noqa: BLE001

@@ -520,6 +520,107 @@ async def main():
     finally:
         VIEWER.reset(tok)
 
+    # Reheat-only effort tier (e.g. lunches away from home): persists in layouts, instructs model NO cooking,
+    # forces effort='reheat' + is_cook=False, and passes no-cook hint on swap_meal
+    p3.save_week_layout("usual", "prep", {"0|lunch": "reheat", "0|dinner": "big", "1|lunch": "reheat"}, start_date=base_mon)
+    assert p3.week_layouts()["usual"]["grid"]["mon|lunch"] == "reheat"
+    reheat_prompts = []
+
+    class ReheatModel:
+        async def chat(self, sys, msgs, **kw):
+            reheat_prompts.append(msgs[0]["content"])
+            if "replace ONE meal" in sys:
+                return {"text": json.dumps({"slot": "lunch", "name": "Cold Turkey Wrap", "minutes": 5, "effort": "reheat", "uses": [], "need": []})}
+            return {"text": json.dumps({
+                "summary": "Prep dinner + reheat lunches",
+                "days": [
+                    {"day": "Mon Nov 23", "meals": [
+                        {"slot": "dinner", "name": "Beef Chili", "minutes": 60, "effort": "big", "batch_id": "A", "is_cook": True, "servings": 4, "uses": [], "need": ["2 lb beef"]},
+                    ]},
+                    {"day": "Tue Nov 24", "meals": [
+                        {"slot": "lunch", "name": "Beef Chili Reheat", "minutes": 5, "batch_id": "A", "batch_label": "Mon chili", "uses": [], "need": []},
+                    ]},
+                ],
+            })}
+
+    p3.models = type("M", (), {"models": {"haiku": ReheatModel()}, "get": lambda self, n: self.models["haiku"]})()
+    rp = await p3.plan_week(days=2, grid={"0|dinner": "big", "1|lunch": "reheat"}, style="prep", start_date=base_mon)
+    assert "REHEAT/PACK ONLY" in reheat_prompts[0], reheat_prompts[0]
+    tue_lunch = rp["days"][1]["meals"][0]
+    assert tue_lunch["effort"] == "reheat" and tue_lunch["is_cook"] is False, tue_lunch
+    sw_r = await p3.swap_meal(1, slot="lunch", request="cold sandwich instead")
+    assert "REHEAT / PACK ONLY" in reheat_prompts[-1] and sw_r["days"][1]["meals"][0]["effort"] == "reheat", reheat_prompts[-1]
+
+    # Prep day & time persistence + adding prep session / full week to Home Assistant calendar
+    p3.save_week_layout("usual", "prep", {"0|lunch": "reheat", "0|dinner": "big"}, start_date=base_mon,
+                        prep_day="sun", prep_time="14:30")
+    assert p3.week_layouts()["usual"]["prep_day"] == "sun" and p3.week_layouts()["usual"]["prep_time"] == "14:30"
+
+    class PrepCalHA:
+        available = True
+
+        def __init__(self):
+            self.calls = []
+
+        async def state(self, eid):
+            return None
+
+        async def states(self):
+            return [
+                {"entity_id": "calendar.mind_journal", "attributes": {"friendly_name": "Mind Journal"}},
+                {"entity_id": "calendar.personal", "attributes": {"friendly_name": "Personal"}},
+            ]
+
+        async def call(self, dom, svc, data):
+            self.calls.append((dom, svc, data))
+            return []
+
+    cal_ha = PrepCalHA()
+    p3.ha = cal_ha
+    reheat_prompts.clear()
+    rp2 = await p3.plan_week(days=2, grid={"0|dinner": "big", "1|lunch": "reheat"}, style="prep",
+                             start_date=base_mon, prep_day="mon", prep_time="14:30")
+    assert "Prep day: Mon Nov 23 at 14:30" in reheat_prompts[0], reheat_prompts[0]
+    assert rp2["prep_day"] == "mon" and rp2["prep_date"] == "2026-11-23" and rp2["prep_time"] == "14:30", rp2
+    c_prep = await p3.add_to_calendar(include="prep")
+    assert c_prep["calendar"] == "calendar.personal" and c_prep["count"] == 1, c_prep
+    assert cal_ha.calls[0][2]["start_date_time"] == "2026-11-23 14:30:00", cal_ha.calls[0]
+    cal_ha.calls.clear()
+    c_all = await p3.add_to_calendar(include="all")
+    assert c_all["count"] == 3, c_all
+    assert any(c[2]["summary"].startswith("Reheat: Beef Chili Reheat") for c in cal_ha.calls), cal_ha.calls
+
+    # Fitness goals (calories/protein/fiber) flow into plan_week + compute daily totals & extra headroom + meal_info()
+    p3.store.kv_set("fitness_goals", {"calories": 2200, "protein_g": 160, "fiber_g": 35})
+    reheat_prompts.clear()
+
+    class MacroModel:
+        async def chat(self, sys, msgs, **kw):
+            reheat_prompts.append(msgs[0]["content"])
+            return {"text": json.dumps({
+                "summary": "Macro-aligned day",
+                "days": [{"day": "Mon Nov 23", "meals": [
+                    {"slot": "lunch", "name": "Egg Spinach Bowl", "minutes": 5, "effort": "reheat",
+                     "uses": ["large eggs", "baby spinach"], "need": ["1 avocado"],
+                     "calories": 520, "protein_g": 38, "carbs_g": 24, "fat_g": 28, "fiber_g": 9},
+                    {"slot": "dinner", "name": "Chicken Rice Plate", "minutes": 25, "effort": "normal",
+                     "uses": [], "need": ["1 lb chicken breast"],
+                     "calories": 680, "protein_g": 62, "carbs_g": 70, "fat_g": 14, "fiber_g": 6},
+                ]}],
+            })}
+
+    p3.models = type("M", (), {"models": {"haiku": MacroModel()}, "get": lambda self, n: self.models["haiku"]})()
+    mp_res = await p3.plan_week(days=1, grid={"0|lunch": "reheat", "0|dinner": "normal"}, start_date=base_mon)
+    assert "2200 kcal/day" in reheat_prompts[0] and "160 g protein/day" in reheat_prompts[0], reheat_prompts[0]
+    assert mp_res["targets"]["calories"] == 2200 and mp_res["targets"]["protein_g"] == 160, mp_res["targets"]
+    d0 = mp_res["days"][0]
+    assert d0["totals"]["calories"] == 1200 and d0["totals"]["protein_g"] == 100 and d0["totals"]["fiber_g"] == 15, d0["totals"]
+    assert d0["remaining"]["calories"] == 1000 and d0["remaining"]["protein_g"] == 60, d0["remaining"]
+    info = p3.meal_info(0, "lunch")
+    assert info["meal"]["name"] == "Egg Spinach Bowl" and info["day_remaining"]["calories"] == 1000, info
+    ing_by = {x["name"].lower(): x for x in info["ingredients"]}
+    assert ing_by["large eggs"]["in_stock"] is True and ing_by["avocado"]["in_stock"] is False, ing_by
+
     print("PANTRY OK")
 
 

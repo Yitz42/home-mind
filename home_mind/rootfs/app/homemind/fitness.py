@@ -9,10 +9,11 @@ Nothing here changes a goal by itself: adjustments are suggestions the person ac
 less than CALORIE_FLOOR or losing faster than about 1% of body weight a week.
 """
 import json
+import math
 import re
 import statistics
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from . import nutrition
 
@@ -287,6 +288,14 @@ class Fitness:
                 raise ValueError(f"{k} must be between {lo} and {hi}")
             cur[k] = n
         self.store.kv_set(KV, cur)
+        pins = dict(self.store.kv_get("fitness_goal_pins") or {})
+        for k, v in new.items():
+            if k in GOALS:
+                if v in (None, ""):
+                    pins.pop(k, None)
+                else:
+                    pins[k] = True
+        self.store.kv_set("fitness_goal_pins", pins)
         return cur
 
     # ---- weight ----------------------------------------------------------------------------------------------------
@@ -802,6 +811,634 @@ class Fitness:
                 "protein_target": self.protein_goal(now), "workouts": [dict(w, t=w["t"]) for w in self.workouts(14, now)][-20:],
                 "sessions_7d": self.sessions(7, now), "records": self.records(), "stalls": self.stalls(now),
                 "suggestions": self.suggestions(now), "lines": self.status_lines(now)}
+
+    # ---- auto-baseline, adaptive daily goals & progressive routine generator ---------------------------------------
+    def prefs(self):
+        p = self.store.kv_get("fitness_prefs") or {}
+        if not isinstance(p, dict):
+            p = {}
+        return {
+            "sync_adaptive": bool(p.get("sync_adaptive", True)),
+            "split": p.get("split") if p.get("split") in ("ul", "ppl", "fb") else "ul",
+            "equip": p.get("equip") if p.get("equip") in ("gym", "db", "bw") else "gym",
+            "mins": int(p.get("mins") or 45) if int(p.get("mins") or 45) in (30, 45, 60) else 45,
+            "note": str(p.get("note") or "")[:160],
+            "use_memgraph": bool(p.get("use_memgraph", True)),
+            "use_calendar": bool(p.get("use_calendar", True)),
+        }
+
+    def set_prefs(self, new):
+        cur = self.prefs()
+        if isinstance(new, dict):
+            for k in ("sync_adaptive", "use_memgraph", "use_calendar"):
+                if k in new and new[k] is not None:
+                    cur[k] = bool(new[k])
+            if new.get("split") in ("ul", "ppl", "fb"):
+                cur["split"] = new["split"]
+            if new.get("equip") in ("gym", "db", "bw"):
+                cur["equip"] = new["equip"]
+            if new.get("mins") in (30, 45, 60, "30", "45", "60"):
+                cur["mins"] = int(new["mins"])
+            if "note" in new and new["note"] is not None:
+                cur["note"] = str(new["note"]).strip()[:160]
+        self.store.kv_set("fitness_prefs", cur)
+        return cur
+
+    def pinned_goals(self):
+        raw = self.store.kv_get("fitness_goal_pins")
+        g = self.goals()
+        if isinstance(raw, dict):
+            return {k: True for k, v in raw.items() if v and k in GOALS and g.get(k) not in (None, "")}
+        # Backwards compat: any goal already saved before pinning existed counts as pinned
+        return {k: True for k, v in g.items() if v not in (None, "")}
+
+    def reset_goals(self, key=None):
+        """Unpin one goal key (or all keys if key is None) so it returns to Auto-Baseline."""
+        cur = self.goals()
+        pins = self.pinned_goals()
+        if key:
+            if key not in GOALS:
+                raise ValueError(f"unknown goal {key}")
+            cur[key] = None
+            pins.pop(key, None)
+        else:
+            for k in GOALS:
+                cur[k] = None
+            pins = {}
+        self.store.kv_set(KV, cur)
+        self.store.kv_set("fitness_goal_pins", pins)
+        return self.auto_baseline()
+
+    def latest_body(self, now=None):
+        now = now or self.store.clock()
+        row = self.store.db.execute(
+            "SELECT created, meta FROM items WHERE shelf='body/weight' AND status='active' ORDER BY created DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return {}
+        m = json.loads(row["meta"] or "{}")
+        out = {"at": row["created"]}
+        for k in ("weight", "body_fat", "muscle_mass", "bmi", "basal_metabolic_rate", "body_water"):
+            if isinstance(m.get(k), (int, float)):
+                out[k] = round(float(m[k]), 1)
+        return out
+
+    def auto_baseline(self, now=None):
+        """Compute sensible baseline goals from scale BMR/weigh-ins, 14d watch steps/sleep, and 4w workouts,
+        respecting any manually pinned goals in KV."""
+        now = now or self.store.clock()
+        saved = self.goals()
+        pins = self.pinned_goals()
+        body = self.latest_body(now)
+        tr = self.trend(now)
+        cur_w = tr.get("trend") or body.get("weight")
+        w14 = self.watch(14)
+        sl14 = self.sleep_summary(14)
+        sess4w = self.sessions(28, now) / 4.0
+
+        auto = {}
+        reasons = {}
+        if cur_w:
+            target_w = saved["weight_target"] if pins.get("weight_target") and saved.get("weight_target") else round(cur_w, 1)
+            auto["weight_target"] = round(cur_w, 1)
+            reasons["weight_target"] = f"Current {cur_w:.1f} lb"
+        else:
+            target_w = saved.get("weight_target")
+            reasons["weight_target"] = "Log a weigh-in to auto-fill"
+
+        bmr = body.get("basal_metabolic_rate")
+        avg_steps = w14.get("steps") or 7000
+        if bmr:
+            mult = 1.28 + min(0.25, avg_steps / 40000.0) + min(0.12, sess4w * 0.025)
+            tdee = int(round(bmr * mult))
+            cal_src = f"BMR {int(bmr)} → TDEE ~{tdee}"
+        elif cur_w:
+            mult = 13.0 + (1.0 if avg_steps >= 8000 or sess4w >= 3 else 0.0)
+            tdee = int(round(cur_w * mult))
+            cal_src = f"{cur_w:.0f} lb × {mult:g}"
+        else:
+            tdee = 2100
+            cal_src = "Default (sync scale for BMR)"
+
+        diff = (target_w - cur_w) if (cur_w and target_w) else 0.0
+        adj = -400 if diff < -1.0 else (200 if diff > 1.0 else 0)
+        cals = max(1400, min(5000, int(round((tdee + adj) / 50.0) * 50)))
+        auto["calories"] = cals
+        reasons["calories"] = f"{cal_src}{f' {adj:+d}' if adj else ' (maint)'}"
+
+        ref_w = target_w if (cur_w and target_w and diff < -1.0) else cur_w
+        if ref_w:
+            prot = max(60, min(320, int(round((ref_w * 0.8) / 5.0) * 5)))
+            reasons["protein_g"] = f"{ref_w:.0f} lb × 0.8 g/lb"
+        else:
+            prot = 130
+            reasons["protein_g"] = "Default (log weight for 1.6 g/kg)"
+        auto["protein_g"] = prot
+
+        fat = max(50, int(round((cals * 0.28) / 9.0)))
+        carbs = max(80, int(round((cals - prot * 4 - fat * 9) / 4.0)))
+        fiber = max(25, min(45, int(round((cals / 1000.0) * 14.0))))
+        sugar = min(50, int(round((cals * 0.10) / 4.0)))
+        auto.update(fat_g=fat, carbs_g=carbs, fiber_g=fiber, sugar_g=sugar)
+        reasons.update(fat_g="~28% of kcal", carbs_g="Remaining kcal", fiber_g="14g / 1k kcal", sugar_g="≤10% kcal")
+
+        if w14.get("steps"):
+            step_auto = max(6000, min(12000, int(round((w14["steps"] + 500) / 500.0) * 500)))
+            reasons["steps"] = f"14d avg {w14['steps']:,} + 500"
+        else:
+            step_auto = 8000
+            reasons["steps"] = "Default 8,000 (no watch yet)"
+        auto["steps"] = step_auto
+
+        wpw = max(3, min(5, int(round(sess4w + 0.4)))) if sess4w >= 1 else 3
+        auto["workouts_per_week"] = wpw
+        reasons["workouts_per_week"] = f"4w avg {sess4w:.1f}/wk" if sess4w >= 0.5 else "Starter 3/wk"
+
+        sl_h = 7.5
+        if sl14.get("avg_h"):
+            sl_h = max(7.0, min(9.0, round(sl14["avg_h"] * 4) / 4))
+            reasons["sleep_hours"] = f"14d avg {sl14['avg_h']} h"
+        else:
+            reasons["sleep_hours"] = "Recommended 7.5 h"
+        auto["sleep_hours"] = sl_h
+        auto["bedtime"] = "22:30"
+        reasons["bedtime"] = "Wake − sleep − 20m"
+        auto["body_fat_target"] = round(max(12.0, body["body_fat"] - 2.0), 1) if body.get("body_fat") else None
+        reasons["body_fat_target"] = f"Scale {body['body_fat']:.1f}%" if body.get("body_fat") else "Optional"
+        auto["weight_by"] = None
+        reasons["weight_by"] = "Optional target date"
+
+        effective = {k: (saved[k] if pins.get(k) and saved.get(k) not in (None, "") else auto.get(k)) for k in GOALS}
+        return {"auto": auto, "effective": effective, "pinned": pins, "reasons": reasons, "body": body, "tdee": tdee}
+
+    @staticmethod
+    def _shift_bedtime(hhmm, delta_min):
+        m = re.match(r"^(\d{1,2}):(\d{2})$", str(hhmm or "22:30"))
+        h, mn = (int(m.group(1)), int(m.group(2))) if m else (22, 30)
+        tot = (h * 60 + mn + int(delta_min) + 1440) % 1440
+        return f"{tot // 60:02d}:{tot % 60:02d}"
+
+    def daily_plan(self, now=None, viewer=None):
+        """Today's adaptive daily goals derived from baseline + yesterday's sleep/readiness/steps + 3d protein + weekly pace."""
+        now = now or self.store.clock()
+        bl = self.auto_baseline(now)
+        eff = bl["effective"]
+        pr = self.prefs()
+        sess_7d = self.sessions(7, now)
+        wpw = int(eff.get("workouts_per_week") or 3)
+        sessions_left = max(0, wpw - sess_7d)
+
+        # Pull latest watch / sleep signals
+        sleep_prev, readiness, steps_prev = None, None, None
+        if self.patterns is not None:
+            try:
+                rows = self.patterns.rows(4)
+                if rows:
+                    last_r = rows[-1]
+                    sleep_prev = last_r.get("sleep_h")
+                    readiness = last_r.get("readiness")
+                    prev_r = rows[-2] if len(rows) >= 2 else last_r
+                    steps_prev = prev_r.get("steps_prev") or last_r.get("steps_prev")
+            except Exception:  # noqa: BLE001
+                pass
+        if sleep_prev is None:
+            sl_last = self.nights(2)
+            if sl_last:
+                sleep_prev = sl_last[-1].get("sleep_h")
+
+        # 3-day protein avg
+        days3 = [self.tally(_day(now - i * 86400), now) for i in (1, 2, 3)]
+        logged3 = [d["protein_g"] for d in days3 if d["meals"] and d["protein_g"]]
+        prot_3d = round(statistics.mean(logged3)) if logged3 else None
+
+        base_prot = int(eff.get("protein_g") or 130)
+        base_cal = int(eff.get("calories") or 2100)
+        base_steps = int(eff.get("steps") or 8000)
+        base_bed = eff.get("bedtime") or "22:30"
+        base_sleep = float(eff.get("sleep_hours") or 7.5)
+
+        low_recovery = (sleep_prev is not None and sleep_prev < 6.0) or (readiness is not None and readiness < 65)
+        already_trained_today = any(_day(w["t"]) == _day(now) for w in self.workouts(2, now))
+
+        cal_delta, prot_delta, step_delta, bed_shift = 0, 0, 0, 0
+        if low_recovery:
+            mode, mode_label, intensity = "recovery", "Recovery Swap · Low Sleep", "Light / Mobility"
+            step_delta = -1500
+            bed_shift = -30
+            why_w = (f"Slept {sleep_prev:.1f} h" if sleep_prev else "Low readiness") + " — swap heavy lifts for Zone-2 walk & mobility."
+            why_c = "Hold baseline calories — avoid extra deficit while under-recovered."
+            why_s = "-1,500 gentle recovery target today."
+            why_b = "30 min earlier tonight to repay sleep debt."
+        elif sessions_left == 0 and not already_trained_today:
+            mode, mode_label, intensity = "rest", "Active Rest Day", "Rest & walk"
+            cal_delta = -150
+            why_w = f"Weekly {sess_7d}/{wpw} workout goal met — active recovery walk only."
+            why_c = "-150 kcal rest-day trim balances lift-day fuel."
+            why_s = f"Hold baseline {base_steps:,} steps."
+            why_b = f"Hold normal {base_bed} bedtime."
+        else:
+            is_catchup = (steps_prev is not None and steps_prev < base_steps * 0.75) or (prot_3d is not None and prot_3d < base_prot - 15)
+            mode = "catchup" if is_catchup else "lift"
+            mode_label = "Catch-Up Lift Day" if is_catchup else "Lift Day"
+            intensity = "Done today ✓" if already_trained_today else "Full lift"
+            cal_delta = 100 if is_catchup else 150
+            prot_delta = 15 if (prot_3d is not None and prot_3d < base_prot - 15) else 10
+            if steps_prev is not None and steps_prev < base_steps * 0.75:
+                step_delta = min(1000, max(500, int(round((base_steps - steps_prev) * 0.35 / 500) * 500)))
+            why_w = f"{sess_7d}/{wpw} weekly sessions done — {sessions_left} left for your {wpw}/wk goal." if sessions_left else "Workout logged today!"
+            why_c = f"+{cal_delta} kcal training-day fuel buffer."
+            why_s = (f"+{step_delta:,} carry-over ({int(steps_prev):,} yesterday)." if step_delta
+                     else f"On pace for {base_steps:,} steps.")
+            why_b = f"Hold {base_bed} for {base_sleep:g} h sleep."
+
+        why_p = (f"+{prot_delta} g to close 3-day avg gap ({prot_3d} g vs {base_prot} g)."
+                 if (prot_3d is not None and prot_3d < base_prot - 15 and prot_delta)
+                 else (f"+{prot_delta} g on lift days for muscle recovery." if prot_delta else f"Hold baseline {base_prot} g protein."))
+
+        targets = {
+            "workout": intensity,
+            "protein_g": base_prot + prot_delta,
+            "calories": max(1400, base_cal + cal_delta),
+            "steps": max(3000, base_steps + step_delta),
+            "bedtime": self._shift_bedtime(base_bed, bed_shift),
+        }
+        return {
+            "mode": mode,
+            "mode_label": mode_label,
+            "sessions_left": sessions_left,
+            "sync_adaptive": pr["sync_adaptive"],
+            "targets": targets,
+            "baseline": {"workouts_per_week": wpw, "protein_g": base_prot, "calories": base_cal,
+                         "steps": base_steps, "bedtime": base_bed},
+            "deltas": {"protein_g": prot_delta, "calories": cal_delta, "steps": step_delta, "bedtime_min": bed_shift},
+            "notes": {"workout": why_w, "protein": why_p, "calories": why_c, "steps": why_s, "bedtime": why_b},
+            "signals": {"sleep_prev": sleep_prev, "readiness": readiness, "steps_prev": steps_prev, "protein_3d": prot_3d},
+        }
+
+    def muscle_volume(self, days=7, now=None):
+        """Weekly hard sets grouped into Push / Pull / Legs / Core."""
+        now = now or self.store.clock()
+        buckets = {"Push": 0, "Pull": 0, "Legs": 0, "Core": 0}
+        push_k = ("bench", "press", "dip", "push-up", "pushup", "fly", "tricep", "lateral raise")
+        pull_k = ("row", "pull-up", "pullup", "chin", "pulldown", "curl", "face pull", "shrug")
+        leg_k = ("squat", "deadlift", "lunge", "leg", "rdl", "calf", "hip thrust", "step-up", "glute")
+        for w in self.workouts(days, now):
+            e = w["entry"]
+            if not e.get("sets") and (e.get("miles") or e.get("minutes")):
+                continue
+            ex = (e.get("exercise") or "").lower()
+            sets = int(e.get("sets") or 1)
+            if any(k in ex for k in push_k):
+                buckets["Push"] += sets
+            elif any(k in ex for k in pull_k):
+                buckets["Pull"] += sets
+            elif any(k in ex for k in leg_k):
+                buckets["Legs"] += sets
+            else:
+                buckets["Core"] += sets
+        return [
+            {"group": "Push", "sets": buckets["Push"], "target": 12},
+            {"group": "Pull", "sets": buckets["Pull"], "target": 12},
+            {"group": "Legs", "sets": buckets["Legs"], "target": 12},
+            {"group": "Core", "sets": buckets["Core"], "target": 8},
+        ]
+
+    def cardio_summary(self, days=45, now=None):
+        now = now or self.store.clock()
+        runs = []
+        week_mi, week_min = 0.0, 0.0
+        for w in self.workouts(days, now):
+            e = w["entry"]
+            mi = e.get("miles")
+            mn = e.get("minutes")
+            if not mi and not (mn and not e.get("sets")):
+                continue
+            if w["t"] >= now - 7 * 86400:
+                week_mi += float(mi or 0)
+                week_min += float(mn or 0)
+            pace = round(float(mn) / float(mi), 2) if (mi and mn and float(mi) > 0.2) else None
+            runs.append({
+                "d": _day(w["t"]).strftime("%b %d").replace(" 0", " "),
+                "exercise": e.get("exercise") or "cardio",
+                "miles": round(float(mi), 2) if mi else None,
+                "minutes": round(float(mn), 1) if mn else None,
+                "pace": pace,
+            })
+        paces = [r["pace"] for r in runs if r["pace"]]
+        return {
+            "week_miles": round(week_mi, 1),
+            "week_minutes": round(week_min),
+            "best_pace": min(paces) if paces else None,
+            "runs": runs[-8:],
+        }
+
+    def lift_series(self, days=120, now=None):
+        now = now or self.store.clock()
+        by_ex = {}
+        for w in self.workouts(days, now):
+            e = w["entry"]
+            r1 = e1rm(e)
+            if not r1:
+                continue
+            ex = e["exercise"]
+            by_ex.setdefault(ex, []).append({
+                "d": _day(w["t"]).strftime("%b %d").replace(" 0", " "),
+                "work": describe(e),
+                "e1rm": round(r1),
+                "weight_lb": e.get("weight_lb"),
+                "sets": e.get("sets"),
+                "reps": e.get("reps"),
+            })
+        # Keep top 6 most-logged lifts
+        ranked = sorted(by_ex.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:6]
+        return {ex: pts[-8:] for ex, pts in ranked}
+
+    def week_strip(self, now=None):
+        now = now or self.store.clock()
+        today = _day(now)
+        ws = {(_day(w["t"])).isoformat() for w in self.workouts(8, now)}
+        prows = {}
+        if self.patterns is not None:
+            try:
+                for r in self.patterns.rows(8):
+                    prows[r["day"]] = r
+            except Exception:  # noqa: BLE001
+                pass
+        out = []
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            iso = d.isoformat()
+            pr = prows.get(iso) or {}
+            out.append({
+                "day": iso,
+                "d": d.strftime("%a")[0],
+                "short": d.strftime("%a"),
+                "done": iso in ws,
+                "today": i == 0,
+                "sleep": pr.get("sleep_h"),
+                "steps": pr.get("steps_prev"),
+                "ready": pr.get("readiness"),
+            })
+        return out
+
+    def streak_weeks(self, now=None):
+        now = now or self.store.clock()
+        wpw = int(self.auto_baseline(now)["effective"].get("workouts_per_week") or 3)
+        streak = 0
+        # Count consecutive past full 7-day windows meeting target (plus current if already met)
+        if self.sessions(7, now) >= wpw:
+            streak = 1
+        for wk in range(1, 16):
+            end_t = now - wk * 7 * 86400
+            start_t = end_t - 7 * 86400
+            days_hit = {_day(w["t"]) for w in self.workouts(wk * 7 + 8, now) if start_t <= w["t"] < end_t}
+            if len(days_hit) >= max(1, wpw):
+                streak += 1
+            else:
+                break
+        return streak
+
+    def routine_context(self, now=None, viewer=None):
+        """Collect injury/equipment notes from MemGraph and busy/travel days from synced HA calendars."""
+        now = now or self.store.clock()
+        pr = self.prefs()
+        notes = []
+        knee_safe, shoulder_safe = False, False
+        if pr["use_memgraph"] and getattr(self, "memgraph", None) is not None:
+            try:
+                for lnk in self.memgraph.query(categories=["HEALTH", "LIFE"], viewer=viewer, include_dormant=False, limit=16, record_access=False):
+                    txt = f"{lnk.get('source_name', '')} {lnk.get('relation', '')} {lnk.get('target_name', '')}".lower()
+                    if any(w in txt for w in ("knee", "patella", "meniscus", "acl")):
+                        knee_safe = True
+                        notes.append({"kind": "memgraph", "label": "Knee-safe swaps", "active": True})
+                    elif any(w in txt for w in ("shoulder", "rotator", "impingement")):
+                        shoulder_safe = True
+                        notes.append({"kind": "memgraph", "label": "Shoulder-safe swaps", "active": True})
+            except Exception:  # noqa: BLE001
+                pass
+        busy_days = {}
+        if pr["use_calendar"] and getattr(self, "calendars", None) is not None:
+            today = _day(now)
+            busy_rx = re.compile(r"\b(?:flight|travel|airport|out of town|conference|all day|wedding|trip)\b", re.I)
+            for i in range(7):
+                d = today + timedelta(days=i)
+                try:
+                    for ev in self.calendars.events_on(d):
+                        t = str(ev.get("title") or "")
+                        if busy_rx.search(t):
+                            busy_days[d.strftime("%a")] = re.sub(r"\s*\([^)]*\)\s*$", "", t).strip()[:32]
+                            break
+                except Exception:  # noqa: BLE001
+                    pass
+        if busy_days:
+            first_d, first_t = next(iter(busy_days.items()))
+            notes.append({"kind": "calendar", "label": f"Cal: {first_d} ({first_t}) → 30m Express", "active": True})
+        return {"knee_safe": knee_safe, "shoulder_safe": shoulder_safe, "busy_days": busy_days, "pills": notes[:4]}
+
+    SWAPS = {
+        "bench press": ["DB Bench Press", "Incline DB Press", "Weighted Push-ups"],
+        "db bench press": ["Bench Press", "Incline DB Press", "Weighted Push-ups"],
+        "pull-up": ["Lat Pulldown", "Inverted Row", "Chest-Supported Row"],
+        "overhead press": ["DB Shoulder Press", "Landmine Press", "Arnold Press"],
+        "barbell row": ["Chest-Supported Row", "Seated Cable Row", "One-Arm DB Row"],
+        "chest-supported row": ["Barbell Row", "Seated Cable Row", "One-Arm DB Row"],
+        "squat": ["Goblet Squat", "Leg Press", "Box Squat"],
+        "romanian deadlift": ["Hamstring Curl", "Kettlebell Swing", "Hip Thrust"],
+        "walking lunges": ["Step-Ups (Knee-Safe)", "Leg Extension", "Glute Bridge"],
+        "deadlift": ["Trap Bar Deadlift", "Romanian Deadlift", "Back Extension"],
+        "face pulls": ["Band Pull-Aparts", "Rear Delt Fly", "Cable Lateral Raise"],
+    }
+
+    def generate_routine(self, split=None, equip=None, mins=None, note=None, now=None, viewer=None):
+        """Build & save a progressive weekly workout routine from real lift history, stalls, MemGraph, and calendar."""
+        now = now or self.store.clock()
+        pr = self.set_prefs({k: v for k, v in (("split", split), ("equip", equip), ("mins", mins), ("note", note)) if v is not None})
+        sp, eq, dur, user_note = pr["split"], pr["equip"], pr["mins"], pr["note"]
+        express = dur <= 30
+        stalled = {s["exercise"].lower() for s in self.stalls(now)}
+        ctx = self.routine_context(now, viewer=viewer)
+        dp = self.daily_plan(now, viewer=viewer)
+
+        def _prog(ex_name, default_sets, default_reps, default_wt, group, fallback_tag="Starter"):
+            key = exercise_name(ex_name)
+            prev = self.last(key)
+            if prev:
+                pe = prev["entry"]
+                pw = pe.get("weight_lb")
+                ps = int(pe.get("sets") or default_sets)
+                prp = int(pe.get("reps") or default_reps)
+                prev_txt = f"Last: {describe(pe)}"
+                if key in stalled and pw:
+                    nw = max(45, int(round((pw * 0.9) / 5.0) * 5))
+                    return {"name": ex_name, "sets": ps, "reps": prp, "wt": nw, "tag": "10% deload",
+                            "prev": prev_txt, "kind": "deload", "group": group,
+                            "swaps": self.SWAPS.get(ex_name.lower(), [])}
+                if pw:
+                    nw = int(round((pw + 5) / 5.0) * 5) if prp >= default_reps else int(round(pw))
+                    tag = "+5 lb" if nw > pw else f"Hit {default_reps} reps"
+                    return {"name": ex_name, "sets": ps, "reps": default_reps, "wt": nw, "tag": tag,
+                            "prev": prev_txt, "kind": "prog", "group": group,
+                            "swaps": self.SWAPS.get(ex_name.lower(), [])}
+                return {"name": ex_name, "sets": ps, "reps": prp + 1, "wt": None, "tag": "+1 rep",
+                        "prev": prev_txt, "kind": "prog", "group": group,
+                        "swaps": self.SWAPS.get(ex_name.lower(), [])}
+            return {"name": ex_name, "sets": default_sets, "reps": default_reps, "wt": default_wt,
+                    "tag": fallback_tag, "prev": "No prior log yet", "kind": "prog", "group": group,
+                    "swaps": self.SWAPS.get(ex_name.lower(), [])}
+
+        bench = _prog("DB Bench Press" if eq == "db" else "Bench Press", 3, 8, 50 if eq == "db" else 135, 0)
+        ohp_name = "Landmine Press" if ctx["shoulder_safe"] else ("DB Shoulder Press" if eq == "db" else "Overhead Press")
+        ohp = _prog(ohp_name, 3, 5, 35 if eq == "db" else 95, 0, "Shoulder-safe" if ctx["shoulder_safe"] else "Strength")
+        pullup = _prog("Pull-up", 3, 8, None, 1)
+        row = _prog("Chest-Supported Row" if eq != "bw" else "Inverted Row", 3, 10, None if eq == "bw" else (45 if eq == "db" else 115), 1)
+        face = {"name": "Face Pulls", "sets": 3, "reps": 15, "wt": 25 if eq == "gym" else None, "tag": "Prehab",
+                "prev": "Shoulder balance", "kind": "rec", "group": 1, "swaps": self.SWAPS["face pulls"]}
+        squat = _prog("Goblet Squat" if eq == "db" else "Squat", 3, 5, 50 if eq == "db" else 185, 2)
+        rdl = _prog("Romanian Deadlift", 3, 8, 50 if eq == "db" else 155, 2)
+        lunge = ({"name": "Step-Ups (Knee-Safe)", "sets": 3, "reps": 10, "wt": 25 if eq != "bw" else None,
+                  "tag": "MemGraph", "prev": "Knee-safe swap", "kind": "rec", "group": 2,
+                  "swaps": self.SWAPS["walking lunges"]}
+                 if ctx["knee_safe"] else _prog("Walking Lunges", 3, 10, 30 if eq != "bw" else None, 2))
+        dead = _prog("Deadlift", 1, 5, 225 if eq == "gym" else 90, 2)
+        inc_db = _prog("Incline DB Press", 3, 10, 50, 0)
+        core = {"name": "Hanging Knee Raises", "sets": 3, "reps": 12, "wt": None, "tag": "Core",
+                "prev": "Trunk stability", "kind": "rec", "group": 3, "swaps": ["Plank (60s)", "Dead Bug", "Ab Wheel"]}
+
+        def _warmup(main_ex):
+            w = main_ex.get("wt")
+            if not w or eq == "bw":
+                return "2m dynamic warm-up + 1×10 easy reps"
+            w1 = max(45, int(round((w * 0.55) / 5.0) * 5))
+            w2 = max(45, int(round((w * 0.8) / 5.0) * 5))
+            return f"{main_ex['name']}: 45×8 → {w1}×5 → {w2}×2" if eq == "gym" else f"{main_ex['name']}: {w1}×8 → {w2}×4"
+
+        upper_a = {
+            "short": "Mon · Upper A", "title": "Upper A — Bodyweight" if eq == "bw" else ("Upper A — Dumbbells" if eq == "db" else "Upper A — Strength & Push"),
+            "mins": dur, "warmup": _warmup(bench),
+            "why": f"Progressed from your last lifts{f' · {user_note}' if user_note else ''}.",
+            "exercises": ([
+                {"name": "Tempo Push-ups", "sets": 4, "reps": 12, "wt": None, "tag": "Push", "prev": "3s lower", "kind": "prog", "group": 0, "swaps": ["Incline Push-ups", "Dips"]},
+                pullup,
+                {"name": "Pike Push-ups", "sets": 3, "reps": 10, "wt": None, "tag": "Shoulders", "prev": "Control tempo", "kind": "prog", "group": 0, "swaps": ["Band Press"]},
+                row,
+            ] if eq == "bw" else [bench, pullup, ohp, row, face])[: (3 if express else 5)],
+        }
+        lower_a = {
+            "short": "Wed · Lower A", "title": "Lower A — Squat & Hinge", "mins": dur, "warmup": _warmup(squat),
+            "why": "Squat + posterior chain" + (" (knee-safe lunge swap)." if ctx["knee_safe"] else "."),
+            "exercises": ([
+                {"name": "Bodyweight Split Squat", "sets": 3, "reps": 12, "wt": None, "tag": "Legs", "prev": "Per leg", "kind": "prog", "group": 2, "swaps": ["Step-Ups", "Air Squats"]},
+                {"name": "Single-Leg RDL", "sets": 3, "reps": 10, "wt": None, "tag": "Hinge", "prev": "Per leg", "kind": "prog", "group": 2, "swaps": ["Glute Bridge"]},
+                core,
+            ] if eq == "bw" else [squat, rdl, lunge, core])[: (3 if express else 4)],
+        }
+        fri_busy = ctx["busy_days"].get("Fri")
+        fri_exp = express or bool(fri_busy)
+        upper_b = {
+            "short": "Fri · 30m ⚡" if fri_exp else "Fri · Upper B",
+            "title": f"Upper B — 30m Express ({fri_busy})" if fri_busy else "Upper B — Pull & Conditioning",
+            "mins": 30 if fri_exp else dur, "warmup": "2m band pull-aparts + 1×10 light rows",
+            "why": f"Shortened for calendar event ({fri_busy})." if fri_busy else "Balances push/pull volume + aerobic base.",
+            "exercises": ([inc_db, row] if fri_exp else [inc_db, row, face,
+                {"name": "Zone-2 Run / Incline Walk", "sets": 1, "reps": "20 min", "wt": None, "tag": "Cardio",
+                 "prev": "Aerobic base", "kind": "rec", "group": 3, "swaps": ["Cycling 20m", "Rowing 15m"]}]),
+        }
+        lower_b = {
+            "short": "Sat · Lower B", "title": "Lower B — Deadlift Focus", "mins": dur, "warmup": _warmup(dead),
+            "why": "Heavy hinge + lighter quad volume.",
+            "exercises": [dead, lunge, core],
+        }
+        rec_day = {
+            "short": "Today (Rec)", "title": "Active Recovery & Mobility", "mins": 30, "warmup": None,
+            "why": dp["notes"]["workout"],
+            "exercises": [
+                {"name": "Brisk Zone-2 Walk", "sets": 1, "reps": "25 min", "wt": None, "tag": "Recovery", "prev": "Easy pace", "kind": "rec", "group": 3, "swaps": ["Easy Bike 20m"]},
+                {"name": "Hip & Thoracic Mobility", "sets": 2, "reps": "5 min", "wt": None, "tag": "Mobility", "prev": "Zero fatigue", "kind": "rec", "group": 3, "swaps": ["Yoga Flow 10m"]},
+                face,
+            ],
+        }
+
+        if sp == "fb":
+            days_out = [
+                {**upper_a, "short": "Mon · FB A", "title": "Full Body A", "exercises": [squat, bench, pullup][: (3 if express else 4)]},
+                {**lower_b, "short": "Wed · FB B", "title": "Full Body B", "exercises": [dead, ohp, row]},
+                {**upper_b, "short": "Fri · 30m ⚡" if fri_exp else "Fri · FB C", "title": "Full Body C — Express" if fri_exp else "Full Body C",
+                 "exercises": [rdl, inc_db, core]},
+            ]
+        elif sp == "ppl":
+            days_out = [
+                {**upper_a, "short": "Mon · Push", "title": "Push — Bench & Shoulders", "exercises": [bench, ohp, inc_db, face][: (3 if express else 4)]},
+                {**upper_b, "short": "Wed · Pull", "title": "Pull — Deadlift & Back", "exercises": [dead, pullup, row]},
+                {**lower_a, "short": "Fri · Legs", "title": "Legs — Squat & Posterior"},
+            ]
+        else:
+            days_out = [upper_a, lower_a, upper_b, lower_b]
+
+        if dp["mode"] in ("recovery", "rest"):
+            days_out = [rec_day] + days_out[:3]
+
+        saved_r = {"split": sp, "equip": eq, "mins": dur, "note": user_note, "days": days_out,
+                   "context": ctx, "generated_at": now}
+        self.store.kv_set("fitness_routine", saved_r)
+        return saved_r
+
+    def routine(self, now=None, viewer=None):
+        now = now or self.store.clock()
+        saved = self.store.kv_get("fitness_routine")
+        if isinstance(saved, dict) and saved.get("days"):
+            return saved
+        return self.generate_routine(now=now, viewer=viewer)
+
+    def log_weigh_in(self, weight, unit="lb", now=None, meta=None):
+        from .body import KG_LB, note_text
+        now = now or self.store.clock()
+        if isinstance(weight, bool):
+            raise ValueError("weight must be a number")
+        try:
+            v = float(weight)
+        except (TypeError, ValueError):
+            raise ValueError("weight must be a number") from None
+        if not math.isfinite(v):
+            raise ValueError("weight must be a finite number")
+        lb = v * KG_LB if str(unit or "lb").lower().startswith("k") else v
+        if not (50 <= lb <= 600):
+            raise ValueError("weight must be between 50 and 600 lb")
+        when = datetime.fromtimestamp(now).astimezone()
+        ts = when.astimezone(timezone.utc).isoformat()
+        note = note_text(when, {"weight": round(lb, 1)})
+        m = {"weigh_in": ts, "series": "weigh-in", "weight": round(lb, 1), **(meta or {})}
+        out = self.store.remember(text=note, title=note.split(": my ")[0] + f": {lb:.1f} lb",
+                                  kind="fact", shelf="body/weight", tags=["weight", "scale", "body"],
+                                  source="api", meta=m, at=now)
+        return {"id": out.get("id"), "weight": round(lb, 1), "answer": f"Logged weigh-in: {lb:.1f} lb."}
+
+    def dashboard(self, now=None, viewer=None):
+        """Full Fitness section payload (superset of status()): auto-baseline, adaptive daily goals,
+        progressive routine, lift/cardio/weight charts, volume, streak, review, and protein boosters."""
+        now = now or self.store.clock()
+        base = self.status(now)
+        bl = self.auto_baseline(now)
+        dp = self.daily_plan(now, viewer=viewer)
+        tod = base["today"]
+        p_target = dp["targets"]["protein_g"] if dp["sync_adaptive"] else (bl["effective"].get("protein_g") or 0)
+        p_gap = max(0, int(p_target - (tod.get("protein_g") or 0)))
+        w30 = [{"d": _day(x["t"]).strftime("%b %d").replace(" 0", " "), "w": round(x["weight"], 1)}
+               for x in self.weigh_ins(30, now)]
+        base.update({
+            "baseline": bl,
+            "daily": dp,
+            "routine": self.routine(now, viewer=viewer),
+            "weigh_ins_30d": w30,
+            "lift_series": self.lift_series(120, now),
+            "cardio": self.cardio_summary(45, now),
+            "volume": self.muscle_volume(7, now),
+            "week_days": self.week_strip(now),
+            "streak_weeks": self.streak_weeks(now),
+            "protein_ideas": self.protein_ideas(p_gap, n=3) if p_gap >= 10 else [],
+            "review": self.review(now),
+            "prefs": self.prefs(),
+        })
+        return base
 
 
 FIT_Q = re.compile(r"\b(?:weigh|weight|lb|pounds|protein|calories|kcal|macros|workout|work out|lift|lifted|squat|bench|"

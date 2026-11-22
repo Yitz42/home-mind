@@ -1346,11 +1346,11 @@ note), 502 (a model failed) or 500.
 | POST | `/api/body/backfill` | write | fill in past body-signal readings |
 | GET | `/api/calendar` | read | calendar events for a day (`day`, `q`) |
 | POST | `/api/calendar/sync` | write | sync calendars now |
-| GET | `/api/fitness` | read | goals, progress, today's protein and calories, recent workouts, bests, stalls, suggestions |
+| GET | `/api/fitness` | read | fitness dashboard: goals, auto-baseline, adaptive daily plan, progressive routine, progress, today's tally, workouts, lift/cardio/weight series, volume, bests, stalls, suggestions, review |
 | GET | `/api/fitness/review` | read | the week in review and suggested changes |
 | GET | `/api/fitness/workouts` | read | `days?`, `exercise?`: logged workouts with bests and stalled lifts |
 | GET | `/api/fitness/logs` | read | `kind` (sleep or workout), `days?`: recent logs to look at and fix |
-| POST | `/api/fitness/{op}` | write | `goals` (goal fields), `workout` (`text`, `at?`), `accept` (`index`: a suggestion from the review), `edit` (`kind`, `id`, `text`: what it should say), `delete` (`kind`, `id`) |
+| POST | `/api/fitness/{op}` | write | `goals` (goal fields), `reset_goals` (`key?`: unpin one or all to auto-baseline), `prefs` (`sync_adaptive?`, `use_memgraph?`, `use_calendar?`, `split?`, `equip?`, `mins?`, `note?`), `routine` (`split?`, `equip?`, `mins?`, `note?`), `workout` (`text`, `at?`), `weigh` (`weight`, `unit?`), `accept` (`index`: a suggestion from the review), `edit` (`kind`, `id`, `text`: what it should say), `delete` (`kind`, `id`) |
 | GET | `/api/persona` | read | the persona's settings, its emotions, examples, and instructions for a voice agent |
 | POST | `/api/persona` | write | any of `enabled`, `name`, `address` (name, sir, madam, none), `wit` (off, low, normal), `ssml`; with `person`, only `enabled`, `address` and `wit` for that person (`null` = back to the house's) |
 | GET | `/api/persona/corpus` | read | `n?`, `download?`: a made-up practice set (plain answers per emotion), the persona's instructions and examples, for training a style model |
@@ -1361,7 +1361,7 @@ note), 502 (a model failed) or 500.
 | POST | `/api/phrasebook/{op}` | write | `add` (`said`, `plain`), `approve`/`reject`/`remove` (`id`), `try` (`text`, `model?`), `grow` (`model?`, `n?`), `eval` (`model?`, `limit?`) |
 | GET | `/api/pantry` | read | pantry items and goals |
 | GET | `/api/pantry/meals` | read | `day?` (YYYY-MM-DD): meals logged on that day with macros, totals, and nutrition goals |
-| POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`, `day?`), `meal_edit` (`id`, `text?`, `when?`, `calories?`, `protein_g?`, `carbs_g?`, `fat_g?`, `fiber_g?`, `sugar_g?`, `reestimate?`), `meal_delete` (`id`), `used`, `tossed`, `remove`, `suggest`, `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
+| POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`, `day?`), `meal_edit` (`id`, `text?`, `when?`, `calories?`, `protein_g?`, `carbs_g?`, `fat_g?`, `fiber_g?`, `sugar_g?`, `reestimate?`), `meal_delete` (`id`), `used`, `tossed`, `remove`, `suggest`, `week` (`prep_day?`, `prep_time?`), `layout`, `plan_cell`, `swap`, `plan_clear`, `meal_info`, `calendar` (`include`: `prep` or `all`), `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
 | GET | `/api/patterns` | read | brain-fog report, findings, experiment and daily rows (`days`) |
 | POST | `/api/patterns/{op}` | write | `refresh`, `send`, `experiment`, `ask`, `answer`, `weather` |
 | GET | `/api/journal` | read | daily journal summaries |
