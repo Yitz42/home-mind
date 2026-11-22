@@ -524,6 +524,37 @@ async def main():
     assert c_all["count"] == 3, c_all
     assert any(c[2]["summary"].startswith("Reheat: Beef Chili Reheat") for c in cal_ha.calls), cal_ha.calls
 
+    # Fitness goals (calories/protein/fiber) flow into plan_week + compute daily totals & extra headroom + meal_info()
+    p3.store.kv_set("fitness_goals", {"calories": 2200, "protein_g": 160, "fiber_g": 35})
+    reheat_prompts.clear()
+
+    class MacroModel:
+        async def chat(self, sys, msgs, **kw):
+            reheat_prompts.append(msgs[0]["content"])
+            return {"text": json.dumps({
+                "summary": "Macro-aligned day",
+                "days": [{"day": "Mon Nov 23", "meals": [
+                    {"slot": "lunch", "name": "Egg Spinach Bowl", "minutes": 5, "effort": "reheat",
+                     "uses": ["large eggs", "baby spinach"], "need": ["1 avocado"],
+                     "calories": 520, "protein_g": 38, "carbs_g": 24, "fat_g": 28, "fiber_g": 9},
+                    {"slot": "dinner", "name": "Chicken Rice Plate", "minutes": 25, "effort": "normal",
+                     "uses": [], "need": ["1 lb chicken breast"],
+                     "calories": 680, "protein_g": 62, "carbs_g": 70, "fat_g": 14, "fiber_g": 6},
+                ]}],
+            })}
+
+    p3.models = type("M", (), {"models": {"haiku": MacroModel()}, "get": lambda self, n: self.models["haiku"]})()
+    mp_res = await p3.plan_week(days=1, grid={"0|lunch": "reheat", "0|dinner": "normal"}, start_date=base_mon)
+    assert "2200 kcal/day" in reheat_prompts[0] and "160 g protein/day" in reheat_prompts[0], reheat_prompts[0]
+    assert mp_res["targets"]["calories"] == 2200 and mp_res["targets"]["protein_g"] == 160, mp_res["targets"]
+    d0 = mp_res["days"][0]
+    assert d0["totals"]["calories"] == 1200 and d0["totals"]["protein_g"] == 100 and d0["totals"]["fiber_g"] == 15, d0["totals"]
+    assert d0["remaining"]["calories"] == 1000 and d0["remaining"]["protein_g"] == 60, d0["remaining"]
+    info = p3.meal_info(0, "lunch")
+    assert info["meal"]["name"] == "Egg Spinach Bowl" and info["day_remaining"]["calories"] == 1000, info
+    ing_by = {x["name"].lower(): x for x in info["ingredients"]}
+    assert ing_by["large eggs"]["in_stock"] is True and ing_by["avocado"]["in_stock"] is False, ing_by
+
     print("PANTRY OK")
 
 

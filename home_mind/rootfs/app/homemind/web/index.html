@@ -327,9 +327,20 @@
   .mp-prep { border:1px solid var(--food-line); background:var(--card); border-radius:12px; padding:10px 12px; margin-bottom:8px; font-size:12px }
   .mp-prep-line { display:flex; align-items:center; gap:6px; margin-top:4px }
   .mp-foot { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding-top:10px; margin-top:6px; border-top:1px solid var(--food-line) }
+  .mp-day-nut { margin-top:4px; font-size:10px; line-height:1.3; color:var(--mute) }
+  .mp-day-nut .extra { color:var(--ok); font-weight:600 }
+  .mp-day-nut .over { color:var(--bad); font-weight:600 }
+  .mp-mtitle.click { cursor:pointer } .mp-mtitle.click:hover { text-decoration:underline }
+  .mp-modal-bg { position:fixed; inset:0; z-index:40; background:rgba(8,12,20,.6); display:flex; align-items:center; justify-content:center; padding:16px }
+  .mp-modal { width:100%; max-width:540px; max-height:86vh; overflow-y:auto; background:var(--card); border:1px solid var(--food-line); border-radius:18px; padding:16px 18px; box-shadow:0 20px 50px rgba(0,0,0,.35); display:flex; flex-direction:column; gap:12px }
+  .mp-mgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(88px,1fr)); gap:8px }
+  .mp-mstat { background:var(--card2); border:1px solid var(--line); border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; gap:2px }
+  .mp-mstat b { font:700 17px var(--head) } .mp-mstat span { font-size:11px; color:var(--mute) }
+  .mp-ing { display:flex; flex-direction:column; gap:6px }
+  .mp-ing-row { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:7px 9px; border-radius:10px; background:var(--card2); border:1px solid var(--line); font-size:12px }
   @media (max-width: 600px) {
     .mp-grid3 { grid-template-columns:1fr }
-    .mp-row { grid-template-columns:48px repeat(3,minmax(0,1fr)); gap:4px }
+    .mp-row { grid-template-columns:56px repeat(3,minmax(0,1fr)); gap:4px }
     .mp-slot { padding:6px 6px; min-height:52px } button.mp-slot { padding-right:26px }
   }
   /* Brain graph visualizer */
@@ -647,6 +658,7 @@
       <div id="w_shop_out"></div>
       <div id="w_shop_msg" class="mute"></div>
     </div></div>
+  <div id="mp_modal" class="mp-modal-bg hide" onclick="mpCloseModalBg(event)"></div>
   <div class="card"><div class="row"><h2 style="margin:0;flex:1">In the house</h2>
       <label class="go" style="background:var(--acc);color:#fff;border-radius:7px;padding:7px 14px;cursor:pointer">📷 Add from photo<input type="file" accept="image/*" capture="environment" id="p_photo" class="hide" onchange="photo(this)"></label></div>
     <div class="row"><input id="p_text" placeholder="e.g. chicken, 2 lb ground beef and a dozen eggs" style="flex:1">
@@ -2022,8 +2034,11 @@ function mpRender() {
     const totalMin = cooks.reduce((acc, m) => acc + (Number(m.minutes) || (m.effort === 'quick' ? 15 : m.effort === 'big' ? 60 : 30)), 0);
     const hrs = (totalMin / 60).toFixed(1);
     const buyN = _weekShop.length;
+    const tg = (MP.plan && MP.plan.targets) || {};
+    const tgTxt = [tg.calories ? `${tg.calories} kcal` : '', tg.protein_g ? `${tg.protein_g}g P` : ''].filter(Boolean).join(' · ');
     $('#mp_summary').innerHTML =
       `<span class="mp-chip hi">${allMeals.length} meals from <b>${cooks.length}</b> cooking session${cooks.length === 1 ? '' : 's'}</span>`
+      + (tgTxt ? `<span class="mp-chip">🎯 ${esc(tgTxt)}/day</span>` : '')
       + `<span class="mp-chip">🛒 ${buyN} to buy</span>`
       + `<span class="mp-chip">~${esc(hrs)} h cooking</span>`
       + (MP.plan && MP.plan.style ? `<span class="mp-chip">${esc(MP_STYLE_LBL[MP.plan.style] || MP.plan.style)}</span>` : '');
@@ -2050,6 +2065,19 @@ function mpRender() {
       const allOff = MP_SLOTS.every(s => MP.grid[i + '|' + s] === 'skip');
       dayCol = `<div class="mp-day"><button class="dname" onclick="mpPaintDay(${i})" title="Set whole day to ${esc(MP_EFF[MP.brush][1])}">${lbl}</button>`
         + `<button class="dskip" onclick="mpToggleSkipDay(${i}, event)">${allOff ? '↺ day' : '✕ day'}</button></div>`;
+    } else {
+      const pd = MP.plan && MP.plan.days && MP.plan.days[i];
+      const tot = (pd && pd.totals) || {}, rem = (pd && pd.remaining) || {};
+      const lines = [];
+      if (tot.calories) {
+        const rc = rem.calories;
+        lines.push(`<div>${esc(tot.calories)} cal${rc != null ? (rc >= 0 ? ` <span class="extra">+${esc(rc)}</span>` : ` <span class="over">${esc(rc)}</span>`) : ''}</div>`);
+      }
+      if (tot.protein_g) {
+        const rp = rem.protein_g;
+        lines.push(`<div>${esc(tot.protein_g)}g P${rp != null ? (rp >= 0 ? ` <span class="extra">+${esc(rp)}g</span>` : ` <span class="over">${esc(rp)}g</span>`) : ''}</div>`);
+      }
+      dayCol = `<div class="mp-day">${lbl}${lines.length ? `<div class="mp-day-nut" title="Planned totals and remaining room for extras">${lines.join('')}</div>` : ''}</div>`;
     }
     const cells = MP_SLOTS.map(s => {
       const k = i + '|' + s, e = MP.grid[k] || 'skip', calLbl = MP.cal[k];
@@ -2072,14 +2100,16 @@ function mpRender() {
       const isLeft = !!(m.batch_id && m.is_cook === false);
       const isCook = !!(m.batch_id && m.is_cook !== false);
       const effIcon = (MP_EFF[m.effort || e] || MP_EFF.normal)[0];
+      const calChip = m.calories ? ` · ${m.calories} cal` : '';
       const meta = isLeft
-        ? `<span class="mp-meta"><span class="mp-dot"></span>↺ ${esc(m.batch_label || 'leftovers')} · 5 min</span>`
+        ? `<span class="mp-meta"><span class="mp-dot"></span>↺ ${esc(m.batch_label || 'leftovers')} · 5 min${m.protein_g ? ' · ' + esc(m.protein_g) + 'g P' : ''}${esc(calChip)}</span>`
         : isCook
-          ? `<span class="mp-meta"><span class="mp-dot"></span>${effIcon} ${esc(m.minutes || 30)} min${m.servings ? ' · makes ' + esc(m.servings) : ''}</span>`
-          : `<span class="mp-meta">${effIcon} ${m.minutes ? esc(m.minutes) + ' min' : ''}${m.protein_g ? ' · ~' + esc(m.protein_g) + 'g P' : ''}</span>`;
+          ? `<span class="mp-meta"><span class="mp-dot"></span>${effIcon} ${esc(m.minutes || 30)} min${m.servings ? ' · makes ' + esc(m.servings) : ''}${m.protein_g ? ' · ' + esc(m.protein_g) + 'g P' : ''}</span>`
+          : `<span class="mp-meta">${effIcon} ${m.minutes ? esc(m.minutes) + ' min' : ''}${m.protein_g ? ' · ~' + esc(m.protein_g) + 'g P' : ''}${esc(calChip)}</span>`;
       return `<div class="mp-slot ${isLeft ? 'left' : 'need'}${isCook ? ' cook' : ''}"${bc ? ` style="--bc:${esc(bc)}"` : ''}>`
-        + `<div class="mp-mtitle">${esc(m.name)}</div>${meta}`
-        + `<div class="mp-acts"><a onclick="mpSwapPlanned(${i}, ${jsq(s)}, ${jsq(d.label + ' ' + m.name)})">↻ swap</a>`
+        + `<div class="mp-mtitle click" onclick="mpOpenMeal(${i}, ${jsq(s)})" title="Click for nutrition & ingredients">${esc(m.name)}</div>${meta}`
+        + `<div class="mp-acts"><a onclick="mpOpenMeal(${i}, ${jsq(s)})">info</a>`
+        + `<a onclick="mpSwapPlanned(${i}, ${jsq(s)}, ${jsq(d.label + ' ' + m.name)})">↻ swap</a>`
         + `<a onclick="mpSkipPlanned(${i}, ${jsq(s)})">✕ skip</a></div></div>`;
     }).join('');
     return `<div class="mp-row${i === 0 ? ' today' : ''}">${dayCol}${cells}</div>`;
@@ -2168,6 +2198,102 @@ async function mpAddCal(include) {
   if (r.error) { MP.calMsg = r.error; mpRender(); return; }
   MP.calMsg = `Added ${r.count || 0} event${r.count === 1 ? '' : 's'} to ${r.calendar_name || r.calendar || 'calendar'} ✓`;
   mpRender();
+}
+let _mpModal = null;
+function mpCloseModal() {
+  _mpModal = null;
+  const el = $('#mp_modal');
+  if (el) { el.classList.add('hide'); el.innerHTML = ''; }
+}
+function mpCloseModalBg(ev) {
+  if (ev && ev.target && ev.target.id === 'mp_modal') mpCloseModal();
+}
+async function mpOpenMeal(dayIdx, slot) {
+  const pd = MP.plan && MP.plan.days && MP.plan.days[dayIdx];
+  const m = mpFindMeal(dayIdx, slot);
+  if (!m) return;
+  _mpModal = {
+    dayIdx, slot, day: (pd && pd.day) || '', meal: m,
+    targets: (MP.plan && MP.plan.targets) || {},
+    day_totals: (pd && pd.totals) || {},
+    day_remaining: (pd && pd.remaining) || {},
+    ingredients: null, loading: true, logMsg: '',
+  };
+  mpRenderModal();
+  const r = await api('api/pantry/meal_info', {day_index: dayIdx, slot});
+  if (!_mpModal || _mpModal.dayIdx !== dayIdx || _mpModal.slot !== slot) return;
+  _mpModal.loading = false;
+  if (!r.error) {
+    _mpModal.ingredients = r.ingredients || [];
+    if (r.targets) _mpModal.targets = r.targets;
+    if (r.day_totals) _mpModal.day_totals = r.day_totals;
+    if (r.day_remaining) _mpModal.day_remaining = r.day_remaining;
+  }
+  mpRenderModal();
+}
+async function mpLogMeal(dayIdx, slot) {
+  const m = mpFindMeal(dayIdx, slot);
+  if (!m || !_mpModal) return;
+  _mpModal.logMsg = 'Logging…'; mpRenderModal();
+  const r = await api('api/pantry/ate', {text: m.name, source: 'week_plan'});
+  if (!_mpModal) return;
+  _mpModal.logMsg = r.error ? r.error : `Logged "${m.name}" to today's meals ✓`;
+  mpRenderModal();
+}
+function mpRenderModal() {
+  const el = $('#mp_modal');
+  if (!el || !_mpModal) return;
+  const {dayIdx, slot, day, meal: m, targets: tg, day_totals: dt, day_remaining: dr, ingredients: ings, loading, logMsg} = _mpModal;
+  const pct = (v, t) => (v && t) ? `${Math.round((v / t) * 100)}% of daily goal` : '';
+  const stats = [
+    ['Calories', m.calories ? `${m.calories}` : '–', pct(m.calories, tg.calories)],
+    ['Protein', m.protein_g ? `${m.protein_g} g` : '–', pct(m.protein_g, tg.protein_g)],
+    ['Carbs', m.carbs_g ? `${m.carbs_g} g` : '–', pct(m.carbs_g, tg.carbs_g)],
+    ['Fat', m.fat_g ? `${m.fat_g} g` : '–', pct(m.fat_g, tg.fat_g)],
+    ['Fiber', m.fiber_g ? `${m.fiber_g} g` : '–', pct(m.fiber_g, tg.fiber_g)],
+  ].filter(s => s[1] !== '–' || s[0] === 'Calories' || s[0] === 'Protein');
+  const remParts = [];
+  if (dt.calories && tg.calories) {
+    remParts.push(`${dt.calories} / ${tg.calories} kcal (${dr.calories >= 0 ? '+' + dr.calories + ' kcal extra room' : dr.calories + ' kcal over'})`);
+  }
+  if (dt.protein_g && tg.protein_g) {
+    remParts.push(`${dt.protein_g} / ${tg.protein_g}g protein (${dr.protein_g >= 0 ? '+' + dr.protein_g + 'g left' : dr.protein_g + 'g over'})`);
+  }
+  const ingList = ings !== null ? ings : [
+    ...(m.uses || []).map(u => ({name: u, kind: 'pantry', in_stock: true})),
+    ...(m.need || []).map(n => ({name: typeof n === 'string' ? n : (n.item || n.name || ''), kind: 'buy', in_stock: false})),
+  ];
+  const ingHtml = ingList.length ? ingList.map(it => {
+    const p100 = it.per_100g || {};
+    const nutLine = [p100.kcal != null ? `${Math.round(p100.kcal)} kcal` : '', p100.protein != null ? `${p100.protein}g P` : '',
+      p100.carbs != null ? `${p100.carbs}g C` : '', p100.fat != null ? `${p100.fat}g F` : '', p100.fiber != null ? `${p100.fiber}g fib` : ''].filter(Boolean).join(' · ');
+    const badge = it.in_stock
+      ? `<span class="chip" style="color:var(--ok)">In ${esc(it.location || 'pantry')}${it.days_left != null ? ' · ' + esc(it.days_left < 1 ? 'use today' : Math.round(it.days_left) + 'd left') : ''}</span>`
+      : `<span class="chip" style="color:var(--food-ink)">To buy${it.amount ? ' · ' + esc(it.amount) : ''}</span>`;
+    return `<div class="mp-ing-row"><div style="min-width:0"><b>${esc(it.name)}</b>`
+      + (nutLine ? `<div class="mute" style="font-size:11px;margin-top:2px">USDA (${esc(it.food || it.name)}, per 100g): ${esc(nutLine)}</div>` : '')
+      + `</div><div style="flex:none">${badge}</div></div>`;
+  }).join('') : `<div class="mute" style="font-size:12px">${loading ? 'Loading ingredient food info…' : 'No ingredient breakdown listed.'}</div>`;
+
+  const effInfo = MP_EFF[m.effort] || MP_EFF.normal;
+  el.innerHTML = `<div class="mp-modal">`
+    + `<div class="row" style="margin:0;align-items:flex-start;justify-content:space-between">`
+    + `<div><div class="mute" style="font-size:12px;text-transform:capitalize">${esc(day)} · ${esc(slot)} · ${effInfo[0]} ${esc(effInfo[1])}${m.minutes ? ' · ' + esc(m.minutes) + ' min' : ''}</div>`
+    + `<h2 style="margin:2px 0 0">${esc(m.name)}</h2>`
+    + (m.batch_label ? `<div class="mute" style="font-size:12px">Batch: ${esc(m.batch_label)}${m.is_cook === false ? ' (reheat / leftover)' : (m.servings ? ' · makes ' + esc(m.servings) : '')}</div>` : '')
+    + `</div><button class="soft" onclick="mpCloseModal()" style="min-height:32px;padding:4px 10px">✕</button></div>`
+    + `<div class="mp-mgrid">${stats.map(([k, v, sub]) => `<div class="mp-mstat"><span>${esc(k)}</span><b>${esc(v)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</div>`).join('')}</div>`
+    + (remParts.length ? `<div class="mp-box" style="margin:0;font-size:12px"><b>${esc(day)} total vs your Fitness goals:</b><div class="mute" style="margin-top:2px">${esc(remParts.join(' · '))}</div></div>` : '')
+    + `<div><div style="font-size:12px;font-weight:600;margin-bottom:6px">Ingredients &amp; food info${loading ? ' <span class="mute">(checking USDA…)</span>' : ''}</div><div class="mp-ing">${ingHtml}</div></div>`
+    + (m.why ? `<div style="font-size:12px"><b>Why this meal:</b> <span class="mute">${esc(m.why)}</span></div>` : '')
+    + (m.steps ? `<div style="font-size:12px"><b>Steps:</b> <span class="mute">${esc(Array.isArray(m.steps) ? m.steps.join(' ') : m.steps)}</span></div>` : '')
+    + (logMsg ? `<div class="ok" style="font-size:12px">${esc(logMsg)}</div>` : '')
+    + `<div class="row" style="margin:0;justify-content:flex-end">`
+    + `<button class="soft" onclick="mpCloseModal();mpSkipPlanned(${dayIdx}, ${jsq(slot)})">✕ Skip</button>`
+    + `<button class="soft" onclick="mpCloseModal();mpSwapPlanned(${dayIdx}, ${jsq(slot)}, ${jsq(day + ' ' + m.name)})">↻ Swap</button>`
+    + `<button class="go" onclick="mpLogMeal(${dayIdx}, ${jsq(slot)})">✓ Log as eaten</button>`
+    + `</div></div>`;
+  el.classList.remove('hide');
 }
 async function mpSkipPlanned(dayIndex, slot) {
   const r = await api('api/pantry/plan_cell', {day_index: dayIndex, slot, action: 'skip'});

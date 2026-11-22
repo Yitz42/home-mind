@@ -3747,6 +3747,11 @@ def build(app_state):
                                                   viewer=VIEWER.get()))
             if op == "plan_clear":
                 return J(A.pantry.clear_week_plan())
+            if op == "meal_info":
+                if b.get("day_index") is None:
+                    raise ValueError("missing day_index")
+                d_idx = whole(b["day_index"], "day_index")
+                return J(A.pantry.meal_info(d_idx, slot=b.get("slot") or "dinner"))
             if op == "calendar":
                 out = await A.pantry.add_to_calendar(include=b.get("include") or "prep",
                                                      entity=b.get("entity"), prep_time=b.get("prep_time"))

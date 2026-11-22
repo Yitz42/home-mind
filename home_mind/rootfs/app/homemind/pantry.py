@@ -195,7 +195,7 @@ WEEK_SYSTEM = (
     '"days": [{"day": "Mon Nov 23", "meals": [{"slot": "dinner", "name": "short name", '
     '"minutes": 25, "effort": "reheat|quick|normal|big", "batch_id": "optional A", "batch_label": "optional Mon chili", '
     '"is_cook": true, "servings": 2, "uses": ["stock item"], "need": ["2 lb chicken", "1 head broccoli"], '
-    '"protein_g": 40, "calories": 550}]}]}')
+    '"protein_g": 40, "calories": 550, "carbs_g": 45, "fat_g": 18, "fiber_g": 8}]}]}')
 
 SWAP_SYSTEM = (
     "You replace ONE meal in an existing weekly meal plan. Pick a fresh option that does NOT repeat any meal already "
@@ -205,7 +205,7 @@ SWAP_SYSTEM = (
     'Reply with JSON only: {"slot": "dinner", "name": "short meal name", "minutes": 25, "effort": "reheat|quick|normal|big", '
     '"uses": ["in-stock items used"], '
     '"need": [{"item": "ingredient", "amount": "qty + unit", "aisle": "produce|meat & seafood|dairy & eggs|pantry & dry|frozen|other"}], '
-    '"protein_g": number, "calories": number, "why": "short reason", "steps": "2-3 short steps"}')
+    '"protein_g": number, "calories": number, "carbs_g": number, "fat_g": number, "fiber_g": number, "why": "short reason", "steps": "2-3 short steps"}')
 
 
 def guess_aisle(name, hint=""):
@@ -397,6 +397,9 @@ def _clean_meal_dict(ml, default_slot="dinner"):
         "need": ml.get("need") if isinstance(ml.get("need"), list) else list(ml.get("missing") or ()),
         "protein_g": ml.get("protein_g"),
         "calories": ml.get("calories"),
+        "carbs_g": ml.get("carbs_g"),
+        "fat_g": ml.get("fat_g"),
+        "fiber_g": ml.get("fiber_g"),
         "why": str(ml.get("why") or "").strip(),
         "steps": ml.get("steps") or "",
     }
@@ -1195,14 +1198,162 @@ class Pantry:
             "layouts": self.week_layouts(),
         }
 
+    def _fitness_targets(self, day_info=None):
+        """Read saved Fitness goals (calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, weight_target),
+        falling back to scale-derived protein target when no explicit protein goal is set."""
+        fg = self.store.kv_get("fitness_goals") or {}
+        if not isinstance(fg, dict):
+            fg = {}
+        out = {}
+        for k in ("calories", "protein_g", "carbs_g", "fat_g", "fiber_g", "sugar_g", "weight_target"):
+            v = fg.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                out[k] = round(v, 1) if k == "weight_target" else int(round(v))
+        if not out.get("protein_g"):
+            pt = (day_info or {}).get("protein_target_g")
+            if not pt:
+                w = self.store.db.execute("SELECT meta FROM items WHERE shelf='body/weight' AND status='active' "
+                                          "ORDER BY created DESC LIMIT 1").fetchone()
+                if w:
+                    wt = (json.loads(w["meta"] or "{}")).get("weight")
+                    if isinstance(wt, (int, float)) and wt > 0:
+                        pt = nutrition.protein_target(wt)
+            if pt:
+                out["protein_g"] = int(round(pt))
+        cal = out.get("calories")
+        if cal:
+            out.setdefault("carbs_g", round(cal * 0.45 / 4))
+            out.setdefault("fat_g", round(cal * 0.30 / 9))
+        out.setdefault("fiber_g", 30)
+        return out
+
+    def _fitness_targets_text(self, targets):
+        if not targets:
+            return ""
+        parts = []
+        if targets.get("calories"):
+            parts.append(f"{targets['calories']} kcal/day")
+        if targets.get("protein_g"):
+            parts.append(f"{targets['protein_g']} g protein/day")
+        if targets.get("carbs_g"):
+            parts.append(f"~{targets['carbs_g']} g carbs")
+        if targets.get("fat_g"):
+            parts.append(f"~{targets['fat_g']} g fat")
+        if targets.get("fiber_g"):
+            parts.append(f">={targets['fiber_g']} g fiber")
+        if targets.get("sugar_g"):
+            parts.append(f"<={targets['sugar_g']} g sugar")
+        if not parts:
+            return ""
+        return ("Daily fitness targets: " + ", ".join(parts) + ". "
+                "Size meals so each day tracks these targets cleanly (leaving modest snack headroom when fewer than 3 meals are planned).\n")
+
+    @staticmethod
+    def _enrich_week_nutrition(out, targets):
+        """Attach targets plus per-day planned totals and remaining headroom ('extra left') to a week plan dict."""
+        out["targets"] = dict(targets or {})
+        days_out = []
+        for d in out.get("days") or ():
+            dc = dict(d)
+            tot = {"calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "fiber_g": 0}
+            has_any = False
+            for m in dc.get("meals") or ():
+                if not isinstance(m, dict) or m.get("skipped"):
+                    continue
+                for k in tot:
+                    v = _f(m.get(k))
+                    if v is not None and v > 0:
+                        tot[k] += int(round(v))
+                        has_any = True
+            dc["totals"] = tot if has_any else {}
+            rem = {}
+            if has_any:
+                for k in ("calories", "protein_g", "carbs_g", "fat_g", "fiber_g"):
+                    tval = (targets or {}).get(k)
+                    if tval and (k in ("calories", "protein_g") or tot[k] > 0):
+                        rem[k] = int(round(tval - tot[k]))
+            dc["remaining"] = rem
+            days_out.append(dc)
+        out["days"] = days_out
+        return out
+
+    def meal_info(self, day_index, slot):
+        """Detailed nutrition, pantry stock status, and USDA food lookup for one meal in the saved weekly plan."""
+        saved = self.week_plan()
+        if not saved:
+            raise ValueError("no weekly meal plan saved yet")
+        idx = int(day_index)
+        if idx < 0 or idx >= len(saved["days"]):
+            raise ValueError(f"day_index must be between 0 and {len(saved['days']) - 1}")
+        sl = str(slot or "").strip().lower()
+        day = saved["days"][idx]
+        meal = next((m for m in day.get("meals") or () if str(m.get("slot") or "").lower() == sl), None)
+        if not meal:
+            raise ValueError(f"no {sl} meal on {day.get('day') or idx}")
+        stock = self.items()
+        stock_by_norm = {_norm(it["name"]): it for it in stock}
+
+        def _food_row(raw_name, source_kind, amount=""):
+            clean = str(raw_name or "").strip()
+            st_it = stock_by_norm.get(_norm(clean)) or next(
+                (it for it in stock if _norm(clean) and (_norm(clean) in _norm(it["name"]) or _norm(it["name"]) in _norm(clean))),
+                None,
+            )
+            nut = self.nutrition(clean)
+            row = {"name": clean, "kind": source_kind}
+            if amount:
+                row["amount"] = amount
+            if st_it:
+                row["in_stock"] = True
+                row["location"] = st_it.get("location")
+                row["stock_amount"] = st_it.get("amount") or ""
+                row["days_left"] = st_it.get("days_left")
+            else:
+                row["in_stock"] = False
+            if nut:
+                row["food"] = nut.get("name")
+                row["per_100g"] = {
+                    k: nut.get(k) for k in ("kcal", "protein", "carbs", "fat", "fiber") if nut.get(k) is not None
+                }
+            return row
+
+        ingredients = []
+        seen_ing = set()
+        for u in meal.get("uses") or ():
+            k = _norm(u)
+            if k and k not in seen_ing:
+                seen_ing.add(k)
+                ingredients.append(_food_row(u, "pantry"))
+        for n in meal.get("need") or ():
+            if isinstance(n, dict):
+                nm, amt = n.get("item") or n.get("name") or "", n.get("amount") or ""
+            else:
+                nm, amt, _ = _parse_need_item(n)
+            k = _norm(nm)
+            if k and k not in seen_ing:
+                seen_ing.add(k)
+                ingredients.append(_food_row(nm, "buy", amt))
+
+        return {
+            "day": day.get("day"),
+            "date": day.get("date"),
+            "slot": sl,
+            "meal": meal,
+            "targets": saved.get("targets") or {},
+            "day_totals": day.get("totals") or {},
+            "day_remaining": day.get("remaining") or {},
+            "ingredients": ingredients,
+        }
+
     def week_plan(self):
-        """Saved weekly meal plan with shopping_list freshly recomputed against current in-stock pantry items."""
+        """Saved weekly meal plan with shopping_list and daily nutrition headroom freshly recomputed."""
         saved = self.store.kv_get(self.WEEK_KV)
         if not isinstance(saved, dict) or not saved.get("days"):
             return None
         out = dict(saved)
         out["shopping_list"] = build_shopping_list(out.get("days") or [], self.items())
         out["shopping_items"] = [x["label"] for x in out["shopping_list"]]
+        self._enrich_week_nutrition(out, self._fitness_targets())
         return out
 
     def clear_week_plan(self):
@@ -1320,8 +1471,8 @@ class Pantry:
             stock_lines.append("Also in pantry: " + ", ".join(extra_pantry[:50]))
 
         avoid_items, taste_line = self._week_prefs_context(viewer=viewer)
-        protein_hint = (f"Protein target about {day_info['protein_target_g']} g/day.\n"
-                        if day_info.get("protein_target_g") else "")
+        fit_targets = self._fitness_targets(day_info)
+        protein_hint = self._fitness_targets_text(fit_targets)
         style_desc = {
             "fresh": "fresh (cook a fresh meal each time)",
             "twice": "twice (cook once, eat twice — make double batches on cook sessions and reuse as 5-min leftovers on later slots)",
@@ -1485,6 +1636,7 @@ class Pantry:
         out = dict(plan)
         out["shopping_list"] = build_shopping_list(out["days"], items)
         out["shopping_items"] = [x["label"] for x in out["shopping_list"]]
+        self._enrich_week_nutrition(out, fit_targets)
         return out
 
     async def add_to_calendar(self, include="prep", entity=None, prep_time=None):
@@ -1618,6 +1770,7 @@ class Pantry:
         out = dict(updated)
         out["shopping_list"] = build_shopping_list(out["days"], self.items())
         out["shopping_items"] = [x["label"] for x in out["shopping_list"]]
+        self._enrich_week_nutrition(out, self._fitness_targets())
         return out
 
     async def swap_meal(self, day_index, slot="dinner", request="", model=None, viewer=None):
@@ -1661,6 +1814,7 @@ class Pantry:
             + eff_line
             + (f"User wants instead: {request.strip()}\n" if (request or "").strip() else "Give a different appealing option.\n")
             + f"Goals: {'; '.join(g.get('goals') or [])}\n"
+            + self._fitness_targets_text(self._fitness_targets())
             + (f"Avoid: {', '.join(avoid_items)}\n" if avoid_items else "")
             + taste_line
             + "Other meals already planned this week (do NOT repeat these):\n"
@@ -1693,6 +1847,7 @@ class Pantry:
         out = dict(updated)
         out["shopping_list"] = build_shopping_list(out["days"], items)
         out["shopping_items"] = [x["label"] for x in out["shopping_list"]]
+        self._enrich_week_nutrition(out, self._fitness_targets())
         out["swapped"] = {"day_index": idx, "day": target_day["day"], "meal": new_meal}
         return out
 
