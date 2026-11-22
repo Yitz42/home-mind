@@ -15,11 +15,12 @@
 """
 import json
 import logging
+import math
 import os
 import re
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from . import nutrition
 
@@ -646,7 +647,7 @@ class Pantry:
             out.append(f"- {part}" + (f" (in the pantry as: {names[0]})" if names else "") + note)
         return "\n".join(out)
 
-    async def estimate(self, iid, text=None, model=None):
+    async def estimate(self, iid, text=None, model=None, force=False):
         """Rough protein and calories for a logged meal, saved on it so Today can add up the day."""
         row = self.store.db.execute("SELECT title, meta FROM items WHERE id=?", (int(iid),)).fetchone()
         if not row:
@@ -677,12 +678,184 @@ class Pantry:
             v = _f(est.get(k))
             if v is not None and 0 <= v <= hi:
                 more[k] = round(v)
-        if meta.get("protein_g") is not None and not meta.get("estimated"):
+        if not force and meta.get("protein_g") is not None and not meta.get("estimated"):
             p = meta["protein_g"]           # a number the person gave stays
         meta.update(protein_g=round(p), calories=round(c), estimated=True, **more)
         self.store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), int(iid)))
         self.store.db.commit()
         return {"id": int(iid), "protein_g": round(p), "calories": round(c), **more}
+
+    MEAL_MACROS = (("calories", 6000), ("protein_g", 400), ("carbs_g", 600),
+                   ("fat_g", 300), ("fiber_g", 150), ("sugar_g", 300))
+
+    @staticmethod
+    def _parse_hhmm(when):
+        w = str(when or "").strip().lower().replace(".", "")
+        m = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", w)
+        if not m:
+            raise ValueError("time should look like '12:30' or '8am'")
+        h, mi, ap = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+        if ap == "pm" and h < 12:
+            h += 12
+        if ap == "am" and h == 12:
+            h = 0
+        if not (0 <= h <= 23 and 0 <= mi <= 59):
+            raise ValueError("time should be between 00:00 and 23:59")
+        return h, mi
+
+    def meal_day_time(self, day_str, when=None, now=None):
+        """Convert YYYY-MM-DD (plus optional '12:30' / '8am') to a local epoch timestamp on that day."""
+        try:
+            d = date.fromisoformat(str(day_str).strip())
+        except ValueError:
+            raise ValueError("day should be YYYY-MM-DD") from None
+        cur = datetime.fromtimestamp(now or time.time())
+        if when:
+            h, mi = self._parse_hhmm(when)
+            return datetime(d.year, d.month, d.day, h, mi, 0).timestamp()
+        if d == cur.date():
+            return cur.timestamp()
+        return datetime(d.year, d.month, d.day, 12, 0, 0).timestamp()
+
+    @staticmethod
+    def _meal_row(r):
+        meta = json.loads(r["meta"] or "{}") if isinstance(r["meta"], str) else dict(r["meta"] or {})
+        ts = float(meta.get("at") or r["created"] or 0)
+        dt = datetime.fromtimestamp(ts)
+        txt = re.sub(r"^Ate:\s*", "", r["title"] or "").strip()
+        m_p = re.search(r"(\d{1,3}(?:\.\d)?)\s*g(?:rams)?\s*(?:of\s*)?protein",
+                        f"{r['title'] or ''} {r['body'] or ''}", re.I)
+        pg = meta.get("protein_g")
+        if pg is None and m_p:
+            pg = round(float(m_p.group(1)))
+        return {
+            "id": r["id"],
+            "text": txt,
+            "at": ts,
+            "day": dt.date().isoformat(),
+            "time": dt.strftime("%H:%M"),
+            "time_label": dt.strftime("%I:%M %p").lstrip("0"),
+            "calories": meta.get("calories"),
+            "protein_g": pg,
+            "carbs_g": meta.get("carbs_g"),
+            "fat_g": meta.get("fat_g"),
+            "fiber_g": meta.get("fiber_g"),
+            "sugar_g": meta.get("sugar_g"),
+            "caffeine": bool(meta.get("caffeine")),
+            "estimated": bool(meta.get("estimated")),
+        }
+
+    def _own_meal(self, iid):
+        from .speakers import visible
+        row = self.store.db.execute(
+            "SELECT id, title, body, created, shelf, meta FROM items WHERE id=? AND status='active'",
+            (int(iid),),
+        ).fetchone()
+        if not row or row["shelf"] != "body/meals":
+            raise ValueError(f"no meal {iid}")
+        meta = json.loads(row["meta"] or "{}") if isinstance(row["meta"], str) else dict(row["meta"] or {})
+        if not visible(meta):
+            raise ValueError(f"no meal {iid}")
+        return row, meta
+
+    def get_meal(self, iid):
+        row, _ = self._own_meal(iid)
+        return self._meal_row(row)
+
+    def meals_on(self, day=None, now=None):
+        """All logged meals on a calendar day (YYYY-MM-DD, default today), with totals and nutrition goals."""
+        from .speakers import visible
+        cur = now or time.time()
+        if day:
+            try:
+                d = date.fromisoformat(str(day).strip())
+            except ValueError:
+                raise ValueError("day should be YYYY-MM-DD") from None
+        else:
+            d = datetime.fromtimestamp(cur).date()
+        start = datetime(d.year, d.month, d.day).timestamp()
+        end = start + 86400
+        meals = []
+        for r in self.store.db.execute(
+            "SELECT id, title, body, created, meta FROM items WHERE shelf='body/meals' AND status='active' "
+            "AND created >= ? AND created < ? ORDER BY created",
+            (start - 7200, end + 7200),
+        ):
+            meta = json.loads(r["meta"] or "{}") if isinstance(r["meta"], str) else dict(r["meta"] or {})
+            if not visible(meta) or meta.get("drink"):
+                continue
+            item = self._meal_row(r)
+            if item["day"] == d.isoformat():
+                meals.append(item)
+        meals.sort(key=lambda x: (x["at"], x["id"]))
+        totals = {k: round(sum(float(m.get(k) or 0) for m in meals)) for k, _ in self.MEAL_MACROS}
+        fg = self.store.kv_get("fitness_goals") or {}
+        if not isinstance(fg, dict):
+            fg = {}
+        cal = fg.get("calories")
+        goals = {
+            "calories": cal,
+            "protein_g": fg.get("protein_g"),
+            "carbs_g": fg.get("carbs_g") or (round(cal * 0.45 / 4) if cal else None),
+            "fat_g": fg.get("fat_g") or (round(cal * 0.30 / 9) if cal else None),
+            "fiber_g": fg.get("fiber_g") or 30,
+            "sugar_g": fg.get("sugar_g") or 50,
+        }
+        return {"day": d.isoformat(), "meals": meals, "totals": totals, "goals": goals}
+
+    def edit_meal(self, iid, text=None, when=None, **macros):
+        """Update a logged meal's description, time (kept on its day), and/or nutrition numbers."""
+        from .patterns import caffeinated
+        row, meta = self._own_meal(iid)
+        cur_txt = re.sub(r"^Ate:\s*", "", row["title"] or "").strip()
+        new_txt = cur_txt
+        if text is not None:
+            new_txt = str(text).strip()
+            if not new_txt:
+                raise ValueError("meal text can't be empty")
+            meta["caffeine"] = caffeinated(new_txt)
+        ts = float(meta.get("at") or row["created"] or time.time())
+        dt = datetime.fromtimestamp(ts)
+        if when is not None and str(when).strip() != "":
+            h, mi = self._parse_hhmm(when)
+            dt = dt.replace(hour=h, minute=mi, second=0, microsecond=0)
+            ts = dt.timestamp()
+            meta["at"] = ts
+        edited_macro = False
+        for k, hi in self.MEAL_MACROS:
+            if k not in macros:
+                continue
+            v = macros[k]
+            if v in (None, ""):
+                meta.pop(k, None)
+                edited_macro = True
+                continue
+            if isinstance(v, bool):
+                raise ValueError(f"{k} must be a number")
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                raise ValueError(f"{k} must be a number") from None
+            if not math.isfinite(fv) or not (0 <= fv <= hi):
+                raise ValueError(f"{k} must be between 0 and {hi}")
+            meta[k] = round(fv)
+            edited_macro = True
+        if edited_macro:
+            meta["estimated"] = False
+        title = f"Ate: {new_txt}"[:80]
+        body = (f"Ate {new_txt} at {dt:%I:%M %p}".replace(" 0", " ")
+                + f" on {dt:%a %b %d}." + (" (caffeine)" if meta.get("caffeine") else ""))
+        self.store.db.execute(
+            "UPDATE items SET title=?, body=?, created=?, meta=? WHERE id=?",
+            (title, body, ts, json.dumps(meta), int(iid)),
+        )
+        self.store.db.commit()
+        return self.get_meal(iid)
+
+    def delete_meal(self, iid):
+        self._own_meal(iid)
+        self.store.set_status(int(iid), "archived")
+        return {"removed": int(iid)}
 
     def remove(self, iid):
         """Delete a line entered by mistake (used or tossed keep a record; this doesn't)."""

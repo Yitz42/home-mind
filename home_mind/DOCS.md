@@ -1360,7 +1360,8 @@ note), 502 (a model failed) or 500.
 | GET | `/api/phrasebook/export` | read | every active pair, for training |
 | POST | `/api/phrasebook/{op}` | write | `add` (`said`, `plain`), `approve`/`reject`/`remove` (`id`), `try` (`text`, `model?`), `grow` (`model?`, `n?`), `eval` (`model?`, `limit?`) |
 | GET | `/api/pantry` | read | pantry items and goals |
-| POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`), `used`, `tossed`, `remove`, `suggest`, `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
+| GET | `/api/pantry/meals` | read | `day?` (YYYY-MM-DD): meals logged on that day with macros, totals, and nutrition goals |
+| POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`, `day?`), `meal_edit` (`id`, `text?`, `when?`, `calories?`, `protein_g?`, `carbs_g?`, `fat_g?`, `fiber_g?`, `sugar_g?`, `reestimate?`), `meal_delete` (`id`), `used`, `tossed`, `remove`, `suggest`, `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
 | GET | `/api/patterns` | read | brain-fog report, findings, experiment and daily rows (`days`) |
 | POST | `/api/patterns/{op}` | write | `refresh`, `send`, `experiment`, `ask`, `answer`, `weather` |
 | GET | `/api/journal` | read | daily journal summaries |
