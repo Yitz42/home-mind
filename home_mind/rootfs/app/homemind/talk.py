@@ -99,6 +99,7 @@ class Talk:
         """One turn: what was said in, the reply out (with choices), both kept in the thread."""
         from .voice import COMMAND, said_for
         from .tokens import allows
+        from .ask_actions import claims_command
         from .autodraft import automation_request
         text = (text or "").strip()
         if not text:
@@ -109,7 +110,7 @@ class Talk:
         t["turns"].append({"who": "you", "text": text, "at": self.clock(), "spoken": bool(spoken)})
         res = None
         is_auto_req = bool(automation_request(text))
-        if not is_auto_req and COMMAND.match(text) and allows(scope, "admin") and hasattr(app, "do"):
+        if not is_auto_req and not claims_command(text) and COMMAND.match(text) and allows(scope, "admin") and hasattr(app, "do"):
             r = await app.do(text, source="panel_talk", conversation_id=cid)
             if r.get("error") != "nothing on the control list fits":
                 res = dict(r, answer=said_for(r), via="do")

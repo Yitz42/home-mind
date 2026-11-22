@@ -1009,7 +1009,7 @@ async function hbSend(text, spoken) {
   hbAnswer(r.answer, r.choices, {q: v, sources: r.sources, missing: r.missing, quick: r.quick, compare_id: r.compare_id,
     meals: r.meals, automation_draft: r.automation_draft});
   if (spoken && r.answer && window.speechSynthesis) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(r.answer)); }
-  if (r.via === 'do' || r.checkin) setTimeout(hubLoad, 900);
+  if (r.via === 'do' || r.via === 'action' || r.checkin) setTimeout(hubLoad, 900);
 }
 function hbHistSync() {
   const b = $('#hb_hist_btn');

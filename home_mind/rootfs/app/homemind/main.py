@@ -1150,6 +1150,13 @@ class App:
             if done is not None:
                 return await self._style(dict(done, hits=[], model=None), b["question"], who, bool(b.get("voice")),
                                          "do")
+        if not urgent:
+            from . import ask_actions
+            act = await ask_actions.dispatch(self, b, who, oa, scope)
+            if act is not None:
+                if b.get("conversation_id") and hasattr(self.mind, "_record_turn"):
+                    self.mind._record_turn(b["conversation_id"], b["question"], act.get("answer") or "")
+                return await self._style(act, b["question"], who, bool(b.get("voice")))
         phone = self.phone_of(who) if b.get("voice") and who and hasattr(self, "phone_of") else None
         ak = getattr(self, "automation_ok", None)
         ar = ak(b, who, oa, scope) if not urgent and ak is not None else None

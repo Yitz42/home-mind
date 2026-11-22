@@ -104,6 +104,8 @@ jobs:
         run: python tests/test_connected.py
       - name: Talk in the panel
         run: python tests/test_talk.py
+      - name: Direct Ask actions (notes, shopping, pantry, automations, calendar, timers, goals, system)
+        run: python tests/test_ask_actions.py
       - name: Expert review checks
         run: for f in tests/test_review_*.py; do echo "== $f"; python "$f" || exit 1; done
       - name: Extraction bench scoring
