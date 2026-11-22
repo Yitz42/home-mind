@@ -99,6 +99,7 @@ class Talk:
         """One turn: what was said in, the reply out (with choices), both kept in the thread."""
         from .voice import COMMAND, said_for
         from .tokens import allows
+        from .ask_actions import claims_command
         text = (text or "").strip()
         if not text:
             raise ValueError("say or type something")
@@ -107,7 +108,7 @@ class Talk:
         cid = t["conversation_id"]
         t["turns"].append({"who": "you", "text": text, "at": self.clock(), "spoken": bool(spoken)})
         res = None
-        if COMMAND.match(text) and allows(scope, "admin") and hasattr(app, "do"):
+        if not claims_command(text) and COMMAND.match(text) and allows(scope, "admin") and hasattr(app, "do"):
             r = await app.do(text, source="panel_talk", conversation_id=cid)
             if r.get("error") != "nothing on the control list fits":
                 res = dict(r, answer=said_for(r), via="do")
@@ -126,7 +127,7 @@ class Talk:
             if viewer is not None:
                 b["speaker"] = viewer
             res = await app.answer(b, scope)
-            res = dict(res, via="ask")
+            res = dict(res, via=res.get("via") or "ask")
         # the check-in, once a day, the first time someone talks here and hasn't answered it
         day = getattr(app, "day", None)
         if day is not None and viewer != "" and not res.get("red_flag") and not res.get("checkin") \
