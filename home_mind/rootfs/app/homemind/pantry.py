@@ -185,17 +185,15 @@ WEEK_SYSTEM = (
     "servings: 2-4) and reuse them as quick 5-min leftover/reheat meals on later slots (same batch_id, is_cook: false, "
     "short batch_label like 'Mon chili').\n"
     "- prep: one big prep session covers multiple meals through the week (include prep_plan with title and batch items).\n"
-    "Only list non-staple ingredients that aren't already in stock in 'need' (skip basic salt, pepper, cooking oil). "
-    "IMPORTANT: for leftover/reheat meals (is_cook: false), ONLY list extra add-on items not already bought for the "
-    "parent cook session (often an empty [] list) so groceries are never double-counted. "
-    "Keep every field short so the full week fits cleanly in JSON. "
-    'Reply with JSON only: {"summary": "one short sentence on the week\'s theme", '
-    '"prep_plan": {"title": "optional e.g. Sunday prep · ~2 h", "items": [{"batch_id": "A", "text": "short batch prep line"}]}, '
-    '"days": [{"day": "Mon Nov 23", "meals": [{"slot": "dinner", "name": "short meal name", '
-    '"minutes": 25, "effort": "quick|normal|big", "batch_id": "optional A|B|C|D", "batch_label": "optional e.g. Mon chili", '
-    '"is_cook": true, "servings": 2, "uses": ["in-stock items used"], '
-    '"need": [{"item": "ingredient", "amount": "qty + unit", "aisle": "produce|meat & seafood|dairy & eggs|pantry & dry|frozen|other"}], '
-    '"protein_g": number, "calories": number, "why": "short reason", "steps": "2-3 short steps"}]}]}')
+    "In 'need', list ONLY non-staple items to buy as compact 'qty unit item' strings (skip salt, pepper, oil, and anything in stock). "
+    "For leftover/reheat meals (is_cook: false), ONLY list extra add-ons not already bought for the parent cook session (usually []). "
+    "Be ultra-compact (no prose, no steps, short meal names under 5 words) so the JSON never hits output token limits. "
+    'Reply with JSON only: {"summary": "short 1-line theme", '
+    '"prep_plan": {"title": "optional e.g. Sun prep · ~2 h", "items": [{"batch_id": "A", "text": "short line"}]}, '
+    '"days": [{"day": "Mon Nov 23", "meals": [{"slot": "dinner", "name": "short name", '
+    '"minutes": 25, "effort": "quick|normal|big", "batch_id": "optional A", "batch_label": "optional Mon chili", '
+    '"is_cook": true, "servings": 2, "uses": ["stock item"], "need": ["2 lb chicken", "1 head broccoli"], '
+    '"protein_g": 40, "calories": 550}]}]}')
 
 SWAP_SYSTEM = (
     "You replace ONE meal in an existing weekly meal plan. Pick a fresh option that does NOT repeat any meal already "
@@ -1171,11 +1169,34 @@ class Pantry:
             return "twice"
         return "fresh"
 
+    @staticmethod
+    def _is_token_limit_err(exc):
+        low = str(exc or "").lower()
+        return any(k in low for k in ("token limit", "max_tokens", "max tokens", "output length", "truncated"))
+
+    @staticmethod
+    def _chunk_day_indices(day_indices, meal_counts, max_meals=6):
+        """Partition day indices into sequential chunks each containing <= max_meals (at least 1 day per chunk)."""
+        chunks, cur, cur_n = [], [], 0
+        for idx in day_indices:
+            mc = meal_counts.get(idx, 1)
+            if cur and cur_n + mc > max_meals:
+                chunks.append(cur)
+                cur, cur_n = [idx], mc
+            else:
+                cur.append(idx)
+                cur_n += mc
+        if cur:
+            chunks.append(cur)
+        return chunks
+
     async def plan_week(self, days=7, meals=None, request="", model=None, viewer=None, start_date=None,
                         style=None, grid=None):
         """Build and save a multi-day meal plan (1-7 days) plus a consolidated, aisle-grouped shopping list
         computed deterministically against current pantry stock. Supports either simple (days, meals)
-        or the full 7x3 effort grid + cooking style ('fresh' | 'twice' | 'prep')."""
+        or the full 7x3 effort grid + cooking style ('fresh' | 'twice' | 'prep').
+        Automatically chunks large weeks (>6 meals) and splits on output-token-limit errors so
+        constrained endpoints (like Home Assistant AI Task) complete reliably."""
         chosen_style = self._infer_style(style, request)
         n_days = max(1, min(7, int(days or 7)))
         valid_slots = ("breakfast", "lunch", "dinner", "snack")
@@ -1197,7 +1218,8 @@ class Pantry:
 
         # Normalize optional 7x3 effort grid ({'0|lunch': 'quick', '0|dinner': 'big', ...})
         norm_grid = {}
-        schedule_lines = []
+        day_sched = {}
+        day_meal_counts = {}
         active_meal_count = 0
         if isinstance(grid, dict) and grid:
             for i in range(n_days):
@@ -1212,18 +1234,32 @@ class Pantry:
                         day_parts.append(f"{sl} ({eff_desc})")
                         active_meal_count += 1
                 if day_parts:
-                    schedule_lines.append(f"- {day_labels[i]}: {', '.join(day_parts)}")
+                    day_sched[i] = f"- {day_labels[i]}: {', '.join(day_parts)}"
+                    day_meal_counts[i] = len(day_parts)
             if active_meal_count == 0:
                 raise ValueError("pick at least one meal to plan")
             slots = [sl for sl in WEEK_SLOTS if any(norm_grid.get(f"{i}|{sl}") != "skip" for i in range(n_days))]
+            active_days = [i for i in range(n_days) if i in day_sched]
+        else:
+            active_days = list(range(n_days))
+            for i in active_days:
+                day_meal_counts[i] = len(slots)
+            active_meal_count = n_days * len(slots)
 
-        stock_lines = []
-        for i in items:
+        # Keep stock prompt crisp even for 90+ item pantries: detail top 40 expiring/fridge/freezer items, summarize rest
+        stock_lines, extra_pantry = [], []
+        for idx_i, i in enumerate(items):
             dl = i["days_left"]
-            when = ("past its date" if dl is not None and dl < 0 else
-                    "use today" if dl is not None and dl < 1 else
-                    f"{dl:.0f} days left" if dl is not None else "")
-            stock_lines.append(f"- {i['name']}{(' (' + i['amount'] + ')') if i['amount'] else ''}, {i['location']}, {when}")
+            if idx_i < 40 or (dl is not None and dl <= 7) or i.get("location") in ("fridge", "freezer"):
+                if len(stock_lines) < 48:
+                    when = ("past its date" if dl is not None and dl < 0 else
+                            "use today" if dl is not None and dl < 1 else
+                            f"{dl:.0f} days left" if dl is not None else "")
+                    stock_lines.append(f"- {i['name']}{(' (' + i['amount'] + ')') if i['amount'] else ''}, {i['location']}, {when}")
+                    continue
+            extra_pantry.append(i["name"])
+        if extra_pantry:
+            stock_lines.append("Also in pantry: " + ", ".join(extra_pantry[:50]))
 
         avoid_items, taste_line = self._week_prefs_context(viewer=viewer)
         protein_hint = (f"Protein target about {day_info['protein_target_g']} g/day.\n"
@@ -1233,17 +1269,9 @@ class Pantry:
             "twice": "twice (cook once, eat twice — make double batches on cook sessions and reuse as 5-min leftovers on later slots)",
             "prep": "prep (one big prep session on a big-cook slot covers most meals of the week; include prep_plan)",
         }[chosen_style]
-        if schedule_lines:
-            sched_block = (
-                f"Plan ONLY these {active_meal_count} requested slots across {n_days} days (leave skipped slots out):\n"
-                + "\n".join(schedule_lines) + "\n"
-            )
-        else:
-            sched_block = f"Plan {n_days} days: {', '.join(day_labels)}.\nMeals per day: {', '.join(slots)}.\n"
 
-        content = (
-            sched_block
-            + f"Cooking style: {style_desc}.\n"
+        shared_ctx = (
+            f"Cooking style: {style_desc}.\n"
             + f"Goals: {'; '.join(g.get('goals') or [])}\n"
             + protein_hint
             + (f"Avoid: {', '.join(avoid_items)}\n" if avoid_items else "")
@@ -1253,27 +1281,86 @@ class Pantry:
             + "\nIN THE HOUSE (soonest to expire first — use these on early days):\n"
             + ("\n".join(stock_lines) or "- nothing recorded")
         )
-        est_meals = active_meal_count or (n_days * len(slots))
-        max_tok = min(4096, 1000 + est_meals * 260)
-        r = await self.models.get(chosen).chat(
-            WEEK_SYSTEM, [{"role": "user", "content": content}], max_tokens=max_tok, temperature=0.5,
-        )
-        parsed = parse_week_plan(r["text"])
-        if not parsed["days"]:
+
+        model_obj = self.models.get(chosen)
+        collected_days = []
+        summaries = []
+        prep_plan = None
+        last_raw = ""
+        prior_lines = []
+        active_batches = []
+
+        async def _run_slice(d_indices):
+            nonlocal prep_plan, last_raw
+            if day_sched:
+                n_m = sum(day_meal_counts[i] for i in d_indices)
+                sched_block = (
+                    f"Plan ONLY these {n_m} requested slots across {len(d_indices)} day(s) (leave skipped slots out):\n"
+                    + "\n".join(day_sched[i] for i in d_indices) + "\n"
+                )
+            else:
+                lbls = [day_labels[i] for i in d_indices]
+                sched_block = f"Plan {len(lbls)} day(s): {', '.join(lbls)}.\nMeals per day: {', '.join(slots)}.\n"
+
+            prior_block = ""
+            if prior_lines:
+                prior_block = "Already planned earlier this week (do NOT repeat; reuse batches where fitting):\n" + "\n".join(prior_lines[-14:]) + "\n"
+            if active_batches:
+                prior_block += "Active batches you can reuse as is_cook=false leftovers: " + "; ".join(active_batches[-6:]) + "\n"
+
+            content = sched_block + prior_block + shared_ctx
+            n_m = sum(day_meal_counts[i] for i in d_indices)
+            max_tok = min(4096, 800 + n_m * 180)
+            try:
+                r = await model_obj.chat(
+                    WEEK_SYSTEM, [{"role": "user", "content": content}], max_tokens=max_tok, temperature=0.5,
+                )
+            except Exception as e:
+                if len(d_indices) > 1 and self._is_token_limit_err(e):
+                    mid = len(d_indices) // 2
+                    log.warning("plan_week hit token limit on %d days; splitting %d + %d", len(d_indices), mid, len(d_indices) - mid)
+                    await _run_slice(d_indices[:mid])
+                    await _run_slice(d_indices[mid:])
+                    return
+                raise
+            last_raw = r.get("text") or ""
+            parsed = parse_week_plan(last_raw)
+            if not parsed["days"] and len(d_indices) > 1:
+                # Truncated JSON from a silent token cap -> split in half and retry
+                mid = len(d_indices) // 2
+                log.warning("plan_week unparseable on %d days; splitting %d + %d", len(d_indices), mid, len(d_indices) - mid)
+                await _run_slice(d_indices[:mid])
+                await _run_slice(d_indices[mid:])
+                return
+            if parsed["summary"]:
+                summaries.append(parsed["summary"])
+            if parsed.get("prep_plan") and not prep_plan:
+                prep_plan = parsed["prep_plan"]
+            for d in parsed["days"]:
+                collected_days.append(d)
+                for m in d.get("meals") or ():
+                    prior_lines.append(f"- {d['day']} {m.get('slot', 'dinner')}: {m['name']}")
+                    if m.get("batch_id") and m.get("is_cook", True) is not False:
+                        active_batches.append(f"{m['batch_id']}={m['name']} (from {d['day']})")
+
+        chunks = self._chunk_day_indices(active_days, day_meal_counts, max_meals=6) if active_meal_count > 6 else [active_days]
+        for ch in chunks:
+            await _run_slice(ch)
+
+        if not collected_days:
             return {"summary": "", "days": [], "shopping_list": [], "shopping_items": [],
-                    "model": chosen, "raw": r["text"][:1500]}
+                    "model": chosen, "raw": last_raw[:1500]}
 
         if norm_grid:
             # Align returned days to exact 0..n_days-1 date slots so skipped days remain in grid order
-            by_lbl = {str(d.get("day") or "").strip().lower(): d for d in parsed["days"]}
+            by_lbl = {str(d.get("day") or "").strip().lower(): d for d in collected_days}
             aligned = []
             for idx in range(n_days):
                 lbl = day_labels[idx]
                 matched = by_lbl.get(lbl.lower())
                 if matched is None:
-                    # Try matching by weekday prefix (e.g. "Mon")
                     wd_prefix = lbl.split()[0].lower()
-                    matched = next((d for d in parsed["days"]
+                    matched = next((d for d in collected_days
                                     if str(d.get("day") or "").strip().lower().startswith(wd_prefix)), None)
                 meals_for_day = []
                 if matched:
@@ -1290,26 +1377,25 @@ class Pantry:
             except Exception:  # noqa: BLE001
                 pass
         else:
-            for idx, d in enumerate(parsed["days"][:n_days]):
+            for idx, d in enumerate(collected_days[:n_days]):
                 if idx < len(day_labels) and not d.get("day"):
                     d["day"] = day_labels[idx]
                 if idx < n_days:
                     d.setdefault("date", (base_dt + timedelta(days=idx)).date().isoformat())
-            final_days = parsed["days"][:n_days]
-            # Build grid snapshot so the 2-step UI displays Ask/Voice plans cleanly too
+            final_days = collected_days[:n_days]
             for idx, d in enumerate(final_days):
                 present = {str(m.get("slot") or "dinner").lower(): m.get("effort") or "normal" for m in d.get("meals") or ()}
                 for sl in WEEK_SLOTS:
                     norm_grid[f"{idx}|{sl}"] = present.get(sl, "skip")
 
         plan = {
-            "summary": parsed["summary"],
+            "summary": summaries[0] if summaries else "",
             "days": final_days,
             "slots": slots,
             "style": chosen_style,
             "grid": norm_grid,
             "start_date": base_dt.date().isoformat(),
-            "prep_plan": parsed.get("prep_plan"),
+            "prep_plan": prep_plan,
             "calendar_skips": self.calendar_skips(days=n_days, start_date=base_dt.date()),
             "request": (request or "").strip(),
             "model": chosen,

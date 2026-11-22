@@ -149,7 +149,8 @@ async def turn(app, body, scope="admin", on_sentence=None):
     elif on_sentence is not None:
         b["on_sentence"] = on_sentence
     from .ask_actions import claims_command
-    if not claims_command(text) and COMMAND.match(text) and allows(scope, "admin"):
+    from .autodraft import automation_request
+    if not automation_request(text) and not claims_command(text) and COMMAND.match(text) and allows(scope, "admin"):
         if oa:
             from .frontends import assistants_off
             if assistants_off(app.mind.store):

@@ -92,7 +92,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
-            "paperless_url": "", "paperless_token": "", "rerank_model": "", "librarian_model": "", "archivist_model": "", "control_model": "", "rule_planner": True,
+            "paperless_url": "", "paperless_token": "", "rerank_model": "", "librarian_model": "", "archivist_model": "", "control_model": "", "trainer_url": "", "trainer_token": "", "rule_planner": True,
             "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
             "compare_suites": ["recall", "tricky", "hard"], "use_preferences": True, "label_url": "",
             "telegram_token": "", "telegram_chats": [], "web_search": "off", "web_search_url": "", "web_search_key": "",
@@ -415,6 +415,8 @@ class App:
         self.fitness.memgraph = self.memgraph
         self.overnight.patterns = self.patterns
         self.overnight.memgraph_owner = mg_owner
+        from .trainer import Trainer
+        self.trainer = Trainer(self, self.opts)
         try:
             synced = self.memgraph.sync_patterns(self.patterns, days=60, owner=mg_owner)
             if synced.get("ingested"):
@@ -1156,11 +1158,13 @@ class App:
                     self.mind._record_turn(b["conversation_id"], b["question"], act.get("answer") or "")
                 return await self._style(act, b["question"], who, bool(b.get("voice")))
         phone = self.phone_of(who) if b.get("voice") and who and hasattr(self, "phone_of") else None
+        ak = getattr(self, "automation_ok", None)
+        ar = ak(b, who, oa, scope) if not urgent and ak is not None else None
         mk = getattr(self, "meal_ok", None)
-        mr = mk(b, who, oa) if not urgent and mk is not None else None
+        mr = mk(b, who, oa) if not ar and not urgent and mk is not None else None
         dk = getattr(self, "deep_ok", None)
-        use_deep = bool(not mr and not urgent and dk is not None and dk(b, who, oa))
-        raw_on_sent = b.get("on_sentence") if not mr and not use_deep else None
+        use_deep = bool(not ar and not mr and not urgent and dk is not None and dk(b, who, oa))
+        raw_on_sent = b.get("on_sentence") if not ar and not mr and not use_deep else None
         stream_state = {"started": False, "handed_off": False}
 
         def on_sent(s):
@@ -1174,7 +1178,9 @@ class App:
                          deadline=(b.get("deadline") or self.HANDOFF_LATE) if phone else b.get("deadline"),
                          fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who,
                          **({"on_sentence": on_sent} if raw_on_sent is not None else {}))
-        if mr:
+        if ar:
+            ask = self.automation_answer(b, who, ar, ask)  # "set up an automation to...": autodraft.draft()
+        elif mr:
             ask = self.meal_answer(b, who, mr, ask)  # "what can I make with the large eggs?": Pantry.suggest()
         elif use_deep:
             ask = self.deep_answer(b, who, ask)      # why / lately / how am I: the brief, connected (connect.py)
@@ -1225,6 +1231,63 @@ class App:
         return await self._style(res, b["question"], who, bool(b.get("voice")))
 
     DEEP_VOICE_SECONDS = 6.0
+
+    def automation_ok(self, b, who, other=None, scope="admin"):
+        """An automation-creation request ('set up an automation to...'): drafted & validated via autodraft."""
+        from .tokens import allows
+        from .autodraft import automation_request
+        if other or who == "" or not allows(scope, "write") or b.get("use_brain") is False:
+            return None
+        return automation_request(b.get("question") or "")
+
+    async def automation_answer(self, b, who, req_text, quick):
+        """Draft & check a Home Assistant automation using real HA entities/services; falls back cleanly on error."""
+        from .autodraft import draft_summary, format_draft
+        voice = bool(b.get("voice"))
+        chosen = b.get("model") if b.get("model") not in (None, "", "auto") else None
+        md = getattr(self, "modes", None)
+        try:
+            private = md is not None and md.mode(who or None) == "private"
+        except Exception:  # noqa: BLE001
+            private = False
+        if chosen and b.get("fallback") is False:
+            chain = [chosen]
+        else:
+            chain = self._deep_chain(who) if hasattr(self, "_deep_chain") else []
+            if chosen and chosen not in chain and not private:
+                chain = [chosen] + chain
+            if not chain and not private:
+                chain = [x for x in (getattr(getattr(self, "models", None), "models", None) or {})
+                         if x != "mock"][:2]
+        chain = [m for m in chain if m and m != "mock"] or ([chosen] if chosen == "mock" else [])
+
+        async def run():
+            last_err = None
+            for m in chain:
+                try:
+                    res = await self.draft_automation(req_text, model=m)
+                    info = draft_summary(res)
+                    text = format_draft(res, voice=voice)
+                    return {"answer": text, "hits": [], "model": m,
+                            "automation_draft": info, "via": "autodraft"}
+                except Exception as e:  # noqa: BLE001
+                    last_err = e
+                    log.warning("automation draft with %s: %s", m, e)
+            if last_err is not None:
+                return {"answer": f"I couldn't reach Home Assistant or a model to draft that automation: {str(last_err)[:180]}",
+                        "hits": [], "model": None}
+            return None
+
+        try:
+            res = await (asyncio.wait_for(run(), self.DEEP_VOICE_SECONDS) if voice else run())
+        except asyncio.TimeoutError:
+            res = None
+        if res is None:
+            return await quick
+        quick.close()
+        if b.get("conversation_id") and hasattr(self.mind, "_record_turn"):
+            self.mind._record_turn(b["conversation_id"], b["question"], res["answer"])
+        return res
 
     def meal_ok(self, b, who, other=None):
         """A meal/recipe idea or weekly meal plan request from what's at home: handled by Pantry."""
@@ -2439,7 +2502,8 @@ class App:
             raise ValueError("say what the automation should do")
         states, services = await self.house_lists()
         name = model or self.opts.get("overnight_model") or (self.models.list() or [{}])[0].get("name")
-        return await autodraft.draft(self.models.get(name), request, states, services)
+        return await autodraft.draft(self.models.get(name), request, states, services,
+                                     pin=str(self.opts.get("automation_pin") or ""))
 
     async def install_automation(self, cfg, enable=False, pin=""):
         """Install a drafted automation, checked again here: never trust a config because it was drafted."""
@@ -3823,10 +3887,96 @@ def build(app_state):
         return web.Response(text=localctl.jsonl(rows), content_type="application/jsonl",
                             headers={"Content-Disposition": f'attachment; filename="home_mind_control_{part}.jsonl"'})
 
+    @r.get("/api/trainer/status")
+    async def trainer_status(_):
+        """Turnkey small-LLM training status: local GPU worker health, all 3 model targets, Colab links & active jobs."""
+        return J(await A.trainer.status())
+
+    @r.get("/api/trainer/dataset/{target}")
+    async def trainer_dataset(q):
+        """Download a single ready-to-train dataset bundle for target (control | persona | memgraph)."""
+        from .trainer import TARGETS
+        target = q.match_info["target"]
+        if target not in TARGETS:
+            return J({"error": "target must be control, persona, or memgraph"}, status=400)
+        paraphrase = q.query.get("paraphrase") == "1"
+        n = int(num(q.query.get("n"), "n", 600, 12, 5000))
+        max_ex = int(num(q.query.get("max_examples"), "max_examples", 500, 20, 5000))
+        try:
+            bundle = await A.trainer.build_dataset(target, paraphrase=paraphrase, n=n, max_examples=max_ex)
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+        if target == "memgraph" and q.query.get("format") == "jsonl":
+            text = "\n".join(json.dumps(rec, ensure_ascii=False) for rec in bundle.get("records") or []) + "\n"
+            hdrs = {"Content-Disposition": 'attachment; filename="memgraph_train.jsonl"'} if q.query.get("download") else {}
+            return web.Response(text=text, content_type="application/jsonl", headers=hdrs)
+        resp = J(bundle)
+        if q.query.get("download"):
+            resp.headers["Content-Disposition"] = f'attachment; filename="{TARGETS[target]["filename"]}"'
+        return resp
+
+    @r.post("/api/trainer/start")
+    async def trainer_start(q):
+        """One-click start: build the dataset and submit a training job to the configured GPU trainer worker."""
+        b = await read_body(q, target=str, base_model=str, ollama_name=str)
+        target = b.get("target")
+        if not target:
+            raise ValueError("missing target")
+        epochs = whole(b["epochs"], "epochs") if b.get("epochs") is not None else None
+        paraphrase = bool(b.get("paraphrase")) if isinstance(b.get("paraphrase"), (bool, int)) else False
+        if b.get("paraphrase") is not None and not isinstance(b.get("paraphrase"), bool):
+            raise ValueError("paraphrase must be true or false")
+        try:
+            return J(await A.trainer.start(target, base_model=b.get("base_model"), epochs=epochs,
+                                           paraphrase=paraphrase, ollama_name=b.get("ollama_name")))
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+        except RuntimeError as e:
+            return J({"error": str(e)}, status=502)
+
+    @r.post("/api/trainer/cancel")
+    async def trainer_cancel(q):
+        """Cancel a running training job on the GPU trainer worker."""
+        b = await read_body(q, job_id=str)
+        if not b.get("job_id"):
+            raise ValueError("missing job_id")
+        try:
+            return J(await A.trainer.cancel(b["job_id"]))
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+        except RuntimeError as e:
+            return J({"error": str(e)}, status=502)
+
     @r.get("/api/preferences")
     async def preferences(_):
         names = {e: c["name"] for e, c in A.home.catalog.items()}
         return J([dict(p, name=names.get(p["entity_id"], p["entity_id"])) for p in A.prefs.learned()])
+
+    @r.get("/api/memgraph/graph")
+    async def memgraph_graph(q):
+        """Viewer-scoped visual graph of MemGraph nodes, links, live stability, episodes, and optional note links."""
+        include_dormant = q.query.get("dormant", "1") not in ("0", "false", "no")
+        include_notes = q.query.get("notes", "0") in ("1", "true", "yes")
+        cat = (q.query.get("category") or "").strip() or None
+        lim = int(num(q.query.get("limit"), "limit", 120, 1, 300))
+        return J(A.memgraph.snapshot(viewer=VIEWER.get(), include_dormant=include_dormant,
+                                     category=cat, limit=lim, include_notes=include_notes))
+
+    @r.post("/api/memgraph/link/{id}/{op}")
+    async def memgraph_link_op(q):
+        """Confirm, hide (forget), or delete a single MemGraph link from the Brain Graph visualizer."""
+        lid = whole(q.match_info["id"], "id")
+        op = q.match_info["op"]
+        if op not in ("confirm", "forget", "delete"):
+            return J({"error": "op must be confirm, forget, or delete"}, status=400)
+        try:
+            if op == "confirm":
+                return J(A.memgraph.confirm_link(lid, viewer=VIEWER.get()))
+            return J(A.memgraph.forget_link(lid, viewer=VIEWER.get(), delete=(op == "delete")))
+        except PermissionError as e:
+            return J({"error": str(e)}, status=403)
+        except KeyError as e:
+            return J({"error": str(e)}, status=404)
 
     @r.get("/api/thing")
     async def thing(q):

@@ -273,7 +273,13 @@ ROUTES = [
     ("GET", "/api/connections", []),
     ("POST", "/api/email/check", []),
     ("GET", "/api/preferences", []),
+    ("GET", "/api/memgraph/graph", ["dormant", "category", "notes", "limit"]),
+    ("POST", "/api/memgraph/link/{id}/{op}", []),
     ("GET", "/api/control_model/dataset", ["part", "paraphrase"]),
+    ("GET", "/api/trainer/status", []),
+    ("GET", "/api/trainer/dataset/{target}", ["download", "paraphrase", "n", "max_examples", "format"]),
+    ("POST", "/api/trainer/start", ["target", "base_model", "epochs", "paraphrase", "ollama_name"]),
+    ("POST", "/api/trainer/cancel", ["job_id"]),
     ("GET", "/api/thing", ["name"]),
     ("GET", "/api/label", ["text", "name", "base", "scale"]),
     ("GET", "/api/views", []),
@@ -358,7 +364,8 @@ BAD_BODIES = [NOBODY, NOTJSON, [], [1, 2], "text", 42, None, True, {}]
 
 def paths_for(path):
     """The route's path filled in: with good placeholder values and each op, then with bad ones."""
-    fills = {"id": ["1"], "name": ["1-ab.jpg"], "did": ["1"], "tid": ["1"], "sid": ["1"], "topic": ["finance"], "view": ["today", "rules"]}
+    fills = {"id": ["1"], "name": ["1-ab.jpg"], "did": ["1"], "tid": ["1"], "sid": ["1"], "topic": ["finance"], "view": ["today", "rules"],
+             "target": ["control", "persona", "memgraph", "nope"]}
     if path == "/api/item/{id}/{op}":
         return [f"/api/item/1/{op}" for op in OPS["op"]] + [f"/api/item/{i}/forget" for i in BAD_PATH["id"]]
     for key, opk in (("/api/automations/{op}", "automations_op"), ("/api/pantry/{op}", "pantry_op"),
@@ -367,6 +374,8 @@ def paths_for(path):
                      ("/api/fitness/{op}", "fitness_op"), ("/api/phrasebook/{op}", "phrasebook_op")):
         if path == key:
             return [key.replace("{op}", o) for o in OPS[opk]]
+    if path == "/api/memgraph/link/{id}/{op}":
+        return [f"/api/memgraph/link/1/{op}" for op in ("confirm", "forget", "delete", "nope")] + [f"/api/memgraph/link/{i}/confirm" for i in BAD_PATH["id"]]
     if path == "/api/house/suggestion/{sid}/{op}":
         return [f"/api/house/suggestion/{s}/{o}" for s in ["1"] + BAD_PATH["sid"] for o in OPS["suggestion_op"]]
     if path == "/api/control/run/{action}":

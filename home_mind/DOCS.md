@@ -980,6 +980,8 @@ you turn them on are listed after the tables.
 | `librarian_model` | empty | Optional small model for memory graph routing on typed questions (empty = fast built-in SQLite router) |
 | `archivist_model` | empty | Optional small model for async background memory graph ingestion after replies (empty = off during chat) |
 | `control_model` | empty | Local control model |
+| `trainer_url` | empty | Optional URL of a GPU/Ollama PC running `tools/trainer_worker.py` for one-click training from the Models tab (empty = 1-click Google Colab mode) |
+| `trainer_token` | empty | Optional Bearer token for `trainer_url` |
 | `rule_planner` | on | Plain commands without a model |
 | `model_mode` | balanced | cloud, balanced (the local model for kinds it has earned) or private (nothing leaves the house) |
 | `confidence_dial` | 0.55 | Below this confidence, a local plan goes to the cloud model, else Home Mind asks before acting |
@@ -1330,7 +1332,13 @@ note), 502 (a model failed) or 500.
 | POST | `/api/automations/install` | admin | install a checked draft, switched off (`config`, `pin` for ones that unlock) |
 | POST | `/api/automations/{op}` | admin | `takeover`, `release`, `run`, `retire`, `reload` (`ids`, `id`, `all`) |
 | GET | `/api/preferences` | read | learned light and fan levels |
+| GET | `/api/memgraph/graph` | read | viewer-scoped Brain Graph snapshot (`dormant?`, `category?`, `notes?`, `limit?`) |
+| POST | `/api/memgraph/link/{id}/{op}` | write | `confirm`, `forget`, or `delete` a learned MemGraph link |
 | GET | `/api/control_model/dataset` | admin | training data for the local control model, from your control list (`part=train` or `test`, `paraphrase=1`) |
+| GET | `/api/trainer/status` | admin | small-LLM trainer status: local GPU worker health (`trainer_url`), all 3 targets (`control`, `persona`, `memgraph`), Colab links and active jobs |
+| GET | `/api/trainer/dataset/{target}` | admin | one-click single-file training bundle for `control`, `persona`, or `memgraph` (`download=1`, `format=jsonl` for memgraph) |
+| POST | `/api/trainer/start` | admin | one-click training trigger on the connected GPU worker (`target`, optional `base_model`, `epochs`, `paraphrase`, `ollama_name`) |
+| POST | `/api/trainer/cancel` | admin | cancel an active training job on the GPU worker (`job_id`) |
 | GET | `/api/comfort` | read | comfort state for each room |
 | POST | `/api/comfort/vote` | write | a cold / hot / ok vote (`feeling`, `room?`) |
 | POST | `/api/comfort/cycle` | write | run a comfort cycle now |

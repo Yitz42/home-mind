@@ -142,7 +142,11 @@ jobs:
         run: python tests/test_datafacts.py
       - name: The router (local, cloud, private, escalation)
         run: python tests/test_router.py
+      - name: MemGraph personal memory graph and Brain Graph visualizer
+        run: python tests/test_memgraph.py
       - name: Database safety net
         run: python tests/test_dbguard.py
       - name: Brain suites on held-out worlds
         run: python tests/suites_check.py
+      - name: Turnkey small-LLM training (control, persona, memgraph)
+        run: python tests/test_trainer.py

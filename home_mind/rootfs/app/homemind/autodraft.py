@@ -192,16 +192,129 @@ def house_lists(states, services_raw):
     return ents, svcs, names, text, svc_text
 
 
-async def draft(model, request, states, services_raw):
+async def draft(model, request, states, services_raw, pin=""):
     """Ask the model for an automation; returns {"config", "problems", "ms"}."""
     ents, svcs, names, ent_text, svc_text = house_lists(states, services_raw)
     r = await model.chat(DRAFT_SYSTEM, [{"role": "user", "content": f"Entities:\n{ent_text}\n\nServices:\n{svc_text}"
                                                                   f"\n\nRequest: {request}"}],
                          max_tokens=700, temperature=0)
     cfg = parse(r.get("text"))
-    return {"config": cfg, "problems": check(cfg, ents, svcs, names=names) if cfg else ["the model's reply wasn't JSON"],
+    return {"config": cfg, "problems": check(cfg, ents, svcs, pin=pin, names=names) if cfg else ["the model's reply wasn't JSON"],
             "ms": r.get("ms")}
 
 
 def slug(alias):
     return "home_mind_" + (re.sub(r"[^a-z0-9]+", "_", (alias or "automation").lower()).strip("_")[:50] or "automation")
+
+
+# ---- Ask / Talk routing & plain-English formatting ---------------------------------------------------------------
+NOT_AUTOMATION_REQ_Q = re.compile(
+    r"^\s*(?:what|which|how many|why|did|when|list|show|delete|remove|disable|enable|turn (?:on|off)|run|trigger)\b"
+    r".{0,40}\bautomations?\b",
+    re.I,
+)
+AUTOMATION_REQ_Q = re.compile(
+    r"\b(?:set ?up|create|make|build|add|write|draft|new)\b.{0,30}\b(?:an?\s+)?(?:home assistant\s+)?automation\b|"
+    r"^\s*(?:please\s+|can you\s+|could you\s+|would you\s+)?automate\b.{4,}",
+    re.I,
+)
+
+
+def automation_request(question):
+    """Return the cleaned automation request string if `question` asks to create/set up an automation, else None."""
+    q = (question or "").strip()
+    if not q or len(q) > 400 or NOT_AUTOMATION_REQ_Q.search(q):
+        return None
+    if not AUTOMATION_REQ_Q.search(q):
+        return None
+    return q
+
+
+def _fmt_trigger(t):
+    if not isinstance(t, dict):
+        return str(t)
+    kind = t.get("trigger") or t.get("platform") or ""
+    if kind == "time" and t.get("at"):
+        return f"at {t['at']}"
+    if kind == "sun":
+        ev = t.get("event") or "sunset"
+        off = f" ({t['offset']})" if t.get("offset") else ""
+        return f"at {ev}{off}"
+    if kind == "state":
+        ent = ", ".join(_list(t.get("entity_id")))
+        to = f" -> {t['to']}" if t.get("to") is not None else ""
+        for_d = f" for {t['for']}" if t.get("for") else ""
+        return f"{ent}{to}{for_d}".strip()
+    if kind == "zone":
+        ent = ", ".join(_list(t.get("entity_id")))
+        ev = t.get("event") or "leave"
+        zn = t.get("zone") or ""
+        return f"{ent} {ev}s {zn}".strip()
+    if kind == "numeric_state":
+        ent = ", ".join(_list(t.get("entity_id")))
+        parts = [f"above {t['above']}" if t.get("above") is not None else "",
+                 f"below {t['below']}" if t.get("below") is not None else ""]
+        return f"{ent} {' '.join(p for p in parts if p)}".strip()
+    return kind or "trigger"
+
+
+def _fmt_action(a):
+    if not isinstance(a, dict):
+        return str(a)
+    svc = a.get("action") or a.get("service") or ""
+    ents = sorted(_entities_in(a, set()))
+    if svc and ents:
+        return f"{svc} ({', '.join(ents)})"
+    return svc or "action"
+
+
+def draft_summary(res):
+    """Build compact UI metadata for an automation draft (config, problems, needs_pin, installable, alias)."""
+    cfg = res.get("config") if isinstance(res, dict) else None
+    problems = list((res or {}).get("problems") or ())
+    pin_only = [p for p in problems if "opens the house: give the PIN" in str(p)]
+    hard_problems = [p for p in problems if p not in pin_only]
+    needs_pin = bool(pin_only) or any("opens the house" in str(p) for p in problems)
+    installable = bool(isinstance(cfg, dict) and not cfg.get("error") and not hard_problems)
+    return {
+        "config": cfg,
+        "alias": (cfg.get("alias") if isinstance(cfg, dict) else None) or "New automation",
+        "problems": problems,
+        "needs_pin": needs_pin,
+        "installable": installable,
+    }
+
+
+def format_draft(res, voice=False):
+    """Human-readable summary of a drafted automation for Ask / Talk / Voice."""
+    info = draft_summary(res)
+    cfg = info["config"]
+    problems = info["problems"]
+    if not isinstance(cfg, dict) or cfg.get("error"):
+        err = (cfg or {}).get("error") if isinstance(cfg, dict) else None
+        why = err or ("; ".join(problems) if problems else "couldn't draft a valid automation")
+        return f"I couldn't draft that automation yet: {why}"
+
+    alias = info["alias"]
+    trigs = [_fmt_trigger(t) for t in _list(cfg.get("triggers") or cfg.get("trigger"))]
+    acts = [_fmt_action(a) for a in _list(cfg.get("actions") or cfg.get("action"))]
+    if voice:
+        t_txt = ", ".join(trigs[:2]) or "triggered"
+        a_txt = ", ".join(acts[:3]) or "runs actions"
+        if info["installable"]:
+            return f"I drafted {alias}: when {t_txt}, it runs {a_txt}. Tap Install switched off in the app to add it."
+        return f"I drafted {alias}, but it still needs a fix: {problems[0]}."
+
+    lines = [f"Drafted automation: {alias}"]
+    if trigs:
+        lines.append("When: " + "; ".join(trigs))
+    if acts:
+        lines.append("Then: " + "; ".join(acts))
+    if info["installable"]:
+        if info["needs_pin"]:
+            lines.append("Ready to install switched off (PIN required because it unlocks/opens the house).")
+        else:
+            lines.append("Checked against your Home Assistant entities — click Install switched off below to add it.")
+    elif problems:
+        lines.append("Needs a fix before installing: " + "; ".join(problems))
+    return "\n".join(lines)

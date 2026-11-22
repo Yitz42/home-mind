@@ -18,7 +18,7 @@ SCOPES = ("read", "write", "admin")
 ADMIN_PATHS = [r"^/api/tokens", r"^/api/item/\d+/purge$", r"^/api/purge_about$", r"^/api/automations/(?!draft$)",
                r"^/api/house/suggestion/[^/]+/create$", r"^/api/updates/apply$", r"^/api/backup", r"^/api/restore",
                r"^/api/import", r"^/api/control/", r"^/api/export", r"^/api/vault/key$", r"^/api/compare/run$",
-               r"^/api/control_model/", r"^/api/email/check$", r"^/api/home/act$", r"^/api/do$",
+               r"^/api/control_model/", r"^/api/trainer/", r"^/api/email/check$", r"^/api/home/act$", r"^/api/do$",
                r"^/api/controls/",   # house control (and the Home tab's controls): admin, as mind_control/mind_do
                r"^/api/decisions", r"^/api/replay$",   # the decision log holds everyone's requests: admin only
                r"^/api/access", r"^/api/safety/run$",   # who may move what, and the safety suite

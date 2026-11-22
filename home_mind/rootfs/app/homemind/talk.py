@@ -100,6 +100,7 @@ class Talk:
         from .voice import COMMAND, said_for
         from .tokens import allows
         from .ask_actions import claims_command
+        from .autodraft import automation_request
         text = (text or "").strip()
         if not text:
             raise ValueError("say or type something")
@@ -108,7 +109,8 @@ class Talk:
         cid = t["conversation_id"]
         t["turns"].append({"who": "you", "text": text, "at": self.clock(), "spoken": bool(spoken)})
         res = None
-        if not claims_command(text) and COMMAND.match(text) and allows(scope, "admin") and hasattr(app, "do"):
+        is_auto_req = bool(automation_request(text))
+        if not is_auto_req and not claims_command(text) and COMMAND.match(text) and allows(scope, "admin") and hasattr(app, "do"):
             r = await app.do(text, source="panel_talk", conversation_id=cid)
             if r.get("error") != "nothing on the control list fits":
                 res = dict(r, answer=said_for(r), via="do")
@@ -124,6 +126,12 @@ class Talk:
                 asked = [x for x in t["turns"][:-1] if x["who"] == "you" and x["text"] != MEAL_FOLLOW]
                 base = asked[-1]["text"].rstrip("?!. ") if asked else "What should I make?"
                 b["question"] = f"{base} (different ideas)"
+            elif not is_auto_req and prev and prev[-1].get("automation_draft") and re.match(
+                r"^\s*(?:also|add|only|change|make it|instead|include|don't|do not|and also)\b", text, re.I
+            ):
+                asked = [x for x in t["turns"][:-1] if x["who"] == "you"]
+                base = asked[-1]["text"].rstrip("?!. ") if asked else "automation"
+                b["question"] = f"Create an automation: {base}. Update: {text}"
             if viewer is not None:
                 b["speaker"] = viewer
             res = await app.answer(b, scope)
@@ -153,7 +161,7 @@ class Talk:
         out = {"answer": res.get("answer") or "", "choices": choices, "expects": expects, "via": res.get("via"),
                "conversation_id": cid}
         for k in ("deep", "model", "quick", "compare_id", "red_flag", "checkin", "checkin_asked", "confirm_needed",
-                  "private", "handoff", "error", "sources", "pantry", "meals", "week_plan"):
+                  "private", "handoff", "error", "sources", "pantry", "meals", "week_plan", "automation_draft"):
             if res.get(k) is not None:
                 out[k] = res[k]
         if missing:
@@ -163,6 +171,7 @@ class Talk:
                            **({"pantry": True} if res.get("pantry") else {}),
                            **({"missing": missing} if missing else {}),
                            **({"meals": res["meals"][:3]} if res.get("meals") else {}),
+                           **({"automation_draft": res["automation_draft"]} if res.get("automation_draft") else {}),
                            **({"sources": res["sources"]} if res.get("sources") else {}),
                            **({"red_flag": res["red_flag"]} if res.get("red_flag") else {}),
                            **({"quick": res["quick"], "compare_id": res["compare_id"]} if res.get("compare_id")

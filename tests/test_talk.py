@@ -78,6 +78,13 @@ async def answer(b, scope="admin"):
         return {"answer": "Commonly beans; you had lentils 3 days.", "deep": True, "hits": [],
                 "sources": [{"id": 9, "title": "Dr Lee note", "noted": "Nov 10, 2026"}],
                 "quick": {"answer": "I don't know."}, "compare_id": "c1"}
+    if "automation" in b["question"].lower():
+        return {"answer": "Drafted automation: Leave Bedroom Off\nWhen: person.dana -> not_home\nThen: light.turn_off (light.bedroom_lights)",
+                "hits": [], "via": "autodraft",
+                "automation_draft": {"alias": "Leave Bedroom Off", "installable": True, "needs_pin": False,
+                                     "problems": [], "config": {"alias": "Leave Bedroom Off",
+                                                                "triggers": [{"trigger": "state", "entity_id": "person.dana", "to": "not_home"}],
+                                                                "actions": [{"action": "light.turn_off", "target": {"entity_id": "light.bedroom_lights"}}]}}}
     return {"answer": "Tuesday.", "hits": []}
 
 
@@ -118,6 +125,61 @@ rw = run(tk.turn("Build a meal plan for the week", "Dana"))
 check("weekly meal turn: top-level missing items deduplicated and week_plan forwarded",
       rw.get("pantry") and rw.get("missing") == ["broccoli (2 heads)", "soy sauce"]
       and isinstance(rw.get("week_plan"), dict), rw)
+# automation drafting: 'Can you set up an automation...' must NOT be hijacked by voice.COMMAND -> App.do()
+done_before = len(done)
+ra = run(tk.turn("Can you set up an automation to turn off the Bedroom Lights and the Heater Bedroom Temp when I leave?", "Dana"))
+check("automation turn: bypasses App.do even though it starts with 'Can you set'", len(done) == done_before, done)
+check("automation turn: forwards automation_draft and via='autodraft'",
+      ra.get("via") == "autodraft" and (ra.get("automation_draft") or {}).get("installable") is True
+      and (tk.thread("Dana")["turns"][-1].get("automation_draft") or {}).get("alias") == "Leave Bedroom Off", ra)
+ra2 = run(tk.turn("Also turn off the bedroom fan", "Dana"))
+check("automation follow-up: rewrites tweak into a fresh automation draft request",
+      "Create an automation:" in asked[-1]["question"] and "Also turn off the bedroom fan" in asked[-1]["question"]
+      and len(done) == done_before, asked[-1])
+# voice.turn guard: also bypasses App.do for automation requests
+from homemind import voice as V  # noqa: E402
+v_app = types.SimpleNamespace(mind=types.SimpleNamespace(store=st, VOICE_SECONDS=5), answer=answer, do=do, opts={})
+rv = run(V.turn(v_app, {"text": "Can you set up an automation to turn off the bedroom lights when I leave?"}))
+check("voice turn: automation request bypasses App.do and preserves via='autodraft'",
+      len(done) == done_before and rv.get("via") == "autodraft" and bool(rv.get("automation_draft")), rv)
+# App.automation_ok / App.automation_answer permission & routing checks
+from homemind.main import App  # noqa: E402
+fake_app = types.SimpleNamespace(
+    opts={"automation_pin": ""},
+    modes=None,
+    models=types.SimpleNamespace(models={"claude": object()}),
+    mind=types.SimpleNamespace(_record_turn=lambda *a: None),
+)
+fake_app.automation_ok = types.MethodType(App.automation_ok, fake_app)
+fake_app.automation_answer = types.MethodType(App.automation_answer, fake_app)
+q_auto = {"question": "Can you set up an automation to turn off the bedroom lights when I leave?"}
+check("App.automation_ok: allows household member with write/admin scope",
+      bool(fake_app.automation_ok(q_auto, "Dana", None, "admin"))
+      and bool(fake_app.automation_ok(q_auto, "Dana", None, "write")))
+check("App.automation_ok: refuses guests, read-only scope, and other assistants",
+      fake_app.automation_ok(q_auto, "", None, "admin") is None
+      and fake_app.automation_ok(q_auto, "Dana", None, "read") is None
+      and fake_app.automation_ok(q_auto, "Dana", {"name": "alexa"}, "admin") is None
+      and fake_app.automation_ok({**q_auto, "use_brain": False}, "Dana", None, "admin") is None)
+
+
+async def fake_draft(req, model=None):
+    return {"config": {"alias": "Leave Bedroom Off",
+                       "triggers": [{"trigger": "state", "entity_id": "person.dana", "to": "not_home"}],
+                       "actions": [{"action": "light.turn_off", "target": {"entity_id": "light.bedroom_lights"}}]},
+            "problems": [], "ms": 12}
+
+fake_app.draft_automation = fake_draft
+
+
+async def unused_quick():
+    return {"answer": "fallback"}
+
+qa_res = run(fake_app.automation_answer({**q_auto, "conversation_id": "c-auto"}, "Dana", q_auto["question"], unused_quick()))
+check("App.automation_answer: returns formatted draft + automation_draft metadata",
+      qa_res.get("via") == "autodraft" and "Leave Bedroom Off" in qa_res.get("answer", "")
+      and (qa_res.get("automation_draft") or {}).get("installable") is True, qa_res)
+
 check("thread: per person", tk.thread("Sam")["turns"] == [])
 cid = th["conversation_id"]
 n = tk.new("Dana")
