@@ -1362,6 +1362,12 @@ note), 502 (a model failed) or 500.
 | GET | `/api/pantry` | read | pantry items and goals |
 | GET | `/api/pantry/meals` | read | `day?` (YYYY-MM-DD): meals logged on that day with macros, totals, and nutrition goals |
 | POST | `/api/pantry/{op}` | write | `add`, `photo`, `ate` (`when?` like `8am`, `day?`), `meal_edit` (`id`, `text?`, `when?`, `calories?`, `protein_g?`, `carbs_g?`, `fat_g?`, `fiber_g?`, `sugar_g?`, `reestimate?`), `meal_delete` (`id`), `used`, `tossed`, `remove`, `suggest`, `week` (`prep_day?`, `prep_time?`), `layout`, `plan_cell`, `swap`, `plan_clear`, `meal_info`, `calendar` (`include`: `prep` or `all`), `shop`, `goals`, `today`, `estimate` (`ids?`: protein and calories for logged meals) |
+| GET | `/api/recipes` | read | `q?`, `slot?`: saved recipes and favorite meals with exact macros and ingredients |
+| POST | `/api/recipes/{op}` | write | `save` (recipe fields), `delete` (`id`), `log` (`id`, `servings?`, `day?`, `when?`), `shop` (`id`: add missing ingredients to shopping list), `barcode` (`upc`: look up nutrition from local USDA food DB) |
+| GET | `/api/habits` | read | `day?` (YYYY-MM-DD): medications, supplements, and daily habit streaks with 7-day completion |
+| POST | `/api/habits/{op}` | write | `add` (`name`, `kind?`: `med`/`habit`, `dose?`, `schedule?`, `scope?`), `toggle` (`id`, `day?`, `done?`), `delete` (`id`) |
+| GET | `/api/maintenance` | read | home maintenance items, recurring chores, warranties, and linked manual docs |
+| POST | `/api/maintenance/{op}` | write | `add` (`name`, `category?`, `every_days?`, `next_due?`, `warranty_until?`, `doc_name?`, `notes?`), `done` (`id`, `note?`), `delete` (`id`) |
 | GET | `/api/patterns` | read | brain-fog report, findings, experiment and daily rows (`days`) |
 | POST | `/api/patterns/{op}` | write | `refresh`, `send`, `experiment`, `ask`, `answer`, `weather` |
 | GET | `/api/journal` | read | daily journal summaries |

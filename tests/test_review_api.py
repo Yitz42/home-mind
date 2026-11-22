@@ -342,6 +342,14 @@ ROUTES = [
     ("GET", "/api/phrasebook", ["status", "source", "limit"]),
     ("GET", "/api/phrasebook/export", []),
     ("POST", "/api/phrasebook/{op}", ["said", "plain", "id", "model", "n", "limit", "text"]),
+    ("GET", "/api/recipes", ["q", "slot"]),
+    ("POST", "/api/recipes/{op}", ["id", "name", "slot", "servings", "minutes", "calories", "protein_g", "carbs_g",
+                                   "fat_g", "fiber_g", "sugar_g", "ingredients", "steps", "upc", "scope", "day", "when"]),
+    ("GET", "/api/habits", ["day"]),
+    ("POST", "/api/habits/{op}", ["id", "name", "kind", "dose", "schedule", "scope", "day", "done"]),
+    ("GET", "/api/maintenance", []),
+    ("POST", "/api/maintenance/{op}", ["id", "name", "category", "every_days", "next_due", "warranty_until",
+                                       "doc_name", "notes", "note"]),
     ("POST", "/mcp", ["jsonrpc", "id", "method", "params"]),
     ("GET", "/mcp", []),
     ("DELETE", "/mcp", []),
@@ -357,6 +365,9 @@ OPS = {"op": ["forget", "restore", "revise", "sensitive", "feedback", "confirm",
        "patterns_op": ["refresh", "send", "experiment", "ask", "answer", "weather", "nope"],
        "knowledge_op": ["nope"],
        "fitness_op": ["goals", "reset_goals", "prefs", "routine", "workout", "weigh", "accept", "edit", "delete", "nope"],
+       "recipes_op": ["save", "delete", "log", "shop", "barcode", "nope"],
+       "habits_op": ["add", "toggle", "delete", "nope"],
+       "maintenance_op": ["add", "done", "delete", "nope"],
        "phrasebook_op": ["add", "approve", "reject", "remove", "try", "grow", "eval", "nope"], "suggestion_op": ["enable", "dismiss", "nope"], "action": ["nope", ""]}
 BAD_VALUES = [None, "", 0, -1, 10 ** 30, 1.5, float("1e308"), "abc", "x" * 20000, [], [1, "a", None], {}, {"a": [1]},
               True]
@@ -375,7 +386,9 @@ def paths_for(path):
     for key, opk in (("/api/automations/{op}", "automations_op"), ("/api/pantry/{op}", "pantry_op"),
                      ("/api/patterns/{op}", "patterns_op"), ("/api/knowledge/{op}", "knowledge_op"),
                      ("/api/controls/{op}", "controls_op"),
-                     ("/api/fitness/{op}", "fitness_op"), ("/api/phrasebook/{op}", "phrasebook_op")):
+                     ("/api/fitness/{op}", "fitness_op"), ("/api/phrasebook/{op}", "phrasebook_op"),
+                     ("/api/recipes/{op}", "recipes_op"), ("/api/habits/{op}", "habits_op"),
+                     ("/api/maintenance/{op}", "maintenance_op")):
         if path == key:
             return [key.replace("{op}", o) for o in OPS[opk]]
     if path == "/api/memgraph/link/{id}/{op}":

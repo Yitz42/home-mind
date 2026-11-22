@@ -350,6 +350,27 @@ async def build(A, now=None):
             out["food"]["goals"] = food_goals(g, pt)
         except Exception:  # noqa: BLE001
             pass
+    meds_svc = getattr(A, "meds", None)
+    if meds_svc:
+        try:
+            out["meds"] = meds_svc.dashboard(now=now)["summary"]
+        except Exception:  # noqa: BLE001
+            pass
+    maint_svc = getattr(A, "maintenance", None)
+    if maint_svc:
+        try:
+            ml = maint_svc.list(now=now)
+            out["maintenance"] = {"overdue": ml["overdue"], "soon": ml["soon"]}
+            over = [x for x in ml["items"] if x["state"] == "overdue"]
+            if over:
+                out["needs"].append({
+                    "id": f"maint:{over[0]['id']}", "kind": "Upkeep",
+                    "title": f"{over[0]['name']} is overdue",
+                    "sub": f"Was due {over[0]['next_due']}. Tap to mark done or update.",
+                    "a": "Upkeep", "act": "go", "go": "house",
+                })
+        except Exception:  # noqa: BLE001
+            pass
     if ha:
         out["reminders"] = await reminders(ha, now)
         out["shopping"] = await shopping(ha)

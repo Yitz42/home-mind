@@ -202,6 +202,8 @@ class App:
         from .docs import Docs
         from .apps import Apps
         self.mind.docs = self.docs = Docs(self.mind.store, self.opts.get("docs_folder") or None)
+        if getattr(self, "maintenance", None) is not None:
+            self.maintenance.docs = self.docs
         self.mind.apps = Apps(self.opts, lambda: self.models.session)
         if self.opts.get("learn_filing", True) is not False:
             from .filing import Filer
@@ -418,6 +420,12 @@ class App:
         self.overnight.memgraph_owner = mg_owner
         from .trainer import Trainer
         self.trainer = Trainer(self, self.opts)
+        from .recipes import Recipes
+        from .meds import MedsHabits
+        from .maintenance import Maintenance
+        self.recipes = Recipes(self.mind.store, self.pantry, self.knowledge)
+        self.meds = MedsHabits(self.mind.store)
+        self.maintenance = Maintenance(self.mind.store)
         try:
             synced = self.memgraph.sync_patterns(self.patterns, days=60, owner=mg_owner)
             if synced.get("ingested"):
@@ -2606,9 +2614,17 @@ def build(app_state):
         if peer in INGRESS_IPS or (tok and secrets.compare_digest(tok.encode("utf-8", "surrogateescape"),
                                                                   str(app_state.token).encode())):
             request["scope"] = "admin"
+            hdr_v = (request.headers.get("X-Home-Mind-Viewer") or "").strip()
             uid = request.headers.get("X-Remote-User-Id") if peer in INGRESS_IPS else None
             who = app_state.panel_person(uid) if uid and hasattr(app_state, "panel_person") else None
-            if who:                 # the panel, signed in to Home Assistant as a known person: answered as them
+            if hdr_v:
+                if hdr_v.lower() == "household":
+                    who = ""
+                else:
+                    known = {str(p.get("name") or "").lower(): p.get("name") for p in (app_state.people() or []) if p.get("name")}
+                    if hdr_v.lower() in known:
+                        who = known[hdr_v.lower()]
+            if who is not None:     # admin viewer override or HA panel user
                 from .speakers import VIEWER
                 tv = VIEWER.set(who)
                 try:
@@ -4787,6 +4803,11 @@ def build(app_state):
     @r.delete("/mcp")
     async def mcp_delete(_):
         return web.Response(status=204)
+
+    from . import recipes as _recipes, meds as _meds, maintenance as _maint
+    _recipes.register_routes(r, A, J, read_body, whole)
+    _meds.register_routes(r, A, J, read_body, whole)
+    _maint.register_routes(r, A, J, read_body, whole)
 
     app = web.Application(middlewares=[auth, errors], client_max_size=32 * 1024 * 1024)
     app.add_routes(r)
