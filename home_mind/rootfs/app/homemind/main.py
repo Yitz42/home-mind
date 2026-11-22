@@ -3679,7 +3679,8 @@ def build(app_state):
             data = await part.read(decode=False)
             return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
         b = model_ok(await read_body(q, optional=True, text=str, name=str, location=str, source=str, meal=str,
-                                     request=str, items=list, slot=str, style=str, kind=str, action=str, grid=dict))
+                                     request=str, items=list, slot=str, style=str, kind=str, action=str, grid=dict,
+                                     prep_day=str, prep_time=str, include=str, entity=str))
         if not isinstance(b.get("amount", ""), (str, int, float)) or not isinstance(b.get("use_by", ""), (str, int, float)):
             raise ValueError("amount and use_by should be text (or a number)")
         try:
@@ -3725,10 +3726,12 @@ def build(app_state):
                     raise ValueError("meals items should be text")
                 return J(await A.pantry.plan_week(days=d_val, meals=meals_arg, request=b.get("request") or "",
                                                   model=b.get("model"), viewer=VIEWER.get(),
-                                                  style=b.get("style"), grid=b.get("grid")))
+                                                  style=b.get("style"), grid=b.get("grid"),
+                                                  prep_day=b.get("prep_day"), prep_time=b.get("prep_time")))
             if op == "layout":
                 rec = A.pantry.save_week_layout(kind=b.get("kind") or "usual", style=b.get("style") or "twice",
-                                                grid=b.get("grid"))
+                                                grid=b.get("grid"), prep_day=b.get("prep_day"),
+                                                prep_time=b.get("prep_time"))
                 return J({"layout": rec, "layouts": A.pantry.week_layouts()})
             if op == "plan_cell":
                 if b.get("day_index") is None:
@@ -3744,6 +3747,17 @@ def build(app_state):
                                                   viewer=VIEWER.get()))
             if op == "plan_clear":
                 return J(A.pantry.clear_week_plan())
+            if op == "meal_info":
+                if b.get("day_index") is None:
+                    raise ValueError("missing day_index")
+                d_idx = whole(b["day_index"], "day_index")
+                return J(A.pantry.meal_info(d_idx, slot=b.get("slot") or "dinner"))
+            if op == "calendar":
+                out = await A.pantry.add_to_calendar(include=b.get("include") or "prep",
+                                                     entity=b.get("entity"), prep_time=b.get("prep_time"))
+                if getattr(A, "calendars", None) is not None and hasattr(A, "_spawn"):
+                    A._spawn("cal_sync", A.calendars.sync)
+                return J(out)
             if op == "shop":
                 return J({"added": await A.pantry.add_to_shopping(b.get("items") or [])})
             if op == "goals":
