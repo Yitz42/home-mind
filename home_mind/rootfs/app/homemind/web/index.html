@@ -161,7 +161,7 @@
   .hc-btns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:12px } .hc-btns button { min-height:40px; border-radius:12px; border:1px solid var(--line); background:var(--card2); color:var(--ink); font:inherit; font-size:13px; cursor:pointer } .hc-btns button:disabled { opacity:.4; cursor:default } .hc-btns .stop { color:var(--bad) }
   .room { max-width:560px }
   @media (min-width: 861px) {
-    main { padding:20px 26px 32px } .ph { margin-bottom:12px } .ph h1 { font-size:23px } .ph .sub { font-size:12px }
+    main { padding:16px 24px 20px } .ph { margin-bottom:12px } .ph h1 { font-size:23px } .ph .sub { font-size:12px }
     .card { padding:13px 15px; border-radius:14px; margin-bottom:12px } .bento { gap:12px; margin-bottom:12px } h2 { font-size:15px }
     .ring, .ring svg { width:92px; height:92px } .ring .v b { font-size:25px }
     .fog button { min-height:40px; font-size:16px } .tile { padding:8px 10px } .tile b { font-size:18px }
@@ -210,10 +210,11 @@
   .hb-need .top { display:flex; gap:10px; align-items:flex-start } .hb-need .top > div { flex:1; display:flex; flex-direction:column; gap:2px } .hb-need .n { font-size:12px; color:var(--mute); white-space:nowrap }
   .hb-need .acts { display:flex; gap:8px } .hb-need .acts button { min-height:42px; border-radius:12px; font:inherit; font-size:14px; font-weight:600; cursor:pointer }
   .hb-need .a { flex:1; border:0; background:var(--acc); color:#fff } .hb-need .x { width:42px; flex:none; border:1px solid var(--line); background:var(--card); color:var(--mute) }
-  .hb-stats { order:3; position:relative; z-index:6 } .hb-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; height:42px }
+  .hb-stats { order:3; position:relative; z-index:6 } .hb-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; height:42px; align-items:start }
   .hb-tabs button { display:flex; align-items:center; justify-content:center; gap:7px; height:42px; padding:0 8px; line-height:1; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; cursor:pointer }
   .hb-tabs button span { font-size:13px; color:var(--mute) } .hb-tabs button b { font:700 18px/1 var(--head) }
-  .hb-tabs button.on { border-color:var(--mem-line); border-bottom:0; border-radius:14px 14px 0 0; box-shadow:0 2px 0 var(--card); position:relative; z-index:2 }
+  .hb-tabs button.on { border-color:var(--mem-line); border-bottom:0; border-radius:14px 14px 0 0; position:relative; z-index:2; height:42px; background:var(--card) }
+  .hb-tabs button.on::after { content:''; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--card); pointer-events:none }
   .hb-tabs.open button:not(.on) { height:34px; align-self:start; background:var(--card2) }
   .hb-detail { display:none } .hb-right { position:relative; order:5 } .hb-tiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px }
   .hb-tile { display:flex; flex-direction:column; gap:8px; padding:12px 12px 12px 14px; border-radius:20px; background:var(--card); border:1px solid var(--line); font:inherit; color:var(--ink); text-align:left; cursor:pointer; min-height:170px; overflow:hidden; min-width:0 }
@@ -271,14 +272,39 @@
     .hb-tiles { flex:1; grid-template-rows:repeat(2, minmax(150px, 1fr)) } .hb-tile { min-height:0 }
   }
   @media (min-width: 641px) {
-    .hb-tile { min-height:330px; cursor:default } .hb-win { display:none !important } .hb-tabs.open button:not(.on) { height:42px; align-self:auto; background:var(--card) }
-    .hb-detail { display:flex; flex-direction:column; gap:10px; padding:14px 16px; background:var(--card); border:1px solid var(--mem-line); border-radius:0 20px 20px 20px; margin-top:-1px }
-    .hb-detail.mid { border-radius:20px } .hb-detail.end { border-radius:20px 0 20px 20px }
-    .hb-tile .scroll { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:10px }
+    .hb-tile { min-height:300px; cursor:default } .hb-win { display:none !important }
+    .hb-tabs.open button:not(.on) { height:34px; align-self:start; background:var(--card2) }
+    .hb-detail { display:flex; flex-direction:column; gap:8px; padding:12px 14px; background:var(--card); border:1px solid var(--mem-line); border-radius:0 18px 18px 18px; margin-top:-1px; position:relative; z-index:1 }
+    .hb-detail.mid { border-radius:18px } .hb-detail.end { border-radius:18px 0 18px 18px }
+    .hb-tile .scroll { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:8px }
   }
-  @media (min-width: 1200px) {
-    .hb-cols { display:grid; grid-template-columns:400px minmax(0,1fr); gap:24px; align-items:start }
-    .hb-left .hb-stats { order:5 } .hb-left .hb-need { order:3 } .hb-right { order:0 } .hb-tile { min-height:calc(50vh - 70px) }
+  @media (min-width: 960px) {
+    .hb-cols { display:grid; grid-template-columns:minmax(340px,390px) minmax(0,1fr); gap:16px; align-items:start }
+    .hb-left .hb-stats { order:5 } .hb-left .hb-need { order:3 } .hb-right { order:0 }
+  }
+  @media (min-width: 960px) and (min-height: 620px) {
+    .hub { max-width:1280px !important; height:calc(100dvh - 36px); display:flex; flex-direction:column; overflow:hidden }
+    body.kiosk .hub { height:calc(100dvh - 36px) }
+    .hb-head { flex:none; margin-bottom:8px } .hb-hi h1 { font-size:20px } .hb-wx { min-height:38px; padding:0 10px }
+    .hb-cols { flex:1; min-height:0; align-items:stretch }
+    .hb-left { min-height:0; height:100%; gap:8px; overflow:hidden }
+    .hb-logs { flex:none } .hb-logs button { min-height:36px }
+    .hb-bar { flex:none } .hb-in { min-height:44px } .hb-in input { min-height:34px; font-size:14px } .hb-go { width:34px; height:34px }
+    .hb-ans { max-height:34vh; overflow-y:auto }
+    .hb-need { flex:none; padding:10px 13px; gap:6px; border-radius:16px } .hb-need .acts button { min-height:34px; font-size:13px }
+    .hb-stats { flex:1; min-height:0; display:flex; flex-direction:column }
+    .hb-detail { flex:1; min-height:0; overflow-y:auto; padding:10px 13px; gap:7px }
+    .hb-chart { height:74px; padding:6px 8px 0; flex:none }
+    .hb-f { padding:5px 0 } .hb-f .a { font-size:13px } .hb-f .a b { font-size:13px }
+    .hb-cta button { min-height:34px; font-size:13px }
+    .hb-right { min-height:0; height:100%; display:flex; flex-direction:column; overflow:hidden }
+    .hb-tiles { flex:1; min-height:0; grid-template-rows:repeat(2,minmax(0,1fr)); gap:10px }
+    .hb-tile { min-height:0; height:100%; padding:11px 12px 11px 13px; border-radius:18px; gap:6px }
+    .hb-tile .scroll { gap:7px; padding-right:2px }
+    .hb-li { min-height:34px; font-size:13px } .hb-li button { min-height:28px; font-size:12px }
+    .hb-scenes button { min-height:34px; font-size:12px }
+    .hb-devs button { min-height:48px; padding:7px 10px }
+    .hb-add input, .hb-add button { min-height:34px; padding:5px 10px; font-size:13px }
   }
   /* Weekly meal calendar picker */
   .mp-tabs { display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--card) }
@@ -477,7 +503,7 @@
   #nav .vw-bar .vw-wall:hover { background:var(--card2) }
   #nav .foot { margin-top:4px; padding:6px 10px }
   body.kiosk #nav { display:none }
-  body.kiosk main { padding:16px 22px 24px }
+  body.kiosk main { padding:16px 22px 20px }
   body.kiosk main > section { max-width:none !important }
   .wall-exit { position:fixed; right:14px; bottom:14px; z-index:40; box-shadow:0 6px 20px rgba(0,0,0,.22); min-height:34px; padding:6px 12px; font-size:12px }
   .mh-row { display:flex; align-items:center; gap:9px; padding:8px 0; border-top:1px solid var(--line) }
