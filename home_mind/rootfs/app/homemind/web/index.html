@@ -449,6 +449,27 @@
   .ft-bstat > div { padding:8px; border-radius:9px; background:var(--bg); border:1px solid var(--line) }
   .ft-bstat b { display:block; font:700 16px var(--head); margin:2px 0 }
   @media (max-width: 920px) { .ft-grid { grid-template-columns:1fr } .ft-pills { grid-template-columns:repeat(2,minmax(0,1fr)) } .ft-tune { grid-template-columns:repeat(2,minmax(0,1fr)) } .ft-goals-grid { grid-template-columns:1fr } }
+  /* Shared compact pillar cockpit layout */
+  .ck-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px }
+  .ck-head-l { display:flex; flex-wrap:wrap; align-items:center; gap:8px }
+  .ck-head h1 { margin:0; font:700 22px/1.15 var(--head) }
+  .ck-sub { font-size:12px; color:var(--mute) }
+  .ck-tabs { display:inline-flex; flex-wrap:wrap; gap:2px; padding:3px; border-radius:10px; background:var(--card); border:1px solid var(--line) }
+  .ck-tabs button { border:0; background:none; color:var(--mute); font:600 12px/1.2 inherit; padding:6px 11px; border-radius:7px; cursor:pointer; min-height:28px }
+  .ck-tabs button.on { background:var(--tint,var(--acc)); color:var(--tint-on,#fff) }
+  .ck-grid { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(260px,1fr); gap:10px; align-items:start }
+  .ck-grid2 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; align-items:start }
+  .ck-col { display:flex; flex-direction:column; gap:10px; min-width:0 }
+  .ck-card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-bottom:0; overflow-x:auto }
+  .ck-card.food { background:var(--food-bg); border-color:var(--food-line) }
+  .ck-card.health { background:var(--health-bg); border-color:var(--health-line) }
+  .ck-card h2 { font:600 14px var(--head); margin:0 0 8px }
+  .ck-pills { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px }
+  .ck-pills button { border:1px solid var(--line); background:var(--bg); color:var(--mute); border-radius:99px; padding:3px 10px; font:600 11px inherit; cursor:pointer; min-height:26px }
+  .ck-pills button.on { background:var(--tint,var(--acc)); border-color:var(--tint,var(--acc)); color:var(--tint-on,#fff) }
+  .ck-pgrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px }
+  .ck-pgrid .li { padding:7px 9px; border:1px solid var(--line); border-radius:10px; background:var(--bg) }
+  @media (max-width: 900px) { .ck-grid, .ck-grid2, .ck-pgrid { grid-template-columns:1fr } }
 </style>
 </head>
 <body>
@@ -457,18 +478,14 @@
   <div class="brand"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--acc-ink)"><path d="M3 11l9-7 9 7M5 10v10h14V10M9 15a3 3 0 0 1 6 0"/></svg>Home Mind</div>
   <div class="grp">DAILY</div>
   <button data-t="today" class="on"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></button>
-  <button data-t="health" style="--tint:var(--health)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span>Health</span></button>
   <button data-t="fitness" style="--tint:var(--ok)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 7v10M18 7v10M3 9v6M21 9v6M6 12h12"/></svg><span>Fitness</span></button>
   <button data-t="pantry" style="--tint:var(--food)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 3v8a2 2 0 0 0 2 2v8M10 3v8M16 3c-2 2-2 6 0 8v10"/></svg><span>Food</span></button>
-  <div class="grp">BRAIN</div>
-  <button data-t="memory" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span>Memory</span><b class="badge hide" id="nav_review"></b></button>
-  <button data-t="worked" class="sys" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/></svg><span>Worked out</span></button>
-  <button data-t="house" class="sys" style="--tint:var(--house)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg><span>Room</span></button>
+  <button data-t="health" style="--tint:var(--health)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span>Health</span></button>
+  <div class="grp">HOME &amp; BRAIN</div>
+  <button data-t="house" style="--tint:var(--house)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg><span>House</span></button>
+  <button data-t="memory" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span>Brain</span><b class="badge hide" id="nav_review"></b></button>
   <div class="grp">SYSTEM</div>
-  <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>Settings</span></button>
-  <button data-t="tests" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg><span>Tests</span></button>
-  <button data-t="models" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16v10H4zM8 21h8M12 17v4"/></svg><span>Models</span></button>
-  <button data-t="updates" class="sys"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Updates</span></button>
+  <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>System</span></button>
   <div class="foot"><span class="dot"></span><span id="ver"></span></div>
 </nav>
 <main>
@@ -516,31 +533,53 @@
   <section class="hb-wxs hide" id="hb_wxs" role="dialog" aria-label="Weather"></section>
   <section class="hb-ck hide" id="hb_ck" role="dialog" aria-labelledby="hb_ck_t"></section>
 </section>
-<section id="health" class="hide">
-  <div class="ph"><div><div class="sub" style="color:var(--health-ink)">Brain fog and what goes with it</div><h1>Health</h1></div><button class="go" style="background:var(--health);color:var(--health-on)" onclick="sendReport()">Send report now</button></div>
-  <div class="bento">
-    <div class="card health" style="display:flex;gap:18px;align-items:center">
-      <div class="ring"><svg width="110" height="110" viewBox="0 0 110 110" role="img" aria-label="Rated days"><circle cx="55" cy="55" r="46" fill="none" stroke="var(--health-line)" stroke-width="11"/><circle id="hl_ring" cx="55" cy="55" r="46" fill="none" stroke="var(--health)" stroke-width="11" stroke-linecap="round" stroke-dasharray="0 289" transform="rotate(-90 55 55)"/></svg>
-        <div class="v"><b id="hl_days">–</b><span>rated days</span></div></div>
-      <div><b style="font:600 17px var(--head)" id="hl_head"></b><div class="mute" id="hl_sub" style="font-size:13px"></div></div>
+<section id="health" class="hide" style="--tint:var(--health);--tint-on:var(--health-on)">
+  <div class="ck-head">
+    <div class="ck-head-l">
+      <h1>Health</h1>
+      <div class="ck-tabs" role="tablist" aria-label="Health views">
+        <button id="hl_t_pat" class="on" onclick="hlTab('pat')">Patterns</button>
+        <button id="hl_t_logs" onclick="hlTab('logs')">Logs &amp; Sleep</button>
+        <button id="hl_t_pb" onclick="hlTab('pb')">Voice Learning</button>
+      </div>
     </div>
-    <div class="card"><h2>This week</h2><pre id="hl_report" style="background:none;padding:0;font:inherit;font-size:13px;color:var(--ink);max-height:none"></pre></div>
-    <div class="card wide"><h2>Last 14 days</h2><div id="hl_table" style="overflow-x:auto"></div></div>
-    <div class="card wide"><div class="hrow"><h2>Suspects being watched</h2><span class="mute" style="font-size:12px">tested once there are enough days on both sides</span></div><div id="hl_find" style="display:flex;flex-direction:column;gap:8px"></div></div>
-    <div class="card" style="border-style:dashed"><h2>2-week experiment</h2><div id="hl_exp" class="mute"></div></div>
-    <div class="card wide"><div class="hrow"><h2>Fitness</h2><a onclick="go('fitness')">Open Fitness →</a></div>
-      <div id="hl_fit" style="display:flex;flex-direction:column;gap:4px;font-size:13px" class="mute">Goals, adaptive daily plan, progressive workouts, and progress charts live in the Fitness tab.</div>
+    <button class="go" style="background:var(--health);color:var(--health-on);min-height:32px;padding:5px 12px;font-size:12px" onclick="sendReport()">Send report</button>
+  </div>
+  <div id="hl_p_pat" class="ck-col">
+    <div class="ck-grid">
+      <div class="ck-col">
+        <div class="ck-card health" style="display:flex;gap:14px;align-items:center">
+          <div class="ring" style="width:92px;height:92px"><svg width="92" height="92" viewBox="0 0 110 110" role="img" aria-label="Rated days"><circle cx="55" cy="55" r="46" fill="none" stroke="var(--health-line)" stroke-width="11"/><circle id="hl_ring" cx="55" cy="55" r="46" fill="none" stroke="var(--health)" stroke-width="11" stroke-linecap="round" stroke-dasharray="0 289" transform="rotate(-90 55 55)"/></svg>
+            <div class="v"><b id="hl_days" style="font-size:24px">–</b><span>rated</span></div></div>
+          <div style="min-width:0;flex:1"><b style="font:600 16px var(--head)" id="hl_head"></b><div class="mute" id="hl_sub" style="font-size:12px"></div>
+            <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--health-line);font-size:12px"><span class="mute">2-week experiment: </span><span id="hl_exp"></span></div></div>
+        </div>
+        <div class="ck-card"><h2>Last 14 days</h2><div id="hl_table" style="overflow-x:auto"></div></div>
+      </div>
+      <div class="ck-col">
+        <div class="ck-card"><h2>This week</h2><pre id="hl_report" style="background:none;padding:0;font:inherit;font-size:12px;color:var(--ink);max-height:190px"></pre></div>
+        <div class="ck-card"><div class="hrow"><h2>Fitness</h2><a style="font-size:12px" onclick="go('fitness')">Open Fitness →</a></div>
+          <div id="hl_fit" style="display:flex;flex-direction:column;gap:4px;font-size:12px" class="mute">Goals, adaptive daily plan, workouts, and charts live in Fitness.</div>
+        </div>
+      </div>
     </div>
-    <div class="card wide"><div class="hrow" style="flex-wrap:wrap"><h2>Phrasebook</h2><span class="mute" id="pb_stats" style="font-size:12px"></span></div>
-      <div class="mute" style="font-size:13px;margin-bottom:8px">Odd ways of saying sleep and workouts, and how to read them. It grows from what you say, your corrections ("no, 6 hours"), and new cases the overnight model writes and checks twice.</div>
-      <div id="pb_review" style="display:flex;flex-direction:column;gap:8px"></div>
-      <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px"><input id="pb_said" placeholder="how it was said" style="flex:2;min-width:160px" aria-label="Said"><input id="pb_plain" placeholder="slept from 1 am to 6 am · squat 3x8 at 185 lb · NONE" style="flex:2;min-width:160px" aria-label="Plain line"><button class="go" onclick="pbAdd()">Add</button><button onclick="pbTry()">Try</button></div>
-      <div class="mute" id="pb_msg" style="font-size:13px;margin-top:6px"></div>
-      <div class="row" style="gap:8px;margin-top:8px"><button onclick="pbRun('grow')">Grow now</button><button onclick="pbRun('eval')">Test the model</button><a onclick="window._pbAll=!window._pbAll;loadPhrasebook()" style="align-self:center">Show entries</a></div>
-      <div id="pb_list" style="margin-top:10px;font-size:13px"></div>
-    </div>
-    <div class="card wide"><div class="hrow"><h2>Recent logs</h2><span><a onclick="window._lk='sleep';loadLogs()">Sleep</a> · <a onclick="window._lk='workout';loadLogs()">Workouts</a></span></div>
+    <div class="ck-card"><div class="hrow"><h2>Suspects being watched</h2><span class="mute" style="font-size:12px">tested once there are enough days on both sides</span></div><div id="hl_find" style="display:flex;flex-direction:column;gap:6px"></div></div>
+  </div>
+  <div id="hl_p_logs" class="hide">
+    <div class="ck-card">
+      <div class="hrow"><h2>Recent logs</h2><span><a onclick="window._lk='sleep';loadLogs()">Sleep</a> · <a onclick="window._lk='workout';loadLogs()">Workouts</a></span></div>
       <div id="lg_list" style="font-size:13px"></div><div class="mute" id="lg_msg" style="font-size:13px;margin-top:6px"></div>
+    </div>
+  </div>
+  <div id="hl_p_pb" class="hide">
+    <div class="ck-card">
+      <div class="hrow" style="flex-wrap:wrap"><h2>Phrasebook</h2><span class="mute" id="pb_stats" style="font-size:12px"></span></div>
+      <div class="mute" style="font-size:12px;margin-bottom:8px">Odd ways of saying sleep and workouts, and how to read them. Grows from what you say, corrections, and overnight checks.</div>
+      <div id="pb_review" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:8px"><input id="pb_said" placeholder="how it was said" style="flex:2;min-width:160px" aria-label="Said"><input id="pb_plain" placeholder="slept from 1 am to 6 am · squat 3x8 at 185 lb · NONE" style="flex:2;min-width:160px" aria-label="Plain line"><button class="go" onclick="pbAdd()">Add</button><button class="soft" onclick="pbTry()">Try</button></div>
+      <div class="mute" id="pb_msg" style="font-size:12px;margin-top:6px"></div>
+      <div class="row" style="gap:8px;margin-top:8px"><button class="soft" onclick="pbRun('grow')">Grow now</button><button class="soft" onclick="pbRun('eval')">Test the model</button><a onclick="window._pbAll=!window._pbAll;loadPhrasebook()" style="align-self:center;font-size:12px">Show entries</a></div>
+      <div id="pb_list" style="margin-top:10px;font-size:13px"></div>
     </div>
   </div>
 </section>
@@ -742,112 +781,209 @@
   </div>
 </section>
 <section id="more" class="hide">
-  <div class="ph"><div><div class="sub" id="mo_sub"></div><h1>System</h1></div></div>
-  <div class="card hide" id="start"></div>
-  <div class="grid" id="stats"></div>
-  <div class="bento">
-    <div class="card"><div class="hrow"><h2>Does the brain help?</h2><a onclick="go('tests')">Tests</a></div><div class="mute" id="mo_bench_sub" style="font-size:13px;margin-bottom:12px"></div><div id="mo_bench" style="display:flex;flex-direction:column;gap:12px"></div></div>
-    <div class="card"><h2>Offline reference</h2><div id="mo_ref" class="feed"></div></div>
-  </div>
-  <div class="row"><button class="go" onclick="go('tests')">Tests</button> <button class="go" onclick="go('models')">Models</button> <button class="go" onclick="go('updates')">Updates</button> <button class="go" onclick="go('worked')">Worked out</button></div>
-  <div class="card"><div class="hrow"><h2>Persona</h2><label class="mute" style="font-size:13px"><input type="checkbox" id="ps_on" onchange="savePersona()"> On</label></div>
-    <div class="mute" style="font-size:13px;margin-bottom:8px">Who answers, and how. Each answer gets an emotion from what happened (a new best is proud, an unlocked door is alert, a tired day is gentle) and the persona's manner for it. Facts are checked: a number or a "not" that would change means the plain answer is used.</div>
-    <div class="row" style="flex-wrap:wrap;gap:8px"><label>For <select id="ps_for" onchange="loadPersona()"><option value="">everyone</option></select></label><label id="ps_name_l">Name <input id="ps_name" style="width:110px" onchange="savePersona()"></label>
-      <label>Calls you <select id="ps_address" onchange="savePersona()"><option value="name">by name</option><option value="sir">sir</option><option value="madam">madam</option><option value="none">nothing</option></select></label>
-      <label>Wit <select id="ps_wit" onchange="savePersona()"><option value="off">off</option><option value="low">low</option><option value="normal">normal</option></select></label>
-      <label class="mute"><input type="checkbox" id="ps_ssml" onchange="savePersona()"> SSML for voices that read it</label></div>
-    <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px"><input id="ps_text" placeholder="a plain answer, e.g. The furnace filter was changed on March 3, 47 days ago." style="flex:1;min-width:200px" aria-label="Plain answer"><select id="ps_emo" aria-label="emotion"></select><button class="go" onclick="tryPersona()">Try</button></div>
-    <div id="ps_out" style="margin-top:8px;font-size:14px"></div>
-    <details style="margin-top:10px"><summary class="mute">Examples</summary><div id="ps_ex" style="font-size:13px;margin-top:6px"></div></details>
-    <div class="mute" style="font-size:12px;margin-top:8px">Training a style model: <a href="api/persona/corpus?n=600&download=1">download the practice set</a> for tools/train_jeeves_style.ipynb (made-up answers, nothing personal).</div>
-    <details style="margin-top:6px"><summary class="mute">Instructions for your Home Assistant voice agent</summary><div class="mute" style="font-size:12px;margin:6px 0">Paste into the agent's instructions so its own words sound the same.</div><textarea id="ps_prompt" readonly rows="6" style="width:100%" aria-label="Agent instructions"></textarea></details>
-  </div>
-  <div class="card"><h2>Latest test results</h2><table id="latest"></table></div>
-  <div class="card"><h2>Recent activity</h2><div class="list" id="events"></div></div>
-</section>
-<section id="memory" class="hide">
-  <div class="ph"><div><div class="sub" id="mem_sub" style="color:var(--mem)">Everything Home Mind has been told or learned</div><h1>Memory</h1></div></div>
-  <div class="seg"><button class="on" onclick="go('memory')">Notes</button><button onclick="go('worked')">Worked out</button><button onclick="go('graph')">Graph</button></div>
-  <div class="card hide" id="itemcard"></div>
-  <div class="card hide" id="inboxcard"><h2>Inbox <span class="mute">notes not on a shelf yet; filing learns from where you put them</span></h2><table id="inbox"></table></div>
-  <div class="card"><h2>Documents <span class="mute">manuals, warranties, recipes: searched for questions, answers name the page</span></h2><table id="docs"></table>
-    <div class="row"><input type="file" id="doc_file" aria-label="documents to add" multiple accept=".pdf,.txt,.md,.html"> <button class="go" onclick="addDocs()">Add</button> <span id="doc_out" class="mute"></span></div>
-    <p class="mute">Files in the documents folder (option docs_folder, default /share/home-mind/docs) are added every hour.</p></div>
-  <div class="card"><h2>Views and SQL <span class="mute">saved searches, and read-only SQL on the notes and links views</span></h2>
-    <div class="row" id="views"></div>
-    <div class="row"><input id="v_name" placeholder="name" style="width:140px"> <input id="v_query" placeholder="search words" style="width:180px"> <input id="v_shelf" placeholder="shelf" style="width:110px"> <input id="v_tags" placeholder="tags" style="width:110px"> <button class="go" onclick="viewSave()">Save view</button></div>
-    <div class="row"><input id="sql_q" placeholder="SELECT shelf, count(*) FROM notes GROUP BY shelf" style="flex:1"> <button class="go" onclick="sqlRun()">Run SQL</button></div>
-    <div style="overflow:auto"><table id="sql_out"></table></div></div>
-  <div class="card"><h2>Export and import <span class="mute">every note with its history and links, as one JSON file</span></h2>
-    <div class="row"><a class="go" href="api/export" download onclick="this.href = 'api/export' + ($('#ex_secrets').checked ? '?secrets=1' : '')">Export</a> <label class="mute"><input type="checkbox" id="ex_secrets"> with secrets</label>
-      <input type="file" id="im_file" aria-label="export file to import" accept=".json"> <button class="go" onclick="importFile(true)">Check</button> <button class="go" onclick="importFile(false)">Import</button> <span id="im_out" class="mute"></span></div>
-    <p class="mute">QR labels: <button class="go" onclick="labelPrompt()">Make a label</button> scanning it opens everything known about that thing here.</p>
-    <p class="mute">Two-way Markdown sync: set the option markdown_folder. <button class="go" onclick="mdSync()">Sync now</button> <span id="md_out"></span></p></div>
-  <div class="card hide" id="reviewcard"><h2>To review <span class="mute">learned or guessed, not checked yet</span></h2><table id="review"></table>
-    <p class="mute">Held notes read like instructions to the assistant and are left out of answers until approved. Unconfirmed ones are shown to models marked UNCONFIRMED.</p></div>
-  <div class="card"><div class="row"><h2 style="margin:0">Recently added</h2>
-      <select id="rf" aria-label="which notes" onchange="recent()"><option value="told">Told or learned</option><option value="all">Everything</option><option value="calendar">Calendar</option><option value="house">House readings</option><option value="automations">Automation runs</option><option value="archived">Forgotten</option></select>
-      <select id="rh" aria-label="how far back" onchange="recent()"><option value="24">last day</option><option value="72" selected>last 3 days</option><option value="168">last week</option><option value="720">last 30 days</option></select></div>
-    <div class="list" id="recent"></div></div>
-  <div class="card"><div class="row"><input id="q" placeholder="Search memory…" style="flex:1"> <label class="mute"><input type="checkbox" id="old"> old versions</label> <button class="go" onclick="search()">Search</button></div>
-    <div class="list" id="hits"></div></div>
-  <div class="card"><h2>Shelves <span class="mute" id="shelfpath"></span></h2><div id="shelves"></div><table id="shelfitems"></table></div>
-  <div class="card"><h2>Remember something</h2>
-    <div class="row"><input id="r_title" placeholder="Title (optional)" style="flex:1"> <input id="r_shelf" placeholder="shelf e.g. projects/pebble"> <input id="r_key" placeholder="key (subject|attribute)"></div>
-    <div class="row"><textarea id="r_text" rows="3" style="flex:1" placeholder="What to keep"></textarea></div>
-    <div class="row"><button class="go" onclick="remember()">Remember</button> <span id="r_out" class="mute"></span></div></div>
-</section>
-<section id="worked" class="hide">
-  <div class="ph"><div><div class="sub" style="color:var(--mem)">Pulled out of your notes</div><h1>Worked out</h1></div></div>
-  <div class="seg"><button onclick="go('memory')">Notes</button><button class="on" onclick="go('worked')">Worked out</button><button onclick="go('graph')">Graph</button></div>
-  <div class="card"><h2>About you and the house <span class="mute">always shown to models</span></h2><ul id="w_profile"></ul>
-    <p class="mute">From notes like "Dana is my partner" (they go on the profile shelf). Edit or forget them in Memory.</p></div>
-  <div class="card"><h2>Chores</h2><table id="w_chores"></table>
-    <p class="mute">From "Change the furnace filter every 3 months" and "I changed the furnace filter". Due ones are in the morning summary.</p></div>
-  <div class="card"><h2>Repeating</h2><table id="w_repeat"></table></div>
-  <div class="card"><h2>Where things are</h2><table id="w_places"></table>
-    <p class="mute">From "The drill is in the red toolbox" and "I moved the red toolbox to the shed": the latest note for each thing wins.</p></div>
-  <div class="card"><h2>Things with details</h2><table id="w_typed"></table></div>
-  <div class="card"><h2>Possible duplicates <span class="mute">checked once a day; nothing is merged</span></h2><table id="w_dups"></table></div>
-  <div class="card"><h2>Disagreeing notes <span class="mute">two people said different things, or a guess differs from what was said</span></h2><table id="w_conf"></table></div>
-  <div class="card"><h2>Corrections kept as tests</h2><table id="w_cases"></table>
-    <p class="mute">Kept when you say "that's wrong" and then the right value. The <b>corrections</b> suite on the Tests tab asks them again.</p></div>
-</section>
-<section id="graph" class="hide">
-  <div class="ph"><div><div class="sub" style="color:var(--mem)">Connections the brain has learned from chats, sensors, and notes</div><h1>Brain graph</h1></div></div>
-  <div class="seg"><button onclick="go('memory')">Notes</button><button onclick="go('worked')">Worked out</button><button class="on" onclick="go('graph')">Graph</button></div>
-  <div class="grid" id="mg_stats"></div>
-  <div class="card">
-    <div id="mg_cats" class="mg-cats"></div>
-    <div class="row" style="gap:10px">
-      <input id="mg_q" placeholder="Filter nodes or relations…" oninput="mgFilter(this.value)" style="flex:1;min-width:160px">
-      <label class="mute" style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" id="mg_dormant" checked onchange="graphLoad()"> Show dormant</label>
-      <label class="mute" style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" id="mg_notes" onchange="graphLoad()"> Note links</label>
-      <button class="soft" onclick="mgRelayout()">Re-layout</button>
-    </div>
-    <div class="mg-wrap">
-      <svg id="mg_svg" class="mg-svg" viewBox="0 0 860 420"></svg>
-      <div class="mg-legend">
-        <span><i style="border-color:var(--ok)"></i>Fact (+)</span>
-        <span><i style="border-color:var(--bad)"></i>Allergy / Dislike (−)</span>
-        <span><i style="border-color:var(--house);border-top-style:dashed"></i>Sensor / Idea</span>
-        <span><i style="border-color:var(--food);border-top-style:dotted"></i>Contested</span>
-        <span><i style="border-color:var(--mute);border-top-style:dashed"></i>Dormant</span>
-        <span><i style="border-color:var(--mem)"></i>Note link</span>
+  <div class="ck-head">
+    <div class="ck-head-l">
+      <h1>System</h1>
+      <span class="ck-sub" id="mo_sub"></span>
+      <div class="ck-tabs" role="tablist" aria-label="System views">
+        <button id="sy_t_over" class="on" onclick="sysTab('over')">Overview &amp; Persona</button>
+        <button id="sy_t_models" onclick="sysTab('models')">Models &amp; Training</button>
+        <button id="sy_t_tests" onclick="sysTab('tests')">Tests</button>
+        <button id="sy_t_access" onclick="sysTab('access')">Access &amp; Updates</button>
       </div>
     </div>
-    <div id="mg_insp" class="mg-insp mute">Click any node or line to inspect what the brain learned, see its evidence, or confirm / hide it.</div>
   </div>
-  <div class="card">
-    <details><summary style="cursor:pointer;font-weight:600">All visible connections (<span id="mg_tbl_cnt">0</span>)</summary>
-      <div style="overflow:auto;margin-top:10px"><table id="mg_tbl"></table></div>
-    </details>
+  <div id="sy_p_over" class="ck-col">
+    <div class="ck-card hide" id="start"></div>
+    <div class="grid" id="stats" style="margin-bottom:0"></div>
+    <div class="ck-grid">
+      <div class="ck-col">
+        <div class="ck-card"><div class="hrow"><h2>Persona</h2><label class="mute" style="font-size:12px"><input type="checkbox" id="ps_on" onchange="savePersona()"> On</label></div>
+          <div class="mute" style="font-size:12px;margin-bottom:8px">Who answers and how. Facts are checked so plain numbers never change.</div>
+          <div class="row" style="flex-wrap:wrap;gap:6px"><label>For <select id="ps_for" onchange="loadPersona()"><option value="">everyone</option></select></label><label id="ps_name_l">Name <input id="ps_name" style="width:104px" onchange="savePersona()"></label>
+            <label>Calls you <select id="ps_address" onchange="savePersona()"><option value="name">by name</option><option value="sir">sir</option><option value="madam">madam</option><option value="none">nothing</option></select></label>
+            <label>Wit <select id="ps_wit" onchange="savePersona()"><option value="off">off</option><option value="low">low</option><option value="normal">normal</option></select></label>
+            <label class="mute"><input type="checkbox" id="ps_ssml" onchange="savePersona()"> SSML</label></div>
+          <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px"><input id="ps_text" placeholder="plain answer to test persona…" style="flex:1;min-width:180px" aria-label="Plain answer"><select id="ps_emo" aria-label="emotion"></select><button class="go" onclick="tryPersona()">Try</button></div>
+          <div id="ps_out" style="margin-top:6px;font-size:13px"></div>
+          <details style="margin-top:6px"><summary class="mute" style="font-size:12px">Examples &amp; voice agent prompt</summary>
+            <div id="ps_ex" style="font-size:12px;margin-top:6px"></div>
+            <div class="mute" style="font-size:11px;margin:6px 0">Training a style model: <a href="api/persona/corpus?n=600&download=1">download practice set</a></div>
+            <textarea id="ps_prompt" readonly rows="5" style="width:100%" aria-label="Agent instructions"></textarea>
+          </details>
+        </div>
+        <div class="ck-card"><div class="hrow"><h2>Does the brain help?</h2><a style="font-size:12px" onclick="sysTab('tests')">Tests →</a></div><div class="mute" id="mo_bench_sub" style="font-size:12px;margin-bottom:8px"></div><div id="mo_bench" style="display:flex;flex-direction:column;gap:8px"></div></div>
+      </div>
+      <div class="ck-col">
+        <div class="ck-card"><h2>Offline reference</h2><div id="mo_ref" class="feed"></div></div>
+        <div class="ck-card"><h2>Latest test results</h2><table id="latest"></table></div>
+        <div class="ck-card"><h2>Recent activity</h2><div class="list" id="events" style="max-height:240px;overflow-y:auto"></div></div>
+      </div>
+    </div>
+  </div>
+  <div id="sy_p_models" class="hide">
+    <div class="ck-grid">
+      <div class="ck-col">
+        <div class="ck-card"><div class="row"><h2 style="margin:0;flex:1">Connected models</h2> <button class="go" style="min-height:30px;padding:4px 10px;font-size:12px" onclick="checkModels()">Check all</button></div><table id="mlist"></table>
+          <p class="mute" style="font-size:12px;margin:6px 0 0">Add or change models in Settings › Apps › Home Mind › Configuration.</p></div>
+        <div class="ck-card"><h2>Use, last 30 days</h2><table id="usage"></table></div>
+        <div class="ck-card"><h2>Ask tester</h2><div class="row"><select id="a_model" aria-label="model"></select> <label class="mute"><input type="checkbox" id="a_brain" checked> use brain</label></div>
+          <div class="row"><input id="a_q" placeholder="Question" style="flex:1"> <button class="go" onclick="ask()">Ask</button></div><pre id="a_out" class="hide"></pre></div>
+      </div>
+      <div class="ck-col">
+        <div class="ck-card" id="tr_card">
+          <div class="hrow"><h2>Train small models</h2><span class="mute" id="tr_worker" style="font-size:12px"></span></div>
+          <p class="mute" style="margin-top:0;font-size:12px">One-click training for Home Control, Persona Voice, and MemGraph Brain. Runs on your GPU PC when <code>trainer_url</code> is set, or opens Google Colab.</p>
+          <div id="tr_list" class="list"></div>
+          <div class="mute" id="tr_msg" style="font-size:12px;margin-top:6px"></div>
+          <details style="margin-top:8px"><summary class="mute" style="font-size:12px">Set up 1-click local GPU training</summary>
+            <div class="mute" style="font-size:12px;margin-top:6px">On your Ollama/GPU PC run <code>python tools/trainer_worker.py --port 8090</code>, then set <code>trainer_url</code> in Configuration.</div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="sy_p_tests" class="hide ck-col">
+    <div class="ck-card"><h2>Run a test</h2>
+      <div class="row"><select id="t_suite" aria-label="suite"></select>
+        <select id="t_arm" aria-label="arm"><option value="brain">brain (no model)</option><option value="model+brain">model + brain</option><option value="model+context">model + whole log</option><option value="model">model alone</option></select>
+        <select id="t_model" aria-label="model"><option value="">(model)</option></select>
+        <select id="t_ingest" aria-label="ingest"><option value="raw">store as given</option><option value="model">model files each item</option><option value="extract">model extracts from conversations</option></select>
+        <label class="mute"><input type="checkbox" id="t_keyed"> keyed</label> <label class="mute"><input type="checkbox" id="t_expand"> expand</label>
+        <input id="t_seed" placeholder="seed" style="width:74px"> <input id="t_n" placeholder="size" style="width:66px">
+        <button class="go" onclick="runTest()">Run</button></div>
+      <div class="mute" id="t_info" style="font-size:12px"></div></div>
+    <div class="ck-grid2">
+      <div class="ck-card"><div class="row"><h2 style="margin:0;flex:1">Model comparison</h2><button class="go" style="min-height:30px;padding:4px 10px;font-size:12px" onclick="cmpRun()">Compare now</button></div><div id="cmp_out" class="mute" style="font-size:12px;margin-bottom:6px"></div><table id="cmp"></table></div>
+      <div class="ck-card"><h2>Runs</h2><table id="runs"></table></div>
+    </div>
+    <div class="ck-card hide" id="runcard"><h2>Run <span id="runid"></span></h2><pre id="run"></pre></div>
+  </div>
+  <div id="sy_p_access" class="hide">
+    <div class="ck-grid">
+      <div class="ck-card"><h2>Access tokens <span class="mute" style="font-size:12px;font-weight:400">one per client, revocable</span></h2><table id="toks"></table>
+        <div class="row" style="margin-top:8px"><input id="tk_name" placeholder="client name (e.g. Jeeves, phone)" style="flex:1;min-width:140px"> <select id="tk_scope" aria-label="scope"><option>read</option><option>write</option><option>admin</option></select> <input id="tk_person" placeholder="person (optional)" style="width:10em"> <button class="go" onclick="makeToken()">Make token</button></div>
+        <pre id="tk_new" class="mute" style="white-space:pre-wrap"></pre>
+        <p class="mute" style="font-size:12px;margin:4px 0 0">read: ask/search · write: also remember/change/forget · admin: everything. Token is shown once.</p></div>
+      <div class="ck-card"><h2>App &amp; knowledge updates</h2>
+        <div class="row"><button class="go" onclick="checkUpd()">Check for updates</button> <button class="soft" onclick="applyUpd()">Install packs</button></div>
+        <pre id="upd">…</pre></div>
+    </div>
   </div>
 </section>
-<section id="house" class="hide">
-  <div class="ph"><div><div class="sub" style="color:var(--house-ink)" id="ho_sub">Bedroom</div><h1>Home</h1></div>
-    <div class="wpill" id="hc_wpill"></div></div>
-  <div class="seg"><button class="on" id="hs_c" onclick="homeTab('c')">Controls</button><button id="hs_l" onclick="homeTab('l')">Learned &amp; automations</button></div>
+<section id="memory" class="hide" style="--tint:var(--mem)">
+  <div class="ck-head">
+    <div class="ck-head-l">
+      <h1>Brain</h1>
+      <span class="ck-sub" id="mem_sub"></span>
+      <div class="ck-tabs" role="tablist" aria-label="Brain views">
+        <button id="br_t_notes" class="on" onclick="brainTab('notes')">Notes</button>
+        <button id="br_t_graph" onclick="brainTab('graph')">Graph</button>
+        <button id="br_t_worked" onclick="brainTab('worked')">Worked Out</button>
+        <button id="br_t_data" onclick="brainTab('data')">Docs &amp; Data</button>
+      </div>
+    </div>
+    <button class="go" style="min-height:32px;padding:5px 12px;font-size:12px" onclick="brToggleRem()">+ Remember</button>
+  </div>
+  <div id="br_rem_drawer" class="ck-card hide" style="margin-bottom:10px">
+    <div class="row"><input id="r_title" placeholder="Title (optional)" style="flex:1"> <input id="r_shelf" placeholder="shelf e.g. projects/pebble"> <input id="r_key" placeholder="key (subject|attribute)"></div>
+    <div class="row"><textarea id="r_text" rows="2" style="flex:1" placeholder="What to keep"></textarea></div>
+    <div class="row" style="margin-bottom:0"><button class="go" onclick="remember()">Remember</button> <span id="r_out" class="mute"></span></div>
+  </div>
+  <div id="br_p_notes" class="ck-col">
+    <div class="ck-card hide" id="itemcard"></div>
+    <div class="ck-card hide" id="inboxcard"><h2>Inbox <span class="mute" style="font-size:12px;font-weight:400">notes not on a shelf yet</span></h2><table id="inbox"></table></div>
+    <div class="ck-card hide" id="reviewcard"><h2>To review <span class="mute" style="font-size:12px;font-weight:400">learned or guessed, not checked yet</span></h2><table id="review"></table></div>
+    <div class="ck-grid">
+      <div class="ck-col">
+        <div class="ck-card">
+          <div class="row" style="margin-bottom:6px"><input id="q" placeholder="Search memory…" style="flex:1" onkeydown="if (event.key === 'Enter') search()"> <label class="mute" style="font-size:12px"><input type="checkbox" id="old"> old</label> <button class="go" style="min-height:34px;padding:5px 12px;font-size:12px" onclick="search()">Search</button></div>
+          <div class="list" id="hits"></div>
+        </div>
+        <div class="ck-card"><div class="row" style="margin-bottom:6px"><h2 style="margin:0;flex:1">Recently added</h2>
+          <select id="rf" aria-label="which notes" onchange="recent()" style="min-height:30px;padding:3px 7px;font-size:12px"><option value="told">Told or learned</option><option value="all">Everything</option><option value="calendar">Calendar</option><option value="house">House readings</option><option value="automations">Automation runs</option><option value="archived">Forgotten</option></select>
+          <select id="rh" aria-label="how far back" onchange="recent()" style="min-height:30px;padding:3px 7px;font-size:12px"><option value="24">last day</option><option value="72" selected>last 3 days</option><option value="168">last week</option><option value="720">last 30 days</option></select></div>
+          <div class="list" id="recent" style="max-height:340px;overflow-y:auto"></div></div>
+      </div>
+      <div class="ck-card"><h2>Shelves <span class="mute" id="shelfpath" style="font-size:12px;font-weight:400"></span></h2><div id="shelves"></div><table id="shelfitems"></table></div>
+    </div>
+  </div>
+  <div id="br_p_graph" class="hide ck-col">
+    <div class="grid" id="mg_stats" style="margin-bottom:0"></div>
+    <div class="ck-card">
+      <div id="mg_cats" class="mg-cats"></div>
+      <div class="row" style="gap:8px;margin-bottom:8px">
+        <input id="mg_q" placeholder="Filter nodes or relations…" oninput="mgFilter(this.value)" style="flex:1;min-width:160px;min-height:34px;padding:5px 9px">
+        <label class="mute" style="display:inline-flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" id="mg_dormant" checked onchange="graphLoad()"> Dormant</label>
+        <label class="mute" style="display:inline-flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" id="mg_notes" onchange="graphLoad()"> Note links</label>
+        <button class="soft" style="min-height:34px;padding:4px 10px;font-size:12px" onclick="mgRelayout()">Re-layout</button>
+      </div>
+      <div class="mg-wrap">
+        <svg id="mg_svg" class="mg-svg" viewBox="0 0 860 420"></svg>
+        <div class="mg-legend">
+          <span><i style="border-color:var(--ok)"></i>Fact (+)</span>
+          <span><i style="border-color:var(--bad)"></i>Allergy / Dislike (−)</span>
+          <span><i style="border-color:var(--house);border-top-style:dashed"></i>Sensor / Idea</span>
+          <span><i style="border-color:var(--food);border-top-style:dotted"></i>Contested</span>
+          <span><i style="border-color:var(--mute);border-top-style:dashed"></i>Dormant</span>
+          <span><i style="border-color:var(--mem)"></i>Note link</span>
+        </div>
+      </div>
+      <div id="mg_insp" class="mg-insp mute">Click any node or line to inspect what the brain learned, see its evidence, or confirm / hide it.</div>
+      <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600;font-size:12px">All visible connections (<span id="mg_tbl_cnt">0</span>)</summary>
+        <div style="overflow:auto;margin-top:8px"><table id="mg_tbl"></table></div>
+      </details>
+    </div>
+  </div>
+  <div id="br_p_worked" class="hide ck-col">
+    <div class="ck-pills" id="br_wf">
+      <button id="bw_all" class="on" onclick="brWorkFilt('all')">All</button>
+      <button id="bw_prof" onclick="brWorkFilt('prof')">Profile &amp; Places</button>
+      <button id="bw_chore" onclick="brWorkFilt('chore')">Chores &amp; Repeating</button>
+      <button id="bw_check" onclick="brWorkFilt('check')">Checks &amp; Corrections</button>
+    </div>
+    <div class="ck-grid2">
+      <div class="ck-card" id="bw_c_prof"><h2>About you &amp; the house</h2><ul id="w_profile" style="margin:0;padding-left:18px;font-size:13px"></ul></div>
+      <div class="ck-card" id="bw_c_place"><h2>Where things are</h2><table id="w_places"></table></div>
+      <div class="ck-card" id="bw_c_typed"><h2>Things with details</h2><table id="w_typed"></table></div>
+      <div class="ck-card" id="bw_c_chore"><h2>Chores</h2><table id="w_chores"></table></div>
+      <div class="ck-card" id="bw_c_rep"><h2>Repeating</h2><table id="w_repeat"></table></div>
+      <div class="ck-card" id="bw_c_dup"><h2>Possible duplicates</h2><table id="w_dups"></table></div>
+      <div class="ck-card" id="bw_c_conf"><h2>Disagreeing notes</h2><table id="w_conf"></table></div>
+      <div class="ck-card" id="bw_c_case"><h2>Corrections kept as tests</h2><table id="w_cases"></table></div>
+    </div>
+  </div>
+  <div id="br_p_data" class="hide">
+    <div class="ck-grid2">
+      <div class="ck-col">
+        <div class="ck-card"><h2>Documents <span class="mute" style="font-size:12px;font-weight:400">manuals, warranties, recipes</span></h2><table id="docs"></table>
+          <div class="row" style="margin-top:8px"><input type="file" id="doc_file" aria-label="documents to add" multiple accept=".pdf,.txt,.md,.html"> <button class="go" onclick="addDocs()">Add</button> <span id="doc_out" class="mute"></span></div></div>
+        <div class="ck-card"><h2>Export, import &amp; sync</h2>
+          <div class="row"><a class="go" href="api/export" download onclick="this.href = 'api/export' + ($('#ex_secrets').checked ? '?secrets=1' : '')">Export</a> <label class="mute" style="font-size:12px"><input type="checkbox" id="ex_secrets"> secrets</label>
+            <input type="file" id="im_file" aria-label="export file to import" accept=".json"> <button class="soft" onclick="importFile(true)">Check</button> <button class="go" onclick="importFile(false)">Import</button> <span id="im_out" class="mute"></span></div>
+          <div class="row" style="margin-bottom:0"><button class="soft" onclick="labelPrompt()">Make QR label</button> <button class="soft" onclick="mdSync()">Markdown sync now</button> <span id="md_out" class="mute" style="font-size:12px"></span></div></div>
+      </div>
+      <div class="ck-card"><h2>Views &amp; read-only SQL</h2>
+        <div class="row" id="views"></div>
+        <div class="row"><input id="v_name" placeholder="name" style="width:120px"> <input id="v_query" placeholder="search words" style="flex:1;min-width:120px"> <input id="v_shelf" placeholder="shelf" style="width:96px"> <input id="v_tags" placeholder="tags" style="width:90px"> <button class="go" onclick="viewSave()">Save</button></div>
+        <div class="row"><input id="sql_q" placeholder="SELECT shelf, count(*) FROM notes GROUP BY shelf" style="flex:1"> <button class="go" onclick="sqlRun()">Run SQL</button></div>
+        <div style="overflow:auto;max-height:260px"><table id="sql_out"></table></div></div>
+    </div>
+  </div>
+</section>
+<section id="house" class="hide" style="--tint:var(--house);--tint-on:var(--house-on)">
+  <div class="ck-head">
+    <div class="ck-head-l">
+      <h1>House</h1>
+      <span class="ck-sub" id="ho_sub">Bedroom</span>
+      <div class="ck-tabs" role="tablist" aria-label="House views">
+        <button class="on" id="hs_c" onclick="homeTab('c')">Live Controls</button>
+        <button id="hs_a" onclick="homeTab('a')">Automations</button>
+        <button id="hs_s" onclick="homeTab('s')">Sensors &amp; Habits</button>
+      </div>
+    </div>
+    <div class="wpill" id="hc_wpill"></div>
+  </div>
   <div id="h_controls">
     <div class="hc-scenes" id="hc_scenes"></div>
     <div class="hc-tip hide" id="hc_tip"></div>
@@ -887,115 +1023,118 @@
         <div class="mute" style="font-size:12px;margin-top:10px">Batteries: <span id="hc_batt"></span></div></div></div>
     </div>
   </div>
-  <div id="h_learned" class="hide">
-  <div class="card"><div class="row"><h2 style="margin:0;flex:1">Notable today</h2><span class="mute" id="h_at"></span> <button class="go" onclick="houseLearn()">Learn now</button></div><table id="h_notable"></table>
-    <p class="mute">Locks, garage doors, things at an unusual hour and readings far outside their usual range. Routine changes are left out (and rank lower in answers).</p></div>
-  <div class="card"><h2>Habits <span class="mute">from the last 4 weeks, checked against chance</span></h2><ul id="h_habits"></ul></div>
-  <div class="card"><h2>Suggested automations <span class="mute">things done by hand at about the same time</span></h2><table id="h_sug"></table>
-    <p class="mute">Create makes it in Home Assistant switched off; turn it on there when you're happy with it.</p></div>
-  <div class="card"><h2>Ask for an automation</h2>
-    <div class="row"><input id="ad_req" placeholder="e.g. turn off the desk outlets at midnight on weeknights" style="flex:1"> <select id="ad_model" aria-label="model"></select> <button class="go" onclick="draftAuto()">Draft</button></div>
-    <pre id="ad_out" class="mute" style="white-space:pre-wrap"></pre>
-    <div class="row hide" id="ad_install"><input id="ad_pin" type="password" placeholder="PIN (only for unlocking or opening)"> <button class="go" onclick="installAuto()">Install switched off</button> <span id="ad_res" class="mute"></span></div>
-    <p class="mute">A model writes it; Home Mind checks every entity, service and trigger against Home Assistant before anything is installed. Unlocking, opening a garage door or disarming needs option automation_pin.</p></div>
-  <div class="card"><h2>Usual ranges</h2><table id="h_base"></table></div>
-  </div>
-</section>
-<section id="pantry" class="hide">
-  <div class="ph"><div><div class="sub" style="color:var(--food-ink)" id="pa_sub">Food in the house</div><h1>Food</h1></div></div>
-  <div class="card food" id="ml_card">
-    <div class="ml-head">
-      <h2 style="margin:0">Meals eaten</h2>
-      <div class="ml-nav">
-        <button onclick="mlShift(-1)" aria-label="Previous day">‹</button>
-        <input id="ml_date" type="date" aria-label="Meal log date" onchange="mlPickDate(this.value)">
-        <button onclick="mlShift(1)" aria-label="Next day">›</button>
-        <button onclick="mlPickDate('')">Today</button>
+  <div id="h_autos" class="hide">
+    <div class="ck-grid">
+      <div class="ck-card"><h2>Ask for an automation</h2>
+        <div class="row"><input id="ad_req" placeholder="e.g. turn off the desk outlets at midnight on weeknights" style="flex:1"> <select id="ad_model" aria-label="model"></select> <button class="go" onclick="draftAuto()">Draft</button></div>
+        <pre id="ad_out" class="mute" style="white-space:pre-wrap"></pre>
+        <div class="row hide" id="ad_install"><input id="ad_pin" type="password" placeholder="PIN (only for unlocking or opening)"> <button class="go" onclick="installAuto()">Install switched off</button> <span id="ad_res" class="mute"></span></div>
+        <p class="mute" style="font-size:12px;margin:4px 0 0">Checked against Home Assistant entities and services before installing switched off.</p></div>
+      <div class="ck-col">
+        <div class="ck-card"><h2>Suggested automations</h2><table id="h_sug"></table>
+          <p class="mute" style="font-size:12px;margin:6px 0 0">Created in Home Assistant switched off.</p></div>
+        <div class="ck-card"><h2>Learned habits (4 weeks)</h2><ul id="h_habits" style="margin:0;padding-left:18px;font-size:13px"></ul></div>
       </div>
     </div>
-    <div id="ml_tot" class="ml-tot"></div>
-    <div class="ml-add">
-      <input id="ml_add_txt" placeholder="Log a meal for this day (e.g. grilled chicken bowl)" aria-label="Meal eaten" onkeydown="if (event.key === 'Enter') mlLog()">
-      <input id="ml_add_time" type="time" aria-label="Meal time">
-      <button class="go" onclick="mlLog()">+ Log</button>
+  </div>
+  <div id="h_sensors" class="hide">
+    <div class="ck-grid2">
+      <div class="ck-card"><div class="row"><h2 style="margin:0;flex:1">Notable today</h2><span class="mute" id="h_at" style="font-size:12px"></span> <button class="go" style="min-height:30px;padding:4px 10px;font-size:12px" onclick="houseLearn()">Learn now</button></div><table id="h_notable"></table></div>
+      <div class="ck-card"><h2>Usual sensor ranges</h2><table id="h_base"></table></div>
     </div>
-    <div id="ml_list"></div>
-    <div id="ml_msg" class="mute" style="font-size:12px;margin-top:4px"></div>
   </div>
-  <div class="card food"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
-      <select id="m_meal" aria-label="meal"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select>
-      <input id="m_req" placeholder="anything else? (quick, no cooking…)" style="width:240px"> <button class="go" onclick="meals()">Suggest</button></div>
-    <div id="m_today" class="mute"></div><div id="m_out"></div></div>
-  <div class="card food" id="mp_card">
-    <div class="row" style="margin-bottom:8px"><h2 style="margin:0;flex:1">Weekly meal plan</h2>
-      <div id="mp_tabs" class="mp-tabs"></div>
-      <button class="soft hide" id="w_clear" onclick="clearWeek()" style="min-height:32px;padding:4px 10px;font-size:12px">Clear</button></div>
-    <div id="w_summary" class="mute" style="font-size:13px;margin-bottom:8px"></div>
-    <div id="mp_opts"></div>
-    <div id="mp_summary" class="mp-chips"></div>
-    <div id="mp_prep"></div>
-    <div id="mp_hdr" class="mp-row mp-hdr"></div>
-    <div id="mp_rows"></div>
-    <div id="mp_footer"></div>
-    <div id="w_shop_wrap" class="hide" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--food-line)">
-      <div class="row"><h3 style="margin:0;flex:1">Shopping list <span class="mute" id="w_shop_sub"></span></h3>
-        <button class="go" id="w_shop_btn" onclick="shopWeek()">Add to shopping list</button></div>
-      <div id="w_shop_out"></div>
-      <div id="w_shop_msg" class="mute"></div>
-    </div></div>
+</section>
+<section id="pantry" class="hide" style="--tint:var(--food);--tint-on:var(--food-on)">
+  <div class="ck-head">
+    <div class="ck-head-l">
+      <h1>Food</h1>
+      <span class="ck-sub" id="pa_sub">Food in the house</span>
+      <div class="ck-tabs" role="tablist" aria-label="Food views">
+        <button id="fd_t_today" class="on" onclick="foodTab('today')">Today</button>
+        <button id="fd_t_plan" onclick="foodTab('plan')">Meal Plan</button>
+        <button id="fd_t_pantry" onclick="foodTab('pantry')">Pantry</button>
+        <button id="fd_t_rules" onclick="foodTab('rules')">Rules</button>
+      </div>
+    </div>
+  </div>
+  <div id="fd_p_today">
+    <div class="ck-grid">
+      <div class="ck-card food" id="ml_card">
+        <div class="ml-head">
+          <h2 style="margin:0">Meals eaten</h2>
+          <div class="ml-nav">
+            <button onclick="mlShift(-1)" aria-label="Previous day">‹</button>
+            <input id="ml_date" type="date" aria-label="Meal log date" onchange="mlPickDate(this.value)">
+            <button onclick="mlShift(1)" aria-label="Next day">›</button>
+            <button onclick="mlPickDate('')">Today</button>
+          </div>
+        </div>
+        <div id="ml_tot" class="ml-tot"></div>
+        <div class="ml-add">
+          <input id="ml_add_txt" placeholder="Log a meal for this day (e.g. grilled chicken bowl)" aria-label="Meal eaten" onkeydown="if (event.key === 'Enter') mlLog()">
+          <input id="ml_add_time" type="time" aria-label="Meal time">
+          <button class="go" onclick="mlLog()">+ Log</button>
+        </div>
+        <div id="ml_list"></div>
+        <div id="ml_msg" class="mute" style="font-size:12px;margin-top:4px"></div>
+      </div>
+      <div class="ck-col">
+        <div class="ck-card food">
+          <div class="row" style="margin-bottom:6px"><h2 style="margin:0;flex:1">What should I eat?</h2>
+            <select id="m_meal" aria-label="meal" style="min-height:32px;padding:4px 7px;font-size:12px"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select></div>
+          <div class="row" style="margin-bottom:6px"><input id="m_req" placeholder="quick, no cooking, high protein…" style="flex:1;min-height:34px;padding:5px 9px;font-size:13px"> <button class="go" style="min-height:34px;padding:5px 12px;font-size:12px" onclick="meals()">Suggest</button></div>
+          <div id="m_today" class="mute" style="font-size:12px"></div><div id="m_out"></div>
+        </div>
+        <div class="ck-card"><div class="hrow"><h2>Expiring soon</h2><a style="font-size:12px" onclick="foodTab('pantry')">Full pantry →</a></div>
+          <div id="p_soon" class="list" style="font-size:12px"></div></div>
+      </div>
+    </div>
+  </div>
+  <div id="fd_p_plan" class="hide">
+    <div class="ck-card food" id="mp_card">
+      <div class="row" style="margin-bottom:8px"><h2 style="margin:0;flex:1">Weekly meal plan</h2>
+        <div id="mp_tabs" class="mp-tabs"></div>
+        <button class="soft hide" id="w_clear" onclick="clearWeek()" style="min-height:30px;padding:4px 10px;font-size:12px">Clear</button></div>
+      <div id="w_summary" class="mute" style="font-size:12px;margin-bottom:8px"></div>
+      <div id="mp_opts"></div>
+      <div id="mp_summary" class="mp-chips"></div>
+      <div id="mp_prep"></div>
+      <div id="mp_hdr" class="mp-row mp-hdr"></div>
+      <div id="mp_rows"></div>
+      <div id="mp_footer"></div>
+      <div id="w_shop_wrap" class="hide" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--food-line)">
+        <div class="row"><h3 style="margin:0;flex:1">Shopping list <span class="mute" id="w_shop_sub"></span></h3>
+          <button class="go" id="w_shop_btn" onclick="shopWeek()">Add to shopping list</button></div>
+        <div id="w_shop_out"></div>
+        <div id="w_shop_msg" class="mute"></div>
+      </div>
+    </div>
+  </div>
   <div id="mp_modal" class="mp-modal-bg hide" onclick="mpCloseModalBg(event)"></div>
-  <div class="card"><div class="row"><h2 style="margin:0;flex:1">In the house</h2>
-      <label class="go" style="background:var(--acc);color:#fff;border-radius:7px;padding:7px 14px;cursor:pointer">📷 Add from photo<input type="file" accept="image/*" capture="environment" id="p_photo" class="hide" onchange="photo(this)"></label></div>
-    <div class="row"><input id="p_text" placeholder="e.g. chicken, 2 lb ground beef and a dozen eggs" style="flex:1">
-      <select id="p_loc" aria-label="where"><option value="">where? (guess)</option><option>fridge</option><option>freezer</option><option>pantry</option></select>
-      <button class="go" onclick="padd()">Add</button> <span id="p_out" class="mute"></span></div>
-    <div class="list" id="p_items"></div></div>
-  <div class="card"><h2>Goals</h2>
-    <div class="row"><textarea id="g_goals" rows="2" style="flex:1" placeholder="one goal per line"></textarea></div>
-    <div class="row"><input id="g_tired" style="flex:1" placeholder="on tired days"></div>
-    <div class="row"><input id="g_avoid" style="flex:1" placeholder="foods to avoid, comma separated"> <button class="go" onclick="saveGoals()">Save</button> <span id="g_out" class="mute"></span></div></div>
-</section>
-<section id="tests" class="hide">
-  <div class="ph"><div><div class="sub">How well the brain finds and keeps things</div><h1>Tests</h1></div><a onclick="go('more')">‹ System</a></div>
-  <div class="card"><h2>Run a test</h2>
-    <div class="row"><select id="t_suite" aria-label="suite"></select>
-      <select id="t_arm" aria-label="arm"><option value="brain">brain (no model)</option><option value="model+brain">model + brain</option><option value="model+context">model + whole log</option><option value="model">model alone</option></select>
-      <select id="t_model" aria-label="model"><option value="">(model)</option></select>
-      <select id="t_ingest" aria-label="ingest"><option value="raw">store as given</option><option value="model">model files each item</option><option value="extract">model extracts from conversations</option></select>
-      <label class="mute"><input type="checkbox" id="t_keyed"> keyed facts</label> <label class="mute"><input type="checkbox" id="t_expand"> model suggests search words</label>
-      <input id="t_seed" placeholder="seed" style="width:80px"> <input id="t_n" placeholder="size" style="width:70px">
-      <button class="go" onclick="runTest()">Run</button></div>
-    <div class="mute" id="t_info"></div></div>
-  <div class="card"><h2>Model comparison <span class="mute">the same questions for every model, every few days (option compare_days)</span></h2><table id="cmp"></table>
-    <div class="row"><button class="go" onclick="cmpRun()">Compare now</button> <span id="cmp_out" class="mute"></span></div></div>
-  <div class="card"><h2>Runs</h2><table id="runs"></table></div>
-  <div class="card hide" id="runcard"><h2>Run <span id="runid"></span></h2><pre id="run"></pre></div>
-</section>
-<section id="models" class="hide">
-  <div class="ph"><div><div class="sub">Connected models and what they cost</div><h1>Models</h1></div><a onclick="go('more')">‹ System</a></div>
-  <div class="card"><div class="row"><h2 style="margin:0">Connected models</h2> <button class="go" onclick="checkModels()">Check all</button></div><table id="mlist"></table>
-  <p class="mute">Add or change models in Settings › Apps › Home Mind › Configuration.</p></div>
-  <div class="card" id="tr_card">
-    <div class="hrow"><h2>Train small models</h2><span class="mute" id="tr_worker" style="font-size:13px"></span></div>
-    <p class="mute" style="margin-top:0">One-click training for Home Control, Persona Voice, and MemGraph Brain. Runs automatically on your GPU/Ollama PC when <code>trainer_url</code> is set, or downloads the dataset and opens Google Colab in one click.</p>
-    <div id="tr_list" class="list"></div>
-    <div class="mute" id="tr_msg" style="font-size:13px;margin-top:6px"></div>
-    <details style="margin-top:8px"><summary class="mute">Set up 1-click local GPU training (optional)</summary>
-      <div class="mute" style="font-size:12px;margin-top:6px">On your Ollama/GPU PC run <code>python tools/trainer_worker.py --port 8090</code>, then set <code>trainer_url: http://YOUR_GPU_PC_IP:8090</code> in Settings › Apps › Home Mind › Configuration.</div>
-    </details>
+  <div id="fd_p_pantry" class="hide">
+    <div class="ck-card">
+      <div class="row" style="margin-bottom:8px"><h2 style="margin:0;flex:1">In the house</h2>
+        <label class="go" style="background:var(--acc);color:#fff;border-radius:8px;padding:5px 11px;min-height:32px;font-size:12px;cursor:pointer">📷 Add from photo<input type="file" accept="image/*" capture="environment" id="p_photo" class="hide" onchange="photo(this)"></label></div>
+      <div class="row" style="margin-bottom:8px"><input id="p_text" placeholder="e.g. chicken, 2 lb ground beef and a dozen eggs" style="flex:1;min-height:34px;padding:5px 9px">
+        <select id="p_loc" aria-label="where" style="min-height:34px;padding:4px 8px"><option value="">where? (guess)</option><option>fridge</option><option>freezer</option><option>pantry</option></select>
+        <button class="go" style="min-height:34px;padding:5px 12px;font-size:12px" onclick="padd()">Add</button> <span id="p_out" class="mute" style="font-size:12px"></span></div>
+      <div class="ck-pills" id="p_filts">
+        <button id="pf_all" class="on" onclick="pFilter('all')">All</button>
+        <button id="pf_soon" onclick="pFilter('soon')">Expiring soon</button>
+        <button id="pf_fridge" onclick="pFilter('fridge')">Fridge</button>
+        <button id="pf_freezer" onclick="pFilter('freezer')">Freezer</button>
+        <button id="pf_pantry" onclick="pFilter('pantry')">Pantry</button>
+      </div>
+      <div class="ck-pgrid" id="p_items"></div>
+    </div>
   </div>
-  <div class="card"><h2>Use, last 30 days</h2><table id="usage"></table>
-  <p class="mute">Tokens come from the model's own count; Home Assistant's AI Task and conversation models don't report them. Cost shows for models given price_in and price_out (dollars per million tokens) on the Configuration tab.</p></div>
-  <div class="card"><h2>Ask</h2><div class="row"><select id="a_model" aria-label="model"></select> <label class="mute"><input type="checkbox" id="a_brain" checked> use brain</label></div>
-    <div class="row"><input id="a_q" placeholder="Question" style="flex:1"> <button class="go" onclick="ask()">Ask</button></div><pre id="a_out" class="hide"></pre></div>
-  <div class="card"><h2>Access tokens <span class="mute">one per client, each revocable</span></h2><table id="toks"></table>
-    <div class="row"><input id="tk_name" placeholder="who uses it (e.g. Jeeves, phone shortcut)"> <select id="tk_scope" aria-label="scope"><option>read</option><option>write</option><option>admin</option></select> <input id="tk_person" placeholder="answer as (optional person)" style="width:12em"> <button class="go" onclick="makeToken()">Make token</button></div>
-    <pre id="tk_new" class="mute" style="white-space:pre-wrap"></pre>
-    <p class="mute">read: ask and search. write: also remember, change and forget. admin: everything, as the main token. A token tied to a person is answered as that person (their personal notes). The token is shown once.</p></div>
-</section>
-<section id="updates" class="hide">
-  <div class="ph"><div><div class="sub">App and knowledge packs</div><h1>Updates</h1></div><a onclick="go('more')">‹ System</a></div>
-  <div class="card"><div class="row"><button class="go" onclick="checkUpd()">Check for updates</button> <button class="go" onclick="applyUpd()">Install packs</button></div><pre id="upd">…</pre></div>
+  <div id="fd_p_rules" class="hide">
+    <div class="ck-card"><h2>Food preferences &amp; rules</h2>
+      <div class="row"><textarea id="g_goals" rows="3" style="flex:1" placeholder="one food goal per line"></textarea></div>
+      <div class="row"><input id="g_tired" style="flex:1" placeholder="on tired days (e.g. lower-carb, easy reheat)"></div>
+      <div class="row" style="margin-bottom:0"><input id="g_avoid" style="flex:1" placeholder="foods to avoid, comma separated"> <button class="go" onclick="saveGoals()">Save</button> <span id="g_out" class="mute"></span></div>
+    </div>
+  </div>
 </section>
 </main>
 </div>
@@ -1014,11 +1153,48 @@ async function jfetch(path, opts) {
 }
 const ago = t => { const s = Date.now()/1000 - t; return s < 90 ? Math.round(s)+'s ago' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
 const pct = v => v === undefined ? '' : Math.round(v*100)+'%';
-const PARENT = {worked: 'memory', graph: 'memory', tests: 'more', models: 'more', updates: 'more'};
+const SUB_TAB = {worked: ['memory', () => brainTab('worked')], graph: ['memory', () => brainTab('graph')],
+  tests: ['more', () => sysTab('tests')], models: ['more', () => sysTab('models')], updates: ['more', () => sysTab('access')]};
 function go(t) {
-  const btn = document.querySelector(`#nav button[data-t="${t}"]`), shown = btn && getComputedStyle(btn).display !== 'none', mark = shown ? t : (PARENT[t] || t);
-  document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x.dataset.t === mark));
-  document.querySelectorAll('main section').forEach(s => s.classList.toggle('hide', s.id !== t)); window.scrollTo(0, 0); load(t);
+  const sub = SUB_TAB[t], sec = sub ? sub[0] : t;
+  document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x.dataset.t === sec));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('hide', s.id !== sec));
+  window.scrollTo(0, 0);
+  if (sub) sub[1](); else load(sec);
+}
+let HL_TAB = 'pat', FD_TAB = 'today', BR_TAB = 'notes', SY_TAB = 'over';
+function hlTab(t) {
+  HL_TAB = t;
+  ['pat', 'logs', 'pb'].forEach(k => { $('#hl_t_' + k).classList.toggle('on', k === t); $('#hl_p_' + k).classList.toggle('hide', k !== t); });
+  if (t === 'logs') loadLogs();
+  if (t === 'pb') loadPhrasebook();
+}
+function foodTab(t) {
+  FD_TAB = t;
+  ['today', 'plan', 'pantry', 'rules'].forEach(k => { $('#fd_t_' + k).classList.toggle('on', k === t); $('#fd_p_' + k).classList.toggle('hide', k !== t); });
+  if (t === 'today') mlLoad();
+}
+function brainTab(t) {
+  BR_TAB = t;
+  ['notes', 'graph', 'worked', 'data'].forEach(k => { $('#br_t_' + k).classList.toggle('on', k === t); $('#br_p_' + k).classList.toggle('hide', k !== t); });
+  if (t === 'notes') { browse(''); recent(); review(); inbox(); }
+  if (t === 'graph') graphLoad();
+  if (t === 'worked') worked();
+  if (t === 'data') { docsList(); viewsList(); }
+}
+function brToggleRem() { $('#br_rem_drawer').classList.toggle('hide'); }
+function brWorkFilt(k) {
+  ['all', 'prof', 'chore', 'check'].forEach(x => $('#bw_' + x).classList.toggle('on', x === k));
+  const map = {prof: ['bw_c_prof', 'bw_c_place', 'bw_c_typed'], chore: ['bw_c_chore', 'bw_c_rep'], check: ['bw_c_dup', 'bw_c_conf', 'bw_c_case']};
+  Object.values(map).flat().forEach(id => $('#' + id).classList.toggle('hide', k !== 'all' && !map[k].includes(id)));
+}
+function sysTab(t) {
+  SY_TAB = t;
+  ['over', 'models', 'tests', 'access'].forEach(k => { $('#sy_t_' + k).classList.toggle('on', k === t); $('#sy_p_' + k).classList.toggle('hide', k !== t); });
+  if (t === 'over') loadMore();
+  if (t === 'models') load('models');
+  if (t === 'tests') load('tests');
+  if (t === 'access') { tokens(); checkUpd(); }
 }
 document.querySelectorAll('#nav button').forEach(b => b.onclick = () => go(b.dataset.t));
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1325,6 +1501,7 @@ function fitRenderSide() {
     <div style="padding-top:7px;border-top:1px solid var(--line)">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="mute">Pantry boosters</span><b style="color:var(--ok)">${left ? left + 'g left' : 'Target met ✓'}</b></div>
       ${ideas.length ? ideas.map(x => `<div class="ft-boost"><span>${esc(x)}</span></div>`).join('') : '<div class="mute">Log meals in Home or Food to track daily fuel.</div>'}
+      <div style="margin-top:6px;text-align:right"><a onclick="go('pantry')">View / edit meals ›</a></div>
     </div>`;
   const vol = FIT.volume || [], wk = FIT.week_days || [];
   $('#ft_sp_vol').innerHTML = vol.map(v => {
@@ -2066,11 +2243,20 @@ async function load(t) {
   if (t === 'today') hubLoad();
   if (t === 'health') loadHealth();
   if (t === 'fitness') fitLoad();
-  if (t === 'more') await loadMore();
-  if (t === 'memory') { browse(''); recent(); review(); inbox(); docsList(); viewsList(); }
+  if (t === 'more') {
+    await loadMore();
+    if (SY_TAB === 'models') load('models');
+    if (SY_TAB === 'tests') load('tests');
+    if (SY_TAB === 'access') { tokens(); checkUpd(); }
+  }
+  if (t === 'memory') {
+    browse(''); recent(); review(); inbox(); docsList(); viewsList();
+    if (BR_TAB === 'graph') graphLoad();
+    if (BR_TAB === 'worked') worked();
+  }
   if (t === 'worked') { worked(); }
   if (t === 'graph') { graphLoad(); }
-  if (t === 'house') { homeLoad(); if (HTAB === 'l') houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
+  if (t === 'house') { homeLoad(); if (HTAB !== 'c') houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
   if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${esc(k)}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
@@ -2094,11 +2280,11 @@ function startSteps(s) {
   const out = [], models = (s.models || []).filter(m => m !== 'mock');   // mock is always there: it only copies notes
   if (s.database && s.database.restored) out.push(`Database: ${esc(s.database.restored.message)}`);
   if (s.time && s.time.problem) out.push(`Time zone: ${esc(s.time.problem)}. Set it under Settings › System › General, then restart Home Mind.`);
-  if (!models.length) out.push('No models are set up, so answers are the best matching note. Add one under Settings › Apps › Home Mind › Configuration › Models (see the Documentation tab), then check it on the <a onclick="document.querySelector(\'nav button[data-t=models]\').click()">Models</a> tab.');
+  if (!models.length) out.push('No models are set up, so answers are the best matching note. Add one under Settings › Apps › Home Mind › Configuration › Models (see the Documentation tab), then check it on the <a onclick="go(\'models\')">Models</a> tab.');
   if (s.in_home_assistant === false) out.push('Not running inside Home Assistant: house watching, phone notifications and Home Assistant models (ha_ai_task, ha_conversation) are off.');
   else if (typeof s.bridge === 'string' && s.bridge.startsWith('error')) out.push('The Home Mind Bridge integration could not be installed (' + esc(s.bridge) + '). Check that the app can write to /config.');
   else if (s.bridge === 'installed' || s.bridge === 'updated') out.push('The Home Mind Bridge integration was ' + esc(s.bridge) + ': restart Home Assistant, then add it under Settings › Devices & services › Add integration › Home Mind Bridge.');
-  if (!s.items) out.push('Memory is empty. Tell it something under <a onclick="document.querySelector(\'nav button[data-t=memory]\').click()">Memory</a> › Remember something, or say "remember the wifi password is on the fridge" to your assistant.');
+  if (!s.items) out.push('Memory is empty. Tell it something under <a onclick="go(\'memory\')">Brain</a> › + Remember, or say "remember the wifi password is on the fridge" to your assistant.');
   if (out.length && models.length) out.push('Not sure a model works? Models tab › Check all shows each one\'s error.');
   return out;
 }
@@ -2655,17 +2841,34 @@ async function hbMealDel(id) {
   if (HB_MEAL_EDIT === +id) HB_MEAL_EDIT = null;
   hubLoad();
 }
+let P_ITEMS = [], P_FILT = 'all';
+function pFilter(f) {
+  P_FILT = f || 'all';
+  ['all', 'soon', 'fridge', 'freezer', 'pantry'].forEach(k => { const el = $('#pf_' + k); if (el) el.classList.toggle('on', k === P_FILT); });
+  pRenderItems();
+}
+function pRenderItems() {
+  const list = P_ITEMS.filter(i => P_FILT === 'all' ? true : P_FILT === 'soon' ? (i.days_left != null && i.days_left <= 3) : (i.location === P_FILT));
+  $('#p_items').innerHTML = list.map(i => {
+    const d = i.days_left, cls = d === null ? '' : d < 0 ? 'gone' : d <= 2 ? 'hot' : '';
+    const when = d === null ? '–' : d < 0 ? 'past date' : d < 1 ? 'today' : Math.round(d) + 'd';
+    return `<div class="li"><span class="days-b ${cls}">${when}</span><div class="main"><div class="t">${esc(i.name)}</div><div class="sub">${esc(i.amount || '')}${i.amount ? ' · ' : ''}${esc(i.location)}</div></div>
+      <div class="acts"><a onclick="puse(${jsq(i.name)},'used')">used</a><a onclick="puse(${jsq(i.name)},'tossed')">tossed</a><a class="mute" onclick="premove(${i.id})">remove</a></div></div>`;
+  }).join('') || '<span class="mute">nothing here yet: add from a photo or type what you bought</span>';
+  const soon = P_ITEMS.filter(i => i.days_left != null && i.days_left <= 3).slice(0, 5);
+  $('#p_soon').innerHTML = soon.length ? soon.map(i => {
+    const d = i.days_left, when = d < 0 ? 'past' : d < 1 ? 'today' : Math.round(d) + 'd';
+    return `<div class="kv"><span>${esc(i.name)} <span class="mute">(${esc(i.location)})</span></span><b style="color:${d <= 1 ? 'var(--food-ink)' : 'var(--mute)'}">${when}</b></div>`;
+  }).join('') : '<span class="mute">Nothing expiring in the next 3 days.</span>';
+}
 async function pantry() {
   mlLoad();
   const r = await api('api/pantry');
-  const where = {}; r.items.forEach(i => where[i.location] = (where[i.location] || 0) + 1);
-  $('#pa_sub').textContent = `${r.items.length} things · ` + Object.entries(where).map(([k, v]) => `${v} ${k}`).join(' · ');
-  $('#p_items').innerHTML = r.items.map(i => {
-    const d = i.days_left, cls = d === null ? '' : d < 0 ? 'gone' : d <= 2 ? 'hot' : '';
-    const when = d === null ? '–' : d < 0 ? 'past date' : d < 1 ? 'today' : Math.round(d) + 'd';
-        return `<div class="li"><span class="days-b ${cls}">${when}</span><div class="main"><div class="t">${esc(i.name)}</div><div class="sub">${esc(i.amount || '')}${i.amount ? ' · ' : ''}${esc(i.location)}</div></div>
-      <div class="acts"><a onclick="puse(${jsq(i.name)},'used')">used</a><a onclick="puse(${jsq(i.name)},'tossed')">tossed</a><a class="mute" onclick="premove(${i.id})">remove</a></div></div>`; }).join('') || '<span class="mute">nothing yet: add from a photo or type what you bought</span>';
-  const g = r.goals; $('#g_goals').value = (g.goals || []).join('\n'); $('#g_tired').value = g.tired_days || ''; $('#g_avoid').value = (g.avoid || []).join(', ');
+  P_ITEMS = r.items || [];
+  const where = {}; P_ITEMS.forEach(i => where[i.location] = (where[i.location] || 0) + 1);
+  $('#pa_sub').textContent = `${P_ITEMS.length} things · ` + Object.entries(where).map(([k, v]) => `${v} ${k}`).join(' · ');
+  pRenderItems();
+  const g = r.goals || {}; $('#g_goals').value = (g.goals || []).join('\n'); $('#g_tired').value = g.tired_days || ''; $('#g_avoid').value = (g.avoid || []).join(', ');
   mpLoad(r.week_plan, r.week_calendar);
 }
 let _weekShop = [];
@@ -3287,7 +3490,14 @@ const wColor = k => ({ moon: 'var(--acc-ink)', sun: 'var(--food-ink)' }[k] || 'v
 const hclock = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const DEVCOL = { climate: '#fbbf24', fan: '#2dd4bf', humidifier: '#2dd4bf', cover: '#93b8ff', printer: '#93b8ff' };
 const dev = id => (H.devices || []).find(d => d.id === id);
-function homeTab(t) { HTAB = t; $('#hs_c').classList.toggle('on', t === 'c'); $('#hs_l').classList.toggle('on', t === 'l'); $('#h_controls').classList.toggle('hide', t !== 'c'); $('#h_learned').classList.toggle('hide', t !== 'l'); if (t === 'l') houseTab(); }
+function homeTab(t) {
+  HTAB = t === 'l' ? 'a' : (t || 'c');
+  [['c', 'h_controls'], ['a', 'h_autos'], ['s', 'h_sensors']].forEach(([k, p]) => {
+    $('#hs_' + k).classList.toggle('on', HTAB === k);
+    $('#' + p).classList.toggle('hide', HTAB !== k);
+  });
+  if (HTAB !== 'c') houseTab();
+}
 async function homeLoad() {
   if (HBUSY > 0) return;
   H = await api('api/controls'); homeRender();
