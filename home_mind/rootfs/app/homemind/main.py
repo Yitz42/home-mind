@@ -398,6 +398,7 @@ class App:
         self.convlog.who = self.who_by_device
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
         self.pantry.memgraph = self.memgraph
+        self.pantry.calendars = self.calendars
         self.mind.pantry = self.pantry
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
@@ -3583,7 +3584,7 @@ def build(app_state):
     @r.get("/api/pantry")
     async def pantry_list(q):
         return J({"items": A.pantry.items(q.query.get("status", "in")), "goals": A.pantry.goals(),
-                  "week_plan": A.pantry.week_plan()})
+                  "week_plan": A.pantry.week_plan(), "week_calendar": A.pantry.week_calendar()})
 
     @r.post("/api/pantry/{op}")
     async def pantry_op(q):
@@ -3607,7 +3608,7 @@ def build(app_state):
             data = await part.read(decode=False)
             return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
         b = model_ok(await read_body(q, optional=True, text=str, name=str, location=str, source=str, meal=str,
-                                     request=str, items=list, slot=str))
+                                     request=str, items=list, slot=str, style=str, kind=str, action=str, grid=dict))
         if not isinstance(b.get("amount", ""), (str, int, float)) or not isinstance(b.get("use_by", ""), (str, int, float)):
             raise ValueError("amount and use_by should be text (or a number)")
         try:
@@ -3652,7 +3653,17 @@ def build(app_state):
                 if isinstance(meals_arg, list) and not all(isinstance(x, str) for x in meals_arg):
                     raise ValueError("meals items should be text")
                 return J(await A.pantry.plan_week(days=d_val, meals=meals_arg, request=b.get("request") or "",
-                                                  model=b.get("model"), viewer=VIEWER.get()))
+                                                  model=b.get("model"), viewer=VIEWER.get(),
+                                                  style=b.get("style"), grid=b.get("grid")))
+            if op == "layout":
+                rec = A.pantry.save_week_layout(kind=b.get("kind") or "usual", style=b.get("style") or "twice",
+                                                grid=b.get("grid"))
+                return J({"layout": rec, "layouts": A.pantry.week_layouts()})
+            if op == "plan_cell":
+                if b.get("day_index") is None:
+                    raise ValueError("missing day_index")
+                d_idx = whole(b["day_index"], "day_index")
+                return J(A.pantry.set_plan_cell(d_idx, slot=b.get("slot") or "", action=b.get("action") or "skip"))
             if op == "swap":
                 if b.get("day_index") is None:
                     raise ValueError("missing day_index")
