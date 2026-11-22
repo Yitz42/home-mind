@@ -92,7 +92,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
-            "paperless_url": "", "paperless_token": "", "rerank_model": "", "librarian_model": "", "archivist_model": "", "control_model": "", "rule_planner": True,
+            "paperless_url": "", "paperless_token": "", "rerank_model": "", "librarian_model": "", "archivist_model": "", "control_model": "", "trainer_url": "", "trainer_token": "", "rule_planner": True,
             "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
             "compare_suites": ["recall", "tricky", "hard"], "use_preferences": True, "label_url": "",
             "telegram_token": "", "telegram_chats": [], "web_search": "off", "web_search_url": "", "web_search_key": "",
@@ -415,6 +415,8 @@ class App:
         self.fitness.memgraph = self.memgraph
         self.overnight.patterns = self.patterns
         self.overnight.memgraph_owner = mg_owner
+        from .trainer import Trainer
+        self.trainer = Trainer(self, self.opts)
         try:
             synced = self.memgraph.sync_patterns(self.patterns, days=60, owner=mg_owner)
             if synced.get("ingested"):
@@ -3815,6 +3817,66 @@ def build(app_state):
                 rows = rows + await localctl.paraphrase(A.models.get("haiku" if "haiku" in names else names[0]), rows)
         return web.Response(text=localctl.jsonl(rows), content_type="application/jsonl",
                             headers={"Content-Disposition": f'attachment; filename="home_mind_control_{part}.jsonl"'})
+
+    @r.get("/api/trainer/status")
+    async def trainer_status(_):
+        """Turnkey small-LLM training status: local GPU worker health, all 3 model targets, Colab links & active jobs."""
+        return J(await A.trainer.status())
+
+    @r.get("/api/trainer/dataset/{target}")
+    async def trainer_dataset(q):
+        """Download a single ready-to-train dataset bundle for target (control | persona | memgraph)."""
+        from .trainer import TARGETS
+        target = q.match_info["target"]
+        if target not in TARGETS:
+            return J({"error": "target must be control, persona, or memgraph"}, status=400)
+        paraphrase = q.query.get("paraphrase") == "1"
+        n = int(num(q.query.get("n"), "n", 600, 12, 5000))
+        max_ex = int(num(q.query.get("max_examples"), "max_examples", 500, 20, 5000))
+        try:
+            bundle = await A.trainer.build_dataset(target, paraphrase=paraphrase, n=n, max_examples=max_ex)
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+        if target == "memgraph" and q.query.get("format") == "jsonl":
+            text = "\n".join(json.dumps(rec, ensure_ascii=False) for rec in bundle.get("records") or []) + "\n"
+            hdrs = {"Content-Disposition": 'attachment; filename="memgraph_train.jsonl"'} if q.query.get("download") else {}
+            return web.Response(text=text, content_type="application/jsonl", headers=hdrs)
+        resp = J(bundle)
+        if q.query.get("download"):
+            resp.headers["Content-Disposition"] = f'attachment; filename="{TARGETS[target]["filename"]}"'
+        return resp
+
+    @r.post("/api/trainer/start")
+    async def trainer_start(q):
+        """One-click start: build the dataset and submit a training job to the configured GPU trainer worker."""
+        b = await read_body(q, target=str, base_model=str, ollama_name=str)
+        target = b.get("target")
+        if not target:
+            raise ValueError("missing target")
+        epochs = whole(b["epochs"], "epochs") if b.get("epochs") is not None else None
+        paraphrase = bool(b.get("paraphrase")) if isinstance(b.get("paraphrase"), (bool, int)) else False
+        if b.get("paraphrase") is not None and not isinstance(b.get("paraphrase"), bool):
+            raise ValueError("paraphrase must be true or false")
+        try:
+            return J(await A.trainer.start(target, base_model=b.get("base_model"), epochs=epochs,
+                                           paraphrase=paraphrase, ollama_name=b.get("ollama_name")))
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+        except RuntimeError as e:
+            return J({"error": str(e)}, status=502)
+
+    @r.post("/api/trainer/cancel")
+    async def trainer_cancel(q):
+        """Cancel a running training job on the GPU trainer worker."""
+        b = await read_body(q, job_id=str)
+        if not b.get("job_id"):
+            raise ValueError("missing job_id")
+        try:
+            return J(await A.trainer.cancel(b["job_id"]))
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+        except RuntimeError as e:
+            return J({"error": str(e)}, status=502)
 
     @r.get("/api/preferences")
     async def preferences(_):

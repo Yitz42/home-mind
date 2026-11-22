@@ -97,6 +97,8 @@ options:
   librarian_model: ""
   archivist_model: ""
   control_model: ""
+  trainer_url: ""
+  trainer_token: ""
   rule_planner: true
   approval_phone: ""
   shadow_rate: 0.1
@@ -237,6 +239,8 @@ schema:
   librarian_model: str?
   archivist_model: str?
   control_model: str?
+  trainer_url: str?
+  trainer_token: password?
   rule_planner: bool?
   approval_phone: str?
   shadow_rate: float(0,1)?
