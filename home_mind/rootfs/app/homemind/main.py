@@ -3677,6 +3677,10 @@ def build(app_state):
         return J({"items": A.pantry.items(q.query.get("status", "in")), "goals": A.pantry.goals(),
                   "week_plan": A.pantry.week_plan(), "week_calendar": A.pantry.week_calendar()})
 
+    @r.get("/api/pantry/meals")
+    async def pantry_meals(q):
+        return J(A.pantry.meals_on(q.query.get("day") or None))
+
     @r.post("/api/pantry/{op}")
     async def pantry_op(q):
         op = q.match_info["op"]
@@ -3700,7 +3704,7 @@ def build(app_state):
             return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
         b = model_ok(await read_body(q, optional=True, text=str, name=str, location=str, source=str, meal=str,
                                      request=str, items=list, slot=str, style=str, kind=str, action=str, grid=dict,
-                                     prep_day=str, prep_time=str, include=str, entity=str))
+                                     day=str, reestimate=bool, prep_day=str, prep_time=str, include=str, entity=str))
         if not isinstance(b.get("amount", ""), (str, int, float)) or not isinstance(b.get("use_by", ""), (str, int, float)):
             raise ValueError("amount and use_by should be text (or a number)")
         try:
@@ -3712,12 +3716,34 @@ def build(app_state):
                                       source=b.get("source", "api")))
             if op == "ate":
                 text = b.get("text") or b.get("name") or ""
-                out = A.pantry.ate(text, when=meal_time(b.get("when") if isinstance(b.get("when"), str) else None),
-                                   source=b.get("source", "api"))
+                when_arg = b.get("when") if isinstance(b.get("when"), str) else None
+                day_arg = b.get("day") or None
+                ts = None
+                if day_arg:
+                    ts = A.pantry.meal_day_time(day_arg, when_arg)
+                elif when_arg:
+                    ts = meal_time(when_arg)
+                out = A.pantry.ate(text, when=ts, source=b.get("source", "api"))
                 if out.get("id"):
                     mid = out["id"]
                     A._spawn(f"estimate:{mid}", lambda: A.pantry.estimate(mid, text))   # tracked, cancelled at stop
                 return J(out)
+            if op == "meal_edit":
+                mid = whole(b.get("id"), "id")
+                macro_kw = {k: b[k] for k in ("calories", "protein_g", "carbs_g", "fat_g", "fiber_g", "sugar_g")
+                            if k in b}
+                when_arg = b.get("when") if isinstance(b.get("when"), str) else None
+                if "when" in b and b["when"] is not None and not isinstance(b["when"], str):
+                    raise ValueError("when should be text like '12:30' or '8am'")
+                updated = A.pantry.edit_meal(mid, text=b.get("text") if "text" in b else None,
+                                             when=when_arg, **macro_kw)
+                if b.get("reestimate"):
+                    est = await A.pantry.estimate(mid, updated.get("text"), force=True)
+                    if est:
+                        updated = A.pantry.get_meal(mid) or updated
+                return J({"meal": updated})
+            if op == "meal_delete":
+                return J(A.pantry.delete_meal(whole(b.get("id"), "id")))
             if op == "estimate":     # meals logged today without a protein estimate (or the given ids)
                 from . import today
                 ids = b.get("ids")

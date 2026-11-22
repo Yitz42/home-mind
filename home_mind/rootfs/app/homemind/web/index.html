@@ -357,6 +357,32 @@
   .mg-insp { border:1px solid var(--mem-line); background:var(--card2); border-radius:14px; padding:12px 14px; margin-top:12px }
   .mg-badge { display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; border:1px solid var(--line); margin-left:4px }
   .mg-eps { margin-top:8px; padding-top:8px; border-top:1px solid var(--line); font-size:12px; color:var(--mute); display:flex; flex-direction:column; gap:4px }
+  /* Daily meals log & inline editor */
+  .ml-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px }
+  .ml-nav { display:inline-flex; align-items:center; gap:4px }
+  .ml-nav button { min-height:30px; padding:3px 9px; font-size:12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer }
+  .ml-nav input[type=date] { min-height:30px; padding:3px 7px; font-size:12px; border-radius:8px }
+  .ml-tot { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; font-size:12px }
+  .ml-chip { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:8px; background:var(--card); border:1px solid var(--line); font-variant-numeric:tabular-nums }
+  .ml-add { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px }
+  .ml-add input[type=text], .ml-add input:not([type]) { flex:1 1 200px; min-height:34px; padding:5px 9px; font-size:13px }
+  .ml-add input[type=time] { width:108px; min-height:34px; padding:5px 7px; font-size:12px }
+  .ml-add button { min-height:34px; padding:5px 12px; font-size:12px }
+  .ml-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:7px 9px; border-radius:10px; background:var(--card); border:1px solid var(--line); margin-bottom:5px; font-size:13px }
+  .ml-row .tm { font-size:11px; color:var(--mute); min-width:58px; font-variant-numeric:tabular-nums }
+  .ml-row .tx { flex:1 1 160px; min-width:0; overflow-wrap:anywhere }
+  .ml-row .mac { font-size:11px; color:var(--mute); font-variant-numeric:tabular-nums; white-space:nowrap }
+  .ml-row .acts { display:flex; gap:8px; font-size:12px; white-space:nowrap }
+  .ml-edit { width:100%; display:flex; flex-direction:column; gap:6px; padding-top:4px }
+  .ml-edit-top { display:flex; flex-wrap:wrap; gap:6px }
+  .ml-edit-top input:first-child { flex:1 1 180px; min-height:32px; padding:4px 8px; font-size:13px }
+  .ml-edit-top input[type=time] { width:108px; min-height:32px; padding:4px 6px; font-size:12px }
+  .ml-macs { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:5px }
+  .ml-macs label { display:flex; flex-direction:column; gap:2px; font-size:10px; color:var(--mute) }
+  .ml-macs input { width:100%; min-height:28px; padding:3px 5px; font-size:12px; text-align:right; border-radius:6px }
+  .ml-eacts { display:flex; flex-wrap:wrap; gap:6px; align-items:center }
+  .ml-eacts button { min-height:30px; padding:4px 10px; font-size:12px }
+  @media (max-width: 640px) { .ml-macs { grid-template-columns:repeat(3,minmax(0,1fr)) } }
   /* Fitness compact 3-tab cockpit */
   .ft-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px }
   .ft-head-l { display:flex; flex-wrap:wrap; align-items:center; gap:8px }
@@ -877,6 +903,25 @@
 </section>
 <section id="pantry" class="hide">
   <div class="ph"><div><div class="sub" style="color:var(--food-ink)" id="pa_sub">Food in the house</div><h1>Food</h1></div></div>
+  <div class="card food" id="ml_card">
+    <div class="ml-head">
+      <h2 style="margin:0">Meals eaten</h2>
+      <div class="ml-nav">
+        <button onclick="mlShift(-1)" aria-label="Previous day">‹</button>
+        <input id="ml_date" type="date" aria-label="Meal log date" onchange="mlPickDate(this.value)">
+        <button onclick="mlShift(1)" aria-label="Next day">›</button>
+        <button onclick="mlPickDate('')">Today</button>
+      </div>
+    </div>
+    <div id="ml_tot" class="ml-tot"></div>
+    <div class="ml-add">
+      <input id="ml_add_txt" placeholder="Log a meal for this day (e.g. grilled chicken bowl)" aria-label="Meal eaten" onkeydown="if (event.key === 'Enter') mlLog()">
+      <input id="ml_add_time" type="time" aria-label="Meal time">
+      <button class="go" onclick="mlLog()">+ Log</button>
+    </div>
+    <div id="ml_list"></div>
+    <div id="ml_msg" class="mute" style="font-size:12px;margin-top:4px"></div>
+  </div>
   <div class="card food"><div class="row"><h2 style="margin:0;flex:1">What should I eat?</h2>
       <select id="m_meal" aria-label="meal"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select>
       <input id="m_req" placeholder="anything else? (quick, no cooking…)" style="width:240px"> <button class="go" onclick="meals()">Suggest</button></div>
@@ -1936,6 +1981,7 @@ function hbTile(k) {
     food: {cls: 'th-food', ink: 'var(--food-ink)', title: {morning: 'Breakfast', evening: 'Dinner'}[hbTod()] || 'Food', meta: HUB.logs.meals + (HUB.logs.meals === 1 ? ' meal' : ' meals'),
       small: () => `<div class="mid" style="gap:8px">${hbFoodBars(F) || `<span class="big">${esc(F.protein_g)} g</span><span class="t2">protein today</span>`}${F.soon[0] ? `<span class="t2" style="color:var(--food-ink);font-weight:600">${esc(F.soon[0].name)}: ${F.soon[0].days < 1 ? 'use today' : Math.round(F.soon[0].days) + ' d'}</span>` : ''}</div>`,
       big: () => `${hbFoodBars(F, true)}${F.totals && F.meals.length && F.totals.full < F.meals.length ? `<span class="hb-fnote">${F.meals.length - F.totals.full} of ${F.meals.length} meals have protein and calories only.</span>` : ''}<div class="hb-cta"><button class="p" style="background:var(--food);color:var(--food-on)" onclick="hbSend('What should I eat now?')">What should I eat?</button><button onclick="hbMode('meal')">Log a meal</button></div>
+        ${hbTodayMeals(F)}
         ${F.soon.length ? `<b style="font-size:13px">Eat first</b>${F.soon.map(s => `<div class="hb-li"><span class="m">${esc(s.name)}</span><b style="color:${s.days < 1 ? 'var(--food-ink)' : 'var(--mute)'}">${s.days < 1 ? 'today' : Math.round(s.days) + ' d'}</b></div>`).join('')}` : ''}
         <b style="font-size:13px">Shopping list</b>${shop.map(s => hbCheck(s.title, '', 'todo.shopping_list', s.uid)).join('') || '<span class="mute">Empty.</span>'}${hbAdd('Add an item', 'todo.shopping_list')}`},
     cal: {cls: '', ink: 'var(--mute)', title: 'Calendar', meta: '',
@@ -2465,7 +2511,152 @@ async function thingNote() {
   await api('api/remember', {text}); thingPage(name);
 }
 function labelPrompt() { const n = prompt('Label for which thing, place or shelf?'); if (n) window.open(labelUrl(n), '_blank'); }
+let ML_DAY = '', ML_DATA = null, ML_EDIT = null, HB_MEAL_EDIT = null;
+const mlTodayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const mlFmtMac = m => [
+  m.calories != null ? `${Math.round(+m.calories)} kcal` : '',
+  m.protein_g != null ? `${Math.round(+m.protein_g)}g P` : '',
+  m.carbs_g != null ? `${Math.round(+m.carbs_g)}g C` : '',
+  m.fat_g != null ? `${Math.round(+m.fat_g)}g F` : '',
+  m.fiber_g != null ? `${Math.round(+m.fiber_g)}g Fib` : '',
+].filter(Boolean).join(' · ') || 'not estimated yet';
+function mlEditorHtml(m, pfx, saveFn, cancelFn) {
+  const id = +m.id, tm = m.time || (m.at ? new Date(+m.at * 1000).toTimeString().slice(0, 5) : '12:00');
+  const v = x => x == null ? '' : String(Math.round(+x));
+  return `<div class="ml-edit">
+    <div class="ml-edit-top">
+      <input id="${pfx}_txt" value="${esc(m.text || m.title || '')}" placeholder="What you ate" aria-label="Meal description">
+      <input id="${pfx}_tm" type="time" value="${esc(tm)}" aria-label="Meal time">
+    </div>
+    <div class="ml-macs">
+      <label>kcal<input id="${pfx}_cal" type="number" min="0" max="6000" value="${v(m.calories)}"></label>
+      <label>Protein g<input id="${pfx}_pro" type="number" min="0" max="400" value="${v(m.protein_g)}"></label>
+      <label>Carbs g<input id="${pfx}_crb" type="number" min="0" max="600" value="${v(m.carbs_g)}"></label>
+      <label>Fat g<input id="${pfx}_fat" type="number" min="0" max="300" value="${v(m.fat_g)}"></label>
+      <label>Fiber g<input id="${pfx}_fib" type="number" min="0" max="150" value="${v(m.fiber_g)}"></label>
+      <label>Sugar g<input id="${pfx}_sug" type="number" min="0" max="300" value="${v(m.sugar_g)}"></label>
+    </div>
+    <div class="ml-eacts">
+      <button class="go" onclick="${saveFn}(${id}, false)">Save</button>
+      <button class="soft" onclick="${saveFn}(${id}, true)">↻ Re-estimate</button>
+      <button class="soft" onclick="${cancelFn}()">Cancel</button>
+    </div>
+  </div>`;
+}
+function mlReadEditor(pfx) {
+  const numV = sel => { const s = $(sel).value.trim(); return s === '' ? '' : +s; };
+  return {
+    text: $(pfx + '_txt').value.trim(),
+    when: $(pfx + '_tm').value.trim(),
+    calories: numV(pfx + '_cal'), protein_g: numV(pfx + '_pro'),
+    carbs_g: numV(pfx + '_crb'), fat_g: numV(pfx + '_fat'),
+    fiber_g: numV(pfx + '_fib'), sugar_g: numV(pfx + '_sug'),
+  };
+}
+async function mlLoad(day) {
+  if (day !== undefined) ML_DAY = day;
+  const d = ML_DAY || mlTodayIso();
+  ML_DAY = d;
+  if ($('#ml_date')) $('#ml_date').value = d;
+  const r = await api('api/pantry/meals?day=' + encodeURIComponent(d));
+  if (r.error) { $('#ml_msg').textContent = r.error; return; }
+  ML_DATA = r;
+  if ($('#ml_date') && r.day) $('#ml_date').value = r.day;
+  mlRender();
+}
+function mlShift(delta) {
+  const cur = ML_DAY || mlTodayIso(), dt = new Date(cur + 'T12:00:00');
+  dt.setDate(dt.getDate() + (+delta || 0));
+  const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  ML_EDIT = null;
+  mlLoad(iso);
+}
+function mlPickDate(v) { ML_EDIT = null; mlLoad(v || mlTodayIso()); }
+function mlRender() {
+  if (!ML_DATA) return;
+  const tot = ML_DATA.totals || {}, g = ML_DATA.goals || {}, ms = ML_DATA.meals || [];
+  const chips = [
+    ['kcal', tot.calories, g.calories, ''],
+    ['Protein', tot.protein_g, g.protein_g, 'g'],
+    ['Carbs', tot.carbs_g, g.carbs_g, 'g'],
+    ['Fat', tot.fat_g, g.fat_g, 'g'],
+    ['Fiber', tot.fiber_g, g.fiber_g, 'g'],
+  ];
+  $('#ml_tot').innerHTML = chips.map(([l, v, gl, u]) =>
+    `<span class="ml-chip"><span class="mute">${l}</span><b>${Math.round(+v || 0).toLocaleString()}${u}</b>${gl ? `<span class="mute">/ ${Math.round(+gl).toLocaleString()}${u}</span>` : ''}</span>`
+  ).join('');
+  $('#ml_list').innerHTML = ms.length ? ms.map(m => {
+    const id = +m.id;
+    if (ML_EDIT === id) return `<div class="ml-row">${mlEditorHtml(m, 'mle', 'mlSave', 'mlCancel')}</div>`;
+    return `<div class="ml-row">
+      <span class="tm">${esc(m.time_label || m.time || '')}</span>
+      <span class="tx"><b>${esc(m.text || '')}</b></span>
+      <span class="mac">${esc(mlFmtMac(m))}</span>
+      <span class="acts"><a onclick="mlEdit(${id})">Edit</a><a class="mute" onclick="mlDel(${id})">Del</a></span>
+    </div>`;
+  }).join('') : '<div class="mute" style="font-size:13px">No meals logged for this day yet.</div>';
+}
+function mlEdit(id) { ML_EDIT = +id || null; mlRender(); }
+function mlCancel() { ML_EDIT = null; mlRender(); }
+async function mlLog() {
+  const txt = $('#ml_add_txt').value.trim(); if (!txt) return;
+  const tm = $('#ml_add_time').value.trim();
+  const r = await api('api/pantry/ate', {text: txt, day: ML_DAY || mlTodayIso(), when: tm || null, source: 'web'});
+  if (r.error) { $('#ml_msg').textContent = r.error; return; }
+  $('#ml_add_txt').value = ''; $('#ml_add_time').value = '';
+  $('#ml_msg').textContent = 'Logged (estimating nutrition…).';
+  await mlLoad();
+  setTimeout(() => { if (ML_DATA) mlLoad(); }, 2500);
+}
+async function mlSave(id, reest) {
+  const b = mlReadEditor('#mle');
+  if (!b.text) { $('#ml_msg').textContent = 'Meal description cannot be empty.'; return; }
+  b.id = +id;
+  if (reest) b.reestimate = true;
+  $('#ml_msg').textContent = reest ? 'Saving & re-estimating…' : 'Saving…';
+  const r = await api('api/pantry/meal_edit', b);
+  if (r.error) { $('#ml_msg').textContent = r.error; return; }
+  ML_EDIT = null;
+  $('#ml_msg').textContent = reest ? 'Updated & re-estimated.' : 'Saved.';
+  await mlLoad();
+}
+async function mlDel(id) {
+  const r = await api('api/pantry/meal_delete', {id: +id});
+  if (r.error) { $('#ml_msg').textContent = r.error; return; }
+  if (ML_EDIT === +id) ML_EDIT = null;
+  $('#ml_msg').textContent = 'Deleted.';
+  await mlLoad();
+}
+function hbTodayMeals(F) {
+  const ms = (F && F.meals) || [];
+  const head = `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px"><b style="font-size:13px">Today's meals</b><a style="font-size:12px" onclick="go('pantry')">Past days ›</a></div>`;
+  if (!ms.length) return head + '<span class="mute" style="font-size:12px">No meals logged yet today.</span>';
+  return head + ms.map(m => {
+    const id = +m.id, tm = m.at ? hbClock(m.at) : '';
+    if (HB_MEAL_EDIT === id) return `<div class="ml-row" style="margin-top:4px">${mlEditorHtml(m, 'hbm', 'hbMealSave', 'hbMealCancel')}</div>`;
+    return `<div class="hb-li"><span class="m">${esc(m.title || '')}<small>${esc(tm)}${tm ? ' · ' : ''}${esc(mlFmtMac(m))}</small></span><span style="display:flex;gap:8px;font-size:12px;white-space:nowrap"><a onclick="hbMealEdit(${id})">Edit</a><a class="mute" onclick="hbMealDel(${id})">✕</a></span></div>`;
+  }).join('');
+}
+function hbMealEdit(id) { HB_MEAL_EDIT = +id || null; hbRender(); }
+function hbMealCancel() { HB_MEAL_EDIT = null; hbRender(); }
+async function hbMealSave(id, reest) {
+  const b = mlReadEditor('#hbm');
+  if (!b.text) return;
+  b.id = +id;
+  if (reest) b.reestimate = true;
+  const r = await api('api/pantry/meal_edit', b);
+  if (r.error) { alert(r.error); return; }
+  HB_MEAL_EDIT = null;
+  hubLoad();
+}
+async function hbMealDel(id) {
+  const r = await api('api/pantry/meal_delete', {id: +id});
+  if (r.error) { alert(r.error); return; }
+  if (HB_MEAL_EDIT === +id) HB_MEAL_EDIT = null;
+  hubLoad();
+}
 async function pantry() {
+  mlLoad();
   const r = await api('api/pantry');
   const where = {}; r.items.forEach(i => where[i.location] = (where[i.location] || 0) + 1);
   $('#pa_sub').textContent = `${r.items.length} things · ` + Object.entries(where).map(([k, v]) => `${v} ${k}`).join(' · ');

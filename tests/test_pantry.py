@@ -454,6 +454,72 @@ async def main():
     assert any("Already planned earlier this week" in c for c in tlm.calls[2:]), "later chunks must receive prior meals"
     assert any("7 heads broccoli" == x["label"] for x in full7["shopping_list"]), full7["shopping_list"]
 
+    # ---- Daily meals log: list by day, edit text/time/macros, re-estimate, delete ----
+    from homemind.speakers import VIEWER
+    st_m = Store(":memory:")
+    st_m.kv_set("fitness_goals", {"calories": 2200, "protein_g": 160})
+
+    class EstModel:
+        async def chat(self, sys, msgs, **kw):
+            return {"text": json.dumps({"protein_g": 42, "calories": 580, "carbs_g": 48, "fat_g": 18, "fiber_g": 7, "sugar_g": 6})}
+
+    pm = Pantry(st_m, FakeHA(), type("M", (), {"models": {"haiku": EstModel()}, "get": lambda self, n: self.models["haiku"]})(), tempfile.mkdtemp())
+    ts_yest = pm.meal_day_time("2026-11-21", "12:30")
+    ts_tod = pm.meal_day_time("2026-11-22", "8:15am")
+    m_y = pm.ate("turkey wrap", when=ts_yest)
+    m_t = pm.ate("eggs and toast", when=ts_tod)
+    # Quick-logged drink should be ignored in meals_on
+    st_m.remember(text="Coffee", title="Coffee", kind="fact", shelf="body/meals", meta={"at": ts_tod + 60, "drink": True}, at=ts_tod + 60)
+    # Other person's personal meal should be hidden
+    other_m = st_m.remember(text="Ate cake", title="Ate: cake", kind="fact", shelf="body/meals",
+                            meta={"at": ts_tod + 120, "scope": "personal", "owner": "dana", "calories": 500}, at=ts_tod + 120)
+
+    tok = VIEWER.set("yitz")
+    try:
+        d_tod = pm.meals_on("2026-11-22")
+        assert [m["id"] for m in d_tod["meals"]] == [m_t["id"]], d_tod
+        assert d_tod["goals"]["calories"] == 2200 and d_tod["goals"]["protein_g"] == 160, d_tod["goals"]
+        d_yest = pm.meals_on("2026-11-21")
+        assert [m["id"] for m in d_yest["meals"]] == [m_y["id"]] and d_yest["meals"][0]["time"] == "12:30", d_yest
+
+        # Edit text, time (stays on same day), and macros
+        ed = pm.edit_meal(m_t["id"], text="3 eggs and sourdough toast", when="09:05",
+                          calories=440, protein_g=28, carbs_g=32, fat_g=20, fiber_g=4, sugar_g=2)
+        assert ed["text"] == "3 eggs and sourdough toast" and ed["time"] == "09:05" and ed["day"] == "2026-11-22", ed
+        assert ed["calories"] == 440 and ed["protein_g"] == 28 and ed["estimated"] is False, ed
+        assert pm.meals_on("2026-11-22")["totals"]["calories"] == 440 and pm.meals_on("2026-11-22")["totals"]["protein_g"] == 28
+
+        # Clear a macro field with empty string
+        ed2 = pm.edit_meal(m_t["id"], sugar_g="")
+        assert ed2["sugar_g"] is None and ed2["calories"] == 440, ed2
+
+        # Force re-estimate refreshes macros even after manual edit
+        est = await pm.estimate(m_t["id"], ed["text"], force=True)
+        assert est["calories"] == 580 and est["protein_g"] == 42, est
+        assert pm.get_meal(m_t["id"])["protein_g"] == 42
+
+        # Validation: rejects bad day, bad time, bool/out-of-range macro, and other person's meal
+        for bad_call in (
+            lambda: pm.meals_on("not-a-date"),
+            lambda: pm.edit_meal(m_t["id"], text="   "),
+            lambda: pm.edit_meal(m_t["id"], when="25:99"),
+            lambda: pm.edit_meal(m_t["id"], calories=True),
+            lambda: pm.edit_meal(m_t["id"], calories=99999),
+            lambda: pm.edit_meal(other_m["id"], text="hacked"),
+            lambda: pm.delete_meal(other_m["id"]),
+        ):
+            try:
+                bad_call()
+                assert False, "expected ValueError"
+            except ValueError:
+                pass
+
+        # Delete archives the meal and removes it from the day's list
+        rm = pm.delete_meal(m_t["id"])
+        assert rm == {"removed": m_t["id"]} and pm.meals_on("2026-11-22")["meals"] == []
+    finally:
+        VIEWER.reset(tok)
+
     # Reheat-only effort tier (e.g. lunches away from home): persists in layouts, instructs model NO cooking,
     # forces effort='reheat' + is_cook=False, and passes no-cook hint on swap_meal
     p3.save_week_layout("usual", "prep", {"0|lunch": "reheat", "0|dinner": "big", "1|lunch": "reheat"}, start_date=base_mon)
