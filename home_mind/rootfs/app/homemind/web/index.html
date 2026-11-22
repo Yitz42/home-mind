@@ -161,7 +161,7 @@
   .hc-btns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:12px } .hc-btns button { min-height:40px; border-radius:12px; border:1px solid var(--line); background:var(--card2); color:var(--ink); font:inherit; font-size:13px; cursor:pointer } .hc-btns button:disabled { opacity:.4; cursor:default } .hc-btns .stop { color:var(--bad) }
   .room { max-width:560px }
   @media (min-width: 861px) {
-    main { padding:20px 26px 32px } .ph { margin-bottom:12px } .ph h1 { font-size:23px } .ph .sub { font-size:12px }
+    main { padding:16px 24px 20px } .ph { margin-bottom:12px } .ph h1 { font-size:23px } .ph .sub { font-size:12px }
     .card { padding:13px 15px; border-radius:14px; margin-bottom:12px } .bento { gap:12px; margin-bottom:12px } h2 { font-size:15px }
     .ring, .ring svg { width:92px; height:92px } .ring .v b { font-size:25px }
     .fog button { min-height:40px; font-size:16px } .tile { padding:8px 10px } .tile b { font-size:18px }
@@ -173,7 +173,7 @@
   @media (max-width: 860px) {
     .app { display:block } main { padding:16px 14px 80px }
     #nav { position:fixed; z-index:5; left:0; right:0; bottom:0; top:auto; width:auto; height:auto; flex-direction:row; padding:5px 4px; border-right:0; border-top:1px solid var(--line); gap:2px; overflow-x:auto }
-    #nav .brand, #nav .grp, #nav .foot, #nav .sys { display:none } #nav .badge { display:none }
+    #nav .brand, #nav .grp, #nav .foot, #nav .vw-bar, #nav .sys { display:none } #nav .badge { display:none }
     #nav button { flex:1 1 0; min-width:0; flex-direction:column; gap:2px; padding:5px 1px; font-size:10px; justify-content:center; min-height:50px; text-align:center }
     .ph h1 { font-size:26px } .bento { grid-template-columns:1fr } .card { border-radius:16px; padding:14px 16px }
     .week { gap:6px } .days { gap:6px }
@@ -184,10 +184,10 @@
   .hb-wx { display:flex; align-items:center; gap:7px; min-height:44px; padding:0 12px; border-radius:14px; border:0; background:var(--card); color:var(--ink); font:inherit; cursor:pointer; flex:none }
   .hb-wx b { font:600 18px var(--head) } .hb-wx .s { display:flex; flex-direction:column; line-height:1.15; font-size:11px; color:var(--mute) } .hb-wx .s b { font:600 11px Inter,system-ui,sans-serif; color:var(--ink) }
   .hb-cols { display:flex; flex-direction:column; gap:10px } .hb-left { display:flex; flex-direction:column; gap:10px; min-width:0 }
-  .hb-logs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; order:1 }
+  .hb-logs { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; order:1 }
   .hb-logs button { display:flex; align-items:center; justify-content:center; gap:5px; min-height:42px; border-radius:99px; border:2px solid transparent; font:inherit; cursor:pointer }
-  .hb-logs b { font:600 16px/1 var(--head) } .hb-logs .water { background:var(--house-bg); color:var(--house-ink) } .hb-logs .coffee { background:color-mix(in srgb, #8a5a2b 16%, var(--card)); color:color-mix(in srgb, #6f4424 80%, var(--ink)) }
-  .hb-logs .meal { background:var(--food-bg); color:var(--food-ink) } .hb-logs .note { background:var(--mem-bg); color:var(--acc-ink) } .hb-logs button.on { border-color:currentColor }
+  .hb-logs b { font:600 15px/1 var(--head) } .hb-logs .water { background:var(--house-bg); color:var(--house-ink) } .hb-logs .coffee { background:color-mix(in srgb, #8a5a2b 16%, var(--card)); color:color-mix(in srgb, #6f4424 80%, var(--ink)) }
+  .hb-logs .meal { background:var(--food-bg); color:var(--food-ink) } .hb-logs .meds { background:var(--health-bg); color:var(--health-ink) } .hb-logs .note { background:var(--mem-bg); color:var(--acc-ink) } .hb-logs button.on { border-color:currentColor }
   .hb-bar { order:2; border-radius:18px; background:var(--card); border:1.5px solid var(--mem-line); overflow:hidden } .hb-bar.mode { border-color:var(--acc) }
   .hb-in { display:flex; align-items:center; gap:6px; min-height:52px; padding:0 6px 0 14px } .hb-in input { flex:1; min-width:0; border:0; background:none; outline:none; padding:0; min-height:40px; font-size:15px }
   .hb-pre { flex:none; padding:4px 10px; border-radius:99px; font-size:13px; font-weight:700; background:var(--mem-bg); color:var(--acc-ink) }
@@ -210,10 +210,11 @@
   .hb-need .top { display:flex; gap:10px; align-items:flex-start } .hb-need .top > div { flex:1; display:flex; flex-direction:column; gap:2px } .hb-need .n { font-size:12px; color:var(--mute); white-space:nowrap }
   .hb-need .acts { display:flex; gap:8px } .hb-need .acts button { min-height:42px; border-radius:12px; font:inherit; font-size:14px; font-weight:600; cursor:pointer }
   .hb-need .a { flex:1; border:0; background:var(--acc); color:#fff } .hb-need .x { width:42px; flex:none; border:1px solid var(--line); background:var(--card); color:var(--mute) }
-  .hb-stats { order:3; position:relative; z-index:6 } .hb-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; height:42px }
+  .hb-stats { order:3; position:relative; z-index:6 } .hb-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; height:42px; align-items:start }
   .hb-tabs button { display:flex; align-items:center; justify-content:center; gap:7px; height:42px; padding:0 8px; line-height:1; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; cursor:pointer }
   .hb-tabs button span { font-size:13px; color:var(--mute) } .hb-tabs button b { font:700 18px/1 var(--head) }
-  .hb-tabs button.on { border-color:var(--mem-line); border-bottom:0; border-radius:14px 14px 0 0; box-shadow:0 2px 0 var(--card); position:relative; z-index:2 }
+  .hb-tabs button.on { border-color:var(--mem-line); border-bottom:0; border-radius:14px 14px 0 0; position:relative; z-index:2; height:42px; background:var(--card) }
+  .hb-tabs button.on::after { content:''; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--card); pointer-events:none }
   .hb-tabs.open button:not(.on) { height:34px; align-self:start; background:var(--card2) }
   .hb-detail { display:none } .hb-right { position:relative; order:5 } .hb-tiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px }
   .hb-tile { display:flex; flex-direction:column; gap:8px; padding:12px 12px 12px 14px; border-radius:20px; background:var(--card); border:1px solid var(--line); font:inherit; color:var(--ink); text-align:left; cursor:pointer; min-height:170px; overflow:hidden; min-width:0 }
@@ -271,14 +272,39 @@
     .hb-tiles { flex:1; grid-template-rows:repeat(2, minmax(150px, 1fr)) } .hb-tile { min-height:0 }
   }
   @media (min-width: 641px) {
-    .hb-tile { min-height:330px; cursor:default } .hb-win { display:none !important } .hb-tabs.open button:not(.on) { height:42px; align-self:auto; background:var(--card) }
-    .hb-detail { display:flex; flex-direction:column; gap:10px; padding:14px 16px; background:var(--card); border:1px solid var(--mem-line); border-radius:0 20px 20px 20px; margin-top:-1px }
-    .hb-detail.mid { border-radius:20px } .hb-detail.end { border-radius:20px 0 20px 20px }
-    .hb-tile .scroll { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:10px }
+    .hb-tile { min-height:300px; cursor:default } .hb-win { display:none !important }
+    .hb-tabs.open button:not(.on) { height:34px; align-self:start; background:var(--card2) }
+    .hb-detail { display:flex; flex-direction:column; gap:8px; padding:12px 14px; background:var(--card); border:1px solid var(--mem-line); border-radius:0 18px 18px 18px; margin-top:-1px; position:relative; z-index:1 }
+    .hb-detail.mid { border-radius:18px } .hb-detail.end { border-radius:18px 0 18px 18px }
+    .hb-tile .scroll { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:8px }
   }
-  @media (min-width: 1200px) {
-    .hb-cols { display:grid; grid-template-columns:400px minmax(0,1fr); gap:24px; align-items:start }
-    .hb-left .hb-stats { order:5 } .hb-left .hb-need { order:3 } .hb-right { order:0 } .hb-tile { min-height:calc(50vh - 70px) }
+  @media (min-width: 960px) {
+    .hb-cols { display:grid; grid-template-columns:minmax(340px,390px) minmax(0,1fr); gap:16px; align-items:start }
+    .hb-left .hb-stats { order:5 } .hb-left .hb-need { order:3 } .hb-right { order:0 }
+  }
+  @media (min-width: 960px) and (min-height: 620px) {
+    .hub { max-width:1280px !important; height:calc(100dvh - 36px); display:flex; flex-direction:column; overflow:hidden }
+    body.kiosk .hub { height:calc(100dvh - 36px) }
+    .hb-head { flex:none; margin-bottom:8px } .hb-hi h1 { font-size:20px } .hb-wx { min-height:38px; padding:0 10px }
+    .hb-cols { flex:1; min-height:0; align-items:stretch }
+    .hb-left { min-height:0; height:100%; gap:8px; overflow:hidden }
+    .hb-logs { flex:none } .hb-logs button { min-height:36px }
+    .hb-bar { flex:none } .hb-in { min-height:44px } .hb-in input { min-height:34px; font-size:14px } .hb-go { width:34px; height:34px }
+    .hb-ans { max-height:34vh; overflow-y:auto }
+    .hb-need { flex:none; padding:10px 13px; gap:6px; border-radius:16px } .hb-need .acts button { min-height:34px; font-size:13px }
+    .hb-stats { flex:1; min-height:0; display:flex; flex-direction:column }
+    .hb-detail { flex:1; min-height:0; overflow-y:auto; padding:10px 13px; gap:7px }
+    .hb-chart { height:74px; padding:6px 8px 0; flex:none }
+    .hb-f { padding:5px 0 } .hb-f .a { font-size:13px } .hb-f .a b { font-size:13px }
+    .hb-cta button { min-height:34px; font-size:13px }
+    .hb-right { min-height:0; height:100%; display:flex; flex-direction:column; overflow:hidden }
+    .hb-tiles { flex:1; min-height:0; grid-template-rows:repeat(2,minmax(0,1fr)); gap:10px }
+    .hb-tile { min-height:0; height:100%; padding:11px 12px 11px 13px; border-radius:18px; gap:6px }
+    .hb-tile .scroll { gap:7px; padding-right:2px }
+    .hb-li { min-height:34px; font-size:13px } .hb-li button { min-height:28px; font-size:12px }
+    .hb-scenes button { min-height:34px; font-size:12px }
+    .hb-devs button { min-height:48px; padding:7px 10px }
+    .hb-add input, .hb-add button { min-height:34px; padding:5px 10px; font-size:13px }
   }
   /* Weekly meal calendar picker */
   .mp-tabs { display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--card) }
@@ -470,9 +496,42 @@
   .ck-pgrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px }
   .ck-pgrid .li { padding:7px 9px; border:1px solid var(--line); border-radius:10px; background:var(--bg) }
   @media (max-width: 900px) { .ck-grid, .ck-grid2, .ck-pgrid { grid-template-columns:1fr } }
+  /* Household viewer switcher, Wall/Kiosk mode, Meds/Habits, Upkeep, Recipes */
+  #nav .vw-bar { margin-top:auto; padding:8px 4px 2px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:5px }
+  #nav .vw-bar select { min-height:30px; padding:4px 7px; font-size:12px; width:100% }
+  #nav .vw-bar .vw-wall { display:flex; align-items:center; justify-content:center; gap:5px; width:100%; min-height:28px; padding:4px 8px; font-size:11px; font-weight:600; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); cursor:pointer }
+  #nav .vw-bar .vw-wall:hover { background:var(--card2) }
+  #nav .foot { margin-top:4px; padding:6px 10px }
+  body.kiosk #nav { display:none }
+  body.kiosk main { padding:16px 22px 20px }
+  body.kiosk main > section { max-width:none !important }
+  .wall-exit { position:fixed; right:14px; bottom:14px; z-index:40; box-shadow:0 6px 20px rgba(0,0,0,.22); min-height:34px; padding:6px 12px; font-size:12px }
+  .mh-row { display:flex; align-items:center; gap:9px; padding:8px 0; border-top:1px solid var(--line) }
+  .mh-row:first-child { border-top:0; padding-top:0 }
+  .mh-chk { width:26px; height:26px; flex:none; border-radius:8px; border:1.5px solid var(--health-line); background:var(--bg); color:var(--health-on); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:14px; font-weight:700 }
+  .mh-chk.on { background:var(--health); border-color:var(--health) }
+  .mh-main { flex:1; min-width:0 }
+  .mh-dots { display:flex; gap:3px; align-items:center; flex:none }
+  .mh-dot { width:8px; height:8px; border-radius:99px; background:var(--line); display:inline-block }
+  .mh-dot.on { background:var(--health) }
+  .mh-streak { font-size:11px; font-weight:700; color:var(--health-ink); background:var(--health-bg); padding:2px 7px; border-radius:99px; white-space:nowrap }
+  .up-row { display:flex; align-items:center; gap:9px; padding:9px 0; border-top:1px solid var(--line) }
+  .up-row:first-child { border-top:0; padding-top:0 }
+  .up-badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:99px; white-space:nowrap }
+  .up-badge.overdue { background:color-mix(in srgb, var(--bad) 18%, var(--card)); color:var(--bad) }
+  .up-badge.soon { background:var(--food-bg); color:var(--food-ink) }
+  .up-badge.ok { background:var(--house-bg); color:var(--house-ink) }
+  .rc-card { padding:9px 11px; border:1px solid var(--line); border-radius:11px; background:var(--bg); display:flex; flex-direction:column; gap:5px; margin-bottom:7px }
+  .rc-top { display:flex; align-items:center; justify-content:space-between; gap:8px }
+  .rc-macros { display:flex; flex-wrap:wrap; gap:5px; font-size:11px; color:var(--food-ink) }
+  .rc-macros span { background:var(--food-bg); padding:2px 7px; border-radius:99px }
+  .rc-acts { display:flex; flex-wrap:wrap; gap:5px; align-items:center }
+  .rc-acts button { min-height:28px; padding:3px 9px; font-size:11px }
+  .rc-bc { padding:8px 10px; border-radius:10px; background:var(--food-bg); border:1px solid var(--food-line); font-size:12px; margin-top:6px }
 </style>
 </head>
 <body>
+<button id="wall_exit" class="go wall-exit hide" onclick="toggleWall(false)">✕ Exit Wall</button>
 <div class="app">
 <nav id="nav" aria-label="Sections">
   <div class="brand"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--acc-ink)"><path d="M3 11l9-7 9 7M5 10v10h14V10M9 15a3 3 0 0 1 6 0"/></svg>Home Mind</div>
@@ -486,6 +545,13 @@
   <button data-t="memory" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span>Brain</span><b class="badge hide" id="nav_review"></b></button>
   <div class="grp">SYSTEM</div>
   <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>System</span></button>
+  <div class="vw-bar">
+    <select id="vw_pick" aria-label="Household viewer" onchange="setViewer(this.value)">
+      <option value="">Everyone</option>
+      <option value="household">Household only</option>
+    </select>
+    <button type="button" class="vw-wall" onclick="toggleWall(true)">⛶ Wall mode</button>
+  </div>
   <div class="foot"><span class="dot"></span><span id="ver"></span></div>
 </nav>
 <main>
@@ -498,6 +564,7 @@
         <button class="water" id="hb_l_water" onclick="hbMode('water')" aria-label="Log water"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg><b id="hb_n_water">0</b></button>
         <button class="coffee" id="hb_l_coffee" onclick="hbMode('coffee')" aria-label="Log coffee"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM16 10h2a2 2 0 0 1 0 4h-2M8 3v2M12 3v2"/></svg><b id="hb_n_coffee">0</b></button>
         <button class="meal" id="hb_l_meal" onclick="hbMode('meal')" aria-label="Log a meal"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M16 3c-2 1.5-3 4-3 7h4V3M17 10v11"/></svg><b id="hb_n_meal">0</b></button>
+        <button class="meds" id="hb_l_meds" onclick="go('health');hlTab('meds')" aria-label="Meds and habits"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 20.5L3.5 13.5a5 5 0 0 1 7-7l7 7a5 5 0 0 1-7 7zM8.5 8.5l7 7"/></svg><b id="hb_n_meds">0</b></button>
         <button class="note" id="hb_l_note" onclick="hbMode('note')" aria-label="Save a note"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/></svg></button>
       </div>
       <div class="hb-bar" id="hb_bar">
@@ -539,6 +606,7 @@
       <h1>Health</h1>
       <div class="ck-tabs" role="tablist" aria-label="Health views">
         <button id="hl_t_pat" class="on" onclick="hlTab('pat')">Patterns</button>
+        <button id="hl_t_meds" onclick="hlTab('meds')">Meds &amp; Habits</button>
         <button id="hl_t_logs" onclick="hlTab('logs')">Logs &amp; Sleep</button>
         <button id="hl_t_pb" onclick="hlTab('pb')">Voice Learning</button>
       </div>
@@ -564,6 +632,28 @@
       </div>
     </div>
     <div class="ck-card"><div class="hrow"><h2>Suspects being watched</h2><span class="mute" style="font-size:12px">tested once there are enough days on both sides</span></div><div id="hl_find" style="display:flex;flex-direction:column;gap:6px"></div></div>
+  </div>
+  <div id="hl_p_meds" class="hide">
+    <div class="ck-grid">
+      <div class="ck-card">
+        <div class="hrow"><h2>Today's meds &amp; habits</h2><span class="mute" id="mh_sum" style="font-size:12px"></span></div>
+        <div id="mh_list"></div>
+        <div class="mute" id="mh_msg" style="font-size:12px;margin-top:6px"></div>
+      </div>
+      <div class="ck-card health">
+        <h2>Add med, supplement, or habit</h2>
+        <div class="row"><input id="mh_name" placeholder="e.g. Vitamin D3, Creatine, Stretch 10m" style="flex:1" onkeydown="if (event.key === 'Enter') mhAdd()"></div>
+        <div class="row">
+          <select id="mh_kind" aria-label="Type" style="flex:1"><option value="med">Med / Supplement</option><option value="habit">Daily Habit</option></select>
+          <select id="mh_sched" aria-label="Schedule" style="flex:1"><option value="morning">Morning</option><option value="afternoon">Afternoon</option><option value="evening">Evening</option><option value="bedtime">Bedtime</option><option value="anytime">Anytime</option></select>
+        </div>
+        <div class="row" style="margin-bottom:0">
+          <input id="mh_dose" placeholder="dose / target (e.g. 2000 IU, 5 g)" style="flex:1" onkeydown="if (event.key === 'Enter') mhAdd()">
+          <button class="go" onclick="mhAdd()">+ Add</button>
+        </div>
+        <div class="mute" style="font-size:11px;margin-top:8px">Checking off a med or supplement also records it to memory so brain-fog patterns can correlate it.</div>
+      </div>
+    </div>
   </div>
   <div id="hl_p_logs" class="hide">
     <div class="ck-card">
@@ -978,6 +1068,7 @@
       <span class="ck-sub" id="ho_sub">Bedroom</span>
       <div class="ck-tabs" role="tablist" aria-label="House views">
         <button class="on" id="hs_c" onclick="homeTab('c')">Live Controls</button>
+        <button id="hs_u" onclick="homeTab('u')">Upkeep</button>
         <button id="hs_a" onclick="homeTab('a')">Automations</button>
         <button id="hs_s" onclick="homeTab('s')">Sensors &amp; Habits</button>
       </div>
@@ -1023,6 +1114,34 @@
         <div class="mute" style="font-size:12px;margin-top:10px">Batteries: <span id="hc_batt"></span></div></div></div>
     </div>
   </div>
+  <div id="h_upkeep" class="hide">
+    <div class="ck-grid">
+      <div class="ck-card">
+        <div class="hrow"><h2>Maintenance, chores &amp; warranties</h2><span class="mute" id="up_sum" style="font-size:12px"></span></div>
+        <div id="up_list"></div>
+        <div class="mute" id="up_msg" style="font-size:12px;margin-top:6px"></div>
+      </div>
+      <div class="ck-card">
+        <h2>Add maintenance or warranty</h2>
+        <div class="row"><input id="up_name" placeholder="e.g. Furnace filter, Water filter, Car oil" style="flex:1" onkeydown="if (event.key === 'Enter') upAdd()"></div>
+        <div class="row">
+          <select id="up_cat" aria-label="Category" style="flex:1"><option value="general">General</option><option value="hvac">HVAC</option><option value="appliance">Appliance</option><option value="auto">Auto</option><option value="plumbing">Plumbing</option><option value="yard">Yard</option><option value="safety">Safety</option></select>
+          <input id="up_every" type="number" min="0" max="3650" value="90" placeholder="every days" aria-label="Repeat every N days" style="width:105px">
+        </div>
+        <div class="row">
+          <input id="up_due" type="date" aria-label="Next due date" style="flex:1">
+          <input id="up_war" type="date" aria-label="Warranty expiration date" style="flex:1">
+        </div>
+        <div class="row">
+          <select id="up_doc" aria-label="Linked manual or receipt" style="flex:1"><option value="">No linked manual</option></select>
+        </div>
+        <div class="row" style="margin-bottom:0">
+          <input id="up_notes" placeholder="filter size, part #, notes…" style="flex:1" onkeydown="if (event.key === 'Enter') upAdd()">
+          <button class="go" onclick="upAdd()">+ Add</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="h_autos" class="hide">
     <div class="ck-grid">
       <div class="ck-card"><h2>Ask for an automation</h2>
@@ -1052,6 +1171,7 @@
       <div class="ck-tabs" role="tablist" aria-label="Food views">
         <button id="fd_t_today" class="on" onclick="foodTab('today')">Today</button>
         <button id="fd_t_plan" onclick="foodTab('plan')">Meal Plan</button>
+        <button id="fd_t_recipes" onclick="foodTab('recipes')">Recipes</button>
         <button id="fd_t_pantry" onclick="foodTab('pantry')">Pantry</button>
         <button id="fd_t_rules" onclick="foodTab('rules')">Rules</button>
       </div>
@@ -1111,6 +1231,45 @@
     </div>
   </div>
   <div id="mp_modal" class="mp-modal-bg hide" onclick="mpCloseModalBg(event)"></div>
+  <div id="fd_p_recipes" class="hide">
+    <div class="ck-grid">
+      <div class="ck-card">
+        <div class="row" style="margin-bottom:8px">
+          <h2 style="margin:0;flex:1">Saved recipes &amp; staples</h2>
+          <input id="rc_q" placeholder="Search…" aria-label="Search recipes" style="width:130px;min-height:30px;padding:4px 8px;font-size:12px" oninput="rcLoad()">
+          <select id="rc_slot" aria-label="Filter recipe meal slot" style="min-height:30px;padding:4px 7px;font-size:12px" onchange="rcLoad()"><option value="">All slots</option><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select>
+        </div>
+        <div id="rc_list"></div>
+        <div class="mute" id="rc_msg" style="font-size:12px;margin-top:6px"></div>
+      </div>
+      <div class="ck-col">
+        <div class="ck-card food">
+          <h2>Barcode / UPC quick-lookup</h2>
+          <div class="row" style="margin-bottom:0">
+            <input id="rc_upc" placeholder="Enter UPC / barcode digits…" aria-label="Barcode or UPC" style="flex:1;min-height:34px;padding:5px 9px" onkeydown="if (event.key === 'Enter') rcBarcode()">
+            <button class="go" style="min-height:34px;padding:5px 12px;font-size:12px" onclick="rcBarcode()">Lookup</button>
+          </div>
+          <div id="rc_bc_out"></div>
+        </div>
+        <div class="ck-card">
+          <h2>Save a recipe or staple</h2>
+          <div class="row"><input id="rc_name" placeholder="Recipe name (e.g. Chicken Rice Bowl)" style="flex:1"></div>
+          <div class="row">
+            <select id="rc_f_slot" aria-label="Recipe slot" style="flex:1"><option value="any">Any meal</option><option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option><option value="snack">Snack</option></select>
+            <input id="rc_mins" type="number" min="0" max="600" placeholder="min" aria-label="Minutes" style="width:74px">
+          </div>
+          <div class="row">
+            <input id="rc_cal" type="number" min="0" max="6000" placeholder="kcal" aria-label="Calories" style="flex:1;min-width:60px">
+            <input id="rc_pro" type="number" min="0" max="400" placeholder="P g" aria-label="Protein grams" style="flex:1;min-width:60px">
+            <input id="rc_crb" type="number" min="0" max="600" placeholder="C g" aria-label="Carbs grams" style="flex:1;min-width:60px">
+            <input id="rc_fat" type="number" min="0" max="300" placeholder="F g" aria-label="Fat grams" style="flex:1;min-width:60px">
+          </div>
+          <div class="row"><input id="rc_ing" placeholder="ingredients, comma separated (optional)" style="flex:1"></div>
+          <div class="row" style="margin-bottom:0"><input id="rc_steps" placeholder="prep notes or steps (optional)" style="flex:1"><button class="go" onclick="rcSave()">Save</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="fd_p_pantry" class="hide">
     <div class="ck-card">
       <div class="row" style="margin-bottom:8px"><h2 style="margin:0;flex:1">In the house</h2>
@@ -1144,12 +1303,36 @@ const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&
 const jsq = s => esc(JSON.stringify(String(s ?? '')));
 // only the newest call of each kind may draw (a slow older answer must not overwrite a newer one)
 const seq = {}, fresh = k => { const n = seq[k] = (seq[k] || 0) + 1; return () => seq[k] === n; };
+let VIEWER_SEL = '', CUR_SEC = 'today';
+try { if (typeof localStorage !== 'undefined') VIEWER_SEL = localStorage.getItem('hm_viewer') || ''; } catch (e) {}
 function api(path, body) { return jfetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); }
 // fetch + JSON that never throws on an error page (ingress 502, aiohttp 404 text): gives {error} instead
 async function jfetch(path, opts) {
-  let r; try { r = await fetch(path, opts || {}); } catch (e) { return {error: 'cannot reach Home Mind: ' + e.message}; }
+  const o = Object.assign({}, opts || {});
+  if (VIEWER_SEL) o.headers = Object.assign({}, o.headers || {}, {'X-Home-Mind-Viewer': VIEWER_SEL});
+  let r; try { r = await fetch(path, o); } catch (e) { return {error: 'cannot reach Home Mind: ' + e.message}; }
   let d; try { const t = await r.text(); d = t ? JSON.parse(t) : {}; } catch (e) { return {error: `HTTP ${r.status}: not a JSON answer`}; }
   return !r.ok && (d === null || typeof d !== 'object' || Array.isArray(d) || !d.error) ? {error: `HTTP ${r.status}`} : d;
+}
+function setViewer(v) {
+  VIEWER_SEL = v || '';
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem('hm_viewer', VIEWER_SEL); } catch (e) {}
+  load(CUR_SEC);
+}
+function toggleWall(on) {
+  const active = !!on;
+  if (document.body && document.body.classList) document.body.classList.toggle('kiosk', active);
+  $('#wall_exit').classList.toggle('hide', !active);
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem('hm_wall', active ? '1' : ''); } catch (e) {}
+}
+async function loadViewerOpts() {
+  const r = await api('api/people');
+  const ppl = (r && Array.isArray(r.people)) ? r.people : [];
+  const sel = $('#vw_pick');
+  sel.innerHTML = '<option value="">Everyone</option><option value="household">Household only</option>'
+    + ppl.map(p => { const nm = typeof p === 'string' ? p : (p && p.name) || ''; return nm ? `<option value="${esc(nm)}">${esc(nm)}</option>` : ''; }).join('');
+  sel.value = VIEWER_SEL;
+  try { if (typeof localStorage !== 'undefined' && localStorage.getItem('hm_wall') === '1') toggleWall(true); } catch (e) {}
 }
 const ago = t => { const s = Date.now()/1000 - t; return s < 90 ? Math.round(s)+'s ago' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
 const pct = v => v === undefined ? '' : Math.round(v*100)+'%';
@@ -1157,7 +1340,8 @@ const SUB_TAB = {worked: ['memory', () => brainTab('worked')], graph: ['memory',
   tests: ['more', () => sysTab('tests')], models: ['more', () => sysTab('models')], updates: ['more', () => sysTab('access')]};
 function go(t) {
   const sub = SUB_TAB[t], sec = sub ? sub[0] : t;
-  document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x.dataset.t === sec));
+  CUR_SEC = sec;
+  document.querySelectorAll('#nav button[data-t]').forEach(x => x.classList.toggle('on', x.dataset.t === sec));
   document.querySelectorAll('main section').forEach(s => s.classList.toggle('hide', s.id !== sec));
   window.scrollTo(0, 0);
   if (sub) sub[1](); else load(sec);
@@ -1165,14 +1349,16 @@ function go(t) {
 let HL_TAB = 'pat', FD_TAB = 'today', BR_TAB = 'notes', SY_TAB = 'over';
 function hlTab(t) {
   HL_TAB = t;
-  ['pat', 'logs', 'pb'].forEach(k => { $('#hl_t_' + k).classList.toggle('on', k === t); $('#hl_p_' + k).classList.toggle('hide', k !== t); });
+  ['pat', 'meds', 'logs', 'pb'].forEach(k => { $('#hl_t_' + k).classList.toggle('on', k === t); $('#hl_p_' + k).classList.toggle('hide', k !== t); });
+  if (t === 'meds') mhLoad();
   if (t === 'logs') loadLogs();
   if (t === 'pb') loadPhrasebook();
 }
 function foodTab(t) {
   FD_TAB = t;
-  ['today', 'plan', 'pantry', 'rules'].forEach(k => { $('#fd_t_' + k).classList.toggle('on', k === t); $('#fd_p_' + k).classList.toggle('hide', k !== t); });
+  ['today', 'plan', 'recipes', 'pantry', 'rules'].forEach(k => { $('#fd_t_' + k).classList.toggle('on', k === t); $('#fd_p_' + k).classList.toggle('hide', k !== t); });
   if (t === 'today') mlLoad();
+  if (t === 'recipes') rcLoad();
 }
 function brainTab(t) {
   BR_TAB = t;
@@ -1196,7 +1382,7 @@ function sysTab(t) {
   if (t === 'tests') load('tests');
   if (t === 'access') tokens();
 }
-document.querySelectorAll('#nav button').forEach(b => b.onclick = () => go(b.dataset.t));
+document.querySelectorAll('#nav button[data-t]').forEach(b => b.onclick = () => go(b.dataset.t));
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const dayName = d => DAYS[new Date(d + 'T12:00').getDay()];
 const fmtH = h => h == null ? '' : (h => { const H = Math.floor(h) % 24, M = Math.round((h % 1) * 60); return ((H % 12) || 12) + ':' + String(M).padStart(2, '0') + (H < 12 ? ' AM' : ' PM'); })(h);
@@ -1805,6 +1991,8 @@ function hbRender() {
   $('#hb_when').textContent = now.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'}) + ' · ' + now.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) + (HUB.place ? ' · ' + (HUB.place === 'home' ? 'Home' : 'Away') : '');
   hbWxBtn();
   $('#hb_n_water').textContent = HUB.logs.water; $('#hb_n_coffee').textContent = HUB.logs.coffee; $('#hb_n_meal').textContent = HUB.logs.meals;
+  const ms = HUB.meds || {};
+  $('#hb_n_meds').textContent = ms.total ? `${ms.done || 0}/${ms.total}` : '0';
   hbTabs(); hbNeed(); hbTiles();
   if (HB.win && !hbWide()) hbOpen(HB.win);
 }
@@ -2090,7 +2278,7 @@ function hbNeedAct() {
   const n = hbNeeds()[0]; if (!n) return;
   if (n.act === 'checkin') return hbCk(true);
   HB_SKIP[n.id] = Date.now(); hbSaveSkip(); hbNeed();
-  if (n.act === 'go') go(n.go); else hbSend(n.text);
+  if (n.act === 'go') { go(n.go); if (String(n.id || '').startsWith('maint:')) homeTab('u'); } else hbSend(n.text);
 }
 function hbNeedSkip() { const n = hbNeeds()[0]; if (!n) return; HB_SKIP[n.id] = Date.now(); hbSaveSkip(); hbNeed(); }
 
@@ -2241,7 +2429,7 @@ if (typeof addEventListener === 'function') {   // (not in the test sandbox)
 }
 async function load(t) {
   if (t === 'today') hubLoad();
-  if (t === 'health') loadHealth();
+  if (t === 'health') { loadHealth(); if (HL_TAB === 'meds') mhLoad(); }
   if (t === 'fitness') fitLoad();
   if (t === 'more') {
     await loadMore();
@@ -2256,8 +2444,8 @@ async function load(t) {
   }
   if (t === 'worked') { worked(); }
   if (t === 'graph') { graphLoad(); }
-  if (t === 'house') { homeLoad(); if (HTAB !== 'c') houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
-  if (t === 'pantry') { pantry(); }
+  if (t === 'house') { homeLoad(); if (HTAB === 'u') upLoad(); else if (HTAB !== 'c') houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
+  if (t === 'pantry') { pantry(); if (FD_TAB === 'recipes') rcLoad(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${esc(k)}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
     const ms = await api('api/models'); $('#t_model').innerHTML = '<option value="">(model)</option>' + ms.map(m => `<option>${esc(m.name)}</option>`).join('');
@@ -3318,11 +3506,26 @@ function mpRenderModal() {
     + (m.steps ? `<div style="font-size:12px"><b>Steps:</b> <span class="mute">${esc(Array.isArray(m.steps) ? m.steps.join(' ') : m.steps)}</span></div>` : '')
     + (logMsg ? `<div class="ok" style="font-size:12px">${esc(logMsg)}</div>` : '')
     + `<div class="row" style="margin:0;justify-content:flex-end">`
+    + `<button class="soft" onclick="mpSaveRecipe()">★ Save Recipe</button>`
     + `<button class="soft" onclick="mpCloseModal();mpSkipPlanned(${dayIdx}, ${jsq(slot)})">✕ Skip</button>`
     + `<button class="soft" onclick="mpCloseModal();mpSwapPlanned(${dayIdx}, ${jsq(slot)}, ${jsq(day + ' ' + m.name)})">↻ Swap</button>`
     + `<button class="go" onclick="mpLogMeal(${dayIdx}, ${jsq(slot)})">✓ Log as eaten</button>`
     + `</div></div>`;
   el.classList.remove('hide');
+}
+async function mpSaveRecipe() {
+  if (!_mpModal || !_mpModal.meal) return;
+  const m = _mpModal.meal, ings = (_mpModal.ingredients || []).map(i => i.name).filter(Boolean);
+  const fallbackIngs = [...(m.uses || []), ...(m.need || []).map(n => typeof n === 'string' ? n : (n.item || n.name || ''))].filter(Boolean);
+  const r = await api('api/recipes/save', {
+    name: m.name, slot: _mpModal.slot || 'any', minutes: m.minutes || null,
+    calories: m.calories, protein_g: m.protein_g, carbs_g: m.carbs_g, fat_g: m.fat_g, fiber_g: m.fiber_g,
+    ingredients: ings.length ? ings : fallbackIngs,
+    steps: Array.isArray(m.steps) ? m.steps.join(' ') : (m.steps || ''),
+  });
+  if (!_mpModal) return;
+  _mpModal.logMsg = r.error ? r.error : `Saved "${m.name}" to Recipes ★`;
+  mpRenderModal();
 }
 async function mpSkipPlanned(dayIndex, slot) {
   const r = await api('api/pantry/plan_cell', {day_index: dayIndex, slot, action: 'skip'});
@@ -3492,11 +3695,12 @@ const DEVCOL = { climate: '#fbbf24', fan: '#2dd4bf', humidifier: '#2dd4bf', cove
 const dev = id => (H.devices || []).find(d => d.id === id);
 function homeTab(t) {
   HTAB = t === 'l' ? 'a' : (t || 'c');
-  [['c', 'h_controls'], ['a', 'h_autos'], ['s', 'h_sensors']].forEach(([k, p]) => {
+  [['c', 'h_controls'], ['u', 'h_upkeep'], ['a', 'h_autos'], ['s', 'h_sensors']].forEach(([k, p]) => {
     $('#hs_' + k).classList.toggle('on', HTAB === k);
     $('#' + p).classList.toggle('hide', HTAB !== k);
   });
-  if (HTAB !== 'c') houseTab();
+  if (HTAB === 'u') upLoad();
+  else if (HTAB !== 'c') houseTab();
 }
 async function homeLoad() {
   if (HBUSY > 0) return;
@@ -3616,10 +3820,183 @@ function homePlugs() {
   const b = H.batteries || {}; $('#hc_batt').innerHTML = `phone <b style="color:${(b.phone ?? 100) <= 25 ? 'var(--bad)' : 'var(--ink)'}">${nf(b.phone)}%</b> · laptop <b>${nf(b.laptop)}%</b>`;
 }
 
+// ---- Meds, Supplements & Daily Habits ----
+async function mhLoad() {
+  const ok = fresh('mh'), r = await api('api/habits'); if (!ok()) return;
+  if (r.error) { $('#mh_msg').textContent = r.error; return; }
+  const s = r.summary || {}, items = r.items || [], labels = r.week_labels || [];
+  $('#mh_sum').textContent = s.total ? `${+s.done || 0} / ${+s.total} done today` : 'none yet';
+  $('#mh_list').innerHTML = items.length ? items.map(x => {
+    const id = +x.id || 0, st = +x.streak || 0;
+    const dots = (x.week || []).map((v, i) => `<i class="mh-dot ${v ? 'on' : ''}" title="${esc(labels[i] || '')}"></i>`).join('');
+    const sub = [x.kind === 'med' ? 'med' : 'habit', x.dose, x.schedule].filter(Boolean).join(' · ');
+    return `<div class="mh-row">`
+      + `<button class="mh-chk ${x.done ? 'on' : ''}" onclick="mhToggle(${id})" aria-label="Toggle ${esc(x.name)}">${x.done ? '✓' : ''}</button>`
+      + `<div class="mh-main"><b style="font-size:13px">${esc(x.name)}</b><div class="mute" style="font-size:11px">${esc(sub)}</div></div>`
+      + `<div class="mh-dots">${dots}</div>`
+      + (st ? `<span class="mh-streak">${st}d</span>` : '')
+      + `<button class="soft" style="min-height:26px;padding:2px 7px;font-size:11px" onclick="mhDel(${id})">Del</button>`
+      + `</div>`;
+  }).join('') : '<div class="mute" style="font-size:12px">No meds or habits yet. Add one on the right to start tracking streaks.</div>';
+}
+async function mhAdd() {
+  const name = $('#mh_name').value.trim(); if (!name) return;
+  const r = await api('api/habits/add', {name, kind: $('#mh_kind').value, schedule: $('#mh_sched').value, dose: $('#mh_dose').value.trim()});
+  if (r.error) { $('#mh_msg').textContent = r.error; return; }
+  $('#mh_name').value = ''; $('#mh_dose').value = ''; $('#mh_msg').textContent = 'Added ✓';
+  mhLoad();
+}
+async function mhToggle(id) {
+  const r = await api('api/habits/toggle', {id: +id});
+  if (r.error) { $('#mh_msg').textContent = r.error; return; }
+  $('#mh_msg').textContent = r.done ? `Checked off (${+r.streak || 1}d streak)` : 'Unchecked';
+  mhLoad();
+}
+async function mhDel(id) {
+  const r = await api('api/habits/delete', {id: +id});
+  if (r.error) { $('#mh_msg').textContent = r.error; return; }
+  mhLoad();
+}
+
+// ---- Home Maintenance, Warranties & Upkeep ----
+async function upLoad() {
+  const ok = fresh('up'), r = await api('api/maintenance'); if (!ok()) return;
+  if (r.error) { $('#up_msg').textContent = r.error; return; }
+  const items = r.items || [], docs = r.docs || [];
+  $('#up_sum').textContent = items.length ? `${items.length} tracked${r.overdue ? ' · ' + (+r.overdue) + ' overdue' : ''}${r.soon ? ' · ' + (+r.soon) + ' due soon' : ''}` : 'none yet';
+  const curDoc = $('#up_doc').value;
+  $('#up_doc').innerHTML = '<option value="">No linked manual</option>' + docs.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+  if (curDoc) $('#up_doc').value = curDoc;
+  $('#up_list').innerHTML = items.length ? items.map(x => {
+    const id = +x.id || 0, dl = x.days_left, wd = x.warranty_days;
+    const stCls = x.state === 'overdue' ? 'overdue' : x.state === 'soon' ? 'soon' : 'ok';
+    const dueTxt = dl == null ? 'no due date' : dl < 0 ? `${Math.abs(+dl)}d overdue` : dl === 0 ? 'due today' : `in ${+dl}d (${esc(x.next_due)})`;
+    const warTxt = x.warranty_until ? ` · warranty ${wd != null && wd < 0 ? 'expired' : 'til ' + esc(x.warranty_until)}` : '';
+    const docTxt = x.doc_name ? ` · manual: ${esc(x.doc_name)}` : '';
+    return `<div class="up-row">`
+      + `<div class="mh-main"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b style="font-size:13px">${esc(x.name)}</b>`
+      + `<span class="up-badge ${stCls}">${dueTxt}</span></div>`
+      + `<div class="mute" style="font-size:11px">${esc(x.category)}${x.every_days ? ' · every ' + (+x.every_days) + 'd' : ''}${warTxt}${docTxt}${x.notes ? ' · ' + esc(x.notes) : ''}</div></div>`
+      + `<button class="go" style="min-height:28px;padding:3px 9px;font-size:11px" onclick="upDone(${id})">✓ Done</button>`
+      + `<button class="soft" style="min-height:28px;padding:3px 8px;font-size:11px" onclick="upDel(${id})">Del</button>`
+      + `</div>`;
+  }).join('') : '<div class="mute" style="font-size:12px">No upkeep items yet. Add filters, appliances, car service, or warranties on the right.</div>';
+}
+async function upAdd() {
+  const name = $('#up_name').value.trim(); if (!name) return;
+  const r = await api('api/maintenance/add', {
+    name, category: $('#up_cat').value, every_days: +$('#up_every').value || 0,
+    next_due: $('#up_due').value || null, warranty_until: $('#up_war').value || null,
+    doc_name: $('#up_doc').value || '', notes: $('#up_notes').value.trim(),
+  });
+  if (r.error) { $('#up_msg').textContent = r.error; return; }
+  $('#up_name').value = ''; $('#up_due').value = ''; $('#up_war').value = ''; $('#up_notes').value = '';
+  $('#up_msg').textContent = 'Added ✓';
+  upLoad();
+}
+async function upDone(id) {
+  const r = await api('api/maintenance/done', {id: +id});
+  if (r.error) { $('#up_msg').textContent = r.error; return; }
+  $('#up_msg').textContent = r.item && r.item.next_due ? `Logged ✓ Next due ${r.item.next_due}` : 'Logged ✓';
+  upLoad();
+}
+async function upDel(id) {
+  const r = await api('api/maintenance/delete', {id: +id});
+  if (r.error) { $('#up_msg').textContent = r.error; return; }
+  upLoad();
+}
+
+// ---- Saved Recipes & Barcode Quick-Log ----
+let RC_BC = null;
+async function rcLoad() {
+  const ok = fresh('rc'), q = $('#rc_q').value.trim(), sl = $('#rc_slot').value;
+  const qs = []; if (q) qs.push('q=' + encodeURIComponent(q)); if (sl) qs.push('slot=' + encodeURIComponent(sl));
+  const r = await api('api/recipes' + (qs.length ? '?' + qs.join('&') : '')); if (!ok()) return;
+  if (r.error) { $('#rc_msg').textContent = r.error; return; }
+  const list = r.recipes || [];
+  $('#rc_list').innerHTML = list.length ? list.map(x => {
+    const id = +x.id || 0;
+    const macs = [
+      x.calories != null ? `${Math.round(+x.calories)} kcal` : '',
+      x.protein_g != null ? `${Math.round(+x.protein_g)}g P` : '',
+      x.carbs_g != null ? `${Math.round(+x.carbs_g)}g C` : '',
+      x.fat_g != null ? `${Math.round(+x.fat_g)}g F` : '',
+      x.minutes ? `${Math.round(+x.minutes)} min` : '',
+    ].filter(Boolean);
+    const ings = (x.ingredients || []).join(', ');
+    return `<div class="rc-card"><div class="rc-top"><b style="font-size:13px">${esc(x.name)}</b><span class="mute" style="font-size:11px;text-transform:capitalize">${esc(x.slot || 'any')}</span></div>`
+      + (macs.length ? `<div class="rc-macros">${macs.map(m => `<span>${esc(m)}</span>`).join('')}</div>` : '')
+      + (ings ? `<div class="mute" style="font-size:11px">${esc(ings)}</div>` : '')
+      + `<div class="rc-acts">`
+      + `<button class="go" onclick="rcLog(${id})">✓ Eat</button>`
+      + ((x.ingredients || []).length ? `<button class="soft" onclick="rcShop(${id})">+ Shop</button>` : '')
+      + `<button class="soft" onclick="rcDel(${id})">Del</button>`
+      + `</div></div>`;
+  }).join('') : '<div class="mute" style="font-size:12px">No saved recipes yet. Add one on the right, scan a barcode, or click ★ Save Recipe on any Weekly Meal Plan item.</div>';
+}
+async function rcSave() {
+  const name = $('#rc_name').value.trim(); if (!name) return;
+  const num = s => { const v = $(s).value.trim(); return v === '' ? null : +v; };
+  const r = await api('api/recipes/save', {
+    name, slot: $('#rc_f_slot').value, minutes: num('#rc_mins'),
+    calories: num('#rc_cal'), protein_g: num('#rc_pro'), carbs_g: num('#rc_crb'), fat_g: num('#rc_fat'),
+    ingredients: $('#rc_ing').value.trim(), steps: $('#rc_steps').value.trim(),
+  });
+  if (r.error) { $('#rc_msg').textContent = r.error; return; }
+  ['#rc_name', '#rc_mins', '#rc_cal', '#rc_pro', '#rc_crb', '#rc_fat', '#rc_ing', '#rc_steps'].forEach(s => { $(s).value = ''; });
+  $('#rc_msg').textContent = 'Recipe saved ✓';
+  rcLoad();
+}
+async function rcBarcode() {
+  const upc = $('#rc_upc').value.trim(); if (!upc) return;
+  $('#rc_bc_out').innerHTML = '<div class="mute" style="font-size:12px;margin-top:6px">Looking up UPC…</div>';
+  const r = await api('api/recipes/barcode', {upc});
+  if (r.error) { $('#rc_bc_out').innerHTML = `<div class="bad" style="font-size:12px;margin-top:6px">${esc(r.error)}</div>`; return; }
+  if (!r.match) { RC_BC = null; $('#rc_bc_out').innerHTML = `<div class="mute" style="font-size:12px;margin-top:6px">UPC ${esc(r.upc)} not found in local USDA database.</div>`; return; }
+  const m = r.match; RC_BC = {upc: r.upc, match: m};
+  const parts = [m.calories != null ? `${Math.round(+m.calories)} kcal` : '', m.protein_g != null ? `${Math.round(+m.protein_g)}g P` : '',
+    m.carbs_g != null ? `${Math.round(+m.carbs_g)}g C` : '', m.fat_g != null ? `${Math.round(+m.fat_g)}g F` : ''].filter(Boolean).join(' · ');
+  $('#rc_bc_out').innerHTML = `<div class="rc-bc"><b>${esc(m.name)}</b>`
+    + `<div class="mute" style="font-size:11px;margin:2px 0 6px">${esc(m.serving || '')}${parts ? ' · ' + esc(parts) : ''}</div>`
+    + `<div class="rc-acts"><button class="go" onclick="rcBcSave(true)">✓ Save &amp; Eat</button><button class="soft" onclick="rcBcSave(false)">★ Save staple</button></div></div>`;
+}
+async function rcBcSave(andEat) {
+  if (!RC_BC || !RC_BC.match) return;
+  const m = RC_BC.match;
+  const s = await api('api/recipes/save', {
+    name: m.name, slot: 'any', calories: m.calories, protein_g: m.protein_g,
+    carbs_g: m.carbs_g, fat_g: m.fat_g, fiber_g: m.fiber_g, sugar_g: m.sugar_g, upc: RC_BC.upc,
+  });
+  if (s.error) { $('#rc_msg').textContent = s.error; return; }
+  if (andEat && s.recipe && s.recipe.id) {
+    const l = await api('api/recipes/log', {id: +s.recipe.id});
+    $('#rc_msg').textContent = l.error ? l.error : `Saved & logged "${m.name}" ✓`;
+  } else {
+    $('#rc_msg').textContent = `Saved "${m.name}" ✓`;
+  }
+  $('#rc_upc').value = ''; $('#rc_bc_out').innerHTML = ''; RC_BC = null;
+  rcLoad();
+}
+async function rcLog(id) {
+  const r = await api('api/recipes/log', {id: +id});
+  $('#rc_msg').textContent = r.error ? r.error : `Logged "${r.logged}"${r.calories != null ? ' (' + Math.round(+r.calories) + ' kcal)' : ''} ✓`;
+}
+async function rcShop(id) {
+  const r = await api('api/recipes/shop', {id: +id});
+  if (r.error) { $('#rc_msg').textContent = r.error; return; }
+  const a = (r.added || []).length, sk = (r.skipped || []).length;
+  $('#rc_msg').textContent = a ? `Added ${a} missing item${a === 1 ? '' : 's'} to shopping list` + (sk ? ` (${sk} already in pantry)` : '') : (sk ? 'All ingredients already in pantry ✓' : 'No ingredients listed.');
+}
+async function rcDel(id) {
+  const r = await api('api/recipes/delete', {id: +id});
+  if (r.error) { $('#rc_msg').textContent = r.error; return; }
+  rcLoad();
+}
+
 (function () { let q = ''; try { q = window.top.location.search; } catch (e) { q = location.search; }
   const m = /[?&]hm_thing=([^&]+)/.exec(q); let name = null; try { name = m && decodeURIComponent(m[1].replace(/\+/g, ' ')); } catch (e) {}
   if (name) setTimeout(() => thingPage(name), 300); })();
-hbBtn(); load('today'); setInterval(() => { if (!$('#today').classList.contains('hide') && !document.hidden && !HB.mode && !$('#hb_q').value && !HB.win) hubLoad(); }, 120000);
+hbBtn(); loadViewerOpts(); load('today'); setInterval(() => { if (!$('#today').classList.contains('hide') && !document.hidden && !HB.mode && !$('#hb_q').value && !HB.win) hubLoad(); }, 120000);
 </script>
 </body>
 </html>

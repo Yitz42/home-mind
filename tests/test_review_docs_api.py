@@ -45,8 +45,12 @@ def table_rows(text, first_col_code=False):
 
 
 # ---------- routes ----------
-routes = set(re.findall(r'@r\.(get|post|delete|put)\("([^"]+)"\)', MAIN))
-routes = {(m.upper(), p) for m, p in routes}
+routes = set()
+_hm_dir = os.path.join(APP, "rootfs", "app", "homemind")
+for _fn in os.listdir(_hm_dir):
+    if _fn.endswith(".py"):
+        _src = open(os.path.join(_hm_dir, _fn), encoding="utf-8").read()
+        routes.update((m.upper(), p) for m, p in re.findall(r'@r\.(get|post|delete|put)\("([^"]+)"\)', _src))
 api = section("API")
 documented = {}
 for cells in table_rows(api):
