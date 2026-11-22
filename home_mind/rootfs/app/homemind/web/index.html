@@ -172,9 +172,9 @@
   }
   @media (max-width: 860px) {
     .app { display:block } main { padding:16px 14px 80px }
-    #nav { position:fixed; z-index:5; left:0; right:0; bottom:0; top:auto; width:auto; height:auto; flex-direction:row; padding:6px 6px 6px; border-right:0; border-top:1px solid var(--line); gap:2px }
+    #nav { position:fixed; z-index:5; left:0; right:0; bottom:0; top:auto; width:auto; height:auto; flex-direction:row; padding:5px 4px; border-right:0; border-top:1px solid var(--line); gap:2px; overflow-x:auto }
     #nav .brand, #nav .grp, #nav .foot, #nav .sys { display:none } #nav .badge { display:none }
-    #nav button { flex:1; flex-direction:column; gap:3px; padding:6px 2px; font-size:11px; justify-content:center; min-height:52px; text-align:center }
+    #nav button { flex:1 1 0; min-width:0; flex-direction:column; gap:2px; padding:5px 1px; font-size:10px; justify-content:center; min-height:50px; text-align:center }
     .ph h1 { font-size:26px } .bento { grid-template-columns:1fr } .card { border-radius:16px; padding:14px 16px }
     .week { gap:6px } .days { gap:6px }
   }
@@ -890,8 +890,8 @@
     <div class="row"><textarea id="r_text" rows="2" style="flex:1" placeholder="What to keep"></textarea></div>
     <div class="row" style="margin-bottom:0"><button class="go" onclick="remember()">Remember</button> <span id="r_out" class="mute"></span></div>
   </div>
+  <div class="ck-card hide" id="itemcard" style="margin-bottom:10px"></div>
   <div id="br_p_notes" class="ck-col">
-    <div class="ck-card hide" id="itemcard"></div>
     <div class="ck-card hide" id="inboxcard"><h2>Inbox <span class="mute" style="font-size:12px;font-weight:400">notes not on a shelf yet</span></h2><table id="inbox"></table></div>
     <div class="ck-card hide" id="reviewcard"><h2>To review <span class="mute" style="font-size:12px;font-weight:400">learned or guessed, not checked yet</span></h2><table id="review"></table></div>
     <div class="ck-grid">
@@ -1194,7 +1194,7 @@ function sysTab(t) {
   if (t === 'over') loadMore();
   if (t === 'models') load('models');
   if (t === 'tests') load('tests');
-  if (t === 'access') { tokens(); checkUpd(); }
+  if (t === 'access') tokens();
 }
 document.querySelectorAll('#nav button').forEach(b => b.onclick = () => go(b.dataset.t));
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -2247,7 +2247,7 @@ async function load(t) {
     await loadMore();
     if (SY_TAB === 'models') load('models');
     if (SY_TAB === 'tests') load('tests');
-    if (SY_TAB === 'access') { tokens(); checkUpd(); }
+    if (SY_TAB === 'access') tokens();
   }
   if (t === 'memory') {
     browse(''); recent(); review(); inbox(); docsList(); viewsList();
