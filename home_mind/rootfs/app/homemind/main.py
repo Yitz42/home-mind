@@ -3883,6 +3883,32 @@ def build(app_state):
         names = {e: c["name"] for e, c in A.home.catalog.items()}
         return J([dict(p, name=names.get(p["entity_id"], p["entity_id"])) for p in A.prefs.learned()])
 
+    @r.get("/api/memgraph/graph")
+    async def memgraph_graph(q):
+        """Viewer-scoped visual graph of MemGraph nodes, links, live stability, episodes, and optional note links."""
+        include_dormant = q.query.get("dormant", "1") not in ("0", "false", "no")
+        include_notes = q.query.get("notes", "0") in ("1", "true", "yes")
+        cat = (q.query.get("category") or "").strip() or None
+        lim = int(num(q.query.get("limit"), "limit", 120, 1, 300))
+        return J(A.memgraph.snapshot(viewer=VIEWER.get(), include_dormant=include_dormant,
+                                     category=cat, limit=lim, include_notes=include_notes))
+
+    @r.post("/api/memgraph/link/{id}/{op}")
+    async def memgraph_link_op(q):
+        """Confirm, hide (forget), or delete a single MemGraph link from the Brain Graph visualizer."""
+        lid = whole(q.match_info["id"], "id")
+        op = q.match_info["op"]
+        if op not in ("confirm", "forget", "delete"):
+            return J({"error": "op must be confirm, forget, or delete"}, status=400)
+        try:
+            if op == "confirm":
+                return J(A.memgraph.confirm_link(lid, viewer=VIEWER.get()))
+            return J(A.memgraph.forget_link(lid, viewer=VIEWER.get(), delete=(op == "delete")))
+        except PermissionError as e:
+            return J({"error": str(e)}, status=403)
+        except KeyError as e:
+            return J({"error": str(e)}, status=404)
+
     @r.get("/api/thing")
     async def thing(q):
         """Everything known about one thing or place (#20), for the page a QR label opens (#63)."""

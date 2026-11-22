@@ -1332,6 +1332,8 @@ note), 502 (a model failed) or 500.
 | POST | `/api/automations/install` | admin | install a checked draft, switched off (`config`, `pin` for ones that unlock) |
 | POST | `/api/automations/{op}` | admin | `takeover`, `release`, `run`, `retire`, `reload` (`ids`, `id`, `all`) |
 | GET | `/api/preferences` | read | learned light and fan levels |
+| GET | `/api/memgraph/graph` | read | viewer-scoped Brain Graph snapshot (`dormant?`, `category?`, `notes?`, `limit?`) |
+| POST | `/api/memgraph/link/{id}/{op}` | write | `confirm`, `forget`, or `delete` a learned MemGraph link |
 | GET | `/api/control_model/dataset` | admin | training data for the local control model, from your control list (`part=train` or `test`, `paraphrase=1`) |
 | GET | `/api/trainer/status` | admin | small-LLM trainer status: local GPU worker health (`trainer_url`), all 3 targets (`control`, `persona`, `memgraph`), Colab links and active jobs |
 | GET | `/api/trainer/dataset/{target}` | admin | one-click single-file training bundle for `control`, `persona`, or `memgraph` (`download=1`, `format=jsonl` for memgraph) |

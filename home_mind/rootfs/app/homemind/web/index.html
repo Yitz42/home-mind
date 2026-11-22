@@ -331,6 +331,20 @@
     .mp-row { grid-template-columns:48px repeat(3,minmax(0,1fr)); gap:4px }
     .mp-slot { padding:6px 6px; min-height:52px } button.mp-slot { padding-right:26px }
   }
+  /* Brain graph visualizer */
+  .mg-wrap { position:relative; border:1px solid var(--mem-line); border-radius:14px; background:var(--bg); overflow:hidden }
+  .mg-svg { width:100%; height:420px; display:block; touch-action:none }
+  .mg-svg text { user-select:none; pointer-events:none }
+  .mg-node { cursor:grab } .mg-node:active { cursor:grabbing }
+  .mg-legend { display:flex; flex-wrap:wrap; gap:12px; font-size:12px; color:var(--mute); padding:8px 12px; border-top:1px solid var(--line); background:var(--card) }
+  .mg-legend span { display:inline-flex; align-items:center; gap:5px }
+  .mg-legend i { display:inline-block; width:14px; height:0; border-top:2px solid var(--ok) }
+  .mg-cats { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px }
+  .mg-cats button { border:1px solid var(--line); background:var(--card2); color:var(--mute); border-radius:99px; padding:4px 11px; font:inherit; font-size:12px; cursor:pointer; min-height:30px }
+  .mg-cats button.on { background:var(--mem); color:#fff; border-color:var(--mem); font-weight:600 }
+  .mg-insp { border:1px solid var(--mem-line); background:var(--card2); border-radius:14px; padding:12px 14px; margin-top:12px }
+  .mg-badge { display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; border:1px solid var(--line); margin-left:4px }
+  .mg-eps { margin-top:8px; padding-top:8px; border-top:1px solid var(--line); font-size:12px; color:var(--mute); display:flex; flex-direction:column; gap:4px }
 </style>
 </head>
 <body>
@@ -475,7 +489,7 @@
 </section>
 <section id="memory" class="hide">
   <div class="ph"><div><div class="sub" id="mem_sub" style="color:var(--mem)">Everything Home Mind has been told or learned</div><h1>Memory</h1></div></div>
-  <div class="seg"><button class="on" onclick="go('memory')">Notes</button><button  onclick="go('worked')">Worked out</button></div>
+  <div class="seg"><button class="on" onclick="go('memory')">Notes</button><button onclick="go('worked')">Worked out</button><button onclick="go('graph')">Graph</button></div>
   <div class="card hide" id="itemcard"></div>
   <div class="card hide" id="inboxcard"><h2>Inbox <span class="mute">notes not on a shelf yet; filing learns from where you put them</span></h2><table id="inbox"></table></div>
   <div class="card"><h2>Documents <span class="mute">manuals, warranties, recipes: searched for questions, answers name the page</span></h2><table id="docs"></table>
@@ -507,7 +521,7 @@
 </section>
 <section id="worked" class="hide">
   <div class="ph"><div><div class="sub" style="color:var(--mem)">Pulled out of your notes</div><h1>Worked out</h1></div></div>
-  <div class="seg"><button  onclick="go('memory')">Notes</button><button class="on" onclick="go('worked')">Worked out</button></div>
+  <div class="seg"><button onclick="go('memory')">Notes</button><button class="on" onclick="go('worked')">Worked out</button><button onclick="go('graph')">Graph</button></div>
   <div class="card"><h2>About you and the house <span class="mute">always shown to models</span></h2><ul id="w_profile"></ul>
     <p class="mute">From notes like "Dana is my partner" (they go on the profile shelf). Edit or forget them in Memory.</p></div>
   <div class="card"><h2>Chores</h2><table id="w_chores"></table>
@@ -520,6 +534,37 @@
   <div class="card"><h2>Disagreeing notes <span class="mute">two people said different things, or a guess differs from what was said</span></h2><table id="w_conf"></table></div>
   <div class="card"><h2>Corrections kept as tests</h2><table id="w_cases"></table>
     <p class="mute">Kept when you say "that's wrong" and then the right value. The <b>corrections</b> suite on the Tests tab asks them again.</p></div>
+</section>
+<section id="graph" class="hide">
+  <div class="ph"><div><div class="sub" style="color:var(--mem)">Connections the brain has learned from chats, sensors, and notes</div><h1>Brain graph</h1></div></div>
+  <div class="seg"><button onclick="go('memory')">Notes</button><button onclick="go('worked')">Worked out</button><button class="on" onclick="go('graph')">Graph</button></div>
+  <div class="grid" id="mg_stats"></div>
+  <div class="card">
+    <div id="mg_cats" class="mg-cats"></div>
+    <div class="row" style="gap:10px">
+      <input id="mg_q" placeholder="Filter nodes or relations…" oninput="mgFilter(this.value)" style="flex:1;min-width:160px">
+      <label class="mute" style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" id="mg_dormant" checked onchange="graphLoad()"> Show dormant</label>
+      <label class="mute" style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" id="mg_notes" onchange="graphLoad()"> Note links</label>
+      <button class="soft" onclick="mgRelayout()">Re-layout</button>
+    </div>
+    <div class="mg-wrap">
+      <svg id="mg_svg" class="mg-svg" viewBox="0 0 860 420"></svg>
+      <div class="mg-legend">
+        <span><i style="border-color:var(--ok)"></i>Fact (+)</span>
+        <span><i style="border-color:var(--bad)"></i>Allergy / Dislike (−)</span>
+        <span><i style="border-color:var(--house);border-top-style:dashed"></i>Sensor / Idea</span>
+        <span><i style="border-color:var(--food);border-top-style:dotted"></i>Contested</span>
+        <span><i style="border-color:var(--mute);border-top-style:dashed"></i>Dormant</span>
+        <span><i style="border-color:var(--mem)"></i>Note link</span>
+      </div>
+    </div>
+    <div id="mg_insp" class="mg-insp mute">Click any node or line to inspect what the brain learned, see its evidence, or confirm / hide it.</div>
+  </div>
+  <div class="card">
+    <details><summary style="cursor:pointer;font-weight:600">All visible connections (<span id="mg_tbl_cnt">0</span>)</summary>
+      <div style="overflow:auto;margin-top:10px"><table id="mg_tbl"></table></div>
+    </details>
+  </div>
 </section>
 <section id="house" class="hide">
   <div class="ph"><div><div class="sub" style="color:var(--house-ink)" id="ho_sub">Bedroom</div><h1>Home</h1></div>
@@ -671,7 +716,7 @@ async function jfetch(path, opts) {
 }
 const ago = t => { const s = Date.now()/1000 - t; return s < 90 ? Math.round(s)+'s ago' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
 const pct = v => v === undefined ? '' : Math.round(v*100)+'%';
-const PARENT = {worked: 'memory', tests: 'more', models: 'more', updates: 'more'};
+const PARENT = {worked: 'memory', graph: 'memory', tests: 'more', models: 'more', updates: 'more'};
 function go(t) {
   const btn = document.querySelector(`#nav button[data-t="${t}"]`), shown = btn && getComputedStyle(btn).display !== 'none', mark = shown ? t : (PARENT[t] || t);
   document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('on', x.dataset.t === mark));
@@ -1305,6 +1350,7 @@ async function load(t) {
   if (t === 'more') await loadMore();
   if (t === 'memory') { browse(''); recent(); review(); inbox(); docsList(); viewsList(); }
   if (t === 'worked') { worked(); }
+  if (t === 'graph') { graphLoad(); }
   if (t === 'house') { homeLoad(); if (HTAB === 'l') houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
   if (t === 'pantry') { pantry(); }
   if (t === 'tests') {
@@ -1449,6 +1495,236 @@ async function worked() {
     `<tr><td>${esc(c.question)}</td><td>${esc(c.right)}</td><td class="mute">${esc(c.wrong).slice(0, 80)}</td><td><a onclick="dropCase(${c.id})">remove</a></td></tr>`).join('') || none(4, 'none yet'));
 }
 async function dropCase(id) { await api('api/cases/' + id + '/remove', {}); worked(); }
+// ---- Brain Graph visualizer (Memory > Graph) ----------------------------------------------------------------------
+const MG = {nodes: [], links: [], cats: {}, summary: {}, cat: 'ALL', q: '', pos: {}, selLink: null, drag: null, wired: false};
+const MG_CAT_COL = {
+  USER: 'var(--acc)', FOOD: 'var(--food)', HEALTH: 'var(--bad)', SLEEP: 'var(--health)',
+  HOME: 'var(--house)', LIGHTING: 'var(--house-ink)', ACTIVITY: 'var(--ok)', GENERAL: 'var(--mem)', NOTES: 'var(--mem)',
+};
+function mgWireDrag() {
+  if (MG.wired) return;
+  const svg = $('#mg_svg');
+  if (!svg || typeof svg.addEventListener !== 'function') return;
+  MG.wired = true;
+  svg.addEventListener('pointerdown', e => {
+    const g = e.target && e.target.closest ? e.target.closest('.mg-node') : null;
+    if (!g) return;
+    const id = g.getAttribute('data-id');
+    if (!id || !MG.pos[id]) return;
+    MG.drag = id;
+    mgPickNode(id);
+    if (svg.setPointerCapture) try { svg.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!MG.drag || !MG.pos[MG.drag]) return;
+    const r = svg.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    MG.pos[MG.drag].x = Math.max(44, Math.min(816, (e.clientX - r.left) * (860 / r.width)));
+    MG.pos[MG.drag].y = Math.max(32, Math.min(388, (e.clientY - r.top) * (420 / r.height)));
+    mgDraw();
+  });
+  svg.addEventListener('pointerup', () => { MG.drag = null; });
+}
+async function graphLoad() {
+  mgWireDrag();
+  const dorm = $('#mg_dormant').checked ? '1' : '0';
+  const notes = $('#mg_notes').checked ? '1' : '0';
+  const r = await api(`api/memgraph/graph?dormant=${dorm}&notes=${notes}&limit=140`);
+  if (!r || r.error) { $('#mg_insp').textContent = (r && r.error) || 'could not load graph'; return; }
+  MG.nodes = r.nodes || []; MG.links = r.links || []; MG.cats = r.categories || {}; MG.summary = r.summary || {};
+  if (MG.cat !== 'ALL' && !MG.cats[MG.cat] && !(MG.cat === 'NOTES' && MG.summary.note_links)) MG.cat = 'ALL';
+  mgLayout(false);
+  if (MG.selLink) {
+    MG.selLink = MG.links.find(l => String(l.id) === String(MG.selLink.id)) || null;
+  }
+  if (!MG.selLink && MG.links.length) MG.selLink = MG.links[0];
+  mgRenderAll();
+}
+function mgCat(c) { MG.cat = c; mgRenderAll(); }
+function mgFilter(v) { MG.q = (v || '').trim().toLowerCase(); mgRenderAll(); }
+function mgRelayout() { mgLayout(true); mgDraw(); }
+function mgVisible() {
+  const q = MG.q;
+  const links = MG.links.filter(l => {
+    if (MG.cat !== 'ALL' && l.category !== MG.cat) return false;
+    if (q) {
+      const hay = `${l.source_name || ''} ${l.target_name || ''} ${l.display_relation || ''} ${l.category || ''} ${(l.context_tags || []).join(' ')}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const used = new Set();
+  links.forEach(l => { used.add(l.source); used.add(l.target); });
+  const nodes = MG.nodes.filter(n => used.has(n.id));
+  return {nodes, links};
+}
+function mgLayout(forceReset) {
+  const W = 860, H = 420, cx = W / 2, cy = H / 2;
+  const nodes = MG.nodes;
+  const nonUser = nodes.filter(n => !n.is_user).sort((a, b) => (a.category || '').localeCompare(b.category || '') || (a.label || '').localeCompare(b.label || ''));
+  nodes.forEach(n => {
+    if (!forceReset && MG.pos[n.id]) return;
+    if (n.is_user) { MG.pos[n.id] = {x: cx, y: cy}; return; }
+    const idx = nonUser.indexOf(n);
+    const angle = (idx / Math.max(1, nonUser.length)) * Math.PI * 2 - Math.PI / 2;
+    const ring = n.kind === 'note' ? 1.15 : (idx % 2 === 0 ? 0.88 : 1.04);
+    MG.pos[n.id] = {x: cx + Math.cos(angle) * 275 * ring, y: cy + Math.sin(angle) * 145 * ring};
+  });
+  // Light deterministic repulsion + edge springs so labels stay legible
+  const ids = nodes.map(n => n.id);
+  for (let iter = 0; iter < 40; iter++) {
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = MG.pos[ids[i]], b = MG.pos[ids[j]];
+        let dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy || 1;
+        if (d2 < 6400) {
+          const f = (80 - Math.sqrt(d2)) * 0.12 / Math.sqrt(d2);
+          if (!nodes[i].is_user) { a.x -= dx * f; a.y -= dy * f; }
+          if (!nodes[j].is_user) { b.x += dx * f; b.y += dy * f; }
+        }
+      }
+    }
+    MG.links.forEach(l => {
+      const a = MG.pos[l.source], b = MG.pos[l.target];
+      if (!a || !b) return;
+      const dx = b.x - a.x, dy = b.y - a.y, dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const ideal = l.kind === 'note' ? 110 : 155;
+      const pull = (dist - ideal) * 0.025 / dist;
+      const na = nodes.find(x => x.id === l.source), nb = nodes.find(x => x.id === l.target);
+      if (na && !na.is_user) { a.x += dx * pull; a.y += dy * pull; }
+      if (nb && !nb.is_user) { b.x -= dx * pull; b.y -= dy * pull; }
+    });
+    nodes.forEach(n => {
+      const p = MG.pos[n.id];
+      if (n.is_user) { p.x = cx; p.y = cy; }
+      else { p.x = Math.max(54, Math.min(W - 54, p.x)); p.y = Math.max(36, Math.min(H - 36, p.y)); }
+    });
+  }
+}
+function mgStroke(l) {
+  if (l.kind === 'note') return {col: 'var(--mem)', dash: '', op: 0.72, w: 1.5};
+  if (l.dormant) return {col: 'var(--mute)', dash: '4,4', op: 0.4, w: 1.4};
+  if (l.status === 'CONTESTED') return {col: 'var(--food)', dash: '2,3', op: 0.95, w: 2.4};
+  const s = Number(l.effective_stability || 0);
+  if (l.relation === 'ALLERGIC_TO' || (l.signed && s < 0)) return {col: 'var(--bad)', dash: s < 0 ? '6,3' : '', op: 0.92, w: 1.6 + Math.abs(s) * 2.2};
+  if (l.evidence === 'sensor_fact') return {col: 'var(--house)', dash: l.status === 'FACT' ? '' : '5,3', op: 0.88, w: 1.5 + Math.abs(s) * 1.8};
+  return {col: 'var(--ok)', dash: l.status === 'FACT' ? '' : '5,3', op: 0.9, w: 1.4 + Math.abs(s) * 2.2};
+}
+function mgRenderAll() {
+  const s = MG.summary || {};
+  $('#mg_stats').innerHTML = [
+    ['Facts', s.facts || 0],
+    ['Ideas & guesses', (s.ideas || 0) + (s.thoughts || 0)],
+    ['Sensor habits', s.sensor_facts || 0],
+    ['Contested', s.contested || 0],
+    ['Dormant', s.dormant || 0],
+  ].map(([k, v]) => `<div class="stat"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('');
+
+  const catKeys = ['ALL'].concat(Object.keys(MG.cats || {}));
+  if (s.note_links) catKeys.push('NOTES');
+  $('#mg_cats').innerHTML = catKeys.map(c => {
+    const cnt = c === 'ALL' ? (s.total_links || 0) + (s.note_links || 0) : c === 'NOTES' ? (s.note_links || 0) : (MG.cats[c] || 0);
+    return `<button onclick="mgCat(${jsq(c)})" class="${MG.cat === c ? 'on' : ''}">${esc(c)} (${esc(cnt)})</button>`;
+  }).join('');
+
+  mgDraw();
+  mgInspector();
+}
+function mgDraw() {
+  const {nodes, links} = mgVisible();
+  const svg = $('#mg_svg');
+  $('#mg_tbl_cnt').textContent = String(links.length);
+  if (!links.length) {
+    svg.innerHTML = `<text x="430" y="195" text-anchor="middle" font-size="14" fill="var(--mute)">No connections to display yet.</text>`
+      + `<text x="430" y="220" text-anchor="middle" font-size="12" fill="var(--mute)">MemGraph grows automatically from chats, overnight summaries, watch/sleep data, workouts, and Home Assistant sensors.</text>`;
+    $('#mg_tbl').innerHTML = '<tr><td class="mute">No connections match the current filter.</td></tr>';
+    return;
+  }
+  const selId = MG.selLink ? String(MG.selLink.id) : '';
+  let html = '';
+  links.forEach(l => {
+    const a = MG.pos[l.source], b = MG.pos[l.target];
+    if (!a || !b) return;
+    const st = mgStroke(l), isSel = String(l.id) === selId;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    html += `<g style="cursor:pointer" onclick="mgPickLink(${jsq(l.id)})">`
+      + `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${st.col}" stroke-width="${(isSel ? st.w + 1.8 : st.w).toFixed(1)}" stroke-dasharray="${st.dash}" opacity="${isSel ? 1 : st.op}"/>`
+      + `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="transparent" stroke-width="14"/>`
+      + `<text x="${mx.toFixed(1)}" y="${(my - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--mute)" opacity="${l.dormant ? 0.55 : 0.9}">${esc(l.display_relation || l.relation)}</text></g>`;
+  });
+  nodes.forEach(n => {
+    const p = MG.pos[n.id]; if (!p) return;
+    const col = MG_CAT_COL[n.category] || 'var(--acc)';
+    const r = n.is_user ? 22 : Math.min(20, 12 + Math.min(6, n.degree || 1));
+    const isSel = MG.selLink && (MG.selLink.target === n.id || (MG.selLink.source === n.id && !n.is_user));
+    const lbl = (n.label || '').length > 22 ? (n.label || '').slice(0, 21) + '…' : (n.label || '');
+    html += `<g class="mg-node" data-id="${esc(n.id)}" transform="translate(${p.x.toFixed(1)},${p.y.toFixed(1)})">`
+      + `<circle r="${r}" fill="var(--card)" stroke="${col}" stroke-width="${isSel ? 3 : 2}"/>`
+      + `<circle r="${Math.max(4, r - 4)}" fill="${col}" opacity="0.16"/>`
+      + `<text y="${r + 13}" text-anchor="middle" font-size="11" font-weight="${n.is_user || isSel ? '600' : '500'}" fill="var(--ink)">${esc(lbl)}</text></g>`;
+  });
+  svg.innerHTML = html;
+
+  $('#mg_tbl').innerHTML = '<tr><th>from</th><th>relation</th><th>to</th><th>status</th><th>stability</th><th>evidence</th><th>category</th></tr>'
+    + links.map(l => {
+      const sVal = Number(l.effective_stability || 0);
+      const sStr = (sVal >= 0 ? '+' : '') + sVal.toFixed(2);
+      return `<tr style="cursor:pointer" onclick="mgPickLink(${jsq(l.id)})"><td>${esc(l.source_name === 'user' ? 'You' : l.source_name)}</td>`
+        + `<td><b>${esc(l.display_relation || l.relation)}</b></td><td>${esc(l.target_name)}</td>`
+        + `<td>${esc(l.dormant ? 'DORMANT' : l.status)}</td><td class="num">${esc(sStr)}</td>`
+        + `<td class="mute">${esc(l.evidence)}</td><td class="mute">${esc(l.category)}</td></tr>`;
+    }).join('');
+}
+function mgPickLink(idStr) {
+  MG.selLink = MG.links.find(l => String(l.id) === String(idStr)) || MG.selLink;
+  mgDraw(); mgInspector();
+}
+function mgPickNode(nodeId) {
+  const {links} = mgVisible();
+  const hit = links.find(l => l.target === nodeId) || links.find(l => l.source === nodeId);
+  if (hit) { MG.selLink = hit; mgDraw(); mgInspector(); }
+}
+function mgInspector() {
+  const box = $('#mg_insp'), l = MG.selLink;
+  if (!l) { box.className = 'mg-insp mute'; box.textContent = 'Click any node or line to inspect what the brain learned, see its evidence, or confirm / hide it.'; return; }
+  box.className = 'mg-insp';
+  const src = l.source_name === 'user' ? 'You' : l.source_name;
+  if (l.kind === 'note') {
+    const sid = +l.source_id || 0, tid = +l.target_id || 0;
+    box.innerHTML = `<div class="row" style="margin:0;justify-content:space-between"><div><b>${esc(src)}</b> —[${esc(l.display_relation)}]→ <b>${esc(l.target_name)}</b> <span class="mg-badge">NOTE LINK</span></div>`
+      + `<div class="row" style="margin:0"><button class="soft" onclick="go('memory'); item(${sid})">Open source note</button>`
+      + `<button class="soft" onclick="go('memory'); item(${tid})">Open target note</button></div></div>`;
+    return;
+  }
+  const lid = +l.id || 0;
+  const sVal = Number(l.effective_stability || 0), sStr = (sVal >= 0 ? '+' : '') + sVal.toFixed(2);
+  const stLbl = l.dormant ? 'DORMANT' : l.status;
+  const st = l.stats || {};
+  const statsTxt = st.count ? ` · baseline ${Number(st.mean).toFixed(1)}${st.unit ? ' ' + st.unit : ''} ± ${Number(st.std_dev || 0).toFixed(1)} (n=${st.count})` : '';
+  const tagsTxt = (l.context_tags || []).length ? ` · tags: ${l.context_tags.join(', ')}` : '';
+  const epsHtml = (l.episodes || []).length
+    ? `<div class="mg-eps"><b>Recent evidence:</b>` + l.episodes.map(ep => {
+        const when = ep.ts ? new Date(ep.ts * 1000).toLocaleDateString() : '';
+        const val = ep.value != null ? `${ep.value}${ep.unit ? ' ' + ep.unit : ''}` : '';
+        return `<div>• ${esc(when)}${val ? ' · ' + esc(val) : ''}${ep.quote ? ' — "' + esc(ep.quote) + '"' : (ep.source_ref ? ' · ' + esc(ep.source_ref) : '')}</div>`;
+      }).join('') + `</div>` : '';
+  box.innerHTML = `<div class="row" style="margin:0;justify-content:space-between;align-items:flex-start;gap:10px">`
+    + `<div><div><b>${esc(src)}</b> —[${esc(l.display_relation || l.relation)}]→ <b>${esc(l.target_name)}</b>`
+    + `<span class="mg-badge">${esc(stLbl)}</span> <span class="mute" style="font-size:12px">S=${esc(sStr)} · ${esc(l.evidence)} · ${esc(l.category)}</span></div>`
+    + `<div class="mute" style="font-size:12px;margin-top:4px">evidence ${esc(l.evidence_count || 1)}× · shown ${esc(l.shown_count || 0)}×${esc(statsTxt)}${esc(tagsTxt)}${l.scope === 'personal' && l.owner ? ' · personal (' + esc(l.owner) + ')' : ''}</div></div>`
+    + `<div class="row" style="margin:0;gap:6px">`
+    + `<button class="go" onclick="mgLinkOp(${lid}, 'confirm')">✓ Confirm</button>`
+    + `<button class="soft" onclick="mgLinkOp(${lid}, 'forget')">Hide</button>`
+    + `<button class="soft" onclick="mgLinkOp(${lid}, 'delete')">Delete</button>`
+    + `</div></div>${epsHtml}`;
+}
+async function mgLinkOp(id, op) {
+  if (op === 'delete' && !confirm('Permanently delete this learned connection and its episodes?')) return;
+  const r = await api(`api/memgraph/link/${id}/${op}`, {});
+  if (r && r.error) { alert(r.error); return; }
+  if (op === 'delete') MG.selLink = null;
+  graphLoad();
+}
 async function search() {
   const ok = fresh('search'), hits = await api('api/recall?raw=1&q=' + encodeURIComponent($('#q').value) + ($('#old').checked ? '&old=1' : '') + '&touch=0'); if (!ok()) return;
   $('#hits').innerHTML = hits.map(h => `<div class="li"><div class="main"><a class="t" onclick="item(${h.id})">${esc(h.title)}</a><div class="mute" style="font-size:13px">${esc(h.body).slice(0, 200)}</div>

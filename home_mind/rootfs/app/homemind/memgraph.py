@@ -2028,6 +2028,270 @@ class MemGraph:
             ).fetchone()[0],
         }
 
+    # ---- visual brain graph snapshot & direct user edits --------------------------------------------------------
+    def _display_relation(self, link_dict):
+        rel = str(link_dict.get("relation") or "")
+        s_val = float(link_dict.get("effective_stability", link_dict.get("stability_score", 0.0)))
+        if link_dict.get("signed") and s_val < 0:
+            return {"LIKES": "DISLIKES", "PREFERS": "AVOIDS", "CORRELATES_WITH": "NEG_CORRELATES"}.get(rel, f"NOT_{rel}")
+        return rel
+
+    def snapshot(self, *, viewer=None, include_dormant=True, category=None, limit=120, include_notes=False, now=None):
+        """Return a viewer-scoped visual graph snapshot (nodes, links with live stability + recent episodes,
+        category counts, summary stats, and optional note-to-note links) for the Memory › Graph UI."""
+        from .privacy import mask_all
+        t = float(self.clock() if now is None else now)
+        cat_filter = str(category).strip().upper() if category else None
+        lim = max(1, min(300, int(limit or 120)))
+
+        sql = "SELECT * FROM mg_links"
+        if not include_dormant:
+            sql += " WHERE dormant=0"
+        rows = self.store.db.execute(sql).fetchall()
+
+        node_cache = {}
+        def _n(nid):
+            if nid not in node_cache:
+                node_cache[nid] = self.get_node(nid)
+            return node_cache[nid]
+
+        all_visible = []
+        cat_counts = {}
+        summary = {"total_links": 0, "facts": 0, "ideas": 0, "thoughts": 0,
+                   "contested": 0, "dormant": 0, "sensor_facts": 0, "note_links": 0}
+
+        for r in rows:
+            if not visible({"scope": r["scope"], "owner": r["owner"]}, viewer):
+                continue
+            d = self._link_dict(r, now=t)
+            mag = abs(d["effective_stability"])
+            is_dorm = bool(d["dormant"]) or (d["status"] != STATUS_FACT and mag <= DORMANT_THRESHOLD)
+            d["dormant"] = is_dorm
+            if is_dorm and not include_dormant:
+                continue
+
+            summary["total_links"] += 1
+            if is_dorm:
+                summary["dormant"] += 1
+            elif d["status"] == STATUS_CONTESTED:
+                summary["contested"] += 1
+            elif d["status"] == STATUS_FACT:
+                summary["facts"] += 1
+            elif d["status"] == STATUS_IDEA:
+                summary["ideas"] += 1
+            else:
+                summary["thoughts"] += 1
+            if d["evidence"] == EVIDENCE_SENSOR:
+                summary["sensor_facts"] += 1
+
+            cat_key = str(d.get("category") or "GENERAL").upper()
+            cat_counts[cat_key] = cat_counts.get(cat_key, 0) + 1
+            if cat_filter and cat_filter != "ALL" and cat_key != cat_filter:
+                continue
+
+            sn = _n(r["source_id"]) or {}
+            tn = _n(r["target_id"]) or {}
+            all_visible.append({
+                "id": d["id"],
+                "kind": "graph",
+                "source": f"mg:{r['source_id']}",
+                "target": f"mg:{r['target_id']}",
+                "source_id": r["source_id"],
+                "target_id": r["target_id"],
+                "source_name": sn.get("canonical_name") or f"#{r['source_id']}",
+                "target_name": tn.get("canonical_name") or f"#{r['target_id']}",
+                "relation": d["relation"],
+                "display_relation": self._display_relation(d),
+                "category": cat_key,
+                "status": d["status"],
+                "evidence": d["evidence"],
+                "stability_score": round(float(d["stability_score"]), 4),
+                "effective_stability": round(float(d["effective_stability"]), 4),
+                "signed": d["signed"],
+                "dormant": is_dorm,
+                "context_tags": d["context_tags"],
+                "stats": d["stats"],
+                "shown_count": int(d["shown_count"] or 0),
+                "evidence_count": int(d["evidence_count"] or 0),
+                "last_stated_on": d["last_stated_on"],
+                "scope": d["scope"],
+                "owner": d["owner"],
+            })
+
+        prio = {STATUS_CONTESTED: 3, STATUS_FACT: 2, STATUS_IDEA: 1, STATUS_THOUGHT: 0}
+        all_visible.sort(
+            key=lambda x: (0 if x["dormant"] else 1, prio.get(x["status"], 0),
+                           abs(x["effective_stability"]), x["shown_count"], x["last_stated_on"]),
+            reverse=True,
+        )
+        links_out = all_visible[:lim]
+
+        # Attach last 4 episodes per returned link (secret-scrubbed)
+        if links_out:
+            lids = [x["id"] for x in links_out]
+            qmarks = ",".join("?" for _ in lids)
+            ep_rows = self.store.db.execute(
+                f"SELECT link_id, ts, value, unit, quote, source_ref FROM mg_episodes "
+                f"WHERE link_id IN ({qmarks}) ORDER BY ts DESC",
+                lids,
+            ).fetchall()
+            ep_map = {}
+            for er in ep_rows:
+                bucket = ep_map.setdefault(er["link_id"], [])
+                if len(bucket) < 4:
+                    bucket.append({
+                        "ts": er["ts"],
+                        "value": er["value"],
+                        "unit": er["unit"],
+                        "quote": mask_all(str(er["quote"] or ""))[:180],
+                        "source_ref": er["source_ref"] or "",
+                    })
+            for x in links_out:
+                x["episodes"] = ep_map.get(x["id"], [])
+
+        # Build deduplicated node map
+        nodes_map = {}
+        def _add_mg_node(raw_id, cat_hint):
+            key = f"mg:{raw_id}"
+            if key not in nodes_map:
+                nd = _n(raw_id) or {}
+                nm = nd.get("canonical_name") or f"#{raw_id}"
+                is_user = nm.lower() == "user" or nd.get("node_type") == "USER"
+                nodes_map[key] = {
+                    "id": key,
+                    "raw_id": raw_id,
+                    "kind": "graph",
+                    "label": "You" if is_user else nm,
+                    "name": nm,
+                    "node_type": "USER" if is_user else (nd.get("node_type") or "ENTITY"),
+                    "category": "USER" if is_user else cat_hint,
+                    "is_user": is_user,
+                    "degree": 0,
+                }
+            nodes_map[key]["degree"] += 1
+
+        for x in links_out:
+            _add_mg_node(x["source_id"], x["category"])
+            _add_mg_node(x["target_id"], x["category"])
+
+        # Optional overlay: active non-secret note-to-note links from store.db
+        if include_notes:
+            n_rows = self.store.db.execute(
+                "SELECT l.a, l.b, l.kind, ia.title AS ta, ia.shelf AS sa, ia.meta AS ma, "
+                "ib.title AS tb, ib.shelf AS sb, ib.meta AS mb "
+                "FROM links l "
+                "JOIN items ia ON ia.id = l.a AND ia.status = 'active' "
+                "JOIN items ib ON ib.id = l.b AND ib.status = 'active' "
+                "ORDER BY l.a DESC LIMIT 80"
+            ).fetchall()
+            for nr in n_rows:
+                ma = json.loads(nr["ma"] or "{}")
+                mb = json.loads(nr["mb"] or "{}")
+                if ma.get("secret") or mb.get("secret"):
+                    continue
+                if not visible(ma, viewer) or not visible(mb, viewer):
+                    continue
+                ka, kb = f"note:{nr['a']}", f"note:{nr['b']}"
+                for k, raw_id, title, shelf in ((ka, nr["a"], nr["ta"], nr["sa"]), (kb, nr["b"], nr["tb"], nr["sb"])):
+                    if k not in nodes_map:
+                        nodes_map[k] = {
+                            "id": k, "raw_id": raw_id, "kind": "note",
+                            "label": (title or f"Note #{raw_id}")[:36],
+                            "name": title or f"Note #{raw_id}",
+                            "node_type": "NOTE", "category": "NOTES",
+                            "shelf": shelf or "", "is_user": False, "degree": 0,
+                        }
+                    nodes_map[k]["degree"] += 1
+                summary["note_links"] += 1
+                links_out.append({
+                    "id": f"note:{nr['a']}-{nr['b']}-{nr['kind']}",
+                    "kind": "note",
+                    "source": ka, "target": kb,
+                    "source_id": nr["a"], "target_id": nr["b"],
+                    "source_name": nr["ta"] or f"Note #{nr['a']}",
+                    "target_name": nr["tb"] or f"Note #{nr['b']}",
+                    "relation": str(nr["kind"] or "related").upper(),
+                    "display_relation": str(nr["kind"] or "related").upper(),
+                    "category": "NOTES", "status": "NOTE", "evidence": "note",
+                    "stability_score": 0.7, "effective_stability": 0.7,
+                    "signed": False, "dormant": False, "context_tags": [],
+                    "stats": {"count": 0}, "shown_count": 0, "evidence_count": 1,
+                    "episodes": [],
+                })
+
+        return {
+            "nodes": list(nodes_map.values()),
+            "links": links_out,
+            "categories": dict(sorted(cat_counts.items())),
+            "summary": summary,
+        }
+
+    def confirm_link(self, link_id, *, viewer=None, now=None):
+        """User explicitly confirms a link (promotes IDEA/THOUGHT/CONTESTED/dormant to FACT)."""
+        if viewer == "":
+            raise PermissionError("guests cannot edit memory graph links")
+        t = float(self.clock() if now is None else now)
+        row = self.store.db.execute("SELECT * FROM mg_links WHERE id=?", (int(link_id),)).fetchone()
+        if not row or not visible({"scope": row["scope"], "owner": row["owner"]}, viewer):
+            raise KeyError(f"link {link_id} not found")
+        cur_s = float(row["stability_score"] or 0.0)
+        new_s = -0.95 if (row["signed"] and cur_s < 0) else 0.95
+        before = dict(row)
+        with self.store.lock:
+            self.store.db.execute(
+                "UPDATE mg_links SET status=?, stability_score=?, anchor_stability=?, anchor_ts=?, "
+                "dormant=0, last_stated_on=?, evidence=? WHERE id=?",
+                (STATUS_FACT, new_s, new_s, t, t,
+                 EVIDENCE_DIRECT if row["evidence"] == EVIDENCE_INFERRED else row["evidence"], int(link_id)),
+            )
+            self.store.db.execute(
+                "INSERT INTO mg_staging(ts, op, patch, before_state, link_id, confidence, flagged, audit_status, reason, owner, scope) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (t, "USER_CONFIRM", json.dumps({"link_id": int(link_id), "stability": new_s}),
+                 json.dumps(before, default=str), int(link_id), 1.0, 0, "approved", "confirmed by user",
+                 row["owner"], row["scope"]),
+            )
+            self.store.db.commit()
+        updated = self.store.db.execute("SELECT * FROM mg_links WHERE id=?", (int(link_id),)).fetchone()
+        return self._link_dict(updated, now=t)
+
+    def forget_link(self, link_id, *, viewer=None, delete=False, now=None):
+        """User hides (marks dormant) or permanently deletes a memory graph link."""
+        if viewer == "":
+            raise PermissionError("guests cannot edit memory graph links")
+        t = float(self.clock() if now is None else now)
+        row = self.store.db.execute("SELECT * FROM mg_links WHERE id=?", (int(link_id),)).fetchone()
+        if not row or not visible({"scope": row["scope"], "owner": row["owner"]}, viewer):
+            raise KeyError(f"link {link_id} not found")
+        before = dict(row)
+        with self.store.lock:
+            if delete:
+                self.store.db.execute("DELETE FROM mg_episodes WHERE link_id=?", (int(link_id),))
+                self.store.db.execute("DELETE FROM mg_links WHERE id=?", (int(link_id),))
+                self.store.db.execute(
+                    "INSERT INTO mg_staging(ts, op, patch, before_state, link_id, confidence, flagged, audit_status, reason, owner, scope) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (t, "USER_DELETE", json.dumps({"link_id": int(link_id)}),
+                     json.dumps(before, default=str), int(link_id), 1.0, 0, "approved", "deleted by user",
+                     row["owner"], row["scope"]),
+                )
+                self.store.db.commit()
+                return {"id": int(link_id), "deleted": True}
+            self.store.db.execute(
+                "UPDATE mg_links SET dormant=1, stability_score=0.0, anchor_stability=0.0, anchor_ts=? WHERE id=?",
+                (t, int(link_id)),
+            )
+            self.store.db.execute(
+                "INSERT INTO mg_staging(ts, op, patch, before_state, link_id, confidence, flagged, audit_status, reason, owner, scope) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (t, "USER_FORGET", json.dumps({"link_id": int(link_id)}),
+                 json.dumps(before, default=str), int(link_id), 1.0, 0, "approved", "hidden by user",
+                 row["owner"], row["scope"]),
+            )
+            self.store.db.commit()
+        updated = self.store.db.execute("SELECT * FROM mg_links WHERE id=?", (int(link_id),)).fetchone()
+        return self._link_dict(updated, now=t)
+
     @staticmethod
     def time_tags(ts, *, include_tod=True):
         """Coarse day-type and time-of-day context tags from a local timestamp."""
