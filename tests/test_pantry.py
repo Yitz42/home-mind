@@ -347,6 +347,80 @@ async def main():
 
     p3.clear_week_plan()
     assert p3.week_plan() is None
+
+    # ---- Meal calendar picker: calendar auto-skips, saved weekday layouts, batch shopping list, instant skip/restore ---
+    from datetime import date as _date, timedelta as _td
+
+    base_mon = _date(2026, 11, 23)  # Monday
+
+    class FakeCals:
+        def events_on(self, day):
+            if day == base_mon + _td(days=2):  # Wed
+                return [{"title": "Team lunch", "body": "Calendar (Work): Team lunch", "meta": {"start": "2026-11-25T12:00:00"}}]
+            if day == base_mon + _td(days=4):  # Fri
+                return [{"title": "Dinner at Mia's", "body": "Calendar (Home): Dinner at Mia's", "meta": {"start": "2026-11-27T19:00:00"}}]
+            return []
+
+    p3.calendars = FakeCals()
+    cal_info = p3.week_calendar(days=7, start_date=base_mon)
+    assert cal_info["calendar_skips"] == {"2|lunch": "Team lunch", "4|dinner": "Dinner at Mia's"}, cal_info["calendar_skips"]
+
+    # Weekday-aligned saved layout ("usual")
+    saved_lay = p3.save_week_layout("usual", "twice", {"0|dinner": "normal", "6|dinner": "big", "0|breakfast": "skip"}, start_date=base_mon)
+    assert saved_lay["grid"]["mon|dinner"] == "normal" and saved_lay["grid"]["sun|dinner"] == "big", saved_lay
+    assert p3.week_layouts()["usual"]["style"] == "twice"
+
+    # Batch-aware shopping list: leftover cell (is_cook=False) does NOT double-count parent batch ingredients,
+    # while keeping extra add-on items (e.g. russet potatoes for chili-stuffed potatoes)!
+    batch_days = [
+        {"day": "Mon Nov 23", "meals": [
+            {"slot": "dinner", "name": "Turkey chili (double)", "minutes": 35, "batch_id": "A", "is_cook": True, "servings": 4,
+             "need": [{"item": "ground turkey", "amount": "2 lb", "aisle": "meat & seafood"},
+                      {"item": "kidney beans", "amount": "2 cans", "aisle": "pantry & dry"}]}
+        ]},
+        {"day": "Tue Nov 24", "meals": [
+            {"slot": "lunch", "name": "Chili-stuffed potatoes", "minutes": 5, "batch_id": "A", "is_cook": False, "batch_label": "Mon chili",
+             "need": [{"item": "ground turkey", "amount": "1 lb", "aisle": "meat & seafood"},
+                      {"item": "russet potatoes", "amount": "2", "aisle": "produce"}]}
+        ]},
+    ]
+    bshop = build_shopping_list(batch_days, [])
+    bmap = {x["item"].lower(): x for x in bshop}
+    assert bmap["ground turkey"]["amount"] == "2 lb", bshop  # NOT 3 lb!
+    assert "russet potatoes" in bmap and "kidney beans" in bmap, bshop
+
+    # Grid + style="twice" plan_week auto-saves "last" layout and aligns days cleanly
+    class BatchWeekModel:
+        async def chat(self, sys, msgs, **kw):
+            if "Replace" in msgs[0]["content"] or "Add a new" in msgs[0]["content"]:
+                return {"text": json.dumps({"slot": "lunch", "name": "Avocado Toast", "minutes": 10, "effort": "quick",
+                                            "uses": [], "need": [{"item": "avocado", "amount": "2", "aisle": "produce"}],
+                                            "protein_g": 12, "calories": 320, "why": "Quick add", "steps": "Toast and top."})}
+            return {"text": json.dumps({
+                "summary": "Cook once, eat twice batch week",
+                "prep_plan": {"title": "Sun prep · ~1.5 h", "items": [{"batch_id": "A", "text": "Double pot of turkey chili"}]},
+                "days": batch_days,
+            })}
+
+    p3.models = type("M", (), {"models": {"haiku": BatchWeekModel()}, "get": lambda self, n: self.models["haiku"]})()
+    grid_req = {"0|breakfast": "skip", "0|lunch": "skip", "0|dinner": "normal",
+                "1|breakfast": "skip", "1|lunch": "quick", "1|dinner": "skip"}
+    gp = await p3.plan_week(days=2, style="twice", grid=grid_req, start_date=base_mon)
+    assert gp["style"] == "twice" and gp["prep_plan"]["title"].startswith("Sun prep"), gp
+    assert p3.week_layouts()["last"] is not None
+    assert any(x["item"] == "russet potatoes" for x in gp["shopping_list"])
+
+    # Instant skip cell removes its extra groceries; instant restore brings them right back (zero LLM calls!)
+    sk = p3.set_plan_cell(1, "lunch", action="skip")
+    assert all(x["item"] != "russet potatoes" for x in sk["shopping_list"]), sk["shopping_list"]
+    rs = p3.set_plan_cell(1, "lunch", action="restore")
+    assert any(x["item"] == "russet potatoes" for x in rs["shopping_list"]), rs["shopping_list"]
+
+    # Swap on a previously empty/skipped slot adds the new meal in place
+    added = await p3.swap_meal(0, slot="lunch", request="quick toast")
+    assert any(m["slot"] == "lunch" and m["name"] == "Avocado Toast" for m in added["days"][0]["meals"]), added["days"][0]
+    assert any(x["item"] == "avocado" for x in added["shopping_list"]), added["shopping_list"]
+
     print("PANTRY OK")
 
 

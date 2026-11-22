@@ -108,6 +108,7 @@ MEAL_SYSTEM = (
     "protein and calories on those (ignore a match that is clearly a different food) and estimate only the rest. "
     "When one of the listed studies supports a choice, name it briefly in 'why' (for example 'beans lower LDL ~5%, "
     "26 trials'); call preliminary findings preliminary and never overstate them. Their stated dislikes beat any study. "
+    "Never include any listed ALLERGY item; lean toward LEARNED TASTES when they fit what's in stock. "
     "Keep every field short so the answer stays compact: meal name under 6 words, 'why' under 20 words, 'steps' "
     "under 35 words in total, and no text outside the JSON. "
     "Reply with JSON only: {\"focus\": \"one short line on today's "
@@ -162,24 +163,46 @@ AISLE_HINTS = {
                      "vinegar", "walnut"),
 }
 
+WEEK_STYLES = ("fresh", "twice", "prep")
+EFFORT_LEVELS = ("quick", "normal", "big", "skip")
+WEEK_SLOTS = ("breakfast", "lunch", "dinner")
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+CAL_MEAL_RE = re.compile(
+    r"\b(?:dinner|supper|lunch|brunch|breakfast|restaurant|bistro|reservation|potluck|banquet|party|"
+    r"wedding|happy hour|flight|travel|out of town|vacation|eating out|takeout)\b",
+    re.I,
+)
+
 WEEK_SYSTEM = (
     "You build a practical multi-day meal plan for a household from what they already have at home plus a concise "
     "grocery list. Put foods expiring soonest on the earliest days. Overlap fresh ingredients across days so nothing "
     "goes to waste. Respect their goals, Avoid list, and any ALLERGY items strictly (never include an allergen). "
-    "Lean toward LEARNED TASTES when they fit. Keep weeknight meals realistic (under ~35 min). "
+    "Lean toward LEARNED TASTES when they fit. Honor each meal's requested effort tier (quick <=20 min, normal <=40 min, "
+    "big 60+ min makes extra) and cooking style:\n"
+    "- fresh: cook a fresh meal each time.\n"
+    "- twice: cook once, eat twice — make double batches on cook sessions (batch_id 'A','B','C','D', is_cook: true, "
+    "servings: 2-4) and reuse them as quick 5-min leftover/reheat meals on later slots (same batch_id, is_cook: false, "
+    "short batch_label like 'Mon chili').\n"
+    "- prep: one big prep session covers multiple meals through the week (include prep_plan with title and batch items).\n"
     "Only list non-staple ingredients that aren't already in stock in 'need' (skip basic salt, pepper, cooking oil). "
+    "IMPORTANT: for leftover/reheat meals (is_cook: false), ONLY list extra add-on items not already bought for the "
+    "parent cook session (often an empty [] list) so groceries are never double-counted. "
     "Keep every field short so the full week fits cleanly in JSON. "
     'Reply with JSON only: {"summary": "one short sentence on the week\'s theme", '
+    '"prep_plan": {"title": "optional e.g. Sunday prep · ~2 h", "items": [{"batch_id": "A", "text": "short batch prep line"}]}, '
     '"days": [{"day": "Mon Nov 23", "meals": [{"slot": "dinner", "name": "short meal name", '
-    '"uses": ["in-stock items used"], '
+    '"minutes": 25, "effort": "quick|normal|big", "batch_id": "optional A|B|C|D", "batch_label": "optional e.g. Mon chili", '
+    '"is_cook": true, "servings": 2, "uses": ["in-stock items used"], '
     '"need": [{"item": "ingredient", "amount": "qty + unit", "aisle": "produce|meat & seafood|dairy & eggs|pantry & dry|frozen|other"}], '
     '"protein_g": number, "calories": number, "why": "short reason", "steps": "2-3 short steps"}]}]}')
 
 SWAP_SYSTEM = (
     "You replace ONE meal in an existing weekly meal plan. Pick a fresh option that does NOT repeat any meal already "
-    "planned on other days, reuses ingredients already planned or in stock where sensible, respects all goals, Avoid "
-    "items, ALLERGY items strictly, and any user tweak request. Keep fields short. "
-    'Reply with JSON only: {"slot": "dinner", "name": "short meal name", "uses": ["in-stock items used"], '
+    "planned on other days, reuses ingredients already planned or in stock where sensible, respects the requested effort "
+    "tier, goals, Avoid items, ALLERGY items strictly, and any user tweak request. Keep fields short. "
+    'Reply with JSON only: {"slot": "dinner", "name": "short meal name", "minutes": 25, "effort": "quick|normal|big", '
+    '"uses": ["in-stock items used"], '
     '"need": [{"item": "ingredient", "amount": "qty + unit", "aisle": "produce|meat & seafood|dairy & eggs|pantry & dry|frozen|other"}], '
     '"protein_g": number, "calories": number, "why": "short reason", "steps": "2-3 short steps"}')
 
@@ -254,9 +277,24 @@ def _in_stock_match(item_name, stock_stems):
     return False
 
 
+def _parse_need_item(raw):
+    if isinstance(raw, dict):
+        return (str(raw.get("item") or raw.get("name") or "").strip(),
+                str(raw.get("amount") or "").strip(),
+                str(raw.get("aisle") or "").strip())
+    s = str(raw or "").strip()
+    if not s:
+        return "", "", ""
+    q_m = re.match(r"^(\d+(?:[./]\d+)?\s*(?:lb|lbs|oz|g|kg|cup|cups|tbsp|tsp|can|cans|head|heads|bunch|bunches|clove|cloves|pack|packs|bag|bags|dozen|box|boxes|jar|jars|bottle|bottles)?)\s+(.+)$", s, re.I)
+    if q_m and len(q_m.group(2).strip()) >= 2:
+        return q_m.group(2).strip(), q_m.group(1).strip(), ""
+    return s, "", ""
+
+
 def build_shopping_list(days_list, in_stock_items=()):
     """Deterministically build a deduplicated, aisle-grouped shopping list from a weekly plan,
-    subtracting fresh items already in stock and merging matching quantities."""
+    subtracting fresh items already in stock, skipping skipped meals, avoiding double-counting
+    ingredients already included in a batch's cook session, and merging matching quantities."""
     stock_stems = {
         _stem(i.get("name") if isinstance(i, dict) else str(i))
         for i in (in_stock_items or ())
@@ -264,34 +302,45 @@ def build_shopping_list(days_list, in_stock_items=()):
     }
     stock_stems.discard("")
 
+    # Pass 1: record ingredient stems already bought for each batch's cook session (is_cook != False)
+    batch_cook_stems = {}
+    for d in (days_list or ()):
+        if not isinstance(d, dict):
+            continue
+        for m in (d.get("meals") or ()):
+            if not isinstance(m, dict) or m.get("skipped"):
+                continue
+            bid = str(m.get("batch_id") or "").strip().upper()
+            if bid and m.get("is_cook", True) is not False:
+                needs = m.get("need") if m.get("need") is not None else (m.get("missing") or [])
+                stems = batch_cook_stems.setdefault(bid, set())
+                for raw in needs:
+                    item, _, _ = _parse_need_item(raw)
+                    st = _stem(item)
+                    if st:
+                        stems.add(st)
+
     grouped = {}
     for d in (days_list or ()):
         if not isinstance(d, dict):
             continue
         day_lbl = (d.get("day") or "").split()[0] or "Day"
         for m in (d.get("meals") or ()):
-            if not isinstance(m, dict):
+            if not isinstance(m, dict) or m.get("skipped"):
                 continue
             m_name = (m.get("name") or "").strip()
+            bid = str(m.get("batch_id") or "").strip().upper()
+            is_leftover = bool(bid) and (m.get("is_cook") is False)
+            parent_stems = batch_cook_stems.get(bid, set()) if is_leftover else set()
             needs = m.get("need") if m.get("need") is not None else (m.get("missing") or [])
             for raw in needs:
-                if isinstance(raw, dict):
-                    item = str(raw.get("item") or raw.get("name") or "").strip()
-                    amt = str(raw.get("amount") or "").strip()
-                    aisle = raw.get("aisle") or ""
-                else:
-                    s = str(raw or "").strip()
-                    if not s:
-                        continue
-                    q_m = re.match(r"^(\d+(?:[./]\d+)?\s*(?:lb|lbs|oz|g|kg|cup|cups|tbsp|tsp|can|cans|head|heads|bunch|bunches|clove|cloves|pack|packs|bag|bags|dozen|box|boxes|jar|jars|bottle|bottles)?)\s+(.+)$", s, re.I)
-                    if q_m and len(q_m.group(2).strip()) >= 2:
-                        amt, item = q_m.group(1).strip(), q_m.group(2).strip()
-                    else:
-                        amt, item = "", s
-                    aisle = ""
+                item, amt, aisle = _parse_need_item(raw)
                 if not item or _in_stock_match(item, stock_stems):
                     continue
                 key = _stem(item) or item.lower()
+                # Leftover/reheat cells shouldn't double-count ingredients already in the parent cook session
+                if is_leftover and key in parent_stems:
+                    continue
                 ent = grouped.setdefault(key, {
                     "item": item,
                     "amounts": [],
@@ -320,17 +369,61 @@ def build_shopping_list(days_list, in_stock_items=()):
     return out
 
 
+def _clean_meal_dict(ml, default_slot="dinner"):
+    bid = str(ml.get("batch_id") or "").strip().upper()[:2] or None
+    is_cook = ml.get("is_cook")
+    if is_cook is None:
+        is_cook = True if not bid else bool(ml.get("cook", True))
+    else:
+        is_cook = bool(is_cook)
+    eff = str(ml.get("effort") or "").strip().lower()
+    if eff not in ("quick", "normal", "big"):
+        eff = ""
+    mins = ml.get("minutes")
+    try:
+        mins = int(round(float(mins))) if mins is not None and str(mins).strip() != "" else None
+    except (TypeError, ValueError):
+        mins = None
+    sv = ml.get("servings")
+    try:
+        sv = int(round(float(sv))) if sv is not None and str(sv).strip() != "" else None
+    except (TypeError, ValueError):
+        sv = None
+    out = {
+        "slot": str(ml.get("slot") or ml.get("meal") or default_slot).strip().lower(),
+        "name": str(ml["name"]).strip(),
+        "uses": [str(x).strip() for x in (ml.get("uses") or ()) if str(x or "").strip()],
+        "need": ml.get("need") if isinstance(ml.get("need"), list) else list(ml.get("missing") or ()),
+        "protein_g": ml.get("protein_g"),
+        "calories": ml.get("calories"),
+        "why": str(ml.get("why") or "").strip(),
+        "steps": ml.get("steps") or "",
+    }
+    if mins is not None and mins > 0:
+        out["minutes"] = mins
+    if eff:
+        out["effort"] = eff
+    if bid:
+        out["batch_id"] = bid
+        out["is_cook"] = is_cook
+        if ml.get("batch_label"):
+            out["batch_label"] = str(ml["batch_label"]).strip()
+    if sv is not None and sv > 0:
+        out["servings"] = sv
+    return out
+
+
 def parse_week_plan(text):
     """Parse the weekly meal plan JSON cleanly (tolerating surrounding prose or markdown fences)."""
     m = re.search(r"\{.*\}", text or "", re.S)
     if not m:
-        return {"summary": "", "days": []}
+        return {"summary": "", "days": [], "prep_plan": None}
     try:
         obj = json.loads(m.group(0))
         if not isinstance(obj, dict):
-            return {"summary": "", "days": []}
+            return {"summary": "", "days": [], "prep_plan": None}
     except ValueError:
-        return {"summary": "", "days": []}
+        return {"summary": "", "days": [], "prep_plan": None}
     days_out = []
     for d in (obj.get("days") or ()):
         if not isinstance(d, dict):
@@ -338,19 +431,24 @@ def parse_week_plan(text):
         meals = []
         for ml in (d.get("meals") or ()):
             if isinstance(ml, dict) and str(ml.get("name") or "").strip():
-                meals.append({
-                    "slot": str(ml.get("slot") or ml.get("meal") or "dinner").lower(),
-                    "name": str(ml["name"]).strip(),
-                    "uses": [str(x).strip() for x in (ml.get("uses") or ()) if str(x or "").strip()],
-                    "need": ml.get("need") if isinstance(ml.get("need"), list) else list(ml.get("missing") or ()),
-                    "protein_g": ml.get("protein_g"),
-                    "calories": ml.get("calories"),
-                    "why": str(ml.get("why") or "").strip(),
-                    "steps": ml.get("steps") or "",
-                })
-        if meals:
+                meals.append(_clean_meal_dict(ml))
+        if meals or d.get("day"):
             days_out.append({"day": str(d.get("day") or f"Day {len(days_out) + 1}").strip(), "meals": meals})
-    return {"summary": str(obj.get("summary") or "").strip(), "days": days_out}
+    prep_raw = obj.get("prep_plan")
+    prep_plan = None
+    if isinstance(prep_raw, dict) and (prep_raw.get("items") or prep_raw.get("title")):
+        pitems = []
+        for it in (prep_raw.get("items") or ()):
+            if isinstance(it, dict) and str(it.get("text") or "").strip():
+                pitems.append({
+                    "batch_id": str(it.get("batch_id") or "").strip().upper()[:2],
+                    "text": str(it["text"]).strip(),
+                })
+            elif isinstance(it, str) and it.strip():
+                pitems.append({"batch_id": "", "text": it.strip()})
+        if pitems or prep_raw.get("title"):
+            prep_plan = {"title": str(prep_raw.get("title") or "Prep session").strip(), "items": pitems}
+    return {"summary": str(obj.get("summary") or "").strip(), "days": days_out, "prep_plan": prep_plan}
 
 
 def _norm(name):
@@ -448,7 +546,11 @@ class Pantry:
         out = []
         for r in rows:
             d = dict(r)
-            d["days_left"] = None if d["use_by"] is None else round((d["use_by"] - now) / 86400, 1)
+            if d["use_by"] is None:
+                d["days_left"] = None
+            else:
+                raw = (d["use_by"] - now) / 86400
+                d["days_left"] = min(0.9, round(raw, 1)) if 0 <= raw < 1 else round(raw, 1)
             out.append(d)
         return out
 
@@ -768,7 +870,49 @@ class Pantry:
                 "protein_target_g": target}
 
     # ---- meals ------------------------------------------------------------------------------------------------------------
-    async def suggest(self, meal=None, model=None, n=3, request=""):
+    def _graph_prefs(self, viewer=None):
+        """Pull active FOOD/HEALTH preferences, dislikes, and hard allergies from MemGraph (respecting viewer privacy)."""
+        mg = getattr(self, "memgraph", None)
+        if mg is None:
+            return [], [], [], [], []
+        from .speakers import VIEWER
+        who = VIEWER.get() if viewer is None else viewer
+        seen = {}
+        try:
+            for lnk in mg.query(categories=["FOOD", "HEALTH"], viewer=who, include_dormant=False, limit=24, record_access=False):
+                seen[lnk["id"]] = lnk
+            for lnk in mg.query(relations=["ALLERGIC_TO"], viewer=who, include_dormant=False, limit=12, record_access=False):
+                seen[lnk["id"]] = lnk
+        except Exception:  # noqa: BLE001 - graph lookup never breaks meal planning
+            return [], [], [], [], []
+
+        allergies, dislikes, likes_direct, likes_inferred, used_links = [], [], [], [], []
+        for lnk in seen.values():
+            rel = lnk.get("relation")
+            tgt = (lnk.get("target_name") or "").strip()
+            if not tgt or lnk.get("status") == "CONTESTED":
+                continue
+            s_val = float(lnk.get("effective_stability", lnk.get("stability_score", 0.0)))
+            if rel == "ALLERGIC_TO":
+                if tgt not in allergies:
+                    allergies.append(tgt)
+                used_links.append(lnk)
+            elif rel in ("LIKES", "PREFERS") and lnk.get("status") in ("FACT", "IDEA"):
+                if lnk.get("signed") and s_val < 0:
+                    if tgt not in dislikes:
+                        dislikes.append(tgt)
+                    used_links.append(lnk)
+                elif s_val > 0:
+                    if lnk.get("evidence") == "direct":
+                        if tgt not in likes_direct:
+                            likes_direct.append(tgt)
+                    else:
+                        if tgt not in likes_inferred:
+                            likes_inferred.append(tgt)
+                    used_links.append(lnk)
+        return allergies[:8], dislikes[:8], likes_direct[:6], likes_inferred[:6], used_links
+
+    async def suggest(self, meal=None, model=None, n=3, request="", viewer=None):
         items = self.items()
         day = await self.today()
         g = self.goals()
@@ -794,10 +938,32 @@ class Pantry:
         if day.get("protein_target_g"):
             focus.append(f"Protein target about {day['protein_target_g']} g/day (1.6 g/kg for muscle; more adds nothing)")
         studies = nutrition.relevant([i["name"] for i in items])
+
+        allergies, dislikes, likes_direct, likes_inferred, g_links = self._graph_prefs(viewer=viewer)
+        avoid_items = list(g.get("avoid") or [])
+        seen_avoid = {a.lower() for a in avoid_items}
+        for al in allergies:
+            if al.lower() not in seen_avoid:
+                avoid_items.insert(0, f"ALLERGY: {al}")
+                seen_avoid.add(al.lower())
+        for dl in dislikes:
+            if dl.lower() not in seen_avoid:
+                avoid_items.append(f"dislike: {dl}")
+                seen_avoid.add(dl.lower())
+
+        taste_parts = []
+        if likes_direct:
+            taste_parts.append("stated likes: " + ", ".join(likes_direct))
+        if likes_inferred:
+            taste_parts.append("observed cuisine/flavor patterns: " + ", ".join(likes_inferred))
+        taste_line = (f"LEARNED TASTES (from memory graph — lean toward these when they fit): {'; '.join(taste_parts)}\n"
+                      if taste_parts else "")
+
         content = (f"Today: {datetime.now():%A %b %d, %I:%M %p}\n"
                    f"Today's focus: {'; '.join(focus)}\n"
                    f"Goals: {'; '.join(g.get('goals') or [])}\n"
-                   + (f"Avoid: {', '.join(g['avoid'])}\n" if g.get("avoid") else "")
+                   + (f"Avoid: {', '.join(avoid_items)}\n" if avoid_items else "")
+                   + taste_line
                    + (f"Notes: {g['notes']}\n" if g.get("notes") else "")
                    + f"Meal wanted: {meal or 'the next meal'}" + (f" ({request})" if request else "") + "\n"
                    f"Suggest {n} options.\n\nIN THE HOUSE (soonest to expire first):\n" + ("\n".join(lines) or "- nothing recorded")
@@ -811,10 +977,25 @@ class Pantry:
         plan["studies"] = [x["topic"] for x in studies]
         if not plan["meals"]:
             plan["raw"] = r["text"][:1500]
+        elif g_links and getattr(self, "memgraph", None) is not None:
+            try:
+                mg = self.memgraph
+                plan_text = json.dumps(plan["meals"])
+                shown = set(mg.used_links(plan_text, g_links))
+                # Always credit hard safety constraints (allergies/dislikes) that shaped the meal plan.
+                for lnk in g_links:
+                    if lnk.get("relation") == "ALLERGIC_TO" or float(lnk.get("stability_score", 0.0)) < 0:
+                        shown.add(lnk["id"])
+                if shown:
+                    mg.mark_shown(list(shown))
+            except Exception:  # noqa: BLE001
+                pass
         return plan
 
     # ---- weekly meal plan + smart shopping list -----------------------------------------------------------------------
     WEEK_KV = "pantry_week_plan"
+    WEEK_LAYOUT_LAST_KV = "pantry_week_layout_last"
+    WEEK_LAYOUT_USUAL_KV = "pantry_week_layout_usual"
 
     def _week_model(self, model=None):
         names = [x for x in self.models.models if x != "mock"]
@@ -828,43 +1009,140 @@ class Pantry:
         g = self.goals()
         avoid = list(g.get("avoid") or [])
         seen = {a.lower() for a in avoid}
+        allergies, dislikes, likes_direct, likes_inferred, _ = self._graph_prefs(viewer=viewer)
+        for al in allergies:
+            if al.lower() not in seen:
+                avoid.insert(0, f"ALLERGY: {al}")
+                seen.add(al.lower())
+        for dl in dislikes:
+            if dl.lower() not in seen:
+                avoid.append(f"dislike: {dl}")
+                seen.add(dl.lower())
         taste_parts = []
-        mg = getattr(self, "memgraph", None)
-        if mg is not None:
-            from .speakers import VIEWER
-            who = VIEWER.get() if viewer is None else viewer
-            try:
-                links = {}
-                for lnk in mg.query(categories=["FOOD", "HEALTH"], viewer=who, include_dormant=False, limit=24, record_access=False):
-                    links[lnk["id"]] = lnk
-                for lnk in mg.query(relations=["ALLERGIC_TO"], viewer=who, include_dormant=False, limit=12, record_access=False):
-                    links[lnk["id"]] = lnk
-                direct_likes, inferred_likes = [], []
-                for lnk in links.values():
-                    if lnk.get("status") == "CONTESTED":
-                        continue
-                    tgt = (lnk.get("target_name") or "").strip()
-                    if not tgt:
-                        continue
-                    rel = lnk.get("relation")
-                    sv = float(lnk.get("effective_stability", lnk.get("stability_score", 0.0)))
-                    if rel == "ALLERGIC_TO" and tgt.lower() not in seen:
-                        avoid.insert(0, f"ALLERGY: {tgt}")
-                        seen.add(tgt.lower())
-                    elif rel in ("LIKES", "PREFERS") and lnk.get("status") in ("FACT", "IDEA"):
-                        if lnk.get("signed") and sv < 0 and tgt.lower() not in seen:
-                            avoid.append(f"dislike: {tgt}")
-                            seen.add(tgt.lower())
-                        elif sv > 0:
-                            (direct_likes if lnk.get("evidence") == "direct" else inferred_likes).append(tgt)
-                if direct_likes:
-                    taste_parts.append("stated likes: " + ", ".join(dict.fromkeys(direct_likes[:6])))
-                if inferred_likes:
-                    taste_parts.append("observed cuisine/flavor patterns: " + ", ".join(dict.fromkeys(inferred_likes[:6])))
-            except Exception:  # noqa: BLE001
-                pass
+        if likes_direct:
+            taste_parts.append("stated likes: " + ", ".join(likes_direct))
+        if likes_inferred:
+            taste_parts.append("observed cuisine/flavor patterns: " + ", ".join(likes_inferred))
         taste_line = (f"LEARNED TASTES: {'; '.join(taste_parts)}\n" if taste_parts else "")
         return avoid, taste_line
+
+    def calendar_skips(self, days=7, start_date=None):
+        """Scan synced Home Assistant calendars over the next `days` for dining/travel conflicts.
+        Returns {'day_index|slot': 'Event title', ...}."""
+        cals = getattr(self, "calendars", None)
+        if cals is None:
+            return {}
+        base = start_date.date() if isinstance(start_date, datetime) else (start_date or datetime.now().date())
+        skips = {}
+        for i in range(max(1, min(7, int(days or 7)))):
+            d = base + timedelta(days=i)
+            try:
+                evs = cals.events_on(d) or []
+            except Exception:  # noqa: BLE001 - calendar lookup never breaks meal planning
+                continue
+            for ev in evs:
+                meta = ev.get("meta") or {}
+                title = (ev.get("title") or "").strip()
+                body = (ev.get("body") or "").strip()
+                if not title and body:
+                    m = re.search(r"\):\s*([^(\n]+)", body)
+                    title = (m.group(1) if m else body).strip()
+                hay = f"{title} {body}"
+                if not CAL_MEAL_RE.search(hay):
+                    continue
+                low = hay.lower()
+                slots_hit = []
+                if re.search(r"\bbreakfast\b", low):
+                    slots_hit.append("breakfast")
+                if re.search(r"\b(?:lunch|brunch)\b", low):
+                    slots_hit.append("lunch")
+                if re.search(r"\b(?:dinner|supper)\b", low):
+                    slots_hit.append("dinner")
+                if not slots_hit:
+                    if meta.get("all_day") and re.search(r"\b(?:flight|travel|out of town|vacation)\b", low):
+                        slots_hit = list(WEEK_SLOTS)
+                    elif meta.get("start"):
+                        try:
+                            st = datetime.fromisoformat(meta["start"])
+                            hm = st.hour * 60 + st.minute
+                            if 360 <= hm < 630:
+                                slots_hit.append("breakfast")
+                            elif 660 <= hm <= 870:
+                                slots_hit.append("lunch")
+                            elif 1020 <= hm <= 1290:
+                                slots_hit.append("dinner")
+                        except ValueError:
+                            pass
+                clean_lbl = re.sub(r"\s+", " ", title or "Calendar event")[:48]
+                for sl in slots_hit:
+                    skips.setdefault(f"{i}|{sl}", clean_lbl)
+        return skips
+
+    def week_layouts(self):
+        """Return saved 'last' and 'usual' weekly picker layouts (keyed by weekday so they map to any start day)."""
+        last = self.store.kv_get(self.WEEK_LAYOUT_LAST_KV)
+        usual = self.store.kv_get(self.WEEK_LAYOUT_USUAL_KV)
+        return {
+            "last": last if isinstance(last, dict) and last.get("grid") else None,
+            "usual": usual if isinstance(usual, dict) and usual.get("grid") else None,
+        }
+
+    def save_week_layout(self, kind="usual", style="twice", grid=None, start_date=None):
+        """Persist a weekly effort/skip layout ('usual' or 'last'), normalizing index keys to weekday names."""
+        if kind not in ("usual", "last"):
+            raise ValueError("kind must be 'usual' or 'last'")
+        st_norm = str(style or "twice").strip().lower()
+        if st_norm not in WEEK_STYLES:
+            raise ValueError(f"style must be one of {', '.join(WEEK_STYLES)}")
+        if not isinstance(grid, dict) or not grid:
+            raise ValueError("grid must be a non-empty object")
+        base = start_date.date() if isinstance(start_date, datetime) else (start_date or datetime.now().date())
+        by_wd = {}
+        for k, v in grid.items():
+            if not isinstance(k, str) or "|" not in k:
+                continue
+            day_part, sl = k.split("|", 1)
+            sl = sl.strip().lower()
+            val = str(v or "").strip().lower()
+            if sl not in WEEK_SLOTS or val not in EFFORT_LEVELS:
+                continue
+            if day_part.isdigit():
+                idx = int(day_part)
+                if 0 <= idx < 7:
+                    wd = WEEKDAYS[(base + timedelta(days=idx)).weekday()]
+                    by_wd[f"{wd}|{sl}"] = val
+            elif day_part.lower() in WEEKDAYS:
+                by_wd[f"{day_part.lower()}|{sl}"] = val
+        if not by_wd:
+            raise ValueError("grid had no valid meal cells")
+        end_d = base + timedelta(days=6)
+        sub = (f"{base.strftime('%b %d').replace(' 0', ' ')}–{end_d.strftime('%b %d').replace(' 0', ' ')}"
+               if kind == "last" else f"saved {datetime.now().strftime('%b %d').replace(' 0', ' ')}")
+        rec = {"kind": kind, "style": st_norm, "grid": by_wd, "sub": sub, "saved_at": time.time()}
+        self.store.kv_set(self.WEEK_LAYOUT_USUAL_KV if kind == "usual" else self.WEEK_LAYOUT_LAST_KV, rec)
+        return rec
+
+    def week_calendar(self, days=7, start_date=None):
+        """Metadata for the 7x3 Food tab meal calendar picker: dates, calendar auto-skips, and saved layouts."""
+        base = start_date.date() if isinstance(start_date, datetime) else (start_date or datetime.now().date())
+        n = max(1, min(7, int(days or 7)))
+        day_rows = []
+        for i in range(n):
+            d = base + timedelta(days=i)
+            day_rows.append({
+                "index": i,
+                "date": d.isoformat(),
+                "weekday": WEEKDAYS[d.weekday()],
+                "short": d.strftime("%a"),
+                "day_num": d.day,
+                "label": d.strftime("%a %b %d").replace(" 0", " "),
+            })
+        return {
+            "start_date": base.isoformat(),
+            "days": day_rows,
+            "calendar_skips": self.calendar_skips(days=n, start_date=base),
+            "layouts": self.week_layouts(),
+        }
 
     def week_plan(self):
         """Saved weekly meal plan with shopping_list freshly recomputed against current in-stock pantry items."""
@@ -880,9 +1158,25 @@ class Pantry:
         self.store.kv_set(self.WEEK_KV, None)
         return {"cleared": True}
 
-    async def plan_week(self, days=7, meals=None, request="", model=None, viewer=None, start_date=None):
+    def _infer_style(self, style, request):
+        if style:
+            s = str(style).strip().lower()
+            if s not in WEEK_STYLES:
+                raise ValueError(f"style must be one of {', '.join(WEEK_STYLES)}")
+            return s
+        low = (request or "").lower()
+        if re.search(r"\b(?:prep day|meal prep|batch prep|sunday prep)\b", low):
+            return "prep"
+        if re.search(r"\b(?:cook once|eat twice|leftover|double batch)\b", low):
+            return "twice"
+        return "fresh"
+
+    async def plan_week(self, days=7, meals=None, request="", model=None, viewer=None, start_date=None,
+                        style=None, grid=None):
         """Build and save a multi-day meal plan (1-7 days) plus a consolidated, aisle-grouped shopping list
-        computed deterministically against current pantry stock."""
+        computed deterministically against current pantry stock. Supports either simple (days, meals)
+        or the full 7x3 effort grid + cooking style ('fresh' | 'twice' | 'prep')."""
+        chosen_style = self._infer_style(style, request)
         n_days = max(1, min(7, int(days or 7)))
         valid_slots = ("breakfast", "lunch", "dinner", "snack")
         if isinstance(meals, str):
@@ -896,8 +1190,32 @@ class Pantry:
         g = self.goals()
         chosen = self._week_model(model)
 
-        base_dt = start_date or datetime.now()
+        base_dt = start_date if isinstance(start_date, datetime) else (
+            datetime.combine(start_date, datetime.min.time()) if start_date else datetime.now()
+        )
         day_labels = [(base_dt + timedelta(days=i)).strftime("%a %b %d").replace(" 0", " ") for i in range(n_days)]
+
+        # Normalize optional 7x3 effort grid ({'0|lunch': 'quick', '0|dinner': 'big', ...})
+        norm_grid = {}
+        schedule_lines = []
+        active_meal_count = 0
+        if isinstance(grid, dict) and grid:
+            for i in range(n_days):
+                day_parts = []
+                for sl in WEEK_SLOTS:
+                    val = str(grid.get(f"{i}|{sl}") or "skip").strip().lower()
+                    if val not in EFFORT_LEVELS:
+                        raise ValueError(f"invalid effort '{val}' for {i}|{sl}")
+                    norm_grid[f"{i}|{sl}"] = val
+                    if val != "skip":
+                        eff_desc = {"quick": "quick <=20m", "normal": "normal <=40m", "big": "big cook 60m+"}[val]
+                        day_parts.append(f"{sl} ({eff_desc})")
+                        active_meal_count += 1
+                if day_parts:
+                    schedule_lines.append(f"- {day_labels[i]}: {', '.join(day_parts)}")
+            if active_meal_count == 0:
+                raise ValueError("pick at least one meal to plan")
+            slots = [sl for sl in WEEK_SLOTS if any(norm_grid.get(f"{i}|{sl}") != "skip" for i in range(n_days))]
 
         stock_lines = []
         for i in items:
@@ -910,10 +1228,23 @@ class Pantry:
         avoid_items, taste_line = self._week_prefs_context(viewer=viewer)
         protein_hint = (f"Protein target about {day_info['protein_target_g']} g/day.\n"
                         if day_info.get("protein_target_g") else "")
+        style_desc = {
+            "fresh": "fresh (cook a fresh meal each time)",
+            "twice": "twice (cook once, eat twice — make double batches on cook sessions and reuse as 5-min leftovers on later slots)",
+            "prep": "prep (one big prep session on a big-cook slot covers most meals of the week; include prep_plan)",
+        }[chosen_style]
+        if schedule_lines:
+            sched_block = (
+                f"Plan ONLY these {active_meal_count} requested slots across {n_days} days (leave skipped slots out):\n"
+                + "\n".join(schedule_lines) + "\n"
+            )
+        else:
+            sched_block = f"Plan {n_days} days: {', '.join(day_labels)}.\nMeals per day: {', '.join(slots)}.\n"
+
         content = (
-            f"Plan {n_days} days: {', '.join(day_labels)}.\n"
-            f"Meals per day: {', '.join(slots)}.\n"
-            f"Goals: {'; '.join(g.get('goals') or [])}\n"
+            sched_block
+            + f"Cooking style: {style_desc}.\n"
+            + f"Goals: {'; '.join(g.get('goals') or [])}\n"
             + protein_hint
             + (f"Avoid: {', '.join(avoid_items)}\n" if avoid_items else "")
             + taste_line
@@ -922,7 +1253,8 @@ class Pantry:
             + "\nIN THE HOUSE (soonest to expire first — use these on early days):\n"
             + ("\n".join(stock_lines) or "- nothing recorded")
         )
-        max_tok = min(4096, 900 + n_days * len(slots) * 260)
+        est_meals = active_meal_count or (n_days * len(slots))
+        max_tok = min(4096, 1000 + est_meals * 260)
         r = await self.models.get(chosen).chat(
             WEEK_SYSTEM, [{"role": "user", "content": content}], max_tokens=max_tok, temperature=0.5,
         )
@@ -931,16 +1263,54 @@ class Pantry:
             return {"summary": "", "days": [], "shopping_list": [], "shopping_items": [],
                     "model": chosen, "raw": r["text"][:1500]}
 
-        # Normalize day labels cleanly to match requested dates
-        for idx, d in enumerate(parsed["days"][:n_days]):
-            if idx < len(day_labels) and not d.get("day"):
-                d["day"] = day_labels[idx]
-        parsed["days"] = parsed["days"][:n_days]
+        if norm_grid:
+            # Align returned days to exact 0..n_days-1 date slots so skipped days remain in grid order
+            by_lbl = {str(d.get("day") or "").strip().lower(): d for d in parsed["days"]}
+            aligned = []
+            for idx in range(n_days):
+                lbl = day_labels[idx]
+                matched = by_lbl.get(lbl.lower())
+                if matched is None:
+                    # Try matching by weekday prefix (e.g. "Mon")
+                    wd_prefix = lbl.split()[0].lower()
+                    matched = next((d for d in parsed["days"]
+                                    if str(d.get("day") or "").strip().lower().startswith(wd_prefix)), None)
+                meals_for_day = []
+                if matched:
+                    for ml in matched.get("meals") or ():
+                        sl = str(ml.get("slot") or "dinner").lower()
+                        if norm_grid.get(f"{idx}|{sl}", "skip") != "skip":
+                            if not ml.get("effort"):
+                                ml = dict(ml, effort=norm_grid[f"{idx}|{sl}"])
+                            meals_for_day.append(ml)
+                aligned.append({"day": lbl, "date": (base_dt + timedelta(days=idx)).date().isoformat(), "meals": meals_for_day})
+            final_days = aligned
+            try:
+                self.save_week_layout("last", chosen_style, norm_grid, start_date=base_dt.date())
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            for idx, d in enumerate(parsed["days"][:n_days]):
+                if idx < len(day_labels) and not d.get("day"):
+                    d["day"] = day_labels[idx]
+                if idx < n_days:
+                    d.setdefault("date", (base_dt + timedelta(days=idx)).date().isoformat())
+            final_days = parsed["days"][:n_days]
+            # Build grid snapshot so the 2-step UI displays Ask/Voice plans cleanly too
+            for idx, d in enumerate(final_days):
+                present = {str(m.get("slot") or "dinner").lower(): m.get("effort") or "normal" for m in d.get("meals") or ()}
+                for sl in WEEK_SLOTS:
+                    norm_grid[f"{idx}|{sl}"] = present.get(sl, "skip")
 
         plan = {
             "summary": parsed["summary"],
-            "days": parsed["days"],
+            "days": final_days,
             "slots": slots,
+            "style": chosen_style,
+            "grid": norm_grid,
+            "start_date": base_dt.date().isoformat(),
+            "prep_plan": parsed.get("prep_plan"),
+            "calendar_skips": self.calendar_skips(days=n_days, start_date=base_dt.date()),
             "request": (request or "").strip(),
             "model": chosen,
             "created": time.time(),
@@ -951,8 +1321,44 @@ class Pantry:
         out["shopping_items"] = [x["label"] for x in out["shopping_list"]]
         return out
 
+    def set_plan_cell(self, day_index, slot, action="skip"):
+        """Instantly skip or restore a single meal cell in the saved plan and recompute the shopping list."""
+        saved = self.store.kv_get(self.WEEK_KV)
+        if not isinstance(saved, dict) or not saved.get("days"):
+            raise ValueError("no weekly meal plan saved yet")
+        idx = int(day_index)
+        if idx < 0 or idx >= len(saved["days"]):
+            raise ValueError(f"day_index must be between 0 and {len(saved['days']) - 1}")
+        slot_norm = str(slot or "").strip().lower()
+        if slot_norm not in ("breakfast", "lunch", "dinner", "snack"):
+            raise ValueError("slot must be breakfast, lunch, dinner, or snack")
+        act = str(action or "skip").strip().lower()
+        if act not in ("skip", "restore"):
+            raise ValueError("action must be 'skip' or 'restore'")
+
+        days_copy = [dict(d, meals=[dict(m) for m in (d.get("meals") or ())]) for d in saved["days"]]
+        grid_copy = dict(saved.get("grid") or {})
+        found = next((m for m in days_copy[idx]["meals"] if str(m.get("slot") or "").lower() == slot_norm), None)
+        if act == "skip":
+            if found:
+                found["skipped"] = True
+            grid_copy[f"{idx}|{slot_norm}"] = "skip"
+        else:
+            if found:
+                found.pop("skipped", None)
+                grid_copy[f"{idx}|{slot_norm}"] = found.get("effort") or "normal"
+            else:
+                raise ValueError("no saved meal in that slot to restore — use swap to generate one")
+
+        updated = dict(saved, days=days_copy, grid=grid_copy, updated=time.time())
+        self.store.kv_set(self.WEEK_KV, updated)
+        out = dict(updated)
+        out["shopping_list"] = build_shopping_list(out["days"], self.items())
+        out["shopping_items"] = [x["label"] for x in out["shopping_list"]]
+        return out
+
     async def swap_meal(self, day_index, slot="dinner", request="", model=None, viewer=None):
-        """Replace ONE meal in the saved weekly meal plan and recompute the consolidated shopping list."""
+        """Replace (or fill a skipped) meal in the saved weekly meal plan and recompute the shopping list."""
         saved = self.store.kv_get(self.WEEK_KV)
         if not isinstance(saved, dict) or not saved.get("days"):
             raise ValueError("no weekly meal plan saved yet")
@@ -963,13 +1369,13 @@ class Pantry:
         target_day = saved["days"][idx]
         slot_norm = str(slot or "dinner").strip().lower()
         existing_pos = next((i for i, m in enumerate(target_day.get("meals") or ())
-                             if str(m.get("slot") or "").lower() == slot_norm), 0)
-        old_meal = (target_day.get("meals") or [{}])[existing_pos] if target_day.get("meals") else {}
+                             if str(m.get("slot") or "").lower() == slot_norm), None)
+        old_meal = target_day["meals"][existing_pos] if existing_pos is not None else {}
         other_meals = [
             f"{d['day']} ({m.get('slot', 'dinner')}): {m['name']}"
             for di, d in enumerate(saved["days"])
             for mi, m in enumerate(d.get("meals") or ())
-            if not (di == idx and mi == existing_pos)
+            if not m.get("skipped") and not (di == idx and mi == existing_pos)
         ]
 
         items = self.items()
@@ -978,8 +1384,13 @@ class Pantry:
         avoid_items, taste_line = self._week_prefs_context(viewer=viewer)
         stock_lines = [f"- {i['name']}{(' (' + i['amount'] + ')') if i['amount'] else ''} ({i['location']})"
                        for i in items[:30]]
+        eff_hint = old_meal.get("effort") or (saved.get("grid") or {}).get(f"{idx}|{slot_norm}")
+        if eff_hint == "skip":
+            eff_hint = "normal"
         content = (
-            f"Replace {target_day['day']} {slot_norm}: currently '{old_meal.get('name', '')}'.\n"
+            (f"Replace {target_day['day']} {slot_norm}: currently '{old_meal.get('name', '')}'.\n"
+             if old_meal.get("name") else f"Add a new {slot_norm} for {target_day['day']}.\n")
+            + (f"Target effort: {eff_hint}.\n" if eff_hint else "")
             + (f"User wants instead: {request.strip()}\n" if (request or "").strip() else "Give a different appealing option.\n")
             + f"Goals: {'; '.join(g.get('goals') or [])}\n"
             + (f"Avoid: {', '.join(avoid_items)}\n" if avoid_items else "")
@@ -998,22 +1409,18 @@ class Pantry:
             obj = {}
         if not isinstance(obj, dict) or not str(obj.get("name") or "").strip():
             raise RuntimeError("model did not return a replacement meal")
-        new_meal = {
-            "slot": str(obj.get("slot") or slot_norm).lower(),
-            "name": str(obj["name"]).strip(),
-            "uses": [str(x).strip() for x in (obj.get("uses") or ()) if str(x or "").strip()],
-            "need": obj.get("need") if isinstance(obj.get("need"), list) else list(obj.get("missing") or ()),
-            "protein_g": obj.get("protein_g"),
-            "calories": obj.get("calories"),
-            "why": str(obj.get("why") or "").strip(),
-            "steps": obj.get("steps") or "",
-        }
+        new_meal = _clean_meal_dict(obj, default_slot=slot_norm)
+        if not new_meal.get("effort") and eff_hint:
+            new_meal["effort"] = eff_hint
+
         days_copy = [dict(d, meals=list(d.get("meals") or ())) for d in saved["days"]]
-        if days_copy[idx]["meals"]:
+        if existing_pos is not None:
             days_copy[idx]["meals"][existing_pos] = new_meal
         else:
             days_copy[idx]["meals"].append(new_meal)
-        updated = dict(saved, days=days_copy, updated=time.time())
+        grid_copy = dict(saved.get("grid") or {})
+        grid_copy[f"{idx}|{slot_norm}"] = new_meal.get("effort") or "normal"
+        updated = dict(saved, days=days_copy, grid=grid_copy, updated=time.time())
         self.store.kv_set(self.WEEK_KV, updated)
         out = dict(updated)
         out["shopping_list"] = build_shopping_list(out["days"], items)

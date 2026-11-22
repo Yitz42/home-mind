@@ -378,6 +378,8 @@ class App:
         self.overnight.enabled = self.opts.get("overnight_enabled", True) is not False
         self.overnight.structure_on = bool(self.opts.get("overnight_structure"))
         self.overnight.memgraph = self.memgraph
+        self.overnight.live_archivist = bool(self.archivist.model_name)
+        self.overnight.personal_rule = self.opts.get("personal_rule") or "first_person"
         self.morning = Morning(self.mind.store, self.ha, self.calendars, self.opts.get("morning_time") or "07:30",
                                self.opts.get("morning_notify") or "")
         self.morning.enabled = self.opts.get("morning_enabled", True) is not False
@@ -396,6 +398,7 @@ class App:
         self.convlog.who = self.who_by_device
         self.pantry = Pantry(self.mind.store, self.ha, self.models, DATA)
         self.pantry.memgraph = self.memgraph
+        self.pantry.calendars = self.calendars
         self.mind.pantry = self.pantry
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
@@ -1276,7 +1279,7 @@ class App:
                                     "week_plan": plan, "missing": [] if added_shop else (plan.get("shopping_items") or []),
                                     "pantry": True}
                     else:
-                        plan = await self.pantry.suggest(req["meal"], model=m, n=2 if voice else 3, request=req["request"])
+                        plan = await self.pantry.suggest(req["meal"], model=m, n=2 if voice else 3, request=req["request"], viewer=who)
                         text = format_plan(plan, voice=voice)
                         if text:
                             return {"answer": text, "hits": [], "model": plan.get("model") or m,
@@ -3583,7 +3586,7 @@ def build(app_state):
     @r.get("/api/pantry")
     async def pantry_list(q):
         return J({"items": A.pantry.items(q.query.get("status", "in")), "goals": A.pantry.goals(),
-                  "week_plan": A.pantry.week_plan()})
+                  "week_plan": A.pantry.week_plan(), "week_calendar": A.pantry.week_calendar()})
 
     @r.post("/api/pantry/{op}")
     async def pantry_op(q):
@@ -3607,7 +3610,7 @@ def build(app_state):
             data = await part.read(decode=False)
             return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
         b = model_ok(await read_body(q, optional=True, text=str, name=str, location=str, source=str, meal=str,
-                                     request=str, items=list, slot=str))
+                                     request=str, items=list, slot=str, style=str, kind=str, action=str, grid=dict))
         if not isinstance(b.get("amount", ""), (str, int, float)) or not isinstance(b.get("use_by", ""), (str, int, float)):
             raise ValueError("amount and use_by should be text (or a number)")
         try:
@@ -3641,7 +3644,7 @@ def build(app_state):
                 return J(A.pantry.remove(whole(b.get("id"))))
             if op == "suggest":
                 return J(await A.pantry.suggest(b.get("meal"), b.get("model"), num(b.get("n"), "n", 3, 1, 10),
-                                               b.get("request") or ""))
+                                               b.get("request") or "", viewer=VIEWER.get()))
             if op == "week":
                 d_val = whole(b["days"], "days") if b.get("days") is not None else 7
                 if not (1 <= d_val <= 7):
@@ -3652,7 +3655,17 @@ def build(app_state):
                 if isinstance(meals_arg, list) and not all(isinstance(x, str) for x in meals_arg):
                     raise ValueError("meals items should be text")
                 return J(await A.pantry.plan_week(days=d_val, meals=meals_arg, request=b.get("request") or "",
-                                                  model=b.get("model"), viewer=VIEWER.get()))
+                                                  model=b.get("model"), viewer=VIEWER.get(),
+                                                  style=b.get("style"), grid=b.get("grid")))
+            if op == "layout":
+                rec = A.pantry.save_week_layout(kind=b.get("kind") or "usual", style=b.get("style") or "twice",
+                                                grid=b.get("grid"))
+                return J({"layout": rec, "layouts": A.pantry.week_layouts()})
+            if op == "plan_cell":
+                if b.get("day_index") is None:
+                    raise ValueError("missing day_index")
+                d_idx = whole(b["day_index"], "day_index")
+                return J(A.pantry.set_plan_cell(d_idx, slot=b.get("slot") or "", action=b.get("action") or "skip"))
             if op == "swap":
                 if b.get("day_index") is None:
                     raise ValueError("missing day_index")

@@ -280,6 +280,57 @@
     .hb-cols { display:grid; grid-template-columns:400px minmax(0,1fr); gap:24px; align-items:start }
     .hb-left .hb-stats { order:5 } .hb-left .hb-need { order:3 } .hb-right { order:0 } .hb-tile { min-height:calc(50vh - 70px) }
   }
+  /* Weekly meal calendar picker */
+  .mp-tabs { display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--card) }
+  .mp-tabs button { border:0; background:none; color:var(--ink); padding:6px 12px; font:inherit; font-size:12px; cursor:pointer; min-height:32px }
+  .mp-tabs button.on { background:var(--food); color:var(--food-on); font-weight:600 }
+  .mp-box { border:1px solid var(--line); background:var(--card); border-radius:12px; padding:10px 12px; margin-bottom:8px }
+  .mp-grid3 { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:6px }
+  .mp-opt { text-align:left; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:10px; padding:7px 9px; cursor:pointer; font:inherit }
+  .mp-opt.on { border-color:var(--food); background:var(--food-bg) }
+  .mp-opt:disabled { opacity:.45; cursor:default }
+  .mp-opt b { display:block; font-size:12px } .mp-opt span { display:block; font-size:11px; color:var(--mute); line-height:1.25 }
+  .mp-toast { display:flex; align-items:center; gap:8px; font-size:12px; border-radius:8px; padding:6px 10px; background:var(--food-bg); margin-top:8px }
+  .mp-brushbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:4px 0; margin-bottom:6px }
+  .mp-brush { display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--card) }
+  .mp-brush button { border:0; background:none; color:var(--ink); padding:6px 10px; font:inherit; font-size:12px; cursor:pointer }
+  .mp-brush button.on { background:var(--food); color:var(--food-on); font-weight:600 }
+  .mp-chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:8px }
+  .mp-chip { font-size:12px; padding:2px 9px; border-radius:99px; border:1px solid var(--line); color:var(--mute); background:var(--card) }
+  .mp-chip.hi { border-color:var(--food); color:var(--ink) }
+  .mp-row { display:grid; grid-template-columns:64px repeat(3,minmax(0,1fr)); gap:6px; margin-bottom:6px }
+  .mp-row.today { box-shadow:inset 3px 0 0 var(--food); padding-left:4px }
+  .mp-hdr { padding:6px 0; border-bottom:1px solid var(--food-line); margin-bottom:6px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--mute); text-align:center }
+  .mp-hdr button { border:0; background:none; color:inherit; font:inherit; text-transform:uppercase; letter-spacing:.05em; cursor:pointer; padding:2px 4px }
+  .mp-hdr button:hover { color:var(--ink) }
+  .mp-day { align-self:center; padding-left:4px }
+  .mp-day button.dname { border:0; background:none; color:var(--ink); padding:0; text-align:left; cursor:pointer; font:inherit; display:block }
+  .mp-day button.dskip { margin-top:3px; font-size:11px; padding:2px 6px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--mute); cursor:pointer }
+  .mp-day button.dskip:hover { border-color:var(--food); color:var(--ink) }
+  .mp-slot { position:relative; border-radius:12px; padding:7px 9px; min-height:56px; text-align:left; display:flex; flex-direction:column; justify-content:center; gap:2px; font:inherit; color:var(--ink); transition:border-color .12s }
+  button.mp-slot { cursor:pointer; padding-right:30px }
+  .mp-slot.need { background:var(--card); border:1px solid var(--food-line) }
+  .mp-slot.e-quick { background:color-mix(in srgb,#0ea5e9 10%,var(--card)); border:1px solid color-mix(in srgb,#0ea5e9 42%,var(--line)) }
+  .mp-slot.e-normal { background:var(--card); border:1px solid var(--food-line) }
+  .mp-slot.e-big { background:color-mix(in srgb,var(--food) 16%,var(--card)); border:1px solid var(--food) }
+  .mp-slot.skip { background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--mute) 10%,transparent) 6px 12px); border:1px dashed var(--line); color:var(--mute) }
+  .mp-slot.left { background:color-mix(in srgb,var(--bc,var(--food)) 10%,var(--card)); border:1px solid color-mix(in srgb,var(--bc,var(--food)) 45%,var(--line)) }
+  .mp-slot.cook { border-left:4px solid var(--bc,var(--food)) }
+  .mp-x { position:absolute; top:5px; right:5px; width:22px; height:22px; display:grid; place-items:center; border-radius:6px; font-size:11px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; padding:0 }
+  .mp-x:hover { border-color:var(--food) }
+  .mp-dot { width:8px; height:8px; border-radius:99px; background:var(--bc,var(--food)); display:inline-block; flex:none }
+  .mp-mtitle { font-size:13px; font-weight:600; line-height:1.25 }
+  .mp-meta { font-size:11px; color:var(--mute); display:flex; align-items:center; gap:4px; flex-wrap:wrap }
+  .mp-acts { font-size:11px; color:var(--mute); margin-top:auto; padding-top:3px; display:flex; gap:8px }
+  .mp-acts a { color:var(--mute); font-size:11px } .mp-acts a:hover { color:var(--ink) }
+  .mp-prep { border:1px solid var(--food-line); background:var(--card); border-radius:12px; padding:10px 12px; margin-bottom:8px; font-size:12px }
+  .mp-prep-line { display:flex; align-items:center; gap:6px; margin-top:4px }
+  .mp-foot { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding-top:10px; margin-top:6px; border-top:1px solid var(--food-line) }
+  @media (max-width: 600px) {
+    .mp-grid3 { grid-template-columns:1fr }
+    .mp-row { grid-template-columns:48px repeat(3,minmax(0,1fr)); gap:4px }
+    .mp-slot { padding:6px 6px; min-height:52px } button.mp-slot { padding-right:26px }
+  }
 </style>
 </head>
 <body>
@@ -533,15 +584,18 @@
       <select id="m_meal" aria-label="meal"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select>
       <input id="m_req" placeholder="anything else? (quick, no cooking…)" style="width:240px"> <button class="go" onclick="meals()">Suggest</button></div>
     <div id="m_today" class="mute"></div><div id="m_out"></div></div>
-  <div class="card food"><div class="row"><h2 style="margin:0;flex:1">Weekly meal plan</h2>
-      <select id="w_days" aria-label="days"><option value="7">7 days</option><option value="5">5 days</option><option value="3">3 days</option></select>
-      <select id="w_slots" aria-label="meals"><option value="dinner">dinners</option><option value="lunch,dinner">lunches &amp; dinners</option><option value="breakfast,lunch,dinner">all 3 meals</option></select>
-      <input id="w_req" placeholder="theme or preferences (high protein, quick weeknights…)" style="width:240px">
-      <button class="go" onclick="weekPlan()">Build week</button>
-      <button class="hide" id="w_clear" onclick="clearWeek()">Clear</button></div>
-    <div id="w_summary" class="mute"></div>
-    <div id="w_out"></div>
-    <div id="w_shop_wrap" class="hide" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">
+  <div class="card food" id="mp_card">
+    <div class="row" style="margin-bottom:8px"><h2 style="margin:0;flex:1">Weekly meal plan</h2>
+      <div id="mp_tabs" class="mp-tabs"></div>
+      <button class="soft hide" id="w_clear" onclick="clearWeek()" style="min-height:32px;padding:4px 10px;font-size:12px">Clear</button></div>
+    <div id="w_summary" class="mute" style="font-size:13px;margin-bottom:8px"></div>
+    <div id="mp_opts"></div>
+    <div id="mp_summary" class="mp-chips"></div>
+    <div id="mp_prep"></div>
+    <div id="mp_hdr" class="mp-row mp-hdr"></div>
+    <div id="mp_rows"></div>
+    <div id="mp_footer"></div>
+    <div id="w_shop_wrap" class="hide" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--food-line)">
       <div class="row"><h3 style="margin:0;flex:1">Shopping list <span class="mute" id="w_shop_sub"></span></h3>
         <button class="go" id="w_shop_btn" onclick="shopWeek()">Add to shopping list</button></div>
       <div id="w_shop_out"></div>
@@ -1472,50 +1526,283 @@ async function pantry() {
         return `<div class="li"><span class="days-b ${cls}">${when}</span><div class="main"><div class="t">${esc(i.name)}</div><div class="sub">${esc(i.amount || '')}${i.amount ? ' · ' : ''}${esc(i.location)}</div></div>
       <div class="acts"><a onclick="puse(${jsq(i.name)},'used')">used</a><a onclick="puse(${jsq(i.name)},'tossed')">tossed</a><a class="mute" onclick="premove(${i.id})">remove</a></div></div>`; }).join('') || '<span class="mute">nothing yet: add from a photo or type what you bought</span>';
   const g = r.goals; $('#g_goals').value = (g.goals || []).join('\n'); $('#g_tired').value = g.tired_days || ''; $('#g_avoid').value = (g.avoid || []).join(', ');
-  renderWeekPlan(r.week_plan);
+  mpLoad(r.week_plan, r.week_calendar);
 }
 let _weekShop = [];
-function renderWeekPlan(plan) {
-  const sum = $('#w_summary'), out = $('#w_out'), wrap = $('#w_shop_wrap'), clr = $('#w_clear');
-  if (!plan || !(plan.days || []).length) {
-    sum.textContent = 'Build a 3, 5, or 7-day plan using what expires first, then send the needed groceries straight to Home Assistant.';
-    out.innerHTML = ''; wrap.classList.add('hide'); clr.classList.add('hide'); _weekShop = [];
-    return;
+const MP_SLOTS = ['breakfast', 'lunch', 'dinner'];
+const MP_EFF = {
+  quick: ['⚡', 'Quick', '≤ 20 min'],
+  normal: ['🍳', 'Normal', '≤ 40 min'],
+  big: ['👩‍🍳', 'Big cook', '60+ min, makes extra'],
+  skip: ['✕', 'Skip', 'not needed'],
+};
+const MP_COLORS = {A: '#d97706', B: '#0ea5e9', C: '#16a34a', D: '#a855f7', E: '#e11d48', F: '#14b8a6'};
+const MP_STYLE_LBL = {fresh: 'Fresh', twice: 'Cook once, eat twice', prep: 'Prep day'};
+const MP = {
+  step: 'pick', style: 'twice', brush: 'quick', req: '',
+  days: [], cal: {}, grid: {}, layouts: {}, plan: null,
+  undoGrid: null, undoStyle: null, applied: null, toast: '', shopOpen: false, busy: false,
+};
+function mpDefaultDays() {
+  const out = [], wds = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'], sh = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const base = new Date();
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(base); d.setDate(base.getDate() + i);
+    out.push({index: i, weekday: wds[d.getDay()], short: sh[d.getDay()], day_num: d.getDate(),
+      label: sh[d.getDay()] + ' ' + d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'})});
   }
-  clr.classList.remove('hide');
-  sum.textContent = plan.summary || `${plan.days.length}-day meal plan`;
-  out.innerHTML = plan.days.map((d, di) => `<div style="margin:10px 0;padding:8px 0;border-bottom:1px solid var(--bd)">
-    <div style="font-weight:600;margin-bottom:4px">${esc(d.day)}</div>` +
-    (d.meals || []).map(m => `<div style="margin:6px 0">
-      <div class="row" style="gap:8px;align-items:baseline">
-        <b>${esc(m.name)}</b> <span class="mute">${esc(m.slot || '')} · ~${esc(m.protein_g ?? '?')} g protein · ~${esc(m.calories ?? '?')} kcal</span>
-        <a style="margin-left:auto" onclick="swapMeal(${di},${jsq(m.slot || 'dinner')},${jsq(d.day + ' ' + m.name)})">Swap</a>
-      </div>
-      ${m.why ? `<div class="mute">${esc(m.why)}</div>` : ''}
-      ${(m.uses || []).length ? `<div class="mute">uses ${esc(m.uses.join(', '))}</div>` : ''}
-      ${m.steps ? `<div class="mute">${esc(Array.isArray(m.steps) ? m.steps.map((s, i) => (i + 1) + '. ' + s).join('  ') : m.steps)}</div>` : ''}
-    </div>`).join('') + '</div>').join('');
-  const list = plan.shopping_list || [];
+  return out;
+}
+function mpDefaultGrid(days, cal) {
+  const g = {};
+  days.forEach((d, i) => {
+    const isSun = d.weekday === 'sun', isSat = d.weekday === 'sat';
+    g[i + '|breakfast'] = 'skip';
+    g[i + '|lunch'] = isSat ? 'skip' : 'quick';
+    g[i + '|dinner'] = isSun ? 'big' : isSat ? 'normal' : (i === 0 ? 'normal' : 'quick');
+  });
+  Object.keys(cal || {}).forEach(k => { g[k] = 'skip'; });
+  return g;
+}
+function mpLoad(plan, calInfo) {
+  MP.days = (calInfo && Array.isArray(calInfo.days) && calInfo.days.length) ? calInfo.days : mpDefaultDays();
+  MP.cal = (calInfo && calInfo.calendar_skips) || (plan && plan.calendar_skips) || {};
+  MP.layouts = (calInfo && calInfo.layouts) || {};
+  MP.plan = (plan && Array.isArray(plan.days) && plan.days.length) ? plan : null;
+  if (MP.plan) {
+    MP.style = MP.plan.style || MP.style;
+    MP.req = MP.plan.request || MP.req;
+    if (MP.plan.grid && Object.keys(MP.plan.grid).length) MP.grid = Object.assign({}, MP.plan.grid);
+    else if (!Object.keys(MP.grid).length) MP.grid = mpDefaultGrid(MP.days, MP.cal);
+    MP.step = 'plan';
+  } else {
+    if (!Object.keys(MP.grid).length) MP.grid = mpDefaultGrid(MP.days, MP.cal);
+    MP.step = 'pick';
+  }
+  renderWeekPlan(MP.plan);
+}
+function mpStep(s) {
+  if (s === 'plan' && !MP.plan) { mpBuild(); return; }
+  MP.step = s; mpRender();
+}
+function mpStyle(s) { MP.style = s; mpRender(); }
+function mpBrush(b) { MP.brush = b; mpRender(); }
+function mpSetReq(v) { MP.req = v; }
+function mpPaint(k) { MP.grid[k] = (MP.grid[k] === MP.brush && MP.brush !== 'normal') ? 'normal' : MP.brush; mpRender(); }
+function mpPaintDay(i) { MP_SLOTS.forEach(s => { MP.grid[i + '|' + s] = MP.brush; }); mpRender(); }
+function mpPaintCol(s) { MP.days.forEach((_, i) => { MP.grid[i + '|' + s] = MP.brush; }); mpRender(); }
+function mpToggleSkip(k, ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  MP.grid[k] = MP.grid[k] === 'skip' ? MP.brush : 'skip';
+  mpRender();
+}
+function mpToggleSkipDay(i, ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  const all = MP_SLOTS.every(s => MP.grid[i + '|' + s] === 'skip');
+  MP_SLOTS.forEach(s => { MP.grid[i + '|' + s] = all ? MP.brush : 'skip'; });
+  mpRender();
+}
+function mpApplyTpl(kind) {
+  const tpl = MP.layouts[kind];
+  if (!tpl || !tpl.grid) return;
+  MP.undoGrid = Object.assign({}, MP.grid); MP.undoStyle = MP.style;
+  MP.style = tpl.style || MP.style;
+  const next = {};
+  MP.days.forEach((d, i) => {
+    MP_SLOTS.forEach(s => {
+      next[i + '|' + s] = tpl.grid[d.weekday + '|' + s] || tpl.grid[i + '|' + s] || 'normal';
+    });
+  });
+  let calCnt = 0;
+  Object.keys(MP.cal).forEach(k => { if (next[k] && next[k] !== 'skip') calCnt++; next[k] = 'skip'; });
+  MP.grid = next; MP.applied = kind;
+  MP.toast = `Copied ${kind === 'last' ? "last week's" : 'your usual'} layout` + (calCnt ? ` · ${calCnt} meal${calCnt === 1 ? '' : 's'} skipped from this week's calendar` : '');
+  mpRender();
+}
+function mpUndoTpl() {
+  if (!MP.undoGrid) return;
+  MP.grid = Object.assign({}, MP.undoGrid); MP.style = MP.undoStyle;
+  MP.undoGrid = null; MP.applied = null; MP.toast = ''; mpRender();
+}
+async function mpSaveUsual() {
+  const r = await api('api/pantry/layout', {kind: 'usual', style: MP.style, grid: MP.grid});
+  if (r.error) { MP.toast = r.error; mpRender(); return; }
+  MP.layouts = r.layouts || MP.layouts;
+  MP.undoGrid = null; MP.applied = 'usual';
+  MP.toast = 'Saved this layout as your usual week';
+  mpRender();
+}
+function mpBlank() {
+  MP.undoGrid = Object.assign({}, MP.grid); MP.undoStyle = MP.style;
+  const next = {};
+  MP.days.forEach((_, i) => MP_SLOTS.forEach(s => { next[i + '|' + s] = 'normal'; }));
+  Object.keys(MP.cal).forEach(k => { next[k] = 'skip'; });
+  MP.grid = next; MP.applied = 'blank'; MP.toast = 'Started from blank';
+  mpRender();
+}
+function mpFindMeal(dayIdx, slot) {
+  const d = MP.plan && MP.plan.days && MP.plan.days[dayIdx];
+  if (!d) return null;
+  return (d.meals || []).find(m => String(m.slot || '').toLowerCase() === slot) || null;
+}
+function mpRender() {
+  const clr = $('#w_clear'), sum = $('#w_summary');
+  if (MP.plan) clr.classList.remove('hide'); else clr.classList.add('hide');
+  const activeCount = Object.values(MP.grid).filter(v => v !== 'skip').length;
+  const cntEff = e => Object.values(MP.grid).filter(v => v === e).length;
+  const calCount = Object.keys(MP.cal).length;
+
+  $('#mp_tabs').innerHTML = [['pick', '1 · Pick'], ['plan', '2 · Plan']].map(([s, lbl]) =>
+    `<button onclick="mpStep(${jsq(s)})" class="${MP.step === s ? 'on' : ''}">${esc(lbl)}</button>`).join('');
+
+  if (MP.busy) {
+    sum.textContent = 'Building your weekly meal plan from expiring stock, goals, and calendar…';
+  } else if (MP.step === 'plan' && MP.plan) {
+    sum.textContent = MP.plan.summary || `${MP.plan.days.length}-day meal plan`;
+  } else {
+    sum.textContent = 'Pick an effort brush, tap meals (or day/column headers), and skip dining-out slots.';
+  }
+
+  if (MP.step === 'pick') {
+    const lastT = MP.layouts.last, usualT = MP.layouts.usual;
+    const tplBtn = (k, icon, title, t) => t
+      ? `<button onclick="mpApplyTpl(${jsq(k)})" class="mp-opt ${MP.applied === k ? 'on' : ''}"><b>${icon} ${esc(title)}</b><span>${esc(t.sub || '')} · ${esc(MP_STYLE_LBL[t.style] || t.style || '')}</span></button>`
+      : `<button disabled class="mp-opt"><b>${icon} ${esc(title)}</b><span>${k === 'last' ? 'build a week first' : 'save your layout →'}</span></button>`;
+    const styles = [['fresh', 'Fresh each meal', 'Variety, cook every time'], ['twice', 'Cook once, eat twice', 'Extra portions become later meals'], ['prep', 'Prep day', 'One big session covers the week']];
+    $('#mp_opts').innerHTML =
+      `<div class="mp-box"><div class="row" style="margin:0;justify-content:space-between"><b style="font-size:12px">Start from</b>`
+      + `<a onclick="mpSaveUsual()" style="font-size:12px">★ Save this as my usual week</a></div>`
+      + `<div class="mp-grid3">${tplBtn('last', '↺', 'Last week', lastT)}${tplBtn('usual', '★', 'My usual week', usualT)}`
+      + `<button onclick="mpBlank()" class="mp-opt ${MP.applied === 'blank' ? 'on' : ''}"><b>○ Blank</b><span>every meal Normal</span></button></div>`
+      + (MP.toast ? `<div class="mp-toast"><span style="flex:1">✓ ${esc(MP.toast)}</span>${MP.undoGrid ? '<a onclick="mpUndoTpl()" style="font-weight:600">Undo</a>' : ''}</div>` : '')
+      + `</div>`
+      + `<div class="mp-box"><b style="font-size:12px">Cooking style</b><div class="mp-grid3">`
+      + styles.map(([v, t, d]) => `<button onclick="mpStyle(${jsq(v)})" class="mp-opt ${MP.style === v ? 'on' : ''}"><b>${esc(t)}</b><span>${esc(d)}</span></button>`).join('')
+      + `</div></div>`
+      + `<div class="mp-brushbar"><b style="font-size:12px">Effort — tap a meal to set:</b><div class="mp-brush">`
+      + ['quick', 'normal', 'big'].map(k => `<button onclick="mpBrush(${jsq(k)})" class="${MP.brush === k ? 'on' : ''}">${MP_EFF[k][0]} ${esc(MP_EFF[k][1])}</button>`).join('')
+      + `</div><span class="mute" style="font-size:12px">✕ on a meal or day skips it</span></div>`;
+    $('#mp_summary').innerHTML =
+      `<span class="mp-chip hi"><b>${activeCount}</b> meals</span>`
+      + `<span class="mp-chip">⚡ ${cntEff('quick')}</span><span class="mp-chip">🍳 ${cntEff('normal')}</span>`
+      + `<span class="mp-chip">👩‍🍳 ${cntEff('big')}</span><span class="mp-chip">✕ ${cntEff('skip')}</span>`
+      + (calCount ? `<span class="mp-chip">📅 ${calCount} from calendar</span>` : '');
+    $('#mp_prep').innerHTML = '';
+  } else {
+    $('#mp_opts').innerHTML = '';
+    const allMeals = [];
+    (MP.plan && MP.plan.days || []).forEach(d => (d.meals || []).forEach(m => { if (!m.skipped) allMeals.push(m); }));
+    const cooks = allMeals.filter(m => !m.batch_id || m.is_cook !== false);
+    const totalMin = cooks.reduce((acc, m) => acc + (Number(m.minutes) || (m.effort === 'quick' ? 15 : m.effort === 'big' ? 60 : 30)), 0);
+    const hrs = (totalMin / 60).toFixed(1);
+    const buyN = _weekShop.length;
+    $('#mp_summary').innerHTML =
+      `<span class="mp-chip hi">${allMeals.length} meals from <b>${cooks.length}</b> cooking session${cooks.length === 1 ? '' : 's'}</span>`
+      + `<span class="mp-chip">🛒 ${buyN} to buy</span>`
+      + `<span class="mp-chip">~${esc(hrs)} h cooking</span>`
+      + (MP.plan && MP.plan.style ? `<span class="mp-chip">${esc(MP_STYLE_LBL[MP.plan.style] || MP.plan.style)}</span>` : '');
+    const pp = MP.plan && MP.plan.prep_plan;
+    $('#mp_prep').innerHTML = (pp && (pp.title || (pp.items || []).length))
+      ? `<div class="mp-prep"><div style="font-weight:600">🍳 ${esc(pp.title || 'Prep session')}</div>`
+        + (pp.items || []).map(it => `<div class="mp-prep-line" style="--bc:${esc(MP_COLORS[it.batch_id] || 'var(--food)')}"><span class="mp-dot"></span><span>${esc(it.text)}</span></div>`).join('')
+        + `</div>` : '';
+  }
+
+  $('#mp_hdr').innerHTML = '<div></div>' + MP_SLOTS.map(s => MP.step === 'pick'
+    ? `<button onclick="mpPaintCol(${jsq(s)})" title="Set all ${esc(s)}s to ${esc(MP_EFF[MP.brush][1])}">${esc(s)} ↓</button>`
+    : `<div>${esc(s)}</div>`).join('');
+
+  $('#mp_rows').innerHTML = MP.days.map((d, i) => {
+    const lbl = `<div style="font-size:13px;font-weight:600">${esc(d.short)}</div><div class="mute" style="font-size:11px">${esc(d.day_num)}${i === 0 ? ' · today' : ''}</div>`;
+    let dayCol = `<div class="mp-day">${lbl}</div>`;
+    if (MP.step === 'pick') {
+      const allOff = MP_SLOTS.every(s => MP.grid[i + '|' + s] === 'skip');
+      dayCol = `<div class="mp-day"><button class="dname" onclick="mpPaintDay(${i})" title="Set whole day to ${esc(MP_EFF[MP.brush][1])}">${lbl}</button>`
+        + `<button class="dskip" onclick="mpToggleSkipDay(${i}, event)">${allOff ? '↺ day' : '✕ day'}</button></div>`;
+    }
+    const cells = MP_SLOTS.map(s => {
+      const k = i + '|' + s, e = MP.grid[k] || 'skip', calLbl = MP.cal[k];
+      if (MP.step === 'pick') {
+        const E = MP_EFF[e] || MP_EFF.normal;
+        const xBtn = `<span role="button" class="mp-x" onclick="mpToggleSkip(${jsq(k)}, event)" title="${e === 'skip' ? 'Restore this meal' : 'Skip this meal'}">${e === 'skip' ? '↺' : '✕'}</span>`;
+        if (e === 'skip') {
+          return `<button class="mp-slot skip" onclick="mpToggleSkip(${jsq(k)}, event)" title="Tap to restore">${xBtn}<span style="font-size:12px;font-weight:600">Skipped</span><span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${calLbl ? '📅 ' + esc(calLbl) : 'tap to restore'}</span></button>`;
+        }
+        return `<button class="mp-slot e-${esc(e)}" onclick="mpPaint(${jsq(k)})" title="${esc(E[1])} · ${esc(E[2])}">${xBtn}<span style="font-size:12px;font-weight:600;white-space:nowrap">${E[0]} ${esc(E[1])}</span><span style="font-size:11px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${calLbl ? '📅 ' + esc(calLbl) : esc(E[2])}</span></button>`;
+      }
+      // Step 2: Plan view
+      const m = mpFindMeal(i, s);
+      if (!m || m.skipped || e === 'skip') {
+        const canRestore = !!(m && m.skipped);
+        return `<div class="mp-slot skip"><span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${calLbl ? '📅 ' + esc(calLbl) : 'Skipped'}</span>`
+          + `<a onclick="mpAddPlanned(${i}, ${jsq(s)}, ${canRestore ? 'true' : 'false'})" style="font-size:11px;margin-top:auto">+ add</a></div>`;
+      }
+      const bc = m.batch_id ? (MP_COLORS[m.batch_id] || '#d97706') : '';
+      const isLeft = !!(m.batch_id && m.is_cook === false);
+      const isCook = !!(m.batch_id && m.is_cook !== false);
+      const effIcon = (MP_EFF[m.effort || e] || MP_EFF.normal)[0];
+      const meta = isLeft
+        ? `<span class="mp-meta"><span class="mp-dot"></span>↺ ${esc(m.batch_label || 'leftovers')} · 5 min</span>`
+        : isCook
+          ? `<span class="mp-meta"><span class="mp-dot"></span>${effIcon} ${esc(m.minutes || 30)} min${m.servings ? ' · makes ' + esc(m.servings) : ''}</span>`
+          : `<span class="mp-meta">${effIcon} ${m.minutes ? esc(m.minutes) + ' min' : ''}${m.protein_g ? ' · ~' + esc(m.protein_g) + 'g P' : ''}</span>`;
+      return `<div class="mp-slot ${isLeft ? 'left' : 'need'}${isCook ? ' cook' : ''}"${bc ? ` style="--bc:${esc(bc)}"` : ''}>`
+        + `<div class="mp-mtitle">${esc(m.name)}</div>${meta}`
+        + `<div class="mp-acts"><a onclick="mpSwapPlanned(${i}, ${jsq(s)}, ${jsq(d.label + ' ' + m.name)})">↻ swap</a>`
+        + `<a onclick="mpSkipPlanned(${i}, ${jsq(s)})">✕ skip</a></div></div>`;
+    }).join('');
+    return `<div class="mp-row${i === 0 ? ' today' : ''}">${dayCol}${cells}</div>`;
+  }).join('');
+
+  if (MP.step === 'pick') {
+    $('#mp_footer').innerHTML =
+      `<div class="mp-foot"><input id="w_req" value="${esc(MP.req)}" oninput="mpSetReq(this.value)" placeholder="theme or preferences (high protein, Mediterranean…)" style="flex:1;min-width:160px">`
+      + `<button class="go" onclick="mpBuild()"${MP.busy || !activeCount ? ' disabled' : ''}>${MP.busy ? 'Planning…' : `Build ${activeCount} meal${activeCount === 1 ? '' : 's'}`}</button></div>`;
+  } else {
+    const buyN = _weekShop.length;
+    $('#mp_footer').innerHTML =
+      `<div class="mp-foot"><button class="soft" onclick="mpStep('pick')">✎ Change</button>`
+      + `<button class="go" style="flex:1;justify-content:center" onclick="mpReviewShop()">🛒 ${MP.shopOpen ? 'Hide' : 'Review'} ${buyN} item${buyN === 1 ? '' : 's'} to buy</button></div>`;
+  }
+}
+function renderWeekPlan(plan) {
+  MP.plan = (plan && Array.isArray(plan.days) && plan.days.length) ? plan : null;
+  if (MP.plan && MP.plan.grid && Object.keys(MP.plan.grid).length) {
+    MP.grid = Object.assign({}, MP.plan.grid);
+  }
+  const wrap = $('#w_shop_wrap');
+  const list = (MP.plan && MP.plan.shopping_list) || [];
   _weekShop = list.map(x => ({label: String(x.label || x.item || ''), aisle: x.aisle || 'other', meals: x.meals || [], checked: true}));
-  wrap.classList.remove('hide');
   $('#w_shop_msg').textContent = '';
+  if (!MP.plan || !MP.shopOpen) {
+    wrap.classList.add('hide');
+  } else {
+    wrap.classList.remove('hide');
+  }
   if (!_weekShop.length) {
     $('#w_shop_sub').textContent = 'everything in stock';
     $('#w_shop_out').innerHTML = '<span class="mute">You already have everything needed for this plan.</span>';
     $('#w_shop_btn').classList.add('hide');
-    return;
+  } else {
+    $('#w_shop_btn').classList.remove('hide');
+    const byAisle = {};
+    _weekShop.forEach((x, idx) => { (byAisle[x.aisle] = byAisle[x.aisle] || []).push({x, idx}); });
+    $('#w_shop_out').innerHTML = Object.entries(byAisle).map(([aisle, rows]) =>
+      `<div style="margin:8px 0"><div class="mute" style="text-transform:capitalize;font-weight:600;margin-bottom:3px">${esc(aisle)}</div>`
+      + rows.map(({x, idx}) => `<label style="display:flex;gap:8px;align-items:baseline;margin:3px 0;cursor:pointer">`
+        + `<input type="checkbox" checked onchange="toggleWeekItem(${idx})"><span>${esc(x.label)}</span>`
+        + `<span class="mute" style="font-size:12px">${esc((x.meals || []).join(' · '))}</span></label>`).join('') + '</div>').join('');
+    updateWeekShopBtn();
   }
-  $('#w_shop_btn').classList.remove('hide');
-  const byAisle = {};
-  _weekShop.forEach((x, idx) => { (byAisle[x.aisle] = byAisle[x.aisle] || []).push({x, idx}); });
-  $('#w_shop_out').innerHTML = Object.entries(byAisle).map(([aisle, rows]) =>
-    `<div style="margin:8px 0"><div class="mute" style="text-transform:capitalize;font-weight:600;margin-bottom:3px">${esc(aisle)}</div>` +
-    rows.map(({x, idx}) => `<label style="display:flex;gap:8px;align-items:baseline;margin:3px 0;cursor:pointer">
-      <input type="checkbox" checked onchange="toggleWeekItem(${idx})">
-      <span>${esc(x.label)}</span>
-      <span class="mute" style="font-size:12px">${esc((x.meals || []).join(' · '))}</span>
-    </label>`).join('') + '</div>').join('');
-  updateWeekShopBtn();
+  mpRender();
+}
+function mpReviewShop() {
+  MP.shopOpen = !MP.shopOpen;
+  renderWeekPlan(MP.plan);
+  if (MP.shopOpen) {
+    const el = $('#w_shop_wrap');
+    if (el && el.scrollIntoView) el.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  }
 }
 function toggleWeekItem(idx) {
   if (_weekShop[idx]) _weekShop[idx].checked = !_weekShop[idx].checked;
@@ -1526,28 +1813,44 @@ function updateWeekShopBtn() {
   $('#w_shop_sub').textContent = `${n} of ${_weekShop.length} items selected`;
   $('#w_shop_btn').textContent = n ? `Add ${n} to shopping list` : 'Select items to add';
 }
-async function weekPlan() {
-  $('#w_summary').textContent = 'planning your week…';
-  $('#w_out').innerHTML = '<span class="mute">matching expiring stock, goals and tastes…</span>';
+async function mpBuild() {
+  MP.busy = true; mpRender();
   const r = await api('api/pantry/week', {
-    days: +$('#w_days').value || 7,
-    meals: $('#w_slots').value.split(','),
-    request: $('#w_req').value,
+    days: MP.days.length || 7,
+    style: MP.style,
+    grid: MP.grid,
+    request: MP.req,
   });
-  if (r.error) { $('#w_summary').textContent = r.error; $('#w_out').innerHTML = ''; return; }
-  if (!(r.days || []).length) { $('#w_summary').textContent = 'could not parse a plan'; $('#w_out').innerHTML = `<pre>${esc(r.raw || '')}</pre>`; return; }
+  MP.busy = false;
+  if (r.error) { $('#w_summary').textContent = r.error; mpRender(); return; }
+  if (!(r.days || []).length) { $('#w_summary').textContent = 'Could not parse a plan from the model.'; mpRender(); return; }
+  MP.step = 'plan'; MP.shopOpen = false;
   renderWeekPlan(r);
 }
-async function swapMeal(dayIndex, slot, label) {
+async function mpSkipPlanned(dayIndex, slot) {
+  const r = await api('api/pantry/plan_cell', {day_index: dayIndex, slot, action: 'skip'});
+  if (r.error) { $('#w_summary').textContent = r.error; return; }
+  renderWeekPlan(r);
+}
+async function mpAddPlanned(dayIndex, slot, canRestore) {
+  if (canRestore) {
+    const r = await api('api/pantry/plan_cell', {day_index: dayIndex, slot, action: 'restore'});
+    if (!r.error) { renderWeekPlan(r); return; }
+  }
+  const d = MP.days[dayIndex];
+  mpSwapPlanned(dayIndex, slot, (d ? d.label : 'Day ' + (dayIndex + 1)) + ' ' + slot);
+}
+async function mpSwapPlanned(dayIndex, slot, label) {
   const req = prompt(`Swap ${label} — want something specific? (leave blank for any fresh idea)`, '');
   if (req === null) return;
-  $('#w_summary').textContent = `swapping ${label}…`;
+  $('#w_summary').textContent = `Swapping ${label}…`;
   const r = await api('api/pantry/swap', {day_index: dayIndex, slot, request: req});
   if (r.error) { $('#w_summary').textContent = r.error; return; }
   renderWeekPlan(r);
 }
 async function clearWeek() {
   await api('api/pantry/plan_clear', {});
+  MP.plan = null; MP.step = 'pick'; MP.shopOpen = false;
   renderWeekPlan(null);
 }
 async function shopWeek() {

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.32.0
+- **2-step Weekly Meal Calendar Picker & Smart Shopping List:** the Food tab now has an interactive **1 · Pick → 2 · Plan** weekly calendar. Pick your effort brush (⚡ Quick, 🍳 Normal, 👩‍🍳 Big cook), tap meals/days/columns, skip dining-out slots (automatically pre-filled from your synced Home Assistant calendars), save **My usual week** or reuse **Last week** (aligned by weekday), and choose a cooking style (**Fresh**, **Cook once, eat twice**, or **Prep day**). In **2 · Plan**, matching batch colors link cook sessions to leftovers, **↻ swap** / **✕ skip** / **+ add** update the plan in place, and the aisle-grouped shopping list subtracts fresh in-stock pantry items and avoids double-counting batch ingredients before sending to Home Assistant's shopping list. Also available by voice or the Ask bar.
+- **MemGraph personal memory graph:** adds a neuro-symbolic memory graph with signed stability, canonical relation rules, 1-hop safety expansion (e.g. allergies), automatic live sensor inputs (watch sleep/steps/HRV, bedroom climate, Home Assistant lights/thermostats/fans, and logged workouts), background Archivist ingestion with an automatic Overnight fallback when no dedicated `archivist_model` is set, and MemGraph allergies/dislikes/learned tastes wired into Pantry meal planning.
+- Fixes a midnight-hour rounding quirk where items expiring today briefly showed "1 days left" instead of "use today".
+
+## 0.31.8
+- Food lookups favour the USDA food a name leads with ("oatmeal" finds "Oatmeal, regular or quick, made with water",
+  not "Bread, oatmeal"), with dishes as eaten slightly ahead of lab entries. Portion lists drop USDA's bare code
+  numbers (a portion called "90000"); the as-eaten foods are reloaded once to clean them out.
+
+## 0.31.7
+- USDA's as-eaten foods (FNDDS) load at last: that release writes the older SR nutrient numbers (208 for energy, 203
+  for protein) in place of ids, and those are now read too. File names inside USDA's zips are matched without regard
+  to folder or capital letters, and the load report lists each zip's files.
+
 ## 0.31.6
 - The food database now really loads USDA's as-eaten (FNDDS) and Foundation foods: their nutrients are matched
   through the release's own nutrient list (by id, or by the older SR number) instead of fixed ids only, so a release

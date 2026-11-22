@@ -135,6 +135,26 @@ async def main():
     assert k._add_to_food_db({"survey2": odd}) == 1
     oat = k.food("oatmeal made with water")[0]
     assert oat["per_100g"] == {"kcal": 71.0, "protein": 2.5, "fiber": 1.7}, oat
+    sr_nbr = os.path.join(kd, "nbr.zip")             # FNDDS 2021-2023 writes the SR numbers in food_nutrient.csv
+    make_zip(sr_nbr, {
+        "Folder/Food.csv": [("fdc_id", "data_type", "description"), ("40", "survey_fndds_food", "Lentil soup, home made")],
+        "Folder/food_nutrient.csv": [("id", "fdc_id", "nutrient_id", "amount"), ("1", "40", "208", "62"),
+                                     ("2", "40", "203", "3.9"), ("3", "40", "291", "2.4"), ("4", "40", "269", "1.1")],
+    })
+    assert k._add_to_food_db({"survey3": sr_nbr}) == 1 and "Food.csv" in k.load_report["survey3"]["files"][0]
+    oatz = os.path.join(kd, "oat.zip")             # "oatmeal" means the oatmeal, not oatmeal bread
+    make_zip(oatz, {
+        "food.csv": [("fdc_id", "data_type", "description"), ("50", "sr_legacy_food", "Bread, oatmeal"),
+                     ("51", "survey_fndds_food", "Oatmeal, regular or quick, made with water, no added fat")],
+        "food_nutrient.csv": [("id", "fdc_id", "nutrient_id", "amount"), ("1", "50", "1008", "269"), ("2", "51", "208", "71")],
+        "food_portion.csv": [("id", "fdc_id", "seq_num", "amount", "measure_unit_id", "portion_description", "modifier",
+                              "gram_weight"), ("1", "51", "1", "", "9999", "1 cup", "", "234"),
+                             ("2", "51", "2", "", "9999", "90000", "", "234")],
+    })
+    k._add_to_food_db({"survey": oatz})
+    o1 = k.food("oatmeal")[0]
+    assert o1["name"].startswith("Oatmeal") and o1["portions"] == [{"text": "1 cup", "g": 234.0}], o1
+    assert k.food("lentil soup")[0]["per_100g"] == {"kcal": 62.0, "protein": 3.9, "fiber": 2.4, "sugar": 1.1}
 
     # --- pantry: real numbers in meal ideas ---------------------------------------------------------------------------
     st = Store(tempfile.mktemp())

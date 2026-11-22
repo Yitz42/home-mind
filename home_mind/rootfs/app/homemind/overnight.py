@@ -287,6 +287,7 @@ class Overnight:
                 continue
             convs.setdefault((r["conversation_id"] or f"run-{r['id']}", r.get("speaker")), []).append(r)
         filed, skipped, done = [], 0, list(guests)
+        graph_turns = []
         for (cid, who), rs in convs.items():
             for i in range(0, len(rs), limit_turns):
                 chunk = rs[i:i + limit_turns]
@@ -295,6 +296,7 @@ class Overnight:
                     if re.match(r"\s*(saved|journaled)\b", r.get("reply") or "", re.I):
                         continue        # Jeeves already saved this one to memory
                     turns.append({"who": "user", "text": r["user_text"], "ts": r["ts"]})
+                    graph_turns.append((r["user_text"], who, r["ts"]))
                     if r.get("reply"):
                         turns.append({"who": "assistant", "text": r["reply"], "ts": r["ts"]})
                 if not any(t["who"] == "user" for t in turns):
@@ -362,12 +364,25 @@ class Overnight:
         mg = getattr(self, "memgraph", None)
         if mg is not None:
             try:
-                from .memgraph import Janitor
+                from .memgraph import Archivist, Janitor
                 pat = getattr(self, "patterns", None)
                 synced = mg.sync_patterns(pat, days=14, owner=getattr(self, "memgraph_owner", None)) if pat is not None else None
+                ingested_turns = ingested_patches = 0
+                if not getattr(self, "live_archivist", False) and graph_turns:
+                    arch = Archivist(mg, personal_rule=getattr(self, "personal_rule", "first_person"))
+                    for utext, uwho, uts in graph_turns:
+                        if ingested_turns >= 20:
+                            break
+                        if uwho == "" or arch.should_skip(utext):
+                            continue
+                        ares = await arch.process_turn(utext, owner=uwho, ts=uts, model=model)
+                        ingested_turns += 1
+                        ingested_patches += int(ares.get("applied") or 0)
                 mg_rep = await Janitor(mg).run_nightly(model)
                 if synced is not None:
                     mg_rep["sensor_sync"] = synced
+                if not getattr(self, "live_archivist", False):
+                    mg_rep["overnight_ingest"] = {"turns": ingested_turns, "patches": ingested_patches}
             except Exception as e:  # noqa: BLE001
                 log.warning("memgraph janitor: %s", e)
         self.last = {"at": time.time(), "model": name, "turns": len(done), "filed": len(filed), "already_known": skipped,
