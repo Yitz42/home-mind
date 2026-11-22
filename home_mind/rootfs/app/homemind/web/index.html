@@ -310,6 +310,7 @@
   .mp-slot { position:relative; border-radius:12px; padding:7px 9px; min-height:56px; text-align:left; display:flex; flex-direction:column; justify-content:center; gap:2px; font:inherit; color:var(--ink); transition:border-color .12s }
   button.mp-slot { cursor:pointer; padding-right:30px }
   .mp-slot.need { background:var(--card); border:1px solid var(--food-line) }
+  .mp-slot.e-reheat { background:color-mix(in srgb,var(--house) 12%,var(--card)); border:1px solid color-mix(in srgb,var(--house) 45%,var(--line)) }
   .mp-slot.e-quick { background:color-mix(in srgb,#0ea5e9 10%,var(--card)); border:1px solid color-mix(in srgb,#0ea5e9 42%,var(--line)) }
   .mp-slot.e-normal { background:var(--card); border:1px solid var(--food-line) }
   .mp-slot.e-big { background:color-mix(in srgb,var(--food) 16%,var(--card)); border:1px solid var(--food) }
@@ -1832,6 +1833,7 @@ async function pantry() {
 let _weekShop = [];
 const MP_SLOTS = ['breakfast', 'lunch', 'dinner'];
 const MP_EFF = {
+  reheat: ['♨️', 'Reheat', '≤ 5 min, no cook / pack'],
   quick: ['⚡', 'Quick', '≤ 20 min'],
   normal: ['🍳', 'Normal', '≤ 40 min'],
   big: ['👩‍🍳', 'Big cook', '60+ min, makes extra'],
@@ -1981,11 +1983,11 @@ function mpRender() {
       + styles.map(([v, t, d]) => `<button onclick="mpStyle(${jsq(v)})" class="mp-opt ${MP.style === v ? 'on' : ''}"><b>${esc(t)}</b><span>${esc(d)}</span></button>`).join('')
       + `</div></div>`
       + `<div class="mp-brushbar"><b style="font-size:12px">Effort — tap a meal to set:</b><div class="mp-brush">`
-      + ['quick', 'normal', 'big'].map(k => `<button onclick="mpBrush(${jsq(k)})" class="${MP.brush === k ? 'on' : ''}">${MP_EFF[k][0]} ${esc(MP_EFF[k][1])}</button>`).join('')
+      + ['reheat', 'quick', 'normal', 'big'].map(k => `<button onclick="mpBrush(${jsq(k)})" class="${MP.brush === k ? 'on' : ''}">${MP_EFF[k][0]} ${esc(MP_EFF[k][1])}</button>`).join('')
       + `</div><span class="mute" style="font-size:12px">✕ on a meal or day skips it</span></div>`;
     $('#mp_summary').innerHTML =
       `<span class="mp-chip hi"><b>${activeCount}</b> meals</span>`
-      + `<span class="mp-chip">⚡ ${cntEff('quick')}</span><span class="mp-chip">🍳 ${cntEff('normal')}</span>`
+      + `<span class="mp-chip">♨️ ${cntEff('reheat')}</span><span class="mp-chip">⚡ ${cntEff('quick')}</span><span class="mp-chip">🍳 ${cntEff('normal')}</span>`
       + `<span class="mp-chip">👩‍🍳 ${cntEff('big')}</span><span class="mp-chip">✕ ${cntEff('skip')}</span>`
       + (calCount ? `<span class="mp-chip">📅 ${calCount} from calendar</span>` : '');
     $('#mp_prep').innerHTML = '';
@@ -1993,7 +1995,7 @@ function mpRender() {
     $('#mp_opts').innerHTML = '';
     const allMeals = [];
     (MP.plan && MP.plan.days || []).forEach(d => (d.meals || []).forEach(m => { if (!m.skipped) allMeals.push(m); }));
-    const cooks = allMeals.filter(m => !m.batch_id || m.is_cook !== false);
+    const cooks = allMeals.filter(m => m.effort !== 'reheat' && m.is_cook !== false);
     const totalMin = cooks.reduce((acc, m) => acc + (Number(m.minutes) || (m.effort === 'quick' ? 15 : m.effort === 'big' ? 60 : 30)), 0);
     const hrs = (totalMin / 60).toFixed(1);
     const buyN = _weekShop.length;

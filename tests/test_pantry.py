@@ -454,6 +454,37 @@ async def main():
     assert any("Already planned earlier this week" in c for c in tlm.calls[2:]), "later chunks must receive prior meals"
     assert any("7 heads broccoli" == x["label"] for x in full7["shopping_list"]), full7["shopping_list"]
 
+    # Reheat-only effort tier (e.g. lunches away from home): persists in layouts, instructs model NO cooking,
+    # forces effort='reheat' + is_cook=False, and passes no-cook hint on swap_meal
+    p3.save_week_layout("usual", "prep", {"0|lunch": "reheat", "0|dinner": "big", "1|lunch": "reheat"}, start_date=base_mon)
+    assert p3.week_layouts()["usual"]["grid"]["mon|lunch"] == "reheat"
+    reheat_prompts = []
+
+    class ReheatModel:
+        async def chat(self, sys, msgs, **kw):
+            reheat_prompts.append(msgs[0]["content"])
+            if "replace ONE meal" in sys:
+                return {"text": json.dumps({"slot": "lunch", "name": "Cold Turkey Wrap", "minutes": 5, "effort": "reheat", "uses": [], "need": []})}
+            return {"text": json.dumps({
+                "summary": "Prep dinner + reheat lunches",
+                "days": [
+                    {"day": "Mon Nov 23", "meals": [
+                        {"slot": "dinner", "name": "Beef Chili", "minutes": 60, "effort": "big", "batch_id": "A", "is_cook": True, "servings": 4, "uses": [], "need": ["2 lb beef"]},
+                    ]},
+                    {"day": "Tue Nov 24", "meals": [
+                        {"slot": "lunch", "name": "Beef Chili Reheat", "minutes": 5, "batch_id": "A", "batch_label": "Mon chili", "uses": [], "need": []},
+                    ]},
+                ],
+            })}
+
+    p3.models = type("M", (), {"models": {"haiku": ReheatModel()}, "get": lambda self, n: self.models["haiku"]})()
+    rp = await p3.plan_week(days=2, grid={"0|dinner": "big", "1|lunch": "reheat"}, style="prep", start_date=base_mon)
+    assert "REHEAT/PACK ONLY" in reheat_prompts[0], reheat_prompts[0]
+    tue_lunch = rp["days"][1]["meals"][0]
+    assert tue_lunch["effort"] == "reheat" and tue_lunch["is_cook"] is False, tue_lunch
+    sw_r = await p3.swap_meal(1, slot="lunch", request="cold sandwich instead")
+    assert "REHEAT / PACK ONLY" in reheat_prompts[-1] and sw_r["days"][1]["meals"][0]["effort"] == "reheat", reheat_prompts[-1]
+
     print("PANTRY OK")
 
 

@@ -164,7 +164,7 @@ AISLE_HINTS = {
 }
 
 WEEK_STYLES = ("fresh", "twice", "prep")
-EFFORT_LEVELS = ("quick", "normal", "big", "skip")
+EFFORT_LEVELS = ("reheat", "quick", "normal", "big", "skip")
 WEEK_SLOTS = ("breakfast", "lunch", "dinner")
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -178,9 +178,11 @@ WEEK_SYSTEM = (
     "You build a practical multi-day meal plan for a household from what they already have at home plus a concise "
     "grocery list. Put foods expiring soonest on the earliest days. Overlap fresh ingredients across days so nothing "
     "goes to waste. Respect their goals, Avoid list, and any ALLERGY items strictly (never include an allergen). "
-    "Lean toward LEARNED TASTES when they fit. Honor each meal's requested effort tier (quick <=20 min, normal <=40 min, "
+    "Lean toward LEARNED TASTES when they fit. Honor each meal's requested effort tier (reheat <=5 min microwave or "
+    "packable no-cook ONLY — NEVER require stove/oven cooking on a reheat slot, reuse an earlier cook/prep batch with "
+    "is_cook: false and the same batch_id or give a cold grab-and-go meal; quick <=20 min; normal <=40 min; "
     "big 60+ min makes extra) and cooking style:\n"
-    "- fresh: cook a fresh meal each time.\n"
+    "- fresh: cook a fresh meal each time (except slots explicitly marked reheat, which must be no-cook/packable or reheated leftovers).\n"
     "- twice: cook once, eat twice — make double batches on cook sessions (batch_id 'A','B','C','D', is_cook: true, "
     "servings: 2-4) and reuse them as quick 5-min leftover/reheat meals on later slots (same batch_id, is_cook: false, "
     "short batch_label like 'Mon chili').\n"
@@ -191,15 +193,16 @@ WEEK_SYSTEM = (
     'Reply with JSON only: {"summary": "short 1-line theme", '
     '"prep_plan": {"title": "optional e.g. Sun prep · ~2 h", "items": [{"batch_id": "A", "text": "short line"}]}, '
     '"days": [{"day": "Mon Nov 23", "meals": [{"slot": "dinner", "name": "short name", '
-    '"minutes": 25, "effort": "quick|normal|big", "batch_id": "optional A", "batch_label": "optional Mon chili", '
+    '"minutes": 25, "effort": "reheat|quick|normal|big", "batch_id": "optional A", "batch_label": "optional Mon chili", '
     '"is_cook": true, "servings": 2, "uses": ["stock item"], "need": ["2 lb chicken", "1 head broccoli"], '
     '"protein_g": 40, "calories": 550}]}]}')
 
 SWAP_SYSTEM = (
     "You replace ONE meal in an existing weekly meal plan. Pick a fresh option that does NOT repeat any meal already "
     "planned on other days, reuses ingredients already planned or in stock where sensible, respects the requested effort "
-    "tier, goals, Avoid items, ALLERGY items strictly, and any user tweak request. Keep fields short. "
-    'Reply with JSON only: {"slot": "dinner", "name": "short meal name", "minutes": 25, "effort": "quick|normal|big", '
+    "tier (for 'reheat', give ONLY a microwave-reheat leftover or cold packable no-cook meal <=5 min — zero stove/oven cooking), "
+    "goals, Avoid items, ALLERGY items strictly, and any user tweak request. Keep fields short. "
+    'Reply with JSON only: {"slot": "dinner", "name": "short meal name", "minutes": 25, "effort": "reheat|quick|normal|big", '
     '"uses": ["in-stock items used"], '
     '"need": [{"item": "ingredient", "amount": "qty + unit", "aisle": "produce|meat & seafood|dairy & eggs|pantry & dry|frozen|other"}], '
     '"protein_g": number, "calories": number, "why": "short reason", "steps": "2-3 short steps"}')
@@ -370,13 +373,13 @@ def build_shopping_list(days_list, in_stock_items=()):
 def _clean_meal_dict(ml, default_slot="dinner"):
     bid = str(ml.get("batch_id") or "").strip().upper()[:2] or None
     is_cook = ml.get("is_cook")
+    eff = str(ml.get("effort") or "").strip().lower()
+    if eff not in ("reheat", "quick", "normal", "big"):
+        eff = ""
     if is_cook is None:
-        is_cook = True if not bid else bool(ml.get("cook", True))
+        is_cook = False if eff == "reheat" else (True if not bid else bool(ml.get("cook", True)))
     else:
         is_cook = bool(is_cook)
-    eff = str(ml.get("effort") or "").strip().lower()
-    if eff not in ("quick", "normal", "big"):
-        eff = ""
     mins = ml.get("minutes")
     try:
         mins = int(round(float(mins))) if mins is not None and str(mins).strip() != "" else None
@@ -1230,7 +1233,12 @@ class Pantry:
                         raise ValueError(f"invalid effort '{val}' for {i}|{sl}")
                     norm_grid[f"{i}|{sl}"] = val
                     if val != "skip":
-                        eff_desc = {"quick": "quick <=20m", "normal": "normal <=40m", "big": "big cook 60m+"}[val]
+                        eff_desc = {
+                            "reheat": "REHEAT/PACK ONLY <=5m (NO cooking — leftover from prior batch with is_cook: false OR cold grab-and-go)",
+                            "quick": "quick <=20m",
+                            "normal": "normal <=40m",
+                            "big": "big cook 60m+",
+                        }[val]
                         day_parts.append(f"{sl} ({eff_desc})")
                         active_meal_count += 1
                 if day_parts:
@@ -1366,9 +1374,12 @@ class Pantry:
                 if matched:
                     for ml in matched.get("meals") or ():
                         sl = str(ml.get("slot") or "dinner").lower()
-                        if norm_grid.get(f"{idx}|{sl}", "skip") != "skip":
-                            if not ml.get("effort"):
-                                ml = dict(ml, effort=norm_grid[f"{idx}|{sl}"])
+                        req_eff = norm_grid.get(f"{idx}|{sl}", "skip")
+                        if req_eff != "skip":
+                            if req_eff == "reheat":
+                                ml = dict(ml, effort="reheat", is_cook=False)
+                            elif not ml.get("effort"):
+                                ml = dict(ml, effort=req_eff)
                             meals_for_day.append(ml)
                 aligned.append({"day": lbl, "date": (base_dt + timedelta(days=idx)).date().isoformat(), "meals": meals_for_day})
             final_days = aligned
@@ -1473,10 +1484,15 @@ class Pantry:
         eff_hint = old_meal.get("effort") or (saved.get("grid") or {}).get(f"{idx}|{slot_norm}")
         if eff_hint == "skip":
             eff_hint = "normal"
+        eff_line = (
+            "Target effort: REHEAT / PACK ONLY (<=5 min microwave leftover or cold grab-and-go, ZERO stove/oven cooking).\n"
+            if eff_hint == "reheat"
+            else (f"Target effort: {eff_hint}.\n" if eff_hint else "")
+        )
         content = (
             (f"Replace {target_day['day']} {slot_norm}: currently '{old_meal.get('name', '')}'.\n"
              if old_meal.get("name") else f"Add a new {slot_norm} for {target_day['day']}.\n")
-            + (f"Target effort: {eff_hint}.\n" if eff_hint else "")
+            + eff_line
             + (f"User wants instead: {request.strip()}\n" if (request or "").strip() else "Give a different appealing option.\n")
             + f"Goals: {'; '.join(g.get('goals') or [])}\n"
             + (f"Avoid: {', '.join(avoid_items)}\n" if avoid_items else "")
