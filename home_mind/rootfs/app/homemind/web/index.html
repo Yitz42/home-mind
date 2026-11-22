@@ -578,6 +578,15 @@
   <div class="ph"><div><div class="sub">Connected models and what they cost</div><h1>Models</h1></div><a onclick="go('more')">‹ System</a></div>
   <div class="card"><div class="row"><h2 style="margin:0">Connected models</h2> <button class="go" onclick="checkModels()">Check all</button></div><table id="mlist"></table>
   <p class="mute">Add or change models in Settings › Apps › Home Mind › Configuration.</p></div>
+  <div class="card" id="tr_card">
+    <div class="hrow"><h2>Train small models</h2><span class="mute" id="tr_worker" style="font-size:13px"></span></div>
+    <p class="mute" style="margin-top:0">One-click training for Home Control, Persona Voice, and MemGraph Brain. Runs automatically on your GPU/Ollama PC when <code>trainer_url</code> is set, or downloads the dataset and opens Google Colab in one click.</p>
+    <div id="tr_list" class="list"></div>
+    <div class="mute" id="tr_msg" style="font-size:13px;margin-top:6px"></div>
+    <details style="margin-top:8px"><summary class="mute">Set up 1-click local GPU training (optional)</summary>
+      <div class="mute" style="font-size:12px;margin-top:6px">On your Ollama/GPU PC run <code>python tools/trainer_worker.py --port 8090</code>, then set <code>trainer_url: http://YOUR_GPU_PC_IP:8090</code> in Settings › Apps › Home Mind › Configuration.</div>
+    </details>
+  </div>
   <div class="card"><h2>Use, last 30 days</h2><table id="usage"></table>
   <p class="mute">Tokens come from the model's own count; Home Assistant's AI Task and conversation models don't report them. Cost shows for models given price_in and price_out (dollars per million tokens) on the Configuration tab.</p></div>
   <div class="card"><h2>Ask</h2><div class="row"><select id="a_model" aria-label="model"></select> <label class="mute"><input type="checkbox" id="a_brain" checked> use brain</label></div>
@@ -1249,7 +1258,7 @@ async function load(t) {
     const ms = await api('api/models'); $('#t_model').innerHTML = '<option value="">(model)</option>' + ms.map(m => `<option>${esc(m.name)}</option>`).join('');
     runs(); cmp();
   }
-  if (t === 'models') { tokens();
+  if (t === 'models') { tokens(); trainerLoad();
     const ms = await api('api/models');
     const pc = m => !m.host ? '<span class="mute">—</span>' : m.up === true ? '<span class="ok">up</span>' : m.up === false ? `<span class="bad">away</span> <span class="mute">since ${esc(new Date(m.up_since * 1000).toLocaleTimeString())}</span>` : '<span class="mute">checking</span>';
     $('#mlist').innerHTML = '<tr><th>name</th><th>type</th><th>where</th><th>computer</th><th>check</th></tr>' + ms.map(m => `<tr><td>${esc(m.name)}</td><td>${esc(m.type)}</td><td class="mute">${esc(m.url || m.entity_id || '')} ${esc(m.model || '')}</td><td>${pc(m)}</td><td id="chk_${esc(m.name)}"></td></tr>`).join('') + (ms.some(m => m.type !== 'mock') ? '' : '<tr><td class="mute" colspan="5">no models yet (mock only copies the best note): add one under Settings › Apps › Home Mind › Configuration › Models (type ha_ai_task, ollama, openai or anthropic; see the Documentation tab)</td></tr>');
@@ -1599,6 +1608,63 @@ async function runs() {
 }
 async function showRun(id) { const r = await api('api/runs/' + id); $('#runcard').classList.remove('hide'); $('#runid').textContent = id; $('#run').textContent = JSON.stringify({summary: r.summary, config: r.config, seed: r.seed, wrong: r.details.filter(d => !d.correct)}, null, 1); }
 async function checkModels() { const rs = await api('api/models/check', {}); rs.forEach(r => { const el = document.getElementById('chk_' + r.name); if (el) el.innerHTML = r.ok ? `<span class="ok">ok</span> <span class="mute">${esc(r.ms)} ms</span>` : `<span class="bad">${esc(r.error)}</span>`; }); }
+let _trPoll = null;
+async function trainerLoad() {
+  if (_trPoll) { clearTimeout(_trPoll); _trPoll = null; }
+  const r = await api('api/trainer/status');
+  if (!r || r.error) { $('#tr_worker').textContent = (r && r.error) || 'unavailable'; return; }
+  const w = r.worker || {};
+  $('#tr_worker').innerHTML = w.online
+    ? `<span class="ok">GPU worker online</span> · ${esc(w.gpu || 'GPU')}${w.ollama ? ' · Ollama ready' : ''}`
+    : w.configured ? `<span class="bad">GPU worker offline</span> · using 1-click Colab`
+    : '1-click Google Colab mode';
+  let anyActive = false;
+  $('#tr_list').innerHTML = (r.targets || []).map(t => {
+    const j = t.job || null;
+    const active = j && (j.state === 'queued' || j.state === 'running');
+    if (active) anyActive = true;
+    let jobHtml = '';
+    if (j) {
+      const pct = Number(j.progress || 0);
+      const st = active ? `<span class="ok">${esc(j.stage || j.state)} (${esc(pct)}%)</span>`
+        : j.state === 'done' ? `<span class="ok">done</span>${j.ollama_model ? ` · Ollama: <code>${esc(j.ollama_model)}</code>` : ''}`
+        : j.state === 'cancelled' ? '<span class="mute">cancelled</span>'
+        : `<span class="bad">${esc(j.state || 'failed')}</span>${j.error ? ': ' + esc(j.error) : ''}`;
+      const tail = Array.isArray(j.log_tail) && j.log_tail.length ? j.log_tail[j.log_tail.length - 1] : '';
+      jobHtml = `<div style="margin-top:4px;font-size:13px">${st}${tail ? ` <span class="mute">— ${esc(tail)}</span>` : ''}</div>`;
+    }
+    const btns = active
+      ? `<button onclick="trainCancel(${jsq(j.id)})">Cancel</button>`
+      : (w.online
+          ? `<button class="go" onclick="trainStart(${jsq(t.id)})">Train now</button> <button onclick="trainColab(${jsq(t.id)}, ${jsq(t.colab_url)})">Colab</button>`
+          : `<button class="go" onclick="trainColab(${jsq(t.id)}, ${jsq(t.colab_url)})">Train in Colab</button> <a class="mute" href="${esc(t.dataset_url)}" download>Dataset</a>`);
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--line)"><div class="row" style="justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">`
+      + `<div><b>${esc(t.name)}</b> <span class="mute">(${esc(t.slot)} · ${esc(t.base_model)})</span><div class="mute" style="font-size:13px">${esc(t.detail)}</div></div>`
+      + `<div class="row" style="gap:6px">${btns}</div></div>${jobHtml}</div>`;
+  }).join('');
+  if (anyActive) _trPoll = setTimeout(trainerLoad, 2500);
+}
+async function trainStart(target) {
+  $('#tr_msg').textContent = 'Exporting dataset and starting training on GPU worker…';
+  const r = await api('api/trainer/start', {target});
+  $('#tr_msg').textContent = r.error || `Started ${r.target} job (${r.id}). Progress updates automatically.`;
+  trainerLoad();
+}
+async function trainCancel(jobId) {
+  const r = await api('api/trainer/cancel', {job_id: jobId});
+  $('#tr_msg').textContent = r.error || 'Cancellation requested.';
+  trainerLoad();
+}
+function trainColab(target, colabUrl) {
+  const a = document.createElement('a');
+  a.href = 'api/trainer/dataset/' + encodeURIComponent(target) + '?download=1';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.open(colabUrl, '_blank', 'noopener');
+  $('#tr_msg').textContent = 'Dataset download started and Google Colab opened — click Runtime → Run all and upload the file when prompted.';
+}
 async function ask() { $('#a_out').classList.remove('hide'); $('#a_out').textContent = '…'; const r = await api('api/ask', {question: $('#a_q').value, model: $('#a_model').value, use_brain: $('#a_brain').checked}); showAnswer('#a_out', r, '\n\n— ' + (r.ms || '') + ' ms' + (r.deep ? ' (connected answer, ' + r.model + ')' : '') + '; used: ' + (r.hits || []).map(h => '#' + h.id + ' ' + h.title).join(', ') +
   ((r.errors || []).length ? '\n\nModel errors:\n' + r.errors.join('\n') + (r.model == null ? '\nCheck the model under Settings › Apps › Home Mind › Configuration (Models › Check all shows why).' : '') : '')); }
 async function checkUpd() { $('#upd').textContent = '…'; const r = await api('api/updates'); delete r.manifest; $('#upd').textContent = JSON.stringify(r, null, 1); }
