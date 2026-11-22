@@ -421,6 +421,39 @@ async def main():
     assert any(m["slot"] == "lunch" and m["name"] == "Avocado Toast" for m in added["days"][0]["meals"]), added["days"][0]
     assert any(x["item"] == "avocado" for x in added["shopping_list"]), added["shopping_list"]
 
+    # 7 days x all 3 meals (21 meals) auto-chunks (<=6 meals/call) AND splits on HA output token limit errors!
+    import re as _re
+
+    class TokenLimitedModel:
+        def __init__(self):
+            self.calls = []
+
+        async def chat(self, sys, msgs, **kw):
+            txt = msgs[0]["content"]
+            self.calls.append(txt)
+            m = _re.search(r"Plan (\d+) day\(s\):\s*([^\n.]+)", txt)
+            n_d = int(m.group(1))
+            lbls = [x.strip() for x in m.group(2).split(",")]
+            # Simulate HA Claude AI Task hitting output token limit on any >1 day request!
+            if n_d > 1:
+                raise RuntimeError('haiku: HTTP 500: {"message":"Claude reached the output token limit before completing the response"}')
+            days_out = [{
+                "day": lbls[0],
+                "meals": [
+                    {"slot": "breakfast", "name": f"Oats {lbls[0]}", "minutes": 10, "uses": [], "need": ["1 cup oats"]},
+                    {"slot": "lunch", "name": f"Wrap {lbls[0]}", "minutes": 15, "uses": [], "need": ["1 tortilla"]},
+                    {"slot": "dinner", "name": f"Bowl {lbls[0]}", "minutes": 25, "uses": [], "need": ["1 head broccoli"]},
+                ],
+            }]
+            return {"text": json.dumps({"summary": "Full 7-day 3-meal plan", "days": days_out})}
+
+    tlm = TokenLimitedModel()
+    p3.models = type("M", (), {"models": {"haiku": tlm}, "get": lambda self, n: self.models["haiku"]})()
+    full7 = await p3.plan_week(days=7, meals=["breakfast", "lunch", "dinner"], start_date=base_mon)
+    assert len(full7["days"]) == 7 and sum(len(d["meals"]) for d in full7["days"]) == 21, full7
+    assert any("Already planned earlier this week" in c for c in tlm.calls[2:]), "later chunks must receive prior meals"
+    assert any("7 heads broccoli" == x["label"] for x in full7["shopping_list"]), full7["shopping_list"]
+
     print("PANTRY OK")
 
 
