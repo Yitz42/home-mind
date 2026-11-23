@@ -173,7 +173,7 @@
   @media (max-width: 860px) {
     .app { display:block } main { padding:16px 14px 80px }
     #nav { position:fixed; z-index:5; left:0; right:0; bottom:0; top:auto; width:auto; height:auto; flex-direction:row; padding:5px 4px; border-right:0; border-top:1px solid var(--line); gap:2px; overflow-x:auto }
-    #nav .brand, #nav .grp, #nav .foot, #nav .vw-bar, #nav .sys { display:none } #nav .badge { display:none }
+    #nav .brand, #nav .grp, #nav .foot, #nav .sys { display:none } #nav .badge { display:none }
     #nav button { flex:1 1 0; min-width:0; flex-direction:column; gap:2px; padding:5px 1px; font-size:10px; justify-content:center; min-height:50px; text-align:center }
     .ph h1 { font-size:26px } .bento { grid-template-columns:1fr } .card { border-radius:16px; padding:14px 16px }
     .week { gap:6px } .days { gap:6px }
@@ -496,12 +496,7 @@
   .ck-pgrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px }
   .ck-pgrid .li { padding:7px 9px; border:1px solid var(--line); border-radius:10px; background:var(--bg) }
   @media (max-width: 900px) { .ck-grid, .ck-grid2, .ck-pgrid { grid-template-columns:1fr } }
-  /* Household viewer switcher, Wall/Kiosk mode, Meds/Habits, Upkeep, Recipes */
-  #nav .vw-bar { margin-top:auto; padding:8px 4px 2px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:5px }
-  #nav .vw-bar select { min-height:30px; padding:4px 7px; font-size:12px; width:100% }
-  #nav .vw-bar .vw-wall { display:flex; align-items:center; justify-content:center; gap:5px; width:100%; min-height:28px; padding:4px 8px; font-size:11px; font-weight:600; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); cursor:pointer }
-  #nav .vw-bar .vw-wall:hover { background:var(--card2) }
-  #nav .foot { margin-top:4px; padding:6px 10px }
+  /* Wall/Kiosk mode, Meds/Habits, Upkeep, Recipes */
   body.kiosk #nav { display:none }
   body.kiosk main { padding:16px 22px 20px }
   body.kiosk main > section { max-width:none !important }
@@ -545,13 +540,6 @@
   <button data-t="memory" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span>Brain</span><b class="badge hide" id="nav_review"></b></button>
   <div class="grp">SYSTEM</div>
   <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>System</span></button>
-  <div class="vw-bar">
-    <select id="vw_pick" aria-label="Household viewer" onchange="setViewer(this.value)">
-      <option value="">Everyone</option>
-      <option value="household">Household only</option>
-    </select>
-    <button type="button" class="vw-wall" onclick="toggleWall(true)">⛶ Wall mode</button>
-  </div>
   <div class="foot"><span class="dot"></span><span id="ver"></span></div>
 </nav>
 <main>
@@ -905,6 +893,20 @@
         <div class="ck-card"><div class="hrow"><h2>Does the brain help?</h2><a style="font-size:12px" onclick="sysTab('tests')">Tests →</a></div><div class="mute" id="mo_bench_sub" style="font-size:12px;margin-bottom:8px"></div><div id="mo_bench" style="display:flex;flex-direction:column;gap:8px"></div></div>
       </div>
       <div class="ck-col">
+        <div class="ck-card">
+          <h2>Display &amp; household view</h2>
+          <div class="row" style="margin-bottom:0">
+            <label style="display:flex;align-items:center;gap:6px;flex:1;min-width:170px;font-size:13px">
+              <span class="mute">Viewing as</span>
+              <select id="vw_pick" aria-label="Household viewer" style="flex:1;min-height:34px;padding:4px 8px" onchange="setViewer(this.value)">
+                <option value="">Everyone</option>
+                <option value="household">Household only</option>
+              </select>
+            </label>
+            <button type="button" class="soft" style="min-height:34px;padding:5px 12px;font-size:12px" onclick="go('today');toggleWall(true)">⛶ Wall mode</button>
+          </div>
+          <div class="mute" style="font-size:11px;margin-top:6px">Switch to a person's personal view or shared household-only view, or open full-screen Wall mode for a tablet/kiosk display.</div>
+        </div>
         <div class="ck-card"><h2>Offline reference</h2><div id="mo_ref" class="feed"></div></div>
         <div class="ck-card"><h2>Latest test results</h2><table id="latest"></table></div>
         <div class="ck-card"><h2>Recent activity</h2><div class="list" id="events" style="max-height:240px;overflow-y:auto"></div></div>
