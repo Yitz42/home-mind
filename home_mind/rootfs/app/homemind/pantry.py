@@ -907,6 +907,175 @@ class Pantry:
             self.store.db.commit()
         return {"name": r["name"], "found": True, "id": r["id"], "status": status}
 
+    @staticmethod
+    def _parse_frac(val):
+        """Parse a share taken like 0.5, '1/2', 'half', 'quarter', 'a third', '25%', 'some' -> float in (0, 1]."""
+        if isinstance(val, bool):
+            raise ValueError("fraction should be a number or fraction like 1/2")
+        if isinstance(val, (int, float)):
+            f = float(val)
+            if not math.isfinite(f) or f <= 0:
+                raise ValueError("fraction must be greater than 0")
+            return min(1.0, f / 100.0 if f > 1.0 and f <= 100.0 else f)
+        s = str(val or "").strip().lower()
+        if not s:
+            return None
+        words = {
+            "half": 0.5, "a half": 0.5, "half of": 0.5,
+            "quarter": 0.25, "a quarter": 0.25, "1/4": 0.25,
+            "third": 1.0 / 3.0, "a third": 1.0 / 3.0, "1/3": 1.0 / 3.0,
+            "two thirds": 2.0 / 3.0, "2/3": 2.0 / 3.0,
+            "three quarters": 0.75, "3/4": 0.75, "most": 0.75, "most of": 0.75,
+            "some": 0.25, "part": 0.5, "part of": 0.5, "a bit": 0.2, "a little": 0.2,
+            "all": 1.0, "rest": 1.0, "the rest": 1.0,
+        }
+        if s in words:
+            return words[s]
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)", s)
+        if m and float(m.group(2)) > 0:
+            return min(1.0, max(0.0, float(m.group(1)) / float(m.group(2))))
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*%", s)
+        if m:
+            return min(1.0, max(0.0, float(m.group(1)) / 100.0))
+        return None
+
+    @staticmethod
+    def _parse_qty(text):
+        """Parse '2 lb', '12 eggs', 'a dozen', '3/4 left', '1.5 cups' -> (value, unit, is_share)."""
+        s = str(text or "").strip().lower()
+        if not s:
+            return 1.0, "", True
+        if re.fullmatch(r"(?:a\s+)?dozen(?:\s+of)?(?:\s+.*)?", s):
+            rest = re.sub(r"^(?:a\s+)?dozen(?:\s+of)?\s*", "", s).strip()
+            return 12.0, rest, False
+        if re.fullmatch(r"half\s+a\s+dozen(?:\s+.*)?", s):
+            rest = re.sub(r"^half\s+a\s+dozen\s*", "", s).strip()
+            return 6.0, rest, False
+        m = re.fullmatch(r"(?:about\s+|~)?(\d+)\s*/\s*(\d+)\s*(?:left|remaining)?", s)
+        if m and int(m.group(2)) > 0:
+            return float(m.group(1)) / float(m.group(2)), "", True
+        if s in ("half", "half left", "half remaining"):
+            return 0.5, "", True
+        m = re.fullmatch(r"(?:about\s+|~)?(\d+(?:\.\d+)?)\s*%\s*(?:left|remaining)?", s)
+        if m:
+            return float(m.group(1)) / 100.0, "", True
+        # Leading number + optional unit (e.g. '2 lb', '16 oz', '6', '1/2 cup')
+        m = re.match(r"^(\d+(?:\.\d+)?|\d+\s*/\s*\d+)\s*([a-zA-Z ]*)$", s)
+        if m:
+            raw_n = m.group(1).replace(" ", "")
+            val = float(raw_n.split("/")[0]) / float(raw_n.split("/")[1]) if "/" in raw_n else float(raw_n)
+            unit = m.group(2).strip()
+            unit = re.sub(r"\s+(?:left|remaining)$", "", unit).strip()
+            return val, unit, False
+        return None, s, False
+
+    @staticmethod
+    def _fmt_share(share):
+        for val, lbl in ((0.75, "3/4 left"), (2.0 / 3.0, "2/3 left"), (0.5, "1/2 left"),
+                         (1.0 / 3.0, "1/3 left"), (0.25, "1/4 left")):
+            if abs(share - val) <= 0.045:
+                return lbl
+        pct = max(5, min(95, int(round(share * 100 / 5.0) * 5)))
+        return f"~{pct}% left"
+
+    @staticmethod
+    def _fmt_qty(val, unit):
+        n = round(val, 2)
+        s = str(int(round(n))) if abs(n - round(n)) < 0.02 else f"{n:g}"
+        return f"{s} {unit}".strip() if unit else s
+
+    def use_part(self, item_id=None, name=None, fraction=None, used=None, remaining=None):
+        """Record taking part of a stored pantry item and update its remaining amount (or mark used if finished)."""
+        r = None
+        if item_id is not None:
+            row = self.store.db.execute("SELECT * FROM pantry WHERE id=? AND status='in'", (int(item_id),)).fetchone()
+            r = dict(row) if row else None
+        elif name:
+            hits = self.find(name)
+            r = sorted(hits, key=lambda x: x["use_by"] or 0)[0] if hits else None
+        if not r:
+            return {"name": name or "", "id": item_id, "found": False}
+
+        old_amt = (r.get("amount") or "").strip()
+        new_amt = old_amt
+        done = False
+
+        if remaining is not None and str(remaining).strip() != "":
+            rem_s = str(remaining).strip()
+            if rem_s.lower() in ("0", "none", "empty", "gone", "nothing", "0 left"):
+                done = True
+                new_amt = ""
+            else:
+                new_amt = rem_s[:60]
+        else:
+            frac = self._parse_frac(fraction) if fraction is not None and str(fraction).strip() != "" else None
+            if frac is None and used is not None and str(used).strip() != "":
+                frac = self._parse_frac(used)
+
+            if frac is not None:
+                if frac >= 0.99:
+                    done = True
+                    new_amt = ""
+                else:
+                    cur_val, cur_unit, is_share = self._parse_qty(old_amt)
+                    if cur_val is not None and not is_share and cur_val > 0:
+                        rem_val = cur_val * (1.0 - frac)
+                        if rem_val <= 0.04:
+                            done = True
+                            new_amt = ""
+                        else:
+                            new_amt = self._fmt_qty(rem_val, cur_unit)
+                    else:
+                        base_share = cur_val if (cur_val is not None and is_share) else 1.0
+                        rem_share = base_share * (1.0 - frac)
+                        if rem_share <= 0.05:
+                            done = True
+                            new_amt = ""
+                        else:
+                            new_amt = self._fmt_share(rem_share)
+            elif used is not None and str(used).strip() != "":
+                u_str = str(used).strip()
+                u_val, u_unit, _ = self._parse_qty(u_str)
+                c_val, c_unit, c_share = self._parse_qty(old_amt)
+                _W = {"oz": 1.0, "ounce": 1.0, "ounces": 1.0, "lb": 16.0, "lbs": 16.0, "pound": 16.0, "pounds": 16.0,
+                      "g": 1.0 / 28.3495, "gram": 1.0 / 28.3495, "grams": 1.0 / 28.3495,
+                      "kg": 1000.0 / 28.3495, "kilogram": 1000.0 / 28.3495}
+                if u_val is not None and c_val is not None and not c_share:
+                    cu, uu = c_unit.lower(), u_unit.lower()
+                    if cu in _W and uu in _W:
+                        rem_oz = c_val * _W[cu] - u_val * _W[uu]
+                        rem_val = rem_oz / _W[cu]
+                        if rem_val <= 0.04:
+                            done, new_amt = True, ""
+                        else:
+                            new_amt = self._fmt_qty(rem_val, c_unit)
+                    elif not uu or not cu or cu.rstrip("s") == uu.rstrip("s"):
+                        rem_val = c_val - u_val
+                        if rem_val <= 0.04:
+                            done, new_amt = True, ""
+                        else:
+                            new_amt = self._fmt_qty(rem_val, c_unit or u_unit)
+                    else:
+                        new_amt = f"{old_amt} (used {u_str})"[:60] if old_amt else f"partial (used {u_str})"[:60]
+                else:
+                    new_amt = f"{old_amt} (used {u_str})"[:60] if old_amt else f"partial (used {u_str})"[:60]
+            else:
+                raise ValueError("give fraction (e.g. 0.5), used (e.g. '2' or 'half'), or remaining amount")
+
+        now = time.time()
+        new_status = "used" if done else "in"
+        with self.store.lock:
+            if done:
+                self.store.db.execute("UPDATE pantry SET status='used', updated=? WHERE id=?", (now, r["id"]))
+            else:
+                self.store.db.execute("UPDATE pantry SET amount=?, updated=? WHERE id=?", (new_amt, now, r["id"]))
+            self.store.db.commit()
+        return {
+            "id": r["id"], "name": r["name"], "found": True,
+            "previous_amount": old_amt, "amount": new_amt,
+            "status": new_status, "partial": not done,
+        }
+
     def parse_list(self, text):
         """'chicken, 2 lb ground beef and a dozen eggs' -> [(name, amount)]."""
         text = text or ""

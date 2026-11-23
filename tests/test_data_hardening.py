@@ -365,7 +365,48 @@ finally:
     VIEWER.reset(tok_b2)
 check("Fitness.log() defaults personal owner from VIEWER so Bob cannot see Alice's workout", bob_ws == [], bob_ws)
 
+# 17. check_types supports bool fields (fixes KeyError: <class 'bool'> on meal_steps, habits/toggle, fitness/prefs, meal_edit)
+from homemind.main import check_types
+check("check_types accepts bool True/False", check_types({"force": False, "reestimate": True}, {"force": bool, "reestimate": bool}) == {"force": False, "reestimate": True})
+try:
+    check_types({"force": "yes"}, {"force": bool})
+    check("check_types rejects non-bool with clean ValueError", False, "no error")
+except ValueError as e:
+    check("check_types rejects non-bool with clean ValueError", "true or false" in str(e), str(e))
+try:
+    check_types({"force": 1}, {"force": bool})
+    check("check_types rejects int 1 for bool field", False, "no error")
+except ValueError as e:
+    check("check_types rejects int 1 for bool field", "true or false" in str(e), str(e))
+
+# 18. Pantry partial consumption (use_part + Ask natural language)
+st_pp = Store(tempfile.mktemp())
+pan_pp = Pantry(st_pp, None, None, tempfile.mkdtemp())
+a_milk = pan_pp.add("milk", "", location="fridge")
+r_m1 = pan_pp.use_part(item_id=a_milk["id"], fraction=0.5)
+check("use_part half on unquantified item -> '1/2 left'", r_m1["partial"] and r_m1["amount"] == "1/2 left", r_m1)
+r_m2 = pan_pp.use_part(item_id=a_milk["id"], fraction=0.5)
+check("use_part half again -> '1/4 left'", r_m2["partial"] and r_m2["amount"] == "1/4 left", r_m2)
+
+a_beef = pan_pp.add("ground beef", "2 lb", location="fridge")
+r_b1 = pan_pp.use_part(item_id=a_beef["id"], used="8 oz")
+check("use_part subtracts 8 oz from 2 lb -> '1.5 lb'", r_b1["partial"] and r_b1["amount"] == "1.5 lb", r_b1)
+
+a_eggs = pan_pp.add("eggs", "a dozen", location="fridge")
+r_e1 = pan_pp.use_part(item_id=a_eggs["id"], used="3")
+check("use_part subtracts 3 from a dozen -> '9'", r_e1["partial"] and r_e1["amount"] == "9", r_e1)
+r_e2 = pan_pp.use_part(item_id=a_eggs["id"], remaining="0")
+check("use_part remaining='0' marks item used", (not r_e2["partial"]) and r_e2["status"] == "used", r_e2)
+
+from homemind import ask_actions
+a_chk = pan_pp.add("chicken breast", "2 lb", location="fridge")
+fake_app = types.SimpleNamespace(pantry=pan_pp)
+ask_r = asyncio.run(ask_actions.dispatch(fake_app, {"question": "I only used half of the chicken breast"}, None))
+check("Ask action handles 'I only used half of the chicken breast'",
+      ask_r and ask_r.get("pantry_part", {}).get("amount") == "1 lb", ask_r)
+
 print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")
 sys.exit(1 if FAILS else 0)
+
 
 

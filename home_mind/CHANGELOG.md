@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.3
+- **Fix `bool` validation error on recipe cooking steps & toggle endpoints (`main.py`):** added `bool` type support to `check_types` and `_KINDS`, fixing the `KeyError: <class 'bool'>` error when fetching daily cooking instructions (`/api/pantry/meal_steps`), re-estimating meals (`/api/pantry/meal_edit`), toggling meds/habits (`/api/habits/toggle`), or changing Fitness sync preferences (`/api/fitness/prefs`).
+- **Partial Pantry Consumption (`Food › Pantry`, `POST /api/pantry/part`, Ask/Voice):** record when you only took part of a stored food item instead of marking the whole thing used. Each pantry item now has a **`part`** button with 1-tap **`−¼`**, **`−½`**, **`−¾`** controls plus custom **`Took`** (supports counts, fractions, and weight math like `8 oz` from `2 lb` → `1.5 lb` or `3` from `a dozen` → `9`) and **`Set left`** actions. Also works naturally from Ask/Voice (e.g., *"I only used half of the chicken breast"*, *"I took 2 eggs"*).
+
 ## 0.35.2
 - **Reversible Cloud Secret Masking in Overnight Extraction (`privacy.py`, `overnight.py`):** cloud models still never receive raw PINs, passwords, IPs, or MAC addresses during overnight fact extraction, while extracted facts now restore real values locally via reversible placeholders before saving to SQLite (marked `sensitive=True`). Also hardened `privacy.is_cloud()` against model objects without `.cfg`.
 - **Meds & Maintenance Integrity Fixes (`meds.py`, `maintenance.py`):** toggling a med/supplement off now archives its `body/meds` note for that day and re-toggling avoids duplicate entries; `Maintenance.add()` now guards non-finite `every_days` values (`inf`/`nan`) cleanly with a `400` validation error.
