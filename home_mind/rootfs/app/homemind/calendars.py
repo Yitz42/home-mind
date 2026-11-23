@@ -127,11 +127,12 @@ class Calendars:
             m = re.search(r'"event": "([0-9a-f]+)"', r["meta"] or "")
             if m:
                 existing[m.group(1)] = (r["id"], r["body"])
-        seen, added, changed = set(), 0, 0
+        seen, ok_cals, added, changed = set(), set(), 0, 0
         for eid, name in cals:
             evs = await self.ha.get_json(f"calendars/{eid}", {"start": start, "end": end})
             if not isinstance(evs, list):
                 continue
+            ok_cals.add(eid)
             low = name.lower()
             calname = ("UMBC" if "umbc" in low else "Personal" if "gmail" in low else
                        "Rivka" if "rivka" in low else "Hebcal" if "hebcal" in low else re.sub(r"@.*$", "", name).strip())
@@ -156,13 +157,16 @@ class Calendars:
                     added += 1
                 except Exception:  # noqa: BLE001
                     log.exception("event %s", ev.get("summary"))
-        # events in the window ahead that are gone from their calendar were cancelled
+        # events in the window ahead that are gone from a calendar that actually answered were cancelled
         gone = 0
         for k, (iid, _) in existing.items():
             if k in seen:
                 continue
             row = self.store.get(iid)
-            st = (row or {}).get("meta", {}).get("start")
+            meta = (row or {}).get("meta") or {}
+            if meta.get("calendar") not in ok_cals:
+                continue
+            st = meta.get("start")
             if st and datetime.fromisoformat(st) >= now - timedelta(days=1):
                 self.store.set_status(iid, "archived")
                 gone += 1
@@ -171,11 +175,14 @@ class Calendars:
         return self.last
 
     def events_on(self, day, question=None):
+        from .speakers import visible
         lo = datetime.combine(day, datetime.min.time())
         hi = lo + timedelta(days=1)
         out = []
         for r in self.store.db.execute("SELECT * FROM items WHERE source='calendar' AND status='active'"):
             d = self.store._row(r)
+            if not visible(d["meta"]):
+                continue
             st = d["meta"].get("start")
             if not st:
                 continue

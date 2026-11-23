@@ -65,7 +65,11 @@ def parse_chats(spec):
 class Telegram:
     def __init__(self, app, token, chats):
         self.app, self.token, self.chats = app, token or "", parse_chats(chats)
-        self.offset = 0
+        st = getattr(getattr(app, "mind", None), "store", None)
+        try:
+            self.offset = int(st.kv_get("telegram_offset") or 0) if st is not None else 0
+        except (TypeError, ValueError):
+            self.offset = 0
         self.last_error = None
 
     @property
@@ -161,7 +165,12 @@ class Telegram:
                                                      "allowed_updates": ["message"]}, timeout=35)
                 backoff = 5
                 for u in ups:
-                    self.offset = max(self.offset, u["update_id"] + 1)
+                    nxt = max(self.offset, u["update_id"] + 1)
+                    if nxt != self.offset:
+                        self.offset = nxt
+                        st = getattr(getattr(self.app, "mind", None), "store", None)
+                        if st is not None:
+                            st.kv_set("telegram_offset", self.offset)
                     msg = u.get("message")
                     if not msg:
                         continue

@@ -100,7 +100,7 @@ class Mailbox:
             return {"skipped": f"mail from {sender} didn't pass its sender check (email_require_verified)"}
         lim = getattr(self.app, "limits", None)
         if lim is not None and not lim.allow("email", "all"):
-            return {"skipped": "over today's limit of emails"}
+            return {"skipped": "over today's limit of emails", "deferred": True}
         subject = re.sub(r"^\s*(?:(?:fwd?|fw|re)\s*:\s*)+", "", str(msg.get("Subject") or ""), flags=re.I).strip()
         body = text_of(msg)
         try:
@@ -162,7 +162,8 @@ class Mailbox:
                     res["failed"] = res.get("failed", 0) + 1
                     continue
                 res["filed" if "id" in r or r.get("docs") else "skipped"] += 1
-                box.store(num, "+FLAGS", "\\Seen")
+                if not r.get("deferred"):
+                    box.store(num, "+FLAGS", "\\Seen")
         finally:
             try:
                 box.logout()

@@ -96,8 +96,8 @@ async def extract(model, turns, max_tokens=900):
     for i, t in enumerate(turns, 1):
         lines.append(f"{i}. {'U' if t['who'] == 'user' else 'A'}: {t['text']}")
         idx[i] = t
-    r = await model.chat(EXTRACT_SYSTEM, [{"role": "user", "content": "\n".join(lines)}], max_tokens=max_tokens,
-                         temperature=0)
+    r = await model.chat(EXTRACT_SYSTEM, [{"role": "user", "content": safe_for(model, "\n".join(lines))}],
+                         max_tokens=max_tokens, temperature=0)
     facts = parse_facts(r["text"], strict=True)
     for f in facts:
         t = idx.get(f["turn"]) if isinstance(f["turn"], int) else None
@@ -163,15 +163,16 @@ class ConvLog:
 
     def __init__(self, store):
         self.store = store
-        store.db.execute("""CREATE TABLE IF NOT EXISTS conversations (
-            id INTEGER PRIMARY KEY, ts REAL, conversation_id TEXT, run_id TEXT UNIQUE, pipeline TEXT,
-            user_text TEXT, reply TEXT, processed INTEGER DEFAULT 0)""")
-        for col in ("speaker TEXT", "speaker_how TEXT", "device_id TEXT"):
-            try:
-                store.db.execute(f"ALTER TABLE conversations ADD COLUMN {col}")
-            except Exception:  # noqa: BLE001 - already there
-                pass
-        store.db.commit()
+        with store.lock:
+            store.db.execute("""CREATE TABLE IF NOT EXISTS conversations (
+                id INTEGER PRIMARY KEY, ts REAL, conversation_id TEXT, run_id TEXT UNIQUE, pipeline TEXT,
+                user_text TEXT, reply TEXT, processed INTEGER DEFAULT 0)""")
+            for col in ("speaker TEXT", "speaker_how TEXT", "device_id TEXT"):
+                try:
+                    store.db.execute(f"ALTER TABLE conversations ADD COLUMN {col}")
+                except Exception:  # noqa: BLE001 - already there
+                    pass
+            store.db.commit()
         self.who = None          # device_id -> (name or None, how); set by the app from option people (#3)
 
     def add(self, ts, user_text, reply, conversation_id=None, run_id=None, pipeline=None, speaker=None, how=None,
@@ -181,10 +182,11 @@ class ConvLog:
         if speaker is None and device_id and self.who:
             speaker, how = self.who(device_id)
         try:
-            self.store.db.execute("INSERT INTO conversations(ts,conversation_id,run_id,pipeline,user_text,reply,speaker,"
-                                  "speaker_how,device_id) VALUES(?,?,?,?,?,?,?,?,?)",
-                                  (ts, conversation_id, run_id, pipeline, user_text, reply, speaker, how, device_id))
-            self.store.db.commit()
+            with self.store.lock:
+                self.store.db.execute("INSERT INTO conversations(ts,conversation_id,run_id,pipeline,user_text,reply,speaker,"
+                                      "speaker_how,device_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                                      (ts, conversation_id, run_id, pipeline, user_text, reply, speaker, how, device_id))
+                self.store.db.commit()
             return True
         except Exception:  # noqa: BLE001 - duplicate run id
             return False
@@ -231,14 +233,16 @@ class ConvLog:
         return [dict(r) for r in rows]
 
     def mark(self, ids):
-        self.store.db.executemany("UPDATE conversations SET processed=1 WHERE id=?", [(i,) for i in ids])
-        self.store.db.commit()
+        with self.store.lock:
+            self.store.db.executemany("UPDATE conversations SET processed=1 WHERE id=?", [(i,) for i in ids])
+            self.store.db.commit()
 
     def prune(self):
         now = time.time()
-        self.store.db.execute("DELETE FROM conversations WHERE (processed=1 AND ts < ?) OR ts < ?",
-                              (now - self.KEEP_DONE_DAYS * 86400, now - self.KEEP_RAW_DAYS * 86400))
-        self.store.db.commit()
+        with self.store.lock:
+            self.store.db.execute("DELETE FROM conversations WHERE (processed=1 AND ts < ?) OR ts < ?",
+                                  (now - self.KEEP_DONE_DAYS * 86400, now - self.KEEP_RAW_DAYS * 86400))
+            self.store.db.commit()
 
 
 class Overnight:
@@ -448,6 +452,7 @@ class Overnight:
         """#13: re-check pronoun links from the last days with the big model: the note it points to, against the
         notes filed just before it. A different answer moves the link (and the [re: ...] in the title)."""
         import json
+        from .speakers import visible
         rows = self.store.db.execute(
             "SELECT id, title, body, created, meta FROM items WHERE status='active' AND created > ? AND meta LIKE "
             "'%refers_to%' ORDER BY id DESC LIMIT ?", (time.time() - days * 86400, limit)).fetchall()
@@ -456,9 +461,11 @@ class Overnight:
             m = json.loads(r["meta"] or "{}")
             if m.get("refers_by") == "model" or not m.get("refers_to"):
                 continue
-            cands = self.store.db.execute(
-                "SELECT id, title, body FROM items WHERE id < ? AND created >= ? AND kind != 'procedure' AND source NOT IN "
-                "('home','automations','calendar') ORDER BY id DESC LIMIT 5", (r["id"], r["created"] - 3600)).fetchall()
+            note_viewer = m.get("owner") if m.get("scope") == "personal" and m.get("owner") else ""
+            raw_cands = self.store.db.execute(
+                "SELECT id, title, body, meta FROM items WHERE id < ? AND created >= ? AND kind != 'procedure' AND source NOT IN "
+                "('home','automations','calendar') ORDER BY id DESC LIMIT 12", (r["id"], r["created"] - 3600)).fetchall()
+            cands = [c for c in raw_cands if visible(json.loads(c["meta"] or "{}"), note_viewer)][:5]
             if len(cands) < 2:
                 continue
             body = re.sub(r"\s*\[re: .*?\]$", "", r["body"] or "")
@@ -506,8 +513,9 @@ class Overnight:
             n += 1
             meta.update(add or {"structure_by": "model-none"})        # marked either way, so it is read once
             shelf_sql = ", shelf='profile'" if add.get("alias") else ""
-            self.store.db.execute(f"UPDATE items SET meta=?{shelf_sql} WHERE id=?", (json.dumps(meta), r["id"]))
-        self.store.db.commit()
+            with self.store.lock:
+                self.store.db.execute(f"UPDATE items SET meta=?{shelf_sql} WHERE id=?", (json.dumps(meta), r["id"]))
+                self.store.db.commit()
         return n
 
     async def tick(self):

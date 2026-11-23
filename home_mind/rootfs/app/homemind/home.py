@@ -52,8 +52,11 @@ STEP = {"temperature": 1.0, "humidity": 3.0, "pm25": 5.0, "aqi": 5.0, "battery":
 
 
 def _f(x):
+    if isinstance(x, bool):
+        return None
     try:
-        return float(x)
+        v = float(x)
+        return v if math.isfinite(v) else None
     except (TypeError, ValueError):
         return None
 

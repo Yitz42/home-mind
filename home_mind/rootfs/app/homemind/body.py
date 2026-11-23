@@ -3,6 +3,7 @@ note on the body/weight shelf, dated when it happened: "Weigh-in Fri Nov 13 9:53
 23.1%, ...". At start-up the last 10 days of Home Assistant history are filed too, so nothing measured while the app
 was off is missed. Notes have no key, so every weigh-in stays findable ("what did I weigh on Nov 11?")."""
 import logging
+import math
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -26,9 +27,13 @@ KG_LB = 2.20462
 
 
 def _num(v, unit):
+    if isinstance(v, bool):
+        return None
     try:
         x = float(v)
     except (TypeError, ValueError):
+        return None
+    if not math.isfinite(x) or x <= 0:
         return None
     if unit == "kg":
         x *= KG_LB
@@ -61,7 +66,10 @@ class Body:
     def file(self, ts, vals):
         if vals.get("weight") is None or self.logged(ts):
             return None
-        when = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
+        try:
+            when = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            return None
         text = note_text(when, vals)
         out = self.store.remember(text=text, title=text.split(": my ")[0] + f": {vals['weight']:.1f} lb",
                                   kind="fact", shelf="body/weight",
@@ -104,8 +112,11 @@ class Body:
             pts = []
             for r in series:
                 unit = (r.get("attributes") or {}).get("unit_of_measurement", unit)
-                t = datetime.fromisoformat(r["last_changed"].replace("Z", "+00:00")).timestamp()
-                pts.append((t, r["state"], unit))
+                try:
+                    t = datetime.fromisoformat(str(r.get("last_changed") or "").replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    continue
+                pts.append((t, r.get("state"), unit))
             rows[eid] = pts
         n = 0
         for t_in, ts, _ in rows.get(self.ent("last_weigh_in"), []):
@@ -115,9 +126,10 @@ class Body:
             for k, _, _ in FIELDS:
                 # the value the scale reported for this weigh-in: the latest one within two minutes of it
                 cand = [(t, v, u) for t, v, u in rows.get(self.ent(k), []) if t <= t_in + 120 and v not in ("unknown", "unavailable")]
-                if cand and t_in - max(cand)[0] < 6 * 3600:
-                    t, v, u = max(cand)
-                    vals[k] = _num(v, u)
+                if cand:
+                    best = max(cand, key=lambda x: x[0])
+                    if t_in - best[0] < 6 * 3600:
+                        vals[k] = _num(best[1], best[2])
             self.debug.setdefault("weigh_ins", []).append({"ts": ts, "vals": vals})
             if self.file(ts, vals):
                 n += 1

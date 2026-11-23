@@ -2274,14 +2274,26 @@ class App:
         t = self._bg.get(name)
         if t is not None and not t.done():
             return None
-        t = asyncio.create_task(job())
+        from .speakers import VIEWER
+        if name.startswith("estimate:"):
+            coro = job()
+        else:
+            # Global background jobs (overnight, compare, cal_sync, auto_test) must not inherit an HTTP caller's VIEWER
+            async def _global_job():
+                tok = VIEWER.set(None)
+                try:
+                    return await job()
+                finally:
+                    VIEWER.reset(tok)
+            coro = _global_job()
+        t = asyncio.create_task(coro)
         self._bg[name] = t
 
         def done(t):
             if not t.cancelled() and t.exception() is not None:
                 log.error("%s failed", name, exc_info=t.exception())
-            if name.startswith("estimate:") and self._bg.get(name) is t:
-                self._bg.pop(name, None)        # one per logged meal: don't keep them once finished
+            if self._bg.get(name) is t:
+                self._bg.pop(name, None)
         t.add_done_callback(done)
         return t
 
@@ -3720,7 +3732,7 @@ def build(app_state):
             return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
         b = model_ok(await read_body(q, optional=True, text=str, name=str, location=str, source=str, meal=str,
                                      request=str, items=list, slot=str, style=str, kind=str, action=str, grid=dict,
-                                     day=str, reestimate=bool, prep_day=str, prep_time=str, include=str, entity=str))
+                                     day=str, reestimate=bool, prep_day=str, prep_time=str, include=str, entity=str, force=bool))
         if not isinstance(b.get("amount", ""), (str, int, float)) or not isinstance(b.get("use_by", ""), (str, int, float)):
             raise ValueError("amount and use_by should be text (or a number)")
         try:
@@ -3814,6 +3826,12 @@ def build(app_state):
                     raise ValueError("missing day_index")
                 d_idx = whole(b["day_index"], "day_index")
                 return J(A.pantry.meal_info(d_idx, slot=b.get("slot") or "dinner"))
+            if op == "meal_steps":
+                d_idx = whole(b["day_index"], "day_index") if b.get("day_index") is not None else None
+                return J(await A.pantry.meal_steps(
+                    day_index=d_idx, slot=b.get("slot") or None, day=b.get("day") or None,
+                    model=b.get("model"), force=bool(b.get("force")),
+                ))
             if op == "calendar":
                 out = await A.pantry.add_to_calendar(include=b.get("include") or "prep",
                                                      entity=b.get("entity"), prep_time=b.get("prep_time"))

@@ -10,6 +10,7 @@ Quick logs: water is a count per day; coffee is filed as a drink on the meals sh
 patterns' "caffeine after 2 PM" factor sees it.
 """
 import json
+import math
 import time
 from datetime import datetime
 
@@ -56,10 +57,15 @@ class Checkins:
         """Keep one check-in. Returns it, with how many there are that day."""
         now = self.clock()
         if fog is not None and fog != "":
+            if isinstance(fog, bool):
+                raise ValueError("fog is a number from 0 to 5")
             try:
-                fog = int(round(float(fog)))
+                fog_f = float(fog)
             except (TypeError, ValueError):
                 raise ValueError("fog is a number from 0 to 5") from None
+            if not math.isfinite(fog_f):
+                raise ValueError("fog is a number from 0 to 5")
+            fog = int(round(fog_f))
             if not 0 <= fog <= 5:
                 raise ValueError("fog is a number from 0 to 5")
         else:
@@ -76,15 +82,24 @@ class Checkins:
         if fog is None and energy is None and not tags and not note:
             raise ValueError("a check-in needs at least one of fog, energy, a tag or a note")
         if at not in (None, ""):
+            if isinstance(at, bool):
+                raise ValueError("at is a time in seconds since 1970")
             try:
                 t = float(at)
             except (TypeError, ValueError):
                 raise ValueError("at is a time in seconds since 1970") from None
+            if not math.isfinite(t):
+                raise ValueError("at is a time in seconds since 1970")
         elif minutes_ago not in (None, ""):
+            if isinstance(minutes_ago, bool):
+                raise ValueError("minutes_ago is a number")
             try:
-                t = now - float(minutes_ago) * 60
+                ma = float(minutes_ago)
             except (TypeError, ValueError):
                 raise ValueError("minutes_ago is a number") from None
+            if not math.isfinite(ma):
+                raise ValueError("minutes_ago is a number")
+            t = now - ma * 60
         else:
             t = now
         if t > now + 60:
@@ -111,6 +126,7 @@ class Checkins:
             meta["note"] = note
         who = person if person is not None else VIEWER.get()
         if who:
+            meta["scope"] = "personal"
             meta["owner"] = who
         title = "Check-in" + (f" · fog {fog}/5" if fog is not None else "") + (f" · {ENERGY_LABEL[energy]}" if energy
                                                                             else "")
@@ -135,12 +151,15 @@ class Checkins:
         q += " ORDER BY created DESC LIMIT ?"
         args.append(int(limit))
         out = []
-        who = (person if person is not None else VIEWER.get()) or ""
+        viewer = person if person is not None else VIEWER.get()
+        who = viewer or ""
         for r in self.store.db.execute(q, args):
             m = _meta(r)
-            if not visible(m):
+            if not visible(m, viewer):
                 continue
             if who and m.get("owner") and str(m["owner"]).lower() != who.lower():
+                continue
+            if viewer == "" and m.get("owner"):
                 continue
             t = float(m.get("at") or r["created"])
             d = m.get("day") or day_of(t)
@@ -186,11 +205,16 @@ class Checkins:
     def coffees(self, day=None, person=None):
         day = day or day_of(self.clock())
         d0 = datetime.fromisoformat(day).replace(hour=5).timestamp()
+        viewer = person if person is not None else VIEWER.get()
         n = 0
         for r in self.store.db.execute("SELECT meta FROM items WHERE shelf='body/meals' AND status='active' AND "
                                        "created >= ? AND created < ?", (d0, d0 + 86400)):
             m = _meta(r)
-            if m.get("drink") == "coffee" and visible(m):
+            if m.get("drink") == "coffee" and visible(m, viewer):
+                if viewer == "" and m.get("owner"):
+                    continue
+                if viewer and m.get("owner") and str(m["owner"]).lower() != viewer.lower():
+                    continue
                 n += 1
         return n
 
@@ -221,15 +245,22 @@ class Checkins:
             for _ in range(n):
                 meta = {"drink": "coffee", "caffeine": True, "at": now, "protein_g": 0}
                 if who:
+                    meta["scope"] = "personal"
                     meta["owner"] = who
                 self.store.remember(text=f"Coffee at {_clock_text(now)} ({datetime.fromtimestamp(now):%a %b %d}).",
                                     title="Coffee", shelf="body/meals", source="quick-log", meta=meta, at=now)
         else:
             d0 = datetime.fromisoformat(day).replace(hour=5).timestamp()
+            viewer = person if person is not None else VIEWER.get()
             row = None
             for r in self.store.db.execute("SELECT id, meta FROM items WHERE shelf='body/meals' AND status='active' "
                                            "AND created >= ? ORDER BY created DESC", (d0,)):
-                if _meta(r).get("drink") == "coffee" and visible(_meta(r)):
+                m = _meta(r)
+                if m.get("drink") == "coffee" and visible(m, viewer):
+                    if viewer == "" and m.get("owner"):
+                        continue
+                    if viewer and m.get("owner") and str(m["owner"]).lower() != viewer.lower():
+                        continue
                     row = r
                     break
             if row is not None:
