@@ -734,7 +734,7 @@ async def _handle_weigh_in(app, text, who, voice):
     note = note_text(when, vals)
     meta = {"weigh_in": ts, "series": "weigh-in", "weight": round(lb, 1)}
     if who:
-        meta["said_by"] = who
+        meta.update(said_by=who, scope="personal", owner=who)
     out = st.remember(text=note, title=note.split(": my ")[0] + f": {lb:.1f} lb",
                       kind="fact", shelf="body/weight", tags=["weight", "scale", "body"],
                       source="voice" if voice else "ask", meta=meta, at=when.timestamp())

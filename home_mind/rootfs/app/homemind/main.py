@@ -2274,14 +2274,26 @@ class App:
         t = self._bg.get(name)
         if t is not None and not t.done():
             return None
-        t = asyncio.create_task(job())
+        from .speakers import VIEWER
+        if name.startswith("estimate:"):
+            coro = job()
+        else:
+            # Global background jobs (overnight, compare, cal_sync, auto_test) must not inherit an HTTP caller's VIEWER
+            async def _global_job():
+                tok = VIEWER.set(None)
+                try:
+                    return await job()
+                finally:
+                    VIEWER.reset(tok)
+            coro = _global_job()
+        t = asyncio.create_task(coro)
         self._bg[name] = t
 
         def done(t):
             if not t.cancelled() and t.exception() is not None:
                 log.error("%s failed", name, exc_info=t.exception())
-            if name.startswith("estimate:") and self._bg.get(name) is t:
-                self._bg.pop(name, None)        # one per logged meal: don't keep them once finished
+            if self._bg.get(name) is t:
+                self._bg.pop(name, None)
         t.add_done_callback(done)
         return t
 

@@ -12,8 +12,8 @@ MAX_ROWS = 500
 MAX_SECONDS = 3.0
 VIEWS = """
 CREATE TEMP VIEW notes AS SELECT id, kind, key, shelf, status, supersedes AS replaces, source,
-  CASE WHEN secret IS NOT NULL OR meta LIKE '%"sensitive": true%' THEN '[secret]' ELSE title END AS title,
-  CASE WHEN secret IS NOT NULL OR meta LIKE '%"sensitive": true%' THEN '[secret]' ELSE body END AS body,
+  CASE WHEN secret IS NOT NULL OR COALESCE(json_extract(meta, '$.sensitive'), 0) = 1 THEN '[secret]' ELSE title END AS title,
+  CASE WHEN secret IS NOT NULL OR COALESCE(json_extract(meta, '$.sensitive'), 0) = 1 THEN '[secret]' ELSE body END AS body,
   tags, datetime(created, 'unixepoch', 'localtime') AS created, datetime(updated, 'unixepoch', 'localtime') AS updated,
   created AS created_ts, use_count, strength,
   json_extract(meta, '$.category') AS category, json_extract(meta, '$.owner') AS owner,
@@ -40,14 +40,16 @@ def _who(viewer):
     house = "COALESCE(json_extract(meta, '$.scope'), '') != 'personal'"
     if not viewer:
         return house
-    v = str(viewer).lower().replace("'", "''")
-    return f"({house} OR LOWER(COALESCE(json_extract(meta, '$.owner'), '')) = '{v}')"
+    v = str(viewer).replace("'", "''")
+    return f"({house} OR hm_seen(meta, '{v}') = 1)"
 
 
 def _connect(path, viewer=None):
+    from .speakers import seen_sql
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2, check_same_thread=False)
     if hasattr(db, "setlimit"):
         db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_VALUE)
+    db.create_function("hm_seen", 2, seen_sql)
     who = _who(viewer)
     lwho = "1=1" if viewer is None else \
         f"a IN (SELECT id FROM main.items WHERE {who}) AND b IN (SELECT id FROM main.items WHERE {who})"

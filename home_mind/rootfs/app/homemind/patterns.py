@@ -226,9 +226,10 @@ class Patterns:
         self.checkins_on = o.get("patterns_checkins", True) is not False
         self.phone = phone                                              # async () -> "notify.mobile_app_x" or None
         self.last_refresh = 0
-        store.db.execute("CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, data TEXT, updated REAL)")
-        store.db.execute("CREATE TABLE IF NOT EXISTS weather_hours (t REAL PRIMARY KEY, data TEXT)")
-        store.db.commit()
+        with store.lock:
+            store.db.execute("CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, data TEXT, updated REAL)")
+            store.db.execute("CREATE TABLE IF NOT EXISTS weather_hours (t REAL PRIMARY KEY, data TEXT)")
+            store.db.commit()
 
     # ---- weather --------------------------------------------------------------------------------------------------
     async def snapshot_weather(self):
@@ -240,8 +241,10 @@ class Patterns:
                                    "wind_speed", "uv_index")}
         d["condition"] = s["state"]
         t = int(time.time() // 3600 * 3600)
-        self.store.db.execute("INSERT OR REPLACE INTO weather_hours(t, data) VALUES(?, ?)", (t, json.dumps(d)))
-        self.store.db.commit()
+        with self.store.lock:
+            self.store.db.execute("INSERT OR REPLACE INTO weather_hours(t, data) VALUES(?, ?)", (t, json.dumps(d)))
+            self.store.db.execute("DELETE FROM weather_hours WHERE t < ?", (t - 120 * 86400,))
+            self.store.db.commit()
         return d
 
     def _weather_from_table(self, day):
@@ -424,9 +427,10 @@ class Patterns:
         return out
 
     def save(self, row):
-        self.store.db.execute("INSERT OR REPLACE INTO days(day, data, updated) VALUES(?, ?, ?)",
-                              (row["day"], json.dumps(row), time.time()))
-        self.store.db.commit()
+        with self.store.lock:
+            self.store.db.execute("INSERT OR REPLACE INTO days(day, data, updated) VALUES(?, ?, ?)",
+                                  (row["day"], json.dumps(row), time.time()))
+            self.store.db.commit()
         mg = getattr(self, "memgraph", None)
         if mg is not None:
             try:

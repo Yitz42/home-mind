@@ -528,10 +528,11 @@ def guess_location(name):
 class Pantry:
     def __init__(self, store, ha, models, data_dir):
         self.store, self.ha, self.models, self.data_dir = store, ha, models, data_dir
-        store.db.execute("""CREATE TABLE IF NOT EXISTS pantry (
-            id INTEGER PRIMARY KEY, name TEXT, amount TEXT, location TEXT, added REAL, use_by REAL,
-            status TEXT DEFAULT 'in', source TEXT, updated REAL, note TEXT)""")
-        store.db.commit()
+        with store.lock:
+            store.db.execute("""CREATE TABLE IF NOT EXISTS pantry (
+                id INTEGER PRIMARY KEY, name TEXT, amount TEXT, location TEXT, added REAL, use_by REAL,
+                status TEXT DEFAULT 'in', source TEXT, updated REAL, note TEXT)""")
+            store.db.commit()
         self.seen_done = set()
 
     # ---- goals ------------------------------------------------------------------------------------------------------
@@ -574,17 +575,18 @@ class Pantry:
         else:
             ub = now + estimate(name, loc) * 86400
         # the same food already in stock: top it up instead of a second line
-        same = self.store.db.execute("SELECT id FROM pantry WHERE status='in' AND lower(name)=? AND location=?",
-                                     (name.lower(), loc)).fetchone()
-        if same:
-            self.store.db.execute("UPDATE pantry SET amount=?, use_by=?, added=?, updated=?, source=? WHERE id=?",
-                                  (amount or "", ub, now, now, source, same["id"]))
-            iid = same["id"]
-        else:
-            cur = self.store.db.execute("INSERT INTO pantry(name,amount,location,added,use_by,status,source,updated) "
-                                        "VALUES(?,?,?,?,?,'in',?,?)", (name, amount or "", loc, now, ub, source, now))
-            iid = cur.lastrowid
-        self.store.db.commit()
+        with self.store.lock:
+            same = self.store.db.execute("SELECT id FROM pantry WHERE status='in' AND lower(name)=? AND location=?",
+                                         (name.lower(), loc)).fetchone()
+            if same:
+                self.store.db.execute("UPDATE pantry SET amount=?, use_by=?, added=?, updated=?, source=? WHERE id=?",
+                                      (amount or "", ub, now, now, source, same["id"]))
+                iid = same["id"]
+            else:
+                cur = self.store.db.execute("INSERT INTO pantry(name,amount,location,added,use_by,status,source,updated) "
+                                            "VALUES(?,?,?,?,?,'in',?,?)", (name, amount or "", loc, now, ub, source, now))
+                iid = cur.lastrowid
+            self.store.db.commit()
         d = datetime.fromtimestamp(ub)
         return {"id": iid, "name": name, "location": loc,
                 "use_by": ("past its date (" + d.strftime("%b %d %Y") + ")") if ub < now else
@@ -598,6 +600,8 @@ class Pantry:
         cache = self.__dict__.setdefault("_nut", {})
         key = re.sub(r"\(.*?\)", "", name.lower()).strip()
         if key not in cache:
+            if len(cache) >= 500:
+                cache.pop(next(iter(cache)), None)
             hits = kn.food(key, limit=1)
             cache[key] = hits[0] if hits else None
         return cache[key]
@@ -623,15 +627,20 @@ class Pantry:
     def ate(self, text, when=None, source="api"):
         """Log what was eaten or drunk (for the fog patterns: how late, caffeine). Doesn't change the pantry."""
         from .patterns import caffeinated
+        from .speakers import VIEWER
         text = (text or "").strip()
         if not text:
             raise ValueError("nothing eaten")
         now = when or time.time()
         caf = caffeinated(text)
         t = datetime.fromtimestamp(now)
+        meta = {"at": now, "caffeine": caf}
+        who = VIEWER.get()
+        if who:
+            meta.update(scope="personal", owner=who)
         r = self.store.remember(text=f"Ate {text} at {t:%I:%M %p}".replace(" 0", " ") + f" on {t:%a %b %d}."
                                 + (" (caffeine)" if caf else ""), title=f"Ate: {text}"[:80], kind="fact",
-                                shelf="body/meals", source=source, tags=["meal"], meta={"at": now, "caffeine": caf},
+                                shelf="body/meals", source=source, tags=["meal"], meta=meta,
                                 at=now)
         return {"logged": text, "caffeine": caf, "at": t.strftime("%I:%M %p").lstrip("0"), "id": r.get("id")}
 
@@ -676,19 +685,25 @@ class Pantry:
             p, c = float(est["protein_g"]), float(est.get("calories") or 0)
         except (ValueError, KeyError, TypeError):
             return None
-        if not (0 <= p <= 200 and 0 <= c <= 4000):
+        if not (math.isfinite(p) and math.isfinite(c) and 0 <= p <= 200 and 0 <= c <= 4000):
             return None
-        meta = json.loads(row["meta"] or "{}") if isinstance(row["meta"], str) else dict(row["meta"] or {})
         more = {}
         for k, hi in (("carbs_g", 600), ("fiber_g", 100), ("sugar_g", 300), ("fat_g", 300)):
             v = _f(est.get(k))
-            if v is not None and 0 <= v <= hi:
+            if v is not None and math.isfinite(v) and 0 <= v <= hi:
                 more[k] = round(v)
-        if not force and meta.get("protein_g") is not None and not meta.get("estimated"):
-            p = meta["protein_g"]           # a number the person gave stays
-        meta.update(protein_g=round(p), calories=round(c), estimated=True, **more)
-        self.store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), int(iid)))
-        self.store.db.commit()
+        with self.store.lock:
+            cur_row = self.store.db.execute("SELECT meta, status FROM items WHERE id=?", (int(iid),)).fetchone()
+            if not cur_row or cur_row["status"] != "active":
+                return None
+            meta = json.loads(cur_row["meta"] or "{}") if isinstance(cur_row["meta"], str) else dict(cur_row["meta"] or {})
+            if not force and meta.get("estimated") is False and (meta.get("calories") is not None or meta.get("protein_g") is not None):
+                return None                 # user manually edited macros while background estimation ran: never clobber
+            if not force and meta.get("protein_g") is not None and not meta.get("estimated"):
+                p = meta["protein_g"]       # a number the person gave stays
+            meta.update(protein_g=round(p), calories=round(c), estimated=True, **more)
+            self.store.db.execute("UPDATE items SET meta=? WHERE id=?", (json.dumps(meta), int(iid)))
+            self.store.db.commit()
         return {"id": int(iid), "protein_g": round(p), "calories": round(c), **more}
 
     MEAL_MACROS = (("calories", 6000), ("protein_g", 400), ("carbs_g", 600),
@@ -851,11 +866,12 @@ class Pantry:
         title = f"Ate: {new_txt}"[:80]
         body = (f"Ate {new_txt} at {dt:%I:%M %p}".replace(" 0", " ")
                 + f" on {dt:%a %b %d}." + (" (caffeine)" if meta.get("caffeine") else ""))
-        self.store.db.execute(
-            "UPDATE items SET title=?, body=?, created=?, meta=? WHERE id=?",
-            (title, body, ts, json.dumps(meta), int(iid)),
-        )
-        self.store.db.commit()
+        with self.store.lock:
+            self.store.db.execute(
+                "UPDATE items SET title=?, body=?, created=?, meta=? WHERE id=?",
+                (title, body, ts, json.dumps(meta), int(iid)),
+            )
+            self.store.db.commit()
         return self.get_meal(iid)
 
     def delete_meal(self, iid):
@@ -865,8 +881,9 @@ class Pantry:
 
     def remove(self, iid):
         """Delete a line entered by mistake (used or tossed keep a record; this doesn't)."""
-        self.store.db.execute("DELETE FROM pantry WHERE id=?", (int(iid),))
-        self.store.db.commit()
+        with self.store.lock:
+            self.store.db.execute("DELETE FROM pantry WHERE id=?", (int(iid),))
+            self.store.db.commit()
         return {"removed": int(iid)}
 
     def find(self, name):
@@ -885,8 +902,9 @@ class Pantry:
         if not hits:
             return {"name": name, "found": False}
         r = sorted(hits, key=lambda x: x["use_by"] or 0)[0]     # the one going bad first
-        self.store.db.execute("UPDATE pantry SET status=?, updated=? WHERE id=?", (status, time.time(), r["id"]))
-        self.store.db.commit()
+        with self.store.lock:
+            self.store.db.execute("UPDATE pantry SET status=?, updated=? WHERE id=?", (status, time.time(), r["id"]))
+            self.store.db.commit()
         return {"name": r["name"], "found": True, "id": r["id"], "status": status}
 
     def parse_list(self, text):

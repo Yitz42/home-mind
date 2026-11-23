@@ -300,11 +300,14 @@ class Fitness:
 
     # ---- weight ----------------------------------------------------------------------------------------------------
     def weigh_ins(self, days=120, now=None):
+        from .speakers import visible
         now = now or self.store.clock()
         out = []
         for r in self.store.db.execute("SELECT created, meta FROM items WHERE shelf='body/weight' AND status='active' "
                                        "AND created >= ? ORDER BY created", (now - days * 86400,)):
             m = json.loads(r["meta"] or "{}")
+            if not visible(m):
+                continue
             if isinstance(m.get("weight"), (int, float)) and 50 < m["weight"] < 700:
                 out.append({"t": r["created"], "weight": float(m["weight"]), "body_fat": m.get("body_fat")})
         return out
@@ -870,18 +873,20 @@ class Fitness:
         return self.auto_baseline()
 
     def latest_body(self, now=None):
+        from .speakers import visible
         now = now or self.store.clock()
-        row = self.store.db.execute(
-            "SELECT created, meta FROM items WHERE shelf='body/weight' AND status='active' ORDER BY created DESC LIMIT 1"
-        ).fetchone()
-        if not row:
-            return {}
-        m = json.loads(row["meta"] or "{}")
-        out = {"at": row["created"]}
-        for k in ("weight", "body_fat", "muscle_mass", "bmi", "basal_metabolic_rate", "body_water"):
-            if isinstance(m.get(k), (int, float)):
-                out[k] = round(float(m[k]), 1)
-        return out
+        for row in self.store.db.execute(
+            "SELECT created, meta FROM items WHERE shelf='body/weight' AND status='active' ORDER BY created DESC LIMIT 50"
+        ):
+            m = json.loads(row["meta"] or "{}")
+            if not visible(m):
+                continue
+            out = {"at": row["created"]}
+            for k in ("weight", "body_fat", "muscle_mass", "bmi", "basal_metabolic_rate", "body_water"):
+                if isinstance(m.get(k), (int, float)):
+                    out[k] = round(float(m[k]), 1)
+            return out
+        return {}
 
     def auto_baseline(self, now=None):
         """Compute sensible baseline goals from scale BMR/weigh-ins, 14d watch steps/sleep, and 4w workouts,
@@ -1406,7 +1411,11 @@ class Fitness:
         when = datetime.fromtimestamp(now).astimezone()
         ts = when.astimezone(timezone.utc).isoformat()
         note = note_text(when, {"weight": round(lb, 1)})
+        from .speakers import VIEWER
         m = {"weigh_in": ts, "series": "weigh-in", "weight": round(lb, 1), **(meta or {})}
+        who = VIEWER.get()
+        if who and "owner" not in m:
+            m.update(scope="personal", owner=who)
         out = self.store.remember(text=note, title=note.split(": my ")[0] + f": {lb:.1f} lb",
                                   kind="fact", shelf="body/weight", tags=["weight", "scale", "body"],
                                   source="api", meta=m, at=now)

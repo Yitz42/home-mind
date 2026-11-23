@@ -69,13 +69,14 @@ class MdSync:
         return self.store.kv_get(STATE) or {}
 
     def _notes(self):
+        from .privacy import is_sensitive
         rows = self.store.db.execute(
             "SELECT * FROM items WHERE status IN ('active','faded') AND kind != 'procedure' AND source NOT IN (%s)"
             % ",".join("?" * len(SKIP_SOURCES)), SKIP_SOURCES).fetchall()
         out = {}
         for r in rows:
             d = self.store._row(r)
-            if d["meta"].get("sensitive") or r["secret"] is not None:
+            if d["meta"].get("sensitive") or r["secret"] is not None or is_sensitive(f"{d['title']} {d['body']}", d["meta"]):
                 continue
             out[d["id"]] = d
         return out
