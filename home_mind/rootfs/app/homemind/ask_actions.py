@@ -72,6 +72,14 @@ PANTRY_USE_RX = re.compile(
     r"(?:\s+from\s+(?:the\s+)?(?:pantry|fridge|freezer))?)\s*[.!]?$",
     re.I,
 )
+PANTRY_PART_RX = re.compile(
+    r"^\s*(?:i|we)\s+(?:only\s+)?(?:just\s+)?(?:used|took)\s+"
+    r"(half|a half|quarter|a quarter|a third|third|two thirds|three quarters|part|some|a bit|a little|"
+    r"\d+(?:\.\d+)?(?:/\d+)?\s*(?:%|lb|lbs|pounds?|oz|ounces?|kg|g|grams?|cups?|tbsp|tsp|pieces?|slices?)?)\s+"
+    r"(?:of\s+)?(?:the\s+|my\s+|our\s+)?(.+?)"
+    r"(?:\s+from\s+(?:the\s+)?(?:pantry|fridge|freezer))?\s*[.!]?$",
+    re.I,
+)
 
 # ---- 4. Controlling existing automations -------------------------------------------------------------------------
 AUTO_CTRL_RX = re.compile(
@@ -473,6 +481,23 @@ async def _handle_pantry(app, text, who, voice):
             where = f" ({loc})" if loc else ""
             return {"answer": f"Added to pantry{where}: {names}.", "hits": [], "model": None,
                     "pantry_added": added, "via": "action"}
+
+    # 3a. Pantry partial consumption ("I used half the milk", "I took 2 eggs", "I only used part of the chicken")
+    mpt = PANTRY_PART_RX.match(text)
+    if mpt:
+        used_s = (mpt.group(1) or "").strip()
+        item_name = (mpt.group(2) or "").strip()
+        if item_name and hasattr(pantry, "use_part"):
+            res = pantry.use_part(name=item_name, used=used_s)
+            if res.get("found"):
+                if res.get("partial"):
+                    ans = f"Updated {res['name']}: {res['amount']}."
+                else:
+                    ans = f"Marked {res['name']} as used up."
+                return {"answer": ans, "hits": [], "model": None,
+                        "pantry_part": res, "via": "action"}
+            return {"answer": f"I couldn't find {item_name} in your pantry.", "hits": [], "model": None,
+                    "pantry_part": res, "via": "action"}
 
     # 3. Pantry used / finished / tossed
     mu = PANTRY_USE_RX.match(text)

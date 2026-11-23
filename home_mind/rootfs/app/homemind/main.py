@@ -2539,7 +2539,7 @@ class App:
 
 
 # ---- HTTP ------------------------------------------------------------------------------------------------------
-_KINDS = {str: "text", dict: "an object", list: "a list of text", float: "a number"}
+_KINDS = {str: "text", dict: "an object", list: "a list of text", float: "a number", bool: "true or false"}
 TAGS = (list, str)              # tags: a list, or "a, b" (store.clean_tags splits it)
 
 
@@ -2552,10 +2552,11 @@ def as_who(b, field):
 
 
 def check_types(b, types):
-    """ValueError (a 400) when a field that is there has the wrong JSON type: str, dict, list (of text) or float (any
-    finite number), or a tuple of these. A missing field or null is left to the handler's default."""
+    """ValueError (a 400) when a field that is there has the wrong JSON type: str, dict, list (of text), bool, or
+    float (any finite number), or a tuple of these. A missing field or null is left to the handler's default."""
     def fits(v, t):
-        return (isinstance(v, str) if t is str else isinstance(v, dict) if t is dict else
+        return (isinstance(v, bool) if t is bool else
+                isinstance(v, str) if t is str else isinstance(v, dict) if t is dict else
                 isinstance(v, list) and all(isinstance(x, str) for x in v) if t is list else
                 isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v))
     for k, t in types.items():
@@ -3732,7 +3733,8 @@ def build(app_state):
             return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
         b = model_ok(await read_body(q, optional=True, text=str, name=str, location=str, source=str, meal=str,
                                      request=str, items=list, slot=str, style=str, kind=str, action=str, grid=dict,
-                                     day=str, reestimate=bool, prep_day=str, prep_time=str, include=str, entity=str, force=bool))
+                                     day=str, reestimate=bool, prep_day=str, prep_time=str, include=str, entity=str,
+                                     force=bool, fraction=(float, str), used=(float, str), remaining=(float, str)))
         if not isinstance(b.get("amount", ""), (str, int, float)) or not isinstance(b.get("use_by", ""), (str, int, float)):
             raise ValueError("amount and use_by should be text (or a number)")
         try:
@@ -3781,6 +3783,14 @@ def build(app_state):
                     [r["id"] for r in (await today.build(A))["meals"]
                      if r.get("protein_g") is None or r.get("fiber_g") is None]
                 return J({"estimated": [x for x in [await A.pantry.estimate(i) for i in ids] if x]})
+            if op == "part":
+                iid = whole(b["id"], "id") if b.get("id") is not None else None
+                if iid is None and not b.get("name"):
+                    raise ValueError("give id or name")
+                return J(A.pantry.use_part(
+                    item_id=iid, name=b.get("name"),
+                    fraction=b.get("fraction"), used=b.get("used"), remaining=b.get("remaining"),
+                ))
             if op in ("used", "tossed"):
                 names = [n for n, _ in A.pantry.parse_list(b["text"])] if b.get("text") else [b["name"]]
                 return J({"done": [A.pantry.use(n, "used" if op == "used" else "tossed") for n in names]})
