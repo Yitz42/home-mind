@@ -4068,15 +4068,45 @@ def build(app_state):
 
     @r.post("/api/memgraph/link/{id}/{op}")
     async def memgraph_link_op(q):
-        """Confirm, hide (forget), or delete a single MemGraph link from the Brain Graph visualizer."""
+        """Confirm, retire (mark past), hide (forget), or delete a single MemGraph link from the Brain Graph."""
         lid = whole(q.match_info["id"], "id")
         op = q.match_info["op"]
-        if op not in ("confirm", "forget", "delete"):
-            return J({"error": "op must be confirm, forget, or delete"}, status=400)
+        if op not in ("confirm", "retire", "forget", "delete"):
+            return J({"error": "op must be confirm, retire, forget, or delete"}, status=400)
+        b = await read_body(q, optional=True, reason=str)
         try:
             if op == "confirm":
                 return J(A.memgraph.confirm_link(lid, viewer=VIEWER.get()))
+            if op == "retire":
+                sup = whole(b["superseded_by"], "superseded_by") if b.get("superseded_by") is not None else None
+                return J(A.memgraph.retire_link(lid, superseded_by=sup, reason=b.get("reason") or "", viewer=VIEWER.get()))
             return J(A.memgraph.forget_link(lid, viewer=VIEWER.get(), delete=(op == "delete")))
+        except PermissionError as e:
+            return J({"error": str(e)}, status=403)
+        except KeyError as e:
+            return J({"error": str(e)}, status=404)
+
+    @r.post("/api/memgraph/add")
+    async def memgraph_add(q):
+        """Directly create a general data link (AT, PART_OF, DURING, REQUIRES, AFFECTS, SUPERSEDES, SAME_AS, etc.)."""
+        b = await read_body(q, source=str, relation=str, target=str, category=str, quote=str, sign=float)
+        try:
+            return J(A.memgraph.add_link(
+                b.get("source") or "user", b.get("relation") or "", b.get("target") or "",
+                category=b.get("category") or "GENERAL", sign=b.get("sign", 1),
+                quote=b.get("quote") or "", viewer=VIEWER.get(),
+            ))
+        except PermissionError as e:
+            return J({"error": str(e)}, status=403)
+
+    @r.post("/api/memgraph/close_era")
+    async def memgraph_close_era(q):
+        """Close an era/place (e.g. an old home when moving): retires all active links tied to it and optionally links replacement."""
+        b = await read_body(q, name=str, replacement=str)
+        try:
+            return J(A.memgraph.close_era(
+                b.get("name") or "", replacement=b.get("replacement") or None, viewer=VIEWER.get(),
+            ))
         except PermissionError as e:
             return J({"error": str(e)}, status=403)
         except KeyError as e:

@@ -1004,10 +1004,45 @@
       <div id="mg_cats" class="mg-cats"></div>
       <div class="row" style="gap:8px;margin-bottom:8px">
         <input id="mg_q" placeholder="Filter nodes or relations…" oninput="mgFilter(this.value)" style="flex:1;min-width:160px;min-height:34px;padding:5px 9px">
-        <label class="mute" style="display:inline-flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" id="mg_dormant" checked onchange="graphLoad()"> Dormant</label>
+        <label class="mute" style="display:inline-flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" id="mg_dormant" checked onchange="graphLoad()"> Past &amp; Dormant</label>
         <label class="mute" style="display:inline-flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" id="mg_notes" onchange="graphLoad()"> Note links</label>
+        <button class="soft" style="min-height:34px;padding:4px 10px;font-size:12px" onclick="mgToggle('add')">+ Link</button>
+        <button class="soft" style="min-height:34px;padding:4px 10px;font-size:12px" onclick="mgToggle('era')">📦 Close era</button>
         <button class="soft" style="min-height:34px;padding:4px 10px;font-size:12px" onclick="mgRelayout()">Re-layout</button>
       </div>
+      <div id="mg_add_box" class="hide" style="padding:8px 10px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">
+        <div class="row" style="gap:6px;margin:0">
+          <input id="mg_a_src" placeholder="from (default: user)" aria-label="Source node" style="flex:1;min-width:110px;min-height:32px;padding:4px 8px;font-size:12px">
+          <select id="mg_a_rel" aria-label="Relation type" style="min-height:32px;padding:4px 7px;font-size:12px">
+            <option value="AT">AT (located in)</option>
+            <option value="PART_OF">PART_OF</option>
+            <option value="DURING">DURING (era/chapter)</option>
+            <option value="REQUIRES">REQUIRES (uses/needs)</option>
+            <option value="AFFECTS">AFFECTS (causal)</option>
+            <option value="SUPERSEDES">SUPERSEDES (replaces)</option>
+            <option value="SAME_AS">SAME_AS (alias)</option>
+            <option value="DERIVED_FROM">DERIVED_FROM</option>
+            <option value="CONTRADICTS">CONTRADICTS</option>
+            <option value="LIKES">LIKES / DISLIKES</option>
+            <option value="PREFERS">PREFERS / AVOIDS</option>
+            <option value="LIVES_IN">LIVES_IN</option>
+            <option value="WORKS_AT">WORKS_AT</option>
+            <option value="ALLERGIC_TO">ALLERGIC_TO</option>
+          </select>
+          <select id="mg_a_sign" aria-label="Direction" style="min-height:32px;padding:4px 6px;font-size:12px"><option value="1">+</option><option value="-1">−</option></select>
+          <input id="mg_a_tgt" placeholder="to (e.g. Oak St House, garage)" aria-label="Target node" style="flex:1;min-width:130px;min-height:32px;padding:4px 8px;font-size:12px" onkeydown="if (event.key === 'Enter') mgAddLink()">
+          <button class="go" style="min-height:32px;padding:4px 11px;font-size:12px" onclick="mgAddLink()">Add</button>
+        </div>
+      </div>
+      <div id="mg_era_box" class="hide" style="padding:8px 10px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">
+        <div class="row" style="gap:6px;margin:0">
+          <input id="mg_e_name" placeholder="old place or era to close (e.g. Oak St House)" aria-label="Old place or era" style="flex:1;min-width:150px;min-height:32px;padding:4px 8px;font-size:12px">
+          <input id="mg_e_rep" placeholder="replaced by (optional, e.g. Austin House)" aria-label="Replacement era or place" style="flex:1;min-width:150px;min-height:32px;padding:4px 8px;font-size:12px" onkeydown="if (event.key === 'Enter') mgCloseEra()">
+          <button class="go" style="min-height:32px;padding:4px 11px;font-size:12px" onclick="mgCloseEra()">Retire era</button>
+        </div>
+        <div class="mute" style="font-size:11px;margin-top:4px">Marks every active link connected to that place/era as past (keeps it searchable for historical questions).</div>
+      </div>
+      <div id="mg_msg" class="mute" style="font-size:12px;margin-bottom:6px"></div>
       <div class="mg-wrap">
         <svg id="mg_svg" class="mg-svg" viewBox="0 0 860 420"></svg>
         <div class="mg-legend">
@@ -2786,7 +2821,7 @@ function mgDraw() {
       const sStr = (sVal >= 0 ? '+' : '') + sVal.toFixed(2);
       return `<tr style="cursor:pointer" onclick="mgPickLink(${jsq(l.id)})"><td>${esc(l.source_name === 'user' ? 'You' : l.source_name)}</td>`
         + `<td><b>${esc(l.display_relation || l.relation)}</b></td><td>${esc(l.target_name)}</td>`
-        + `<td>${esc(l.dormant ? 'DORMANT' : l.status)}</td><td class="num">${esc(sStr)}</td>`
+        + `<td>${esc(l.retired ? 'PAST' : (l.dormant ? 'DORMANT' : l.status))}</td><td class="num">${esc(sStr)}</td>`
         + `<td class="mute">${esc(l.evidence)}</td><td class="mute">${esc(l.category)}</td></tr>`;
     }).join('');
 }
@@ -2813,10 +2848,12 @@ function mgInspector() {
   }
   const lid = +l.id || 0;
   const sVal = Number(l.effective_stability || 0), sStr = (sVal >= 0 ? '+' : '') + sVal.toFixed(2);
-  const stLbl = l.dormant ? 'DORMANT' : l.status;
+  const stLbl = l.retired ? 'PAST' : (l.dormant ? 'DORMANT' : l.status);
   const st = l.stats || {};
   const statsTxt = st.count ? ` · baseline ${Number(st.mean).toFixed(1)}${st.unit ? ' ' + st.unit : ''} ± ${Number(st.std_dev || 0).toFixed(1)} (n=${st.count})` : '';
   const tagsTxt = (l.context_tags || []).length ? ` · tags: ${l.context_tags.join(', ')}` : '';
+  const endTxt = l.valid_to ? ` · ended ${new Date(Number(l.valid_to) * 1000).toLocaleDateString()}` : '';
+  const supTxt = l.superseded_by ? ` · replaced by #${+l.superseded_by}` : '';
   const epsHtml = (l.episodes || []).length
     ? `<div class="mg-eps"><b>Recent evidence:</b>` + l.episodes.map(ep => {
         const when = ep.ts ? new Date(ep.ts * 1000).toLocaleDateString() : '';
@@ -2826,9 +2863,10 @@ function mgInspector() {
   box.innerHTML = `<div class="row" style="margin:0;justify-content:space-between;align-items:flex-start;gap:10px">`
     + `<div><div><b>${esc(src)}</b> —[${esc(l.display_relation || l.relation)}]→ <b>${esc(l.target_name)}</b>`
     + `<span class="mg-badge">${esc(stLbl)}</span> <span class="mute" style="font-size:12px">S=${esc(sStr)} · ${esc(l.evidence)} · ${esc(l.category)}</span></div>`
-    + `<div class="mute" style="font-size:12px;margin-top:4px">evidence ${esc(l.evidence_count || 1)}× · shown ${esc(l.shown_count || 0)}×${esc(statsTxt)}${esc(tagsTxt)}${l.scope === 'personal' && l.owner ? ' · personal (' + esc(l.owner) + ')' : ''}</div></div>`
+    + `<div class="mute" style="font-size:12px;margin-top:4px">evidence ${esc(l.evidence_count || 1)}× · shown ${esc(l.shown_count || 0)}×${esc(statsTxt)}${esc(tagsTxt)}${esc(endTxt)}${esc(supTxt)}${l.scope === 'personal' && l.owner ? ' · personal (' + esc(l.owner) + ')' : ''}</div></div>`
     + `<div class="row" style="margin:0;gap:6px">`
-    + `<button class="go" onclick="mgLinkOp(${lid}, 'confirm')">✓ Confirm</button>`
+    + `<button class="go" onclick="mgLinkOp(${lid}, 'confirm')">${l.retired ? '↺ Reactivate' : '✓ Confirm'}</button>`
+    + (!l.retired ? `<button class="soft" onclick="mgLinkOp(${lid}, 'retire')">📦 Mark past</button>` : '')
     + `<button class="soft" onclick="mgLinkOp(${lid}, 'forget')">Hide</button>`
     + `<button class="soft" onclick="mgLinkOp(${lid}, 'delete')">Delete</button>`
     + `</div></div>${epsHtml}`;
@@ -2838,6 +2876,33 @@ async function mgLinkOp(id, op) {
   const r = await api(`api/memgraph/link/${id}/${op}`, {});
   if (r && r.error) { alert(r.error); return; }
   if (op === 'delete') MG.selLink = null;
+  graphLoad();
+}
+function mgToggle(which) {
+  const a = $('#mg_add_box'), e = $('#mg_era_box');
+  if (which === 'add') { a.classList.toggle('hide'); e.classList.add('hide'); }
+  else { e.classList.toggle('hide'); a.classList.add('hide'); }
+}
+async function mgAddLink() {
+  const src = $('#mg_a_src').value.trim() || 'user', rel = $('#mg_a_rel').value, tgt = $('#mg_a_tgt').value.trim();
+  const sign = Number($('#mg_a_sign').value || 1);
+  if (!tgt) return;
+  $('#mg_msg').textContent = 'Saving link…';
+  const r = await api('api/memgraph/add', {source: src, relation: rel, target: tgt, sign});
+  if (r && r.error) { $('#mg_msg').textContent = r.error; return; }
+  $('#mg_a_tgt').value = '';
+  $('#mg_msg').textContent = `Added link: ${src} —[${rel}]→ ${tgt} ✓`;
+  graphLoad();
+}
+async function mgCloseEra() {
+  const name = $('#mg_e_name').value.trim(), replacement = $('#mg_e_rep').value.trim();
+  if (!name) return;
+  $('#mg_msg').textContent = 'Retiring era links…';
+  const r = await api('api/memgraph/close_era', {name, replacement});
+  if (r && r.error) { $('#mg_msg').textContent = r.error; return; }
+  $('#mg_e_name').value = ''; $('#mg_e_rep').value = '';
+  const n = Number(r.retired_count || 0);
+  $('#mg_msg').textContent = `Closed "${r.era}": marked ${n} link${n === 1 ? '' : 's'} as past${r.replacement ? ' (superseded by ' + r.replacement + ')' : ''} ✓`;
   graphLoad();
 }
 async function search() {

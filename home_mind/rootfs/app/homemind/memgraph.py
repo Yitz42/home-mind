@@ -229,7 +229,7 @@ DEFAULT_RULES = {
         "unit": None,
     },
     "CORRELATES_WITH": {
-        "aliases": ("AFFECTS", "LINKED_TO", "RESULT_IN", "RESULTS_IN", "HELPS"),
+        "aliases": ("LINKED_TO", "RESULT_IN", "RESULTS_IN", "HELPS"),
         "negative_aliases": ("WORSENS", "HURTS", "DISRUPTS"),
         "negative_label": "NEGATIVELY_CORRELATES_WITH",
         "exclusivity": EXCLUSIVITY_ADDITIVE,
@@ -289,6 +289,124 @@ DEFAULT_RULES = {
         "default_evidence": EVIDENCE_INFERRED,
         "min_points": 1,
         "decay_override": None,
+        "tracks_stats": False,
+        "max_per_day": None,
+        "unit": None,
+    },
+    # ---- General domain-agnostic structural & temporal data links ----
+    "AT": {
+        "aliases": ("LOCATED_IN", "STORED_AT", "KEPT_IN", "IN_ROOM", "LOCATION_OF"),
+        "negative_aliases": (),
+        "negative_label": None,
+        "exclusivity": EXCLUSIVITY_EXCLUSIVE,
+        "signed": False,
+        "default_evidence": EVIDENCE_DIRECT,
+        "min_points": 1,
+        "decay_override": None,
+        "tracks_stats": False,
+        "max_per_day": None,
+        "unit": None,
+    },
+    "PART_OF": {
+        "aliases": ("BELONGS_TO", "MEMBER_OF", "IN_PROJECT", "SUB_OF", "CONTAINED_IN"),
+        "negative_aliases": (),
+        "negative_label": None,
+        "exclusivity": EXCLUSIVITY_ADDITIVE,
+        "signed": False,
+        "default_evidence": EVIDENCE_DIRECT,
+        "min_points": 1,
+        "decay_override": None,
+        "tracks_stats": False,
+        "max_per_day": None,
+        "unit": None,
+    },
+    "DURING": {
+        "aliases": ("ERA", "IN_ERA", "CHAPTER", "WHILE_AT", "FROM_PERIOD"),
+        "negative_aliases": (),
+        "negative_label": None,
+        "exclusivity": EXCLUSIVITY_ADDITIVE,
+        "signed": False,
+        "default_evidence": EVIDENCE_DIRECT,
+        "min_points": 1,
+        "decay_override": None,
+        "tracks_stats": False,
+        "max_per_day": None,
+        "unit": None,
+    },
+    "REQUIRES": {
+        "aliases": ("USES", "USES_PART", "NEEDS", "DEPENDS_ON", "TAKES_FILTER"),
+        "negative_aliases": (),
+        "negative_label": None,
+        "exclusivity": EXCLUSIVITY_ADDITIVE,
+        "signed": False,
+        "default_evidence": EVIDENCE_DIRECT,
+        "min_points": 1,
+        "decay_override": DECAY_ZERO,
+        "tracks_stats": False,
+        "max_per_day": None,
+        "unit": None,
+    },
+    "AFFECTS": {
+        "aliases": ("CAUSES", "TRIGGERS", "IMPROVES", "BOOSTS"),
+        "negative_aliases": ("HARMS", "IMPAIRS", "DEGRADES"),
+        "negative_label": "IMPAIRS",
+        "exclusivity": EXCLUSIVITY_ADDITIVE,
+        "signed": True,
+        "default_evidence": EVIDENCE_INFERRED,
+        "min_points": 4,
+        "decay_override": None,
+        "tracks_stats": False,
+        "max_per_day": 1,
+        "unit": None,
+    },
+    "DERIVED_FROM": {
+        "aliases": ("SUPPORTED_BY", "BASED_ON", "EXTRACTED_FROM"),
+        "negative_aliases": (),
+        "negative_label": None,
+        "exclusivity": EXCLUSIVITY_ADDITIVE,
+        "signed": False,
+        "default_evidence": EVIDENCE_INFERRED,
+        "min_points": 1,
+        "decay_override": None,
+        "tracks_stats": False,
+        "max_per_day": None,
+        "unit": None,
+    },
+    "CONTRADICTS": {
+        "aliases": ("CONFLICTS_WITH", "DISAGREES_WITH"),
+        "negative_aliases": (),
+        "negative_label": None,
+        "exclusivity": EXCLUSIVITY_ADDITIVE,
+        "signed": False,
+        "default_evidence": EVIDENCE_INFERRED,
+        "min_points": 1,
+        "decay_override": None,
+        "tracks_stats": False,
+        "max_per_day": None,
+        "unit": None,
+    },
+    "SAME_AS": {
+        "aliases": ("ALIAS_OF", "EQUALS", "AKA"),
+        "negative_aliases": (),
+        "negative_label": None,
+        "exclusivity": EXCLUSIVITY_ADDITIVE,
+        "signed": False,
+        "default_evidence": EVIDENCE_DIRECT,
+        "min_points": 1,
+        "decay_override": DECAY_ZERO,
+        "tracks_stats": False,
+        "max_per_day": None,
+        "unit": None,
+    },
+    "SUPERSEDES": {
+        "aliases": ("REPLACES", "UPDATES", "REPLACED"),
+        "negative_aliases": (),
+        "negative_label": None,
+        "exclusivity": EXCLUSIVITY_ADDITIVE,
+        "signed": False,
+        "default_evidence": EVIDENCE_DIRECT,
+        "min_points": 1,
+        "decay_override": DECAY_ZERO,
         "tracks_stats": False,
         "max_per_day": None,
         "unit": None,
@@ -888,7 +1006,7 @@ class MemGraph:
             if eff_sign > 0 and eff["exclusivity"] in (EXCLUSIVITY_EXCLUSIVE, EXCLUSIVITY_SOFT):
                 contested_siblings = self._dampen_competing(
                     src_node["id"], tgt_node["id"], canon_rel, ctx_k, link_owner, scope,
-                    eff["exclusivity"], gamma, now, tgt_node["canonical_name"],
+                    eff["exclusivity"], gamma, now, tgt_node["canonical_name"], new_link_id=link_id,
                 )
         else:
             link_id = existing["id"]
@@ -1078,7 +1196,7 @@ class MemGraph:
             if eff_sign > 0 and eff["exclusivity"] in (EXCLUSIVITY_EXCLUSIVE, EXCLUSIVITY_SOFT) and not contested_now:
                 contested_siblings = self._dampen_competing(
                     src_node["id"], tgt_node["id"], canon_rel, ctx_k, link_owner, scope,
-                    eff["exclusivity"], gamma, now, tgt_node["canonical_name"],
+                    eff["exclusivity"], gamma, now, tgt_node["canonical_name"], new_link_id=link_id,
                 )
 
         if contested_siblings and "contested" not in flag_reasons:
@@ -1117,8 +1235,9 @@ class MemGraph:
         }
 
     def _dampen_competing(self, source_id, keep_target_id, relation, ctx_key, owner, scope,
-                          exclusivity, certainty, now, new_target_name):
-        """Apply contradiction dampening to competing targets on EXCLUSIVE / SOFT_EXCLUSIVE relations."""
+                          exclusivity, certainty, now, new_target_name, new_link_id=None):
+        """Apply contradiction dampening to competing targets on EXCLUSIVE / SOFT_EXCLUSIVE relations.
+        Once a superseded link drops to dormant, closes its valid_to timestamp and links superseded_by."""
         rows = self.store.db.execute(
             "SELECT * FROM mg_links WHERE source_id=? AND relation=? AND context_tags=? "
             "AND COALESCE(owner,'')=? AND scope=? AND target_id!=? AND dormant=0 AND stability_score > 0",
@@ -1145,12 +1264,19 @@ class MemGraph:
                 new_status = STATUS_THOUGHT
                 new_decay = DECAY_LINEAR
             dormant = int(new_s <= DORMANT_THRESHOLD)
+            valid_to = r["valid_to"]
+            sup_by = r["superseded_by"]
+            if dormant:
+                valid_to = valid_to if valid_to is not None else now
+                if new_link_id is not None:
+                    sup_by = int(new_link_id)
+                meta["superseded_target"] = new_target_name
             # Reset decay anchor to (new_s, now) so newly CONTESTED links decay smoothly from contest time.
             with self.store.lock:
                 self.store.db.execute(
                     "UPDATE mg_links SET status=?, stability_score=?, anchor_stability=?, anchor_ts=?, "
-                    "decay_type=?, dormant=?, meta=? WHERE id=?",
-                    (new_status, new_s, new_s, now, new_decay, dormant, json.dumps(meta), r["id"]),
+                    "decay_type=?, dormant=?, valid_to=?, superseded_by=?, meta=? WHERE id=?",
+                    (new_status, new_s, new_s, now, new_decay, dormant, valid_to, sup_by, json.dumps(meta), r["id"]),
                 )
                 self.store.db.commit()
             if new_status == STATUS_CONTESTED:
@@ -1553,7 +1679,8 @@ class MemGraph:
             anc_t = r["anchor_ts"] if r["anchor_ts"] else r["last_stated_on"]
             s_eff = effective_stability(anc_s, r["decay_type"], anc_t, t, status=r["status"])
             mag = abs(s_eff)
-            is_dormant = bool(r["dormant"]) or (r["status"] != STATUS_FACT and mag <= DORMANT_THRESHOLD)
+            is_ended = r["valid_to"] is not None and float(r["valid_to"]) <= t
+            is_dormant = bool(r["dormant"]) or is_ended or (r["status"] != STATUS_FACT and mag <= DORMANT_THRESHOLD)
             if is_dormant and not include_dormant:
                 continue
             if not include_dormant:
@@ -1632,7 +1759,9 @@ class MemGraph:
                 parts.append(f"mean:{st['mean']:.1f}{u}, sd:{st['std_dev']:.1f}, n:{st['count']}")
             if lnk.get("context_tags"):
                 parts.append("context:" + ",".join(lnk["context_tags"]))
-            if lnk.get("dormant"):
+            if lnk.get("valid_to") is not None:
+                parts.append(f"ended:{iso_day(lnk['valid_to'])}")
+            elif lnk.get("dormant"):
                 parts.append("dormant")
             src = lnk.get("source_name") or (self.get_node(lnk["source_id"]) or {}).get("canonical_name", "?")
             tgt = lnk.get("target_name") or (self.get_node(lnk["target_id"]) or {}).get("canonical_name", "?")
@@ -2033,7 +2162,8 @@ class MemGraph:
         rel = str(link_dict.get("relation") or "")
         s_val = float(link_dict.get("effective_stability", link_dict.get("stability_score", 0.0)))
         if link_dict.get("signed") and s_val < 0:
-            return {"LIKES": "DISLIKES", "PREFERS": "AVOIDS", "CORRELATES_WITH": "NEG_CORRELATES"}.get(rel, f"NOT_{rel}")
+            neg = (self.rules().get(rel) or {}).get("negative_label")
+            return neg or f"NOT_{rel}"
         return rel
 
     def snapshot(self, *, viewer=None, include_dormant=True, category=None, limit=120, include_notes=False, now=None):
@@ -2058,19 +2188,22 @@ class MemGraph:
         all_visible = []
         cat_counts = {}
         summary = {"total_links": 0, "facts": 0, "ideas": 0, "thoughts": 0,
-                   "contested": 0, "dormant": 0, "sensor_facts": 0, "note_links": 0}
+                   "contested": 0, "dormant": 0, "retired": 0, "sensor_facts": 0, "note_links": 0}
 
         for r in rows:
             if not visible({"scope": r["scope"], "owner": r["owner"]}, viewer):
                 continue
             d = self._link_dict(r, now=t)
             mag = abs(d["effective_stability"])
-            is_dorm = bool(d["dormant"]) or (d["status"] != STATUS_FACT and mag <= DORMANT_THRESHOLD)
+            is_retired = d.get("valid_to") is not None and float(d["valid_to"]) <= t
+            is_dorm = bool(d["dormant"]) or is_retired or (d["status"] != STATUS_FACT and mag <= DORMANT_THRESHOLD)
             d["dormant"] = is_dorm
             if is_dorm and not include_dormant:
                 continue
 
             summary["total_links"] += 1
+            if is_retired:
+                summary["retired"] += 1
             if is_dorm:
                 summary["dormant"] += 1
             elif d["status"] == STATUS_CONTESTED:
@@ -2109,6 +2242,10 @@ class MemGraph:
                 "effective_stability": round(float(d["effective_stability"]), 4),
                 "signed": d["signed"],
                 "dormant": is_dorm,
+                "retired": is_retired,
+                "valid_from": d.get("valid_from"),
+                "valid_to": d.get("valid_to"),
+                "superseded_by": d.get("superseded_by"),
                 "context_tags": d["context_tags"],
                 "stats": d["stats"],
                 "shown_count": int(d["shown_count"] or 0),
@@ -2227,7 +2364,7 @@ class MemGraph:
         }
 
     def confirm_link(self, link_id, *, viewer=None, now=None):
-        """User explicitly confirms a link (promotes IDEA/THOUGHT/CONTESTED/dormant to FACT)."""
+        """User explicitly confirms a link (promotes IDEA/THOUGHT/CONTESTED/dormant/retired to active FACT)."""
         if viewer == "":
             raise PermissionError("guests cannot edit memory graph links")
         t = float(self.clock() if now is None else now)
@@ -2240,7 +2377,7 @@ class MemGraph:
         with self.store.lock:
             self.store.db.execute(
                 "UPDATE mg_links SET status=?, stability_score=?, anchor_stability=?, anchor_ts=?, "
-                "dormant=0, last_stated_on=?, evidence=? WHERE id=?",
+                "dormant=0, valid_to=NULL, superseded_by=NULL, last_stated_on=?, evidence=? WHERE id=?",
                 (STATUS_FACT, new_s, new_s, t, t,
                  EVIDENCE_DIRECT if row["evidence"] == EVIDENCE_INFERRED else row["evidence"], int(link_id)),
             )
@@ -2291,6 +2428,133 @@ class MemGraph:
             self.store.db.commit()
         updated = self.store.db.execute("SELECT * FROM mg_links WHERE id=?", (int(link_id),)).fetchone()
         return self._link_dict(updated, now=t)
+
+    def retire_link(self, link_id, *, superseded_by=None, reason="", viewer=None, now=None):
+        """Mark a link as historical (sets valid_to=now and dormant=1) while preserving its truth & evidence
+        for HISTORICAL queries ('where did I used to live?', 'what filter did the old house use?')."""
+        if viewer == "":
+            raise PermissionError("guests cannot edit memory graph links")
+        t = float(self.clock() if now is None else now)
+        row = self.store.db.execute("SELECT * FROM mg_links WHERE id=?", (int(link_id),)).fetchone()
+        if not row or not visible({"scope": row["scope"], "owner": row["owner"]}, viewer):
+            raise KeyError(f"link {link_id} not found")
+        before = dict(row)
+        meta = json.loads(row["meta"] or "{}")
+        if reason:
+            meta["retired_reason"] = str(reason)[:160]
+        sup_id = int(superseded_by) if superseded_by is not None else row["superseded_by"]
+        with self.store.lock:
+            self.store.db.execute(
+                "UPDATE mg_links SET dormant=1, valid_to=?, superseded_by=?, meta=? WHERE id=?",
+                (t, sup_id, json.dumps(meta), int(link_id)),
+            )
+            self.store.db.execute(
+                "INSERT INTO mg_staging(ts, op, patch, before_state, link_id, confidence, flagged, audit_status, reason, owner, scope) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (t, "USER_RETIRE", json.dumps({"link_id": int(link_id), "valid_to": t, "superseded_by": sup_id}),
+                 json.dumps(before, default=str), int(link_id), 1.0, 0, "approved",
+                 str(reason or "marked past by user")[:160], row["owner"], row["scope"]),
+            )
+            self.store.db.commit()
+        updated = self.store.db.execute("SELECT * FROM mg_links WHERE id=?", (int(link_id),)).fetchone()
+        return self._link_dict(updated, now=t)
+
+    def close_era(self, name, *, replacement=None, viewer=None, now=None):
+        """Close out a place, home, job, or life chapter (e.g. 'Oak St House') by retiring every active visible
+        link connected to it (sets valid_to=now, dormant=1). If replacement is given (e.g. 'Austin House'),
+        records a SUPERSEDES link from the new era/place to the old one."""
+        if viewer == "":
+            raise PermissionError("guests cannot edit memory graph links")
+        nm = normalize_name(name)
+        if not nm:
+            raise ValueError("give an era or place name to close")
+        t = float(self.clock() if now is None else now)
+        # Collect all visible nodes matching this era/place name
+        rows = self.store.db.execute("SELECT * FROM mg_nodes").fetchall()
+        era_ids = set()
+        for nr in rows:
+            if not visible({"scope": nr["scope"], "owner": nr["owner"]}, viewer):
+                continue
+            aliases = json.loads(nr["aliases"] or "[]")
+            if nr["canonical_name"] == nm or nm in aliases:
+                era_ids.add(nr["id"])
+        if not era_ids:
+            raise KeyError(f"no node matching '{name}'")
+
+        sup_link = None
+        rep_nm = normalize_name(replacement) if replacement else ""
+        if rep_nm and rep_nm != nm:
+            sc = "personal" if viewer else "household"
+            res = self.observe(
+                rep_nm, "SUPERSEDES", nm,
+                evidence=EVIDENCE_DIRECT, category="GENERAL",
+                quote=f"{rep_nm} supersedes {nm}", ts=t,
+                owner=viewer or None, scope=sc,
+            )
+            sup_link = res.get("link")
+        sup_id = sup_link["id"] if sup_link else None
+
+        qmarks = ",".join("?" for _ in era_ids)
+        e_list = list(era_ids)
+        l_rows = self.store.db.execute(
+            f"SELECT * FROM mg_links WHERE (source_id IN ({qmarks}) OR target_id IN ({qmarks})) "
+            "AND dormant=0 AND (valid_to IS NULL OR valid_to > ?)",
+            e_list + e_list + [t],
+        ).fetchall()
+
+        retired = []
+        for lr in l_rows:
+            if sup_id is not None and lr["id"] == sup_id:
+                continue
+            if lr["relation"] == "SUPERSEDES":
+                continue
+            if not visible({"scope": lr["scope"], "owner": lr["owner"]}, viewer):
+                continue
+            retired.append(self.retire_link(
+                lr["id"], superseded_by=sup_id,
+                reason=f"closed era '{nm}'" + (f" -> '{rep_nm}'" if rep_nm else ""),
+                viewer=viewer, now=t,
+            ))
+        return {
+            "era": nm,
+            "replacement": rep_nm or None,
+            "retired_count": len(retired),
+            "retired_ids": [x["id"] for x in retired],
+            "supersedes_link": sup_link,
+        }
+
+    def add_link(self, source, relation, target, *, category="GENERAL", sign=1,
+                 context_tags=(), quote="", viewer=None, now=None):
+        """Directly create or reinforce a general graph link from the UI or API."""
+        if viewer == "":
+            raise PermissionError("guests cannot edit memory graph links")
+        src = str(source or "").strip() or "user"
+        tgt = str(target or "").strip()
+        if not tgt:
+            raise ValueError("give a target")
+        rel_raw = str(relation or "").strip()
+        if not rel_raw:
+            raise ValueError("give a relation")
+        cat = str(category or "GENERAL").strip().upper()
+        if cat not in CATEGORIES:
+            cat = "GENERAL"
+        sgn = -1 if int(sign or 1) < 0 else 1
+        sc = "personal" if viewer else "household"
+        t = float(self.clock() if now is None else now)
+        res = self.observe(
+            src, rel_raw, tgt,
+            sign=sgn, certainty=1.0, evidence=EVIDENCE_DIRECT,
+            category=cat, context_tags=context_tags or (),
+            quote=str(quote or "").strip()[:240],
+            source_ref=f"user:{iso_day(t)}",
+            ts=t, owner=viewer or None, scope=sc,
+        )
+        # Direct user-created general links should immediately stand as confirmed FACTs if not already
+        lnk = res.get("link")
+        if lnk and lnk.get("status") != STATUS_FACT and not lnk.get("dormant"):
+            lnk = self.confirm_link(lnk["id"], viewer=viewer, now=t)
+            res["link"] = lnk
+        return res
 
     @staticmethod
     def time_tags(ts, *, include_tod=True):
@@ -2544,7 +2808,7 @@ ARCHIVIST_SYSTEM = (
     "contradictions the user stated about themselves.\n"
     "Rules:\n"
     "- Allowed canonical relations ONLY: LIKES, DISLIKES, PREFERS, AVOIDS, HABIT, BASELINE, CORRELATES_WITH, "
-    "ALLERGIC_TO, LIVES_IN, WORKS_AT.\n"
+    "ALLERGIC_TO, LIVES_IN, WORKS_AT, AT, PART_OF, DURING, REQUIRES, AFFECTS, SAME_AS, SUPERSEDES.\n"
     "- Allowed categories: " + ", ".join(CATEGORIES) + ".\n"
     "- Skip pure questions, commands, jokes, sarcasm, hypotheticals (if unsure, set certainty=0.0).\n"
     "- If an existing candidate link matches, use op='BOLSTER' or op='DEMOTE' with its target_link_id.\n"

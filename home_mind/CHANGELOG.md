@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.36.0
+- **General Data-Link Layer (`memgraph.py`):** expanded MemGraph beyond category-specific relations with 9 domain-agnostic structural & temporal link types: `AT` *(exclusive location)*, `PART_OF`, `DURING` *(era/chapter)*, `REQUIRES`, `AFFECTS` *(signed +/−, negative displays as `IMPAIRS`)*, `DERIVED_FROM`, `CONTRADICTS`, `SAME_AS`, and `SUPERSEDES`. Updated the Archivist prompt and dynamic signed display labels to support all of them.
+- **Automatic Temporal Superseding & Era Closeout (`retire_link`, `close_era`, `POST /api/memgraph/close_era`):** superseded `EXCLUSIVE` links now automatically populate `valid_to` and `superseded_by` when they go dormant; retiring a link or closing an era/place (e.g. moving from `"Oak St House"` → `"Austin House"`) retires every active link tied to it in one step and records a `SUPERSEDES` edge, excluding past links from `CURRENT_STATE` answers while keeping them searchable for `HISTORICAL` questions (rendered with `ended:YYYY-MM-DD`). Confirming a past link reactivates it cleanly.
+- **Brain Graph Controls (`System › Brain › Graph`):** added **`+ Link`** (`POST /api/memgraph/add`) and **`📦 Close era`** drawers right in the Graph toolbar, plus **`PAST`** badges, `ended` / `replaced by` dates, **`📦 Mark past`**, and **`↺ Reactivate`** buttons in the link inspector.
+
 ## 0.35.4
 - **Fix Weekly Meal Plan Date Rollover Alignment (`Food › Meal Plan`):** saved meal plans now always render each day using its own saved calendar date (`plan.days[i].date`) instead of binding meals by row index to the rolling `week_calendar`. When a new day starts, today's real meals automatically move to the top (`· today`) with upcoming days below, earlier/past days tuck neatly into a collapsible **"Earlier days in this plan"** drawer (keeping all meal actions bound to the exact saved day index), and switching to **`1 · Pick`** aligns the effort grid by real calendar date.
 
