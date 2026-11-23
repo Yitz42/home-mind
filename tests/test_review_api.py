@@ -277,7 +277,9 @@ ROUTES = [
     ("POST", "/api/email/check", []),
     ("GET", "/api/preferences", []),
     ("GET", "/api/memgraph/graph", ["dormant", "category", "notes", "limit"]),
-    ("POST", "/api/memgraph/link/{id}/{op}", []),
+    ("POST", "/api/memgraph/link/{id}/{op}", ["reason", "superseded_by"]),
+    ("POST", "/api/memgraph/add", ["source", "relation", "target", "category", "sign", "quote"]),
+    ("POST", "/api/memgraph/close_era", ["name", "replacement"]),
     ("GET", "/api/control_model/dataset", ["part", "paraphrase"]),
     ("GET", "/api/trainer/status", []),
     ("GET", "/api/trainer/dataset/{target}", ["download", "paraphrase", "n", "max_examples", "format"]),
@@ -393,7 +395,7 @@ def paths_for(path):
         if path == key:
             return [key.replace("{op}", o) for o in OPS[opk]]
     if path == "/api/memgraph/link/{id}/{op}":
-        return [f"/api/memgraph/link/1/{op}" for op in ("confirm", "forget", "delete", "nope")] + [f"/api/memgraph/link/{i}/confirm" for i in BAD_PATH["id"]]
+        return [f"/api/memgraph/link/1/{op}" for op in ("confirm", "retire", "forget", "delete", "nope")] + [f"/api/memgraph/link/{i}/confirm" for i in BAD_PATH["id"]]
     if path == "/api/house/suggestion/{sid}/{op}":
         return [f"/api/house/suggestion/{s}/{o}" for s in ["1"] + BAD_PATH["sid"] for o in OPS["suggestion_op"]]
     if path == "/api/control/run/{action}":

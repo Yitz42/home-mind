@@ -1146,6 +1146,63 @@ def test_brain_graph_snapshot_and_edits():
           dres.get("deleted") is True and all(l["target_name"] != "ramen" for l in snap_after["links"]))
 
 
+# ---- 16. General data links, temporal closeout & moving eras ----------------------------------------------------
+def test_general_data_links_and_era_closeout():
+    _, g, _ = make_graph()
+
+    # General relation aliases & signed AFFECTS -> IMPAIRS
+    r_at, s_at, _ = g.resolve_relation("stored_at")
+    check("STORED_AT resolves to AT", r_at == "AT" and s_at == 1)
+    r_req, _, _ = g.resolve_relation("uses_part")
+    check("USES_PART resolves to REQUIRES", r_req == "REQUIRES")
+    r_aff, s_aff, _ = g.resolve_relation("impairs")
+    check("IMPAIRS resolves to AFFECTS (-1)", r_aff == "AFFECTS" and s_aff == -1)
+
+    neg_aff = g.add_link("late caffeine", "AFFECTS", "deep sleep", sign=-1, now=T0)
+    snap_aff = g.snapshot(include_dormant=True, now=T0)
+    aff_row = next(l for l in snap_aff["links"] if l["id"] == neg_aff["link"]["id"])
+    check("negative AFFECTS displays as IMPAIRS", aff_row["display_relation"] == "IMPAIRS", aff_row)
+
+    # AT is EXCLUSIVE: moving an item repeatedly pushes old location dormant + sets valid_to & superseded_by
+    at1 = g.observe("passport", "AT", "desk drawer", evidence=EVIDENCE_DIRECT, ts=T0)
+    at2 = g.observe("passport", "AT", "office safe", evidence=EVIDENCE_DIRECT, ts=T0 + DAY)
+    g.observe("passport", "AT", "office safe", evidence=EVIDENCE_DIRECT, ts=T0 + 2 * DAY)
+    g.observe("passport", "AT", "office safe", evidence=EVIDENCE_DIRECT, ts=T0 + 3 * DAY)
+    old_at = g.get_link(at1["link"]["id"], now=T0 + 3 * DAY)
+    check("superseded AT link auto-populates valid_to and superseded_by",
+          old_at["dormant"] and old_at["valid_to"] is not None and old_at["superseded_by"] == at2["link"]["id"], old_at)
+
+    # Era / Home closeout ("I moved from Oak St House to Austin House")
+    l_part = g.add_link("furnace", "PART_OF", "oak st house", now=T0)["link"]
+    l_dur = g.add_link("fiber router", "DURING", "oak st house", now=T0)["link"]
+    l_live = g.add_link("user", "LIVES_IN", "oak st house", category="LOCATION", now=T0)["link"]
+    l_other = g.add_link("furnace", "REQUIRES", "16x25x1 filter", now=T0)["link"]
+
+    closed = g.close_era("Oak St House", replacement="Austin House", now=T0 + 10 * DAY)
+    check("close_era retires all 3 active links tied to Oak St House and adds SUPERSEDES link",
+          closed["retired_count"] == 3 and closed["supersedes_link"] is not None
+          and closed["supersedes_link"]["relation"] == "SUPERSEDES", closed)
+
+    # Current query excludes retired links; historical query (include_dormant=True) still finds them with ended date
+    cur_oak = g.query(entities=["oak st house"], include_dormant=False, now=T0 + 10 * DAY)
+    check("CURRENT_STATE query excludes retired era links (only SUPERSEDES remains active)",
+          all(x["relation"] == "SUPERSEDES" for x in cur_oak), cur_oak)
+    hist_oak = g.query(entities=["oak st house"], include_dormant=True, now=T0 + 10 * DAY)
+    check("HISTORICAL query still retrieves retired links with valid_to set",
+          any(x["id"] == l_live["id"] and x["valid_to"] is not None for x in hist_oak), hist_oak)
+    ctx_hist = g.format_context([g.get_link(l_live["id"], now=T0 + 10 * DAY)])
+    check("format_context includes ended:YYYY-MM-DD for retired links", "ended:" in ctx_hist, ctx_hist)
+
+    # Snapshot marks retired links cleanly, and confirm_link reactivates them
+    snap_era = g.snapshot(include_dormant=True, now=T0 + 10 * DAY)
+    check("snapshot counts retired links", snap_era["summary"]["retired"] >= 3, snap_era["summary"])
+    react = g.confirm_link(l_part["id"], now=T0 + 11 * DAY)
+    check("confirm_link reactivates retired link and clears valid_to",
+          not react["dormant"] and react["valid_to"] is None and react["superseded_by"] is None, react)
+    # Unrelated REQUIRES link stayed active
+    check("unrelated REQUIRES link stayed active", not g.get_link(l_other["id"], now=T0 + 10 * DAY)["dormant"])
+
+
 if __name__ == "__main__":
     for fn in (
         test_math,
@@ -1163,10 +1220,12 @@ if __name__ == "__main__":
         test_live_sensor_inputs,
         test_overnight_archivist_and_pantry_prefs,
         test_brain_graph_snapshot_and_edits,
+        test_general_data_links_and_era_closeout,
     ):
         fn()
     print(f"\n{'PASS' if not FAILS else f'FAIL ({len(FAILS)})'}")
     sys.exit(1 if FAILS else 0)
+
 
 
 
