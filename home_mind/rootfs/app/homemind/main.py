@@ -3732,7 +3732,7 @@ def build(app_state):
             return J(await A.pantry.from_photo(data, part.filename or "photo.jpg"))
         b = model_ok(await read_body(q, optional=True, text=str, name=str, location=str, source=str, meal=str,
                                      request=str, items=list, slot=str, style=str, kind=str, action=str, grid=dict,
-                                     day=str, reestimate=bool, prep_day=str, prep_time=str, include=str, entity=str))
+                                     day=str, reestimate=bool, prep_day=str, prep_time=str, include=str, entity=str, force=bool))
         if not isinstance(b.get("amount", ""), (str, int, float)) or not isinstance(b.get("use_by", ""), (str, int, float)):
             raise ValueError("amount and use_by should be text (or a number)")
         try:
@@ -3826,6 +3826,12 @@ def build(app_state):
                     raise ValueError("missing day_index")
                 d_idx = whole(b["day_index"], "day_index")
                 return J(A.pantry.meal_info(d_idx, slot=b.get("slot") or "dinner"))
+            if op == "meal_steps":
+                d_idx = whole(b["day_index"], "day_index") if b.get("day_index") is not None else None
+                return J(await A.pantry.meal_steps(
+                    day_index=d_idx, slot=b.get("slot") or None, day=b.get("day") or None,
+                    model=b.get("model"), force=bool(b.get("force")),
+                ))
             if op == "calendar":
                 out = await A.pantry.add_to_calendar(include=b.get("include") or "prep",
                                                      entity=b.get("entity"), prep_time=b.get("prep_time"))

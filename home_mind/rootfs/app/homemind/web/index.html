@@ -535,11 +535,10 @@
   <button data-t="fitness" style="--tint:var(--ok)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 7v10M18 7v10M3 9v6M21 9v6M6 12h12"/></svg><span>Fitness</span></button>
   <button data-t="pantry" style="--tint:var(--food)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 3v8a2 2 0 0 0 2 2v8M10 3v8M16 3c-2 2-2 6 0 8v10"/></svg><span>Food</span></button>
   <button data-t="health" style="--tint:var(--health)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span>Health</span></button>
-  <div class="grp">HOME &amp; BRAIN</div>
+  <div class="grp">HOME</div>
   <button data-t="house" style="--tint:var(--house)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg><span>House</span></button>
-  <button data-t="memory" style="--tint:var(--mem)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span>Brain</span><b class="badge hide" id="nav_review"></b></button>
   <div class="grp">SYSTEM</div>
-  <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>System</span></button>
+  <button data-t="more"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>System</span><b class="badge hide" id="nav_review"></b></button>
   <div class="foot"><span class="dot"></span><span id="ver"></span></div>
 </nav>
 <main>
@@ -865,6 +864,7 @@
       <span class="ck-sub" id="mo_sub"></span>
       <div class="ck-tabs" role="tablist" aria-label="System views">
         <button id="sy_t_over" class="on" onclick="sysTab('over')">Overview &amp; Persona</button>
+        <button id="sy_t_brain" onclick="sysTab('brain')">Brain</button>
         <button id="sy_t_models" onclick="sysTab('models')">Models &amp; Training</button>
         <button id="sy_t_tests" onclick="sysTab('tests')">Tests</button>
         <button id="sy_t_access" onclick="sysTab('access')">Access &amp; Updates</button>
@@ -962,22 +962,20 @@
         <pre id="upd">…</pre></div>
     </div>
   </div>
-</section>
-<section id="memory" class="hide" style="--tint:var(--mem)">
-  <div class="ck-head">
-    <div class="ck-head-l">
-      <h1>Brain</h1>
-      <span class="ck-sub" id="mem_sub"></span>
-      <div class="ck-tabs" role="tablist" aria-label="Brain views">
-        <button id="br_t_notes" class="on" onclick="brainTab('notes')">Notes</button>
-        <button id="br_t_graph" onclick="brainTab('graph')">Graph</button>
-        <button id="br_t_worked" onclick="brainTab('worked')">Worked Out</button>
-        <button id="br_t_data" onclick="brainTab('data')">Docs &amp; Data</button>
+  <div id="sy_p_brain" class="hide" style="--tint:var(--mem)">
+    <div class="ck-head" style="margin-bottom:8px">
+      <div class="ck-head-l">
+        <div class="ck-tabs" role="tablist" aria-label="Brain views">
+          <button id="br_t_notes" class="on" onclick="brainTab('notes')">Notes</button>
+          <button id="br_t_graph" onclick="brainTab('graph')">Graph</button>
+          <button id="br_t_worked" onclick="brainTab('worked')">Worked Out</button>
+          <button id="br_t_data" onclick="brainTab('data')">Docs &amp; Data</button>
+        </div>
+        <span class="ck-sub" id="mem_sub"></span>
       </div>
+      <button class="go" style="min-height:32px;padding:5px 12px;font-size:12px" onclick="brToggleRem()">+ Remember</button>
     </div>
-    <button class="go" style="min-height:32px;padding:5px 12px;font-size:12px" onclick="brToggleRem()">+ Remember</button>
-  </div>
-  <div id="br_rem_drawer" class="ck-card hide" style="margin-bottom:10px">
+    <div id="br_rem_drawer" class="ck-card hide" style="margin-bottom:10px">
     <div class="row"><input id="r_title" placeholder="Title (optional)" style="flex:1"> <input id="r_shelf" placeholder="shelf e.g. projects/pebble"> <input id="r_key" placeholder="key (subject|attribute)"></div>
     <div class="row"><textarea id="r_text" rows="2" style="flex:1" placeholder="What to keep"></textarea></div>
     <div class="row" style="margin-bottom:0"><button class="go" onclick="remember()">Remember</button> <span id="r_out" class="mute"></span></div>
@@ -1061,6 +1059,7 @@
         <div class="row"><input id="sql_q" placeholder="SELECT shelf, count(*) FROM notes GROUP BY shelf" style="flex:1"> <button class="go" onclick="sqlRun()">Run SQL</button></div>
         <div style="overflow:auto;max-height:260px"><table id="sql_out"></table></div></div>
     </div>
+  </div>
   </div>
 </section>
 <section id="house" class="hide" style="--tint:var(--house);--tint-on:var(--house-on)">
@@ -1201,6 +1200,13 @@
         <div id="ml_msg" class="mute" style="font-size:12px;margin-top:4px"></div>
       </div>
       <div class="ck-col">
+        <div class="ck-card food hide" id="ml_plan_card">
+          <div class="row" style="margin-bottom:6px;align-items:center"><h2 style="margin:0;flex:1" id="ml_plan_title">Today's plan &amp; cooking steps</h2>
+            <button class="go" id="ml_steps_btn" onclick="mlDailySteps(false)" style="min-height:28px;padding:3px 10px;font-size:11px">📖 Daily instructions</button>
+          </div>
+          <div id="ml_plan_list" style="display:flex;flex-direction:column;gap:8px"></div>
+          <div id="ml_plan_msg" class="mute" style="font-size:12px;margin-top:4px"></div>
+        </div>
         <div class="ck-card food">
           <div class="row" style="margin-bottom:6px"><h2 style="margin:0;flex:1">What should I eat?</h2>
             <select id="m_meal" aria-label="meal" style="min-height:32px;padding:4px 7px;font-size:12px"><option value="">next meal</option><option>breakfast</option><option>lunch</option><option>dinner</option><option>snack</option></select></div>
@@ -1338,14 +1344,20 @@ async function loadViewerOpts() {
 }
 const ago = t => { const s = Date.now()/1000 - t; return s < 90 ? Math.round(s)+'s ago' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
 const pct = v => v === undefined ? '' : Math.round(v*100)+'%';
-const SUB_TAB = {worked: ['memory', () => brainTab('worked')], graph: ['memory', () => brainTab('graph')],
-  tests: ['more', () => sysTab('tests')], models: ['more', () => sysTab('models')], updates: ['more', () => sysTab('access')]};
+const SUB_TAB = {
+  memory: ['more', () => sysTab('brain')],
+  worked: ['more', () => { sysTab('brain'); brainTab('worked'); }],
+  graph: ['more', () => { sysTab('brain'); brainTab('graph'); }],
+  tests: ['more', () => sysTab('tests')],
+  models: ['more', () => sysTab('models')],
+  updates: ['more', () => sysTab('access')],
+};
 function go(t) {
   const sub = SUB_TAB[t], sec = sub ? sub[0] : t;
   CUR_SEC = sec;
   document.querySelectorAll('#nav button[data-t]').forEach(x => x.classList.toggle('on', x.dataset.t === sec));
   document.querySelectorAll('main section').forEach(s => s.classList.toggle('hide', s.id !== sec));
-  window.scrollTo(0, 0);
+  if (typeof window.scrollTo === 'function') window.scrollTo(0, 0);
   if (sub) sub[1](); else load(sec);
 }
 let HL_TAB = 'pat', FD_TAB = 'today', BR_TAB = 'notes', SY_TAB = 'over';
@@ -1378,8 +1390,9 @@ function brWorkFilt(k) {
 }
 function sysTab(t) {
   SY_TAB = t;
-  ['over', 'models', 'tests', 'access'].forEach(k => { $('#sy_t_' + k).classList.toggle('on', k === t); $('#sy_p_' + k).classList.toggle('hide', k !== t); });
+  ['over', 'brain', 'models', 'tests', 'access'].forEach(k => { $('#sy_t_' + k).classList.toggle('on', k === t); $('#sy_p_' + k).classList.toggle('hide', k !== t); });
   if (t === 'over') loadMore();
+  if (t === 'brain') brainTab(BR_TAB || 'notes');
   if (t === 'models') load('models');
   if (t === 'tests') load('tests');
   if (t === 'access') tokens();
@@ -2435,6 +2448,7 @@ async function load(t) {
   if (t === 'fitness') fitLoad();
   if (t === 'more') {
     await loadMore();
+    if (SY_TAB === 'brain') brainTab(BR_TAB || 'notes');
     if (SY_TAB === 'models') load('models');
     if (SY_TAB === 'tests') load('tests');
     if (SY_TAB === 'access') tokens();
@@ -2480,14 +2494,16 @@ function startSteps(s) {
 }
 async function inbox() {
   const r = await api('api/inbox');
+  if (!r || !Array.isArray(r.items)) return;
   $('#inboxcard').classList.toggle('hide', !r.items.length);
-  const opts = r.shelves.map(x => `<option>${esc(x)}</option>`).join('');
+  const opts = (r.shelves || []).map(x => `<option>${esc(x)}</option>`).join('');
   $('#inbox').innerHTML = r.items.map(x => `<tr><td><a onclick="item(${x.id})">${esc(x.title)}</a><br><span class="mute">${when(x.created)}</span></td>
     <td style="white-space:nowrap">${x.suggested ? `<button class="go" onclick="moveTo(${x.id}, ${jsq(x.suggested)})">File in ${esc(x.suggested)}</button> ` : ''}<select id="mv_${x.id}" aria-label="shelf"><option value="">other shelf…</option>${opts}</select> <button class="go" onclick="moveTo(${x.id}, $('#mv_${x.id}').value)">Move</button></td></tr>`).join('');
 }
 async function moveTo(id, shelf) { if (!shelf) return; await api('api/item/' + id + '/move', {shelf}); inbox(); recent(); }
 async function docsList() {
   const ds = await api('api/docs');
+  if (!Array.isArray(ds)) return;
   $('#docs').innerHTML = ds.map(d => `<tr><td>${esc(d.name)}</td><td class="num mute">${d.pages} ${d.name.toLowerCase().endsWith('.pdf') ? 'pages' : 'sections'}</td><td><button class="go" style="background:var(--bad)" onclick="docRemove(${d.id})">Remove</button></td></tr>`).join('') || '<tr><td class="mute">none yet</td></tr>';
 }
 async function addDocs() {
@@ -2533,6 +2549,7 @@ async function cmp() {
 async function cmpRun() { const r = await api('api/compare/run', {}); $('#cmp_out').textContent = 'started: ' + (r.models || []).join(', '); }
 async function review() {
   const rs = await api('api/review');
+  if (!Array.isArray(rs)) return;
   $('#reviewcard').classList.toggle('hide', !rs.length);
   $('#review').innerHTML = rs.map(r => `<tr><td><a onclick="item(${r.id})">${esc(r.title)}</a><br><span class="mute">${esc(r.why)} · from ${esc(r.source)} · ${when(r.created)}</span></td>
     <td style="white-space:nowrap"><button class="go" onclick="reviewOp(${r.id}, 'confirm')">${r.status === 'review' ? 'Approve' : 'Confirm'}</button>
@@ -2827,14 +2844,14 @@ async function search() {
 }
 $('#q').addEventListener('keydown', e => e.key === 'Enter' && search());
 async function browse(shelf) {
-  const ok = fresh('browse'), b = await api('api/browse?shelf=' + encodeURIComponent(shelf)); if (!ok()) return; const up = shelf.includes('/') ? shelf.slice(0, shelf.lastIndexOf('/')) : '';
-  $('#shelfpath').textContent = b.shelf;
-  $('#shelves').innerHTML = (shelf ? `<span class="pill" onclick="browse(${jsq(up)})">↑ up</span>` : '') + b.shelves.map(s => `<span class="pill" onclick="browse(${jsq(s.path)})">${esc(s.name)} · ${s.items}</span>`).join('');
-  $('#shelfitems').innerHTML = b.items.map(i => `<tr><td><a onclick="item(${i.id})">${esc(i.title)}</a></td><td class="mute">${esc(i.kind)}</td></tr>`).join('');
+  const ok = fresh('browse'), b = await api('api/browse?shelf=' + encodeURIComponent(shelf)); if (!ok() || !b || b.error) return; const up = shelf.includes('/') ? shelf.slice(0, shelf.lastIndexOf('/')) : '';
+  $('#shelfpath').textContent = b.shelf || '';
+  $('#shelves').innerHTML = (shelf ? `<span class="pill" onclick="browse(${jsq(up)})">↑ up</span>` : '') + (b.shelves || []).map(s => `<span class="pill" onclick="browse(${jsq(s.path)})">${esc(s.name)} · ${s.items}</span>`).join('');
+  $('#shelfitems').innerHTML = (b.items || []).map(i => `<tr><td><a onclick="item(${i.id})">${esc(i.title)}</a></td><td class="mute">${esc(i.kind)}</td></tr>`).join('');
 }
 const when = t => new Date(t * 1000).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
 async function recent() {
-  const ok = fresh('recent'), rs = await api('api/recent?filter=' + $('#rf').value + '&hours=' + $('#rh').value + '&limit=150'); if (!ok()) return;
+  const ok = fresh('recent'), rs = await api('api/recent?filter=' + $('#rf').value + '&hours=' + $('#rh').value + '&limit=150'); if (!ok() || !Array.isArray(rs)) return;
   $('#recent').innerHTML = rs.map(i => `<div class="li"><div class="main"><a class="t" onclick="item(${i.id})">${esc(i.title)}</a>${i.meta && i.meta.sensitive ? ' <span class="pill">🔒</span>' : ''}${i.status !== 'active' ? ` <span class="mute">· ${esc(i.status)}</span>` : ''}
     <div class="sub">${when(i.created)} · ${esc(i.shelf)}${i.source ? ' · ' + esc(i.source) : ''}</div></div></div>`).join('') || '<span class="mute">nothing in this stretch</span>';
 }
@@ -2871,7 +2888,7 @@ async function photoDel(id, f) { const r = await jfetch('api/item/' + id + '/pho
 function labelBase() { try { return window.top.location.origin + window.top.location.pathname; } catch (e) { return location.origin + location.pathname; } }
 function labelUrl(text) { return 'api/label?text=' + encodeURIComponent(text) + '&base=' + encodeURIComponent(labelBase()); }
 async function thingPage(name) {
-  document.querySelector('nav button[data-t=memory]').click();
+  go('memory');
   const ok = fresh('card'), t = await api('api/thing?name=' + encodeURIComponent(name)), c = $('#itemcard'); if (!ok()) return;
   c.classList.remove('hide');
   if (t.error) { c.innerHTML = `<span class="bad">${esc(t.error)}</span>`; return; }
@@ -2939,6 +2956,7 @@ async function mlLoad(day) {
   ML_DATA = r;
   if ($('#ml_date') && r.day) $('#ml_date').value = r.day;
   mlRender();
+  mlRenderPlan();
 }
 function mlShift(delta) {
   const cur = ML_DAY || mlTodayIso(), dt = new Date(cur + 'T12:00:00');
@@ -3001,6 +3019,71 @@ async function mlDel(id) {
   if (r.error) { $('#ml_msg').textContent = r.error; return; }
   if (ML_EDIT === +id) ML_EDIT = null;
   $('#ml_msg').textContent = 'Deleted.';
+  await mlLoad();
+}
+function mlStepsList(steps) {
+  if (Array.isArray(steps)) return steps.map(s => String(s || '').trim()).filter(Boolean);
+  if (typeof steps === 'string' && steps.trim()) return steps.split(/\n+/).map(s => s.trim()).filter(Boolean);
+  return [];
+}
+function mlPlanDayIdx() {
+  if (!MP.plan || !Array.isArray(MP.plan.days) || !MP.plan.days.length) return -1;
+  const want = ML_DAY || mlTodayIso();
+  const exact = MP.plan.days.findIndex(d => String(d.date || '') === want);
+  if (exact >= 0) return exact;
+  return want === mlTodayIso() ? 0 : -1;
+}
+function mlRenderPlan() {
+  const card = $('#ml_plan_card');
+  if (!card) return;
+  const dayIdx = mlPlanDayIdx();
+  if (dayIdx < 0) { card.classList.add('hide'); return; }
+  const d = MP.plan.days[dayIdx], ms = (d && d.meals) || [];
+  if (!ms.length) { card.classList.add('hide'); return; }
+  card.classList.remove('hide');
+  const titleEl = $('#ml_plan_title');
+  if (titleEl) titleEl.textContent = `${d.day || 'Today'}'s plan & cooking steps`;
+  const allHave = ms.every(m => mlStepsList(m.steps).length > 0);
+  const btn = $('#ml_steps_btn');
+  if (btn) {
+    btn.textContent = allHave ? '↻ Refresh instructions' : '📖 Get daily instructions';
+    btn.onclick = () => mlDailySteps(allHave);
+  }
+  $('#ml_plan_list').innerHTML = ms.map(m => {
+    const sl = String(m.slot || 'meal'), steps = mlStepsList(m.steps);
+    const eff = MP_EFF[m.effort] || MP_EFF.normal;
+    const meta = [eff[0] + ' ' + eff[1], m.minutes ? `${Math.round(+m.minutes)} min` : '', m.calories ? `${Math.round(+m.calories)} kcal` : ''].filter(Boolean).join(' · ');
+    const stepsHtml = steps.length
+      ? `<ol style="margin:5px 0 0;padding-left:18px;font-size:12px;line-height:1.45">${steps.map(s => `<li style="margin:2px 0">${esc(s)}</li>`).join('')}</ol>`
+      : `<div class="mute" style="font-size:11px;margin-top:3px">No steps yet — click "Get daily instructions" above or open meal details.</div>`;
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg2)">`
+      + `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">`
+      + `<div style="min-width:0"><div class="mute" style="font-size:11px;text-transform:capitalize">${esc(sl)}${meta ? ' · ' + esc(meta) : ''}</div>`
+      + `<a style="font-weight:600;font-size:13px" onclick="mpOpenMeal(${dayIdx}, ${jsq(sl)})">${esc(m.name || '')}</a></div>`
+      + `<button class="soft" style="min-height:26px;padding:2px 8px;font-size:11px;flex:none" onclick="mlPlanEat(${dayIdx}, ${jsq(sl)})">✓ Eat</button>`
+      + `</div>${stepsHtml}</div>`;
+  }).join('');
+}
+async function mlDailySteps(force) {
+  const dayIdx = mlPlanDayIdx();
+  if (dayIdx < 0) return;
+  const msg = $('#ml_plan_msg'), btn = $('#ml_steps_btn');
+  if (msg) msg.textContent = 'Writing step-by-step instructions…';
+  if (btn) btn.disabled = true;
+  const r = await api('api/pantry/meal_steps', {day_index: dayIdx, force: !!force});
+  if (btn) btn.disabled = false;
+  if (r.error) { if (msg) msg.textContent = r.error; return; }
+  if (msg) msg.textContent = '';
+  if (r.plan) renderWeekPlan(r.plan); else mlRenderPlan();
+}
+async function mlPlanEat(dayIdx, slot) {
+  const m = mpFindMeal(dayIdx, slot);
+  if (!m) return;
+  const msg = $('#ml_plan_msg');
+  if (msg) msg.textContent = 'Logging…';
+  const r = await api('api/pantry/ate', {text: m.name, day: ML_DAY || mlTodayIso(), source: 'week_plan'});
+  if (r.error) { if (msg) msg.textContent = r.error; return; }
+  if (msg) msg.textContent = `Logged "${m.name}" ✓`;
   await mlLoad();
 }
 function hbTodayMeals(F) {
@@ -3376,6 +3459,7 @@ function renderWeekPlan(plan) {
     updateWeekShopBtn();
   }
   mpRender();
+  mlRenderPlan();
 }
 function mpReviewShop() {
   MP.shopOpen = !MP.shopOpen;
@@ -3459,6 +3543,20 @@ async function mpLogMeal(dayIdx, slot) {
   _mpModal.logMsg = r.error ? r.error : `Logged "${m.name}" to today's meals ✓`;
   mpRenderModal();
 }
+async function mpGenSteps(dayIdx, slot) {
+  if (!_mpModal) return;
+  const hasSteps = mlStepsList(_mpModal.meal && _mpModal.meal.steps).length > 0;
+  _mpModal.logMsg = 'Writing step-by-step cooking instructions…';
+  mpRenderModal();
+  const r = await api('api/pantry/meal_steps', {day_index: +dayIdx, slot, force: hasSteps});
+  if (!_mpModal) return;
+  if (r.error) { _mpModal.logMsg = r.error; mpRenderModal(); return; }
+  if (r.plan) renderWeekPlan(r.plan);
+  const updated = mpFindMeal(dayIdx, slot) || (r.meals && r.meals[0]);
+  if (updated) _mpModal.meal = updated;
+  _mpModal.logMsg = 'Cooking instructions ready ✓';
+  mpRenderModal();
+}
 function mpRenderModal() {
   const el = $('#mp_modal');
   if (!el || !_mpModal) return;
@@ -3495,6 +3593,7 @@ function mpRenderModal() {
   }).join('') : `<div class="mute" style="font-size:12px">${loading ? 'Loading ingredient food info…' : 'No ingredient breakdown listed.'}</div>`;
 
   const effInfo = MP_EFF[m.effort] || MP_EFF.normal;
+  const steps = mlStepsList(m.steps);
   el.innerHTML = `<div class="mp-modal">`
     + `<div class="row" style="margin:0;align-items:flex-start;justify-content:space-between">`
     + `<div><div class="mute" style="font-size:12px;text-transform:capitalize">${esc(day)} · ${esc(slot)} · ${effInfo[0]} ${esc(effInfo[1])}${m.minutes ? ' · ' + esc(m.minutes) + ' min' : ''}</div>`
@@ -3505,13 +3604,16 @@ function mpRenderModal() {
     + (remParts.length ? `<div class="mp-box" style="margin:0;font-size:12px"><b>${esc(day)} total vs your Fitness goals:</b><div class="mute" style="margin-top:2px">${esc(remParts.join(' · '))}</div></div>` : '')
     + `<div><div style="font-size:12px;font-weight:600;margin-bottom:6px">Ingredients &amp; food info${loading ? ' <span class="mute">(checking USDA…)</span>' : ''}</div><div class="mp-ing">${ingHtml}</div></div>`
     + (m.why ? `<div style="font-size:12px"><b>Why this meal:</b> <span class="mute">${esc(m.why)}</span></div>` : '')
-    + (m.steps ? `<div style="font-size:12px"><b>Steps:</b> <span class="mute">${esc(Array.isArray(m.steps) ? m.steps.join(' ') : m.steps)}</span></div>` : '')
+    + (steps.length
+      ? `<div style="font-size:12px"><b>Cooking instructions:</b><ol style="margin:4px 0 0;padding-left:18px;line-height:1.45">${steps.map(s => `<li style="margin:2px 0">${esc(s)}</li>`).join('')}</ol></div>`
+      : '')
     + (logMsg ? `<div class="ok" style="font-size:12px">${esc(logMsg)}</div>` : '')
     + `<div class="row" style="margin:0;justify-content:flex-end">`
+    + `<button class="soft" onclick="mpGenSteps(${+dayIdx}, ${jsq(slot)})">${steps.length ? '↻ Refresh steps' : '📖 Cooking steps'}</button>`
     + `<button class="soft" onclick="mpSaveRecipe()">★ Save Recipe</button>`
-    + `<button class="soft" onclick="mpCloseModal();mpSkipPlanned(${dayIdx}, ${jsq(slot)})">✕ Skip</button>`
-    + `<button class="soft" onclick="mpCloseModal();mpSwapPlanned(${dayIdx}, ${jsq(slot)}, ${jsq(day + ' ' + m.name)})">↻ Swap</button>`
-    + `<button class="go" onclick="mpLogMeal(${dayIdx}, ${jsq(slot)})">✓ Log as eaten</button>`
+    + `<button class="soft" onclick="mpCloseModal();mpSkipPlanned(${+dayIdx}, ${jsq(slot)})">✕ Skip</button>`
+    + `<button class="soft" onclick="mpCloseModal();mpSwapPlanned(${+dayIdx}, ${jsq(slot)}, ${jsq(day + ' ' + m.name)})">↻ Swap</button>`
+    + `<button class="go" onclick="mpLogMeal(${+dayIdx}, ${jsq(slot)})">✓ Log as eaten</button>`
     + `</div></div>`;
   el.classList.remove('hide');
 }
@@ -3523,7 +3625,7 @@ async function mpSaveRecipe() {
     name: m.name, slot: _mpModal.slot || 'any', minutes: m.minutes || null,
     calories: m.calories, protein_g: m.protein_g, carbs_g: m.carbs_g, fat_g: m.fat_g, fiber_g: m.fiber_g,
     ingredients: ings.length ? ings : fallbackIngs,
-    steps: Array.isArray(m.steps) ? m.steps.join(' ') : (m.steps || ''),
+    steps: mlStepsList(m.steps).join('\n'),
   });
   if (!_mpModal) return;
   _mpModal.logMsg = r.error ? r.error : `Saved "${m.name}" to Recipes ★`;
@@ -3926,9 +4028,11 @@ async function rcLoad() {
       x.minutes ? `${Math.round(+x.minutes)} min` : '',
     ].filter(Boolean);
     const ings = (x.ingredients || []).join(', ');
+    const steps = mlStepsList(x.steps);
     return `<div class="rc-card"><div class="rc-top"><b style="font-size:13px">${esc(x.name)}</b><span class="mute" style="font-size:11px;text-transform:capitalize">${esc(x.slot || 'any')}</span></div>`
       + (macs.length ? `<div class="rc-macros">${macs.map(m => `<span>${esc(m)}</span>`).join('')}</div>` : '')
       + (ings ? `<div class="mute" style="font-size:11px">${esc(ings)}</div>` : '')
+      + (steps.length ? `<details style="font-size:12px;margin-top:4px"><summary style="cursor:pointer;color:var(--food-ink);font-weight:600">📖 Cooking instructions (${steps.length} step${steps.length === 1 ? '' : 's'})</summary><ol style="margin:4px 0 0;padding-left:18px;line-height:1.45">${steps.map(s => `<li style="margin:2px 0">${esc(s)}</li>`).join('')}</ol></details>` : '')
       + `<div class="rc-acts">`
       + `<button class="go" onclick="rcLog(${id})">✓ Eat</button>`
       + ((x.ingredients || []).length ? `<button class="soft" onclick="rcShop(${id})">+ Shop</button>` : '')

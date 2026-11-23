@@ -240,5 +240,58 @@ st_tg.kv_set("telegram_offset", 4242)
 tg = Telegram(types.SimpleNamespace(mind=types.SimpleNamespace(store=st_tg)), "tok", [])
 check("Telegram loads persisted offset from store.kv on startup", tg.offset == 4242)
 
+# 11. Daily cooking instructions (Pantry.meal_steps) — LLM, caching, force refresh, and fallback
+class StepsModel:
+    def __init__(self):
+        self.calls = 0
+
+    async def chat(self, sys_p, msgs, max_tokens=900, temperature=0.2):
+        self.calls += 1
+        return {"text": '{"steps": {"breakfast": ["Whisk 3 eggs with spinach.", "Scramble in butter 3 min."], "dinner": ["Preheat pan to medium-high.", "Sear chicken 5 min per side.", "Serve over warm rice."]}}'}
+
+
+class StepsModels:
+    def __init__(self, m=None):
+        self.models = {"haiku": m} if m else {}
+
+    def get(self, name):
+        return self.models[name]
+
+
+st_ms = Store(tempfile.mktemp())
+st_ms.kv_set(Pantry.WEEK_KV, {
+    "days": [{
+        "day": "Mon",
+        "date": "2026-11-22",
+        "meals": [
+            {"slot": "breakfast", "name": "Spinach Scramble", "effort": "quick", "minutes": 8, "uses": ["eggs", "spinach"]},
+            {"slot": "lunch", "name": "Leftover Chili", "effort": "reheat", "is_cook": False, "minutes": 4, "uses": ["chili"]},
+            {"slot": "dinner", "name": "Chicken Rice Bowl", "effort": "normal", "minutes": 25, "uses": ["chicken", "rice"]},
+        ],
+    }],
+})
+sm = StepsModel()
+pan_ms = Pantry(st_ms, None, StepsModels(sm), tempfile.mkdtemp())
+res1 = asyncio.run(pan_ms.meal_steps(day="2026-11-22"))
+by_sl = {m["slot"]: m.get("steps") for m in res1["meals"]}
+check("meal_steps uses LLM output and deterministic reheat fallback",
+      sm.calls == 1 and len(by_sl["breakfast"]) == 2 and len(by_sl["dinner"]) == 3
+      and any("Reheat" in s or "reheat" in s for s in by_sl["lunch"]), by_sl)
+res2 = asyncio.run(pan_ms.meal_steps(day="2026-11-22"))
+check("meal_steps caches instructions onto week_plan without redundant LLM call", sm.calls == 1 and res2["meals"][0]["steps"] == by_sl["breakfast"])
+res3 = asyncio.run(pan_ms.meal_steps(day_index=0, slot="dinner", force=True))
+check("meal_steps force=True regenerates requested slot", sm.calls == 2 and len(res3["meals"]) == 1 and res3["meals"][0]["slot"] == "dinner")
+
+# Fallback when no non-mock model is configured
+st_ms2 = Store(tempfile.mktemp())
+st_ms2.kv_set(Pantry.WEEK_KV, {
+    "days": [{"day": "Tue", "date": "2026-11-23", "meals": [{"slot": "dinner", "name": "Salmon Tacos", "effort": "quick", "minutes": 15, "uses": ["salmon", "tortillas"]}]}],
+})
+pan_fb = Pantry(st_ms2, None, StepsModels(None), tempfile.mkdtemp())
+res_fb = asyncio.run(pan_fb.meal_steps(day_index=0))
+check("meal_steps produces deterministic fallback steps without LLM",
+      len(res_fb["meals"][0].get("steps") or []) >= 3, res_fb["meals"])
+
 print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")
 sys.exit(1 if FAILS else 0)
+

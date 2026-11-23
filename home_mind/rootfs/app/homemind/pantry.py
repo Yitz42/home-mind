@@ -1536,6 +1536,101 @@ class Pantry:
             "ingredients": ingredients,
         }
 
+    async def meal_steps(self, day_index=None, slot=None, day=None, model=None, force=False):
+        """Generate (and cache on the saved week_plan) step-by-step daily cooking/reheat instructions for one meal
+        or for all planned meals on a day (defaults to today)."""
+        saved = self.store.kv_get(self.WEEK_KV)
+        if not isinstance(saved, dict) or not saved.get("days"):
+            raise ValueError("no weekly meal plan saved yet")
+        days = saved["days"]
+        if day_index is not None:
+            idx = int(day_index)
+            if idx < 0 or idx >= len(days):
+                raise ValueError(f"day_index must be between 0 and {len(days) - 1}")
+        else:
+            want_date = str(day or "").strip() or date.today().isoformat()
+            idx = next((i for i, d in enumerate(days) if str(d.get("date") or "") == want_date), 0)
+        d_obj = days[idx]
+        sl = str(slot or "").strip().lower()
+        targets = [m for m in d_obj.get("meals") or () if not sl or str(m.get("slot") or "").lower() == sl]
+        if sl and not targets:
+            raise ValueError(f"no {sl} meal on {d_obj.get('day') or idx}")
+
+        def _ing_names(ml):
+            out = list(ml.get("uses") or ())
+            for n in ml.get("need") or ():
+                out.append(n.get("item") or n.get("name") or "" if isinstance(n, dict) else _parse_need_item(n)[0])
+            return [x for x in out if str(x).strip()]
+
+        def _fallback(ml):
+            ings = _ing_names(ml)
+            ing_s = ", ".join(ings[:6]) if ings else ml.get("name") or "ingredients"
+            if ml.get("is_cook") is False or ml.get("effort") == "reheat":
+                return [
+                    f"Pull your prepped {ml.get('name') or 'meal'} portion ({ing_s}) from the fridge.",
+                    "Reheat covered in the microwave for 2–3 minutes (stirring halfway) or warm in a skillet over medium heat for 4–5 minutes.",
+                    "Plate and add any fresh toppings or sauces just before eating.",
+                ]
+            mins = ml.get("minutes")
+            t_note = f" (~{mins} min)" if mins else ""
+            return [
+                f"Gather and prep ingredients{t_note}: {ing_s}.",
+                f"Cook the main protein/base first over medium heat until cooked through, then combine with remaining ingredients.",
+                "Season to taste, portion out, and store any extra servings for leftovers." if ml.get("servings", 1) and int(ml.get("servings", 1) or 1) > 1 else "Season to taste and serve warm.",
+            ]
+
+        todo = [m for m in targets if force or not m.get("steps")]
+        if todo:
+            names = [x for x in (getattr(self.models, "models", None) or {}) if x != "mock"]
+            mname = model or ("haiku" if "haiku" in names else names[0] if names else None)
+            generated = {}
+            if mname:
+                lines = []
+                for m in todo:
+                    s_key = str(m.get("slot") or "meal").lower()
+                    mode = "reheat/packable" if (m.get("is_cook") is False or m.get("effort") == "reheat") else (m.get("effort") or "normal")
+                    ings = ", ".join(_ing_names(m)) or "standard pantry staples"
+                    lines.append(f"- {s_key}: {m.get('name')} ({mode}, {m.get('minutes') or 20} min, uses: {ings})")
+                sys_p = (
+                    "Write clear, practical step-by-step cooking or reheating instructions for each listed meal. "
+                    "3–5 short actionable steps per meal (include pan/oven temps or microwave times when helpful; "
+                    "for reheat/packable meals give quick reheating & assembly steps). "
+                    'Reply with JSON only: {"steps": {"breakfast": ["step 1", "step 2", ...], ...}}'
+                )
+                try:
+                    r = await self.models.get(mname).chat(
+                        sys_p, [{"role": "user", "content": f"Day: {d_obj.get('day') or ''}\n" + "\n".join(lines)}],
+                        max_tokens=900, temperature=0.2,
+                    )
+                    mm = re.search(r"\{.*\}", r.get("text") or "", re.S)
+                    parsed = json.loads(mm.group(0)) if mm else {}
+                    raw_s = parsed.get("steps") if isinstance(parsed, dict) else {}
+                    if isinstance(raw_s, dict):
+                        generated = {str(k).lower(): v for k, v in raw_s.items()}
+                except Exception:  # noqa: BLE001
+                    generated = {}
+            for m in todo:
+                s_key = str(m.get("slot") or "meal").lower()
+                st_val = generated.get(s_key)
+                if isinstance(st_val, list):
+                    clean = [str(x).strip() for x in st_val if str(x).strip()][:8]
+                elif isinstance(st_val, str) and st_val.strip():
+                    clean = [x.strip() for x in re.split(r"\n+|(?<=[.!?])\s+(?=\d+\.)", st_val.strip()) if x.strip()][:8]
+                else:
+                    clean = []
+                m["steps"] = clean or _fallback(m)
+            self.store.kv_set(self.WEEK_KV, saved)
+
+        enriched = self.week_plan()
+        d_now = enriched["days"][idx]
+        return {
+            "day_index": idx,
+            "day": d_now.get("day"),
+            "date": d_now.get("date"),
+            "meals": [m for m in d_now.get("meals") or () if not sl or str(m.get("slot") or "").lower() == sl],
+            "plan": enriched,
+        }
+
     def week_plan(self):
         """Saved weekly meal plan with shopping_list and daily nutrition headroom freshly recomputed."""
         saved = self.store.kv_get(self.WEEK_KV)
