@@ -292,6 +292,80 @@ res_fb = asyncio.run(pan_fb.meal_steps(day_index=0))
 check("meal_steps produces deterministic fallback steps without LLM",
       len(res_fb["meals"][0].get("steps") or []) >= 3, res_fb["meals"])
 
+# 12. Reversible cloud masking in overnight.extract preserves real secret locally without leaking to cloud
+class EchoCloudModel:
+    type = "anthropic"
+    seen = None
+
+    async def chat(self, sys_p, msgs, max_tokens=900, temperature=0):
+        self.seen = msgs[0]["content"]
+        # Echo back the masked placeholder exactly as a cloud model would
+        m_sec = self.seen.split("code is ")[-1].split(".")[0]
+        return {"text": json.dumps({"facts": [{"text": f"The locker code is {m_sec}.", "turn": 1}]})}
+
+
+ecm = EchoCloudModel()
+ex_facts = asyncio.run(extract(ecm, [{"who": "user", "text": "The locker code is 5150.", "ts": NOW}]))
+check("cloud extract masks secret in prompt but restores it locally on returned fact",
+      "5150" not in (ecm.seen or "") and ex_facts and "5150" in ex_facts[0]["text"], (ecm.seen, ex_facts))
+
+# 13. MedsHabits toggle deduplicates body/meds note and archives it when unchecked
+from homemind.meds import MedsHabits
+st_mh = Store(tempfile.mktemp())
+mh = MedsHabits(st_mh)
+med_item = mh.add("Vitamin D3", kind="med", dose="2000 IU")
+mh.toggle(med_item["id"], day="2026-11-22", done=True)
+mh.toggle(med_item["id"], day="2026-11-22", done=True)
+active_meds = st_mh.db.execute("SELECT id FROM items WHERE shelf='body/meds' AND status='active'").fetchall()
+check("toggling a med ON twice does not create duplicate body/meds notes", len(active_meds) == 1, len(active_meds))
+mh.toggle(med_item["id"], day="2026-11-22", done=False)
+active_after_off = st_mh.db.execute("SELECT id FROM items WHERE shelf='body/meds' AND status='active'").fetchall()
+check("unchecking a med archives its body/meds note", len(active_after_off) == 0, len(active_after_off))
+
+# 14. Maintenance rejects non-finite every_days with ValueError (not OverflowError)
+from homemind.maintenance import Maintenance
+st_mt = Store(tempfile.mktemp())
+mt = Maintenance(st_mt)
+try:
+    mt.add("Furnace filter", every_days="inf")
+    check("maintenance rejects every_days='inf' cleanly", False, "no error raised")
+except ValueError:
+    check("maintenance rejects every_days='inf' cleanly", True)
+
+# 15. Recipes add_to_shopping uses word boundaries and save() clears owner on household scope
+from homemind.recipes import Recipes
+st_rc = Store(tempfile.mktemp())
+pan_rc = Pantry(st_rc, None, None, tempfile.mkdtemp())
+pan_rc.add("salt", location="pantry")
+pan_rc.add("oil", location="pantry")
+rc = Recipes(st_rc, pantry=pan_rc)
+tok_a = VIEWER.set("Alice")
+try:
+    saved_r = rc.save({"name": "Eggs on Toast", "ingredients": ["unsalted butter", "boiled eggs", "kosher salt"], "scope": "personal"})
+    updated_r = rc.save({"id": saved_r["id"], "name": "Eggs on Toast", "ingredients": ["unsalted butter", "boiled eggs", "kosher salt"], "scope": "household"})
+finally:
+    VIEWER.reset(tok_a)
+check("switching recipe from personal to household clears owner", updated_r["scope"] == "household" and updated_r["owner"] is None, updated_r)
+shop_res = asyncio.run(rc.add_to_shopping(updated_r["id"]))
+check("recipe +Shop matches 'kosher salt' against 'salt' without skipping 'unsalted butter' or 'boiled eggs'",
+      "kosher salt" in shop_res["skipped"] and "unsalted butter" not in shop_res["skipped"] and "boiled eggs" not in shop_res["skipped"], shop_res)
+
+# 16. Fitness.log() defaults scope=personal & owner=VIEWER when called without explicit meta
+st_fl = Store(tempfile.mktemp())
+fit_fl = Fitness(st_fl)
+tok_a2 = VIEWER.set("Alice")
+try:
+    fit_fl.log("bench press 3x8 at 135 lb")
+finally:
+    VIEWER.reset(tok_a2)
+tok_b2 = VIEWER.set("Bob")
+try:
+    bob_ws = fit_fl.workouts(30)
+finally:
+    VIEWER.reset(tok_b2)
+check("Fitness.log() defaults personal owner from VIEWER so Bob cannot see Alice's workout", bob_ws == [], bob_ws)
+
 print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")
 sys.exit(1 if FAILS else 0)
+
 

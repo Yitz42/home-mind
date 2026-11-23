@@ -424,10 +424,15 @@ class Fitness:
         now = when or self.store.clock()
         prev = {e["exercise"]: self.last(e["exercise"], before=now) for e in entries}
         words = "; ".join(describe(e) for e in entries)
+        from .speakers import VIEWER
+        m_out = dict(meta or {}, workout=entries, at=now)
+        who = VIEWER.get()
+        if who and "owner" not in m_out and m_out.get("scope") != "household":
+            m_out.update(scope="personal", owner=who)
         r = self.store.remember(text=f"Workout {datetime.fromtimestamp(now):%a %b %d}: {words}.",
                                 title=f"Workout: {words}"[:100], kind="note", shelf="body/workouts",
                                 tags=["workout"] + sorted({e["exercise"].split()[0] for e in entries})[:5],
-                                source=source, meta=dict(meta or {}, workout=entries, at=now), at=now)
+                                source=source, meta=m_out, at=now)
         notes = []
         for e in entries:
             p = prev.get(e["exercise"])
@@ -444,10 +449,9 @@ class Fitness:
         mg = getattr(self, "memgraph", None)
         if mg is not None:
             try:
-                m = meta or {}
                 mg.ingest_workout(
-                    entries, ts=now, owner=m.get("owner"),
-                    scope=m.get("scope") or ("personal" if m.get("owner") else "household"),
+                    entries, ts=now, owner=m_out.get("owner"),
+                    scope=m_out.get("scope") or ("personal" if m_out.get("owner") else "household"),
                     item_id=r.get("id"),
                 )
             except Exception:  # noqa: BLE001 - graph telemetry never breaks workout logging

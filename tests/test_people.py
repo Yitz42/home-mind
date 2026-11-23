@@ -114,6 +114,8 @@ async def learning():
     check("a turn from an unknown device has no speaker", rows["The pool gate code is 7272."]["speaker"] is None)
 
     class Model:
+        type = "mock"
+
         async def chat(self, system, messages, **k):
             text = messages[-1]["content"]
             facts = []

@@ -96,10 +96,15 @@ async def extract(model, turns, max_tokens=900):
     for i, t in enumerate(turns, 1):
         lines.append(f"{i}. {'U' if t['who'] == 'user' else 'A'}: {t['text']}")
         idx[i] = t
-    r = await model.chat(EXTRACT_SYSTEM, [{"role": "user", "content": safe_for(model, "\n".join(lines))}],
+    from .privacy import is_cloud, mask_reversible, unmask
+    raw_prompt = "\n".join(lines)
+    prompt, secret_map = mask_reversible(raw_prompt) if is_cloud(model) else (raw_prompt, {})
+    r = await model.chat(EXTRACT_SYSTEM, [{"role": "user", "content": prompt}],
                          max_tokens=max_tokens, temperature=0)
     facts = parse_facts(r["text"], strict=True)
     for f in facts:
+        if secret_map:
+            f["text"] = unmask(f["text"], secret_map)
         t = idx.get(f["turn"]) if isinstance(f["turn"], int) else None
         if t is None or t["who"] != "user":
             # no usable turn number: pin it to the last thing the person said

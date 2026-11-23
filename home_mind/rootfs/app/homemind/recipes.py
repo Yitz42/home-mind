@@ -8,6 +8,7 @@ Supports:
 """
 import json
 import math
+import re
 import time
 from datetime import datetime
 
@@ -149,12 +150,13 @@ class Recipes:
         with self.store.lock:
             if rid is not None and rid != "":
                 cur = self.get(int(rid))
+                next_owner = (owner or cur.get("owner")) if scope == "personal" else None
                 self.store.db.execute(
                     "UPDATE recipes SET name=?, slot=?, servings=?, minutes=?, calories=?, protein_g=?, carbs_g=?, "
                     "fat_g=?, fiber_g=?, sugar_g=?, ingredients=?, steps=?, upc=?, scope=?, owner=? WHERE id=?",
                     (name, slot, round(serv_f, 2), mins, macs["calories"], macs["protein_g"], macs["carbs_g"],
                      macs["fat_g"], macs["fiber_g"], macs["sugar_g"], json.dumps(ing), steps, upc,
-                     scope, owner or cur.get("owner"), int(rid)),
+                     scope, next_owner, int(rid)),
                 )
                 self.store.db.commit()
                 return self.get(int(rid))
@@ -234,8 +236,18 @@ class Recipes:
             return {"added": [], "skipped": []}
         if self.pantry is None:
             return {"added": [], "skipped": rec["ingredients"]}
-        in_stock = {i["name"].lower() for i in self.pantry.items("in")}
-        need = [x for x in rec["ingredients"] if not any(s in x.lower() or x.lower() in s for s in in_stock)]
+        in_stock = [i["name"].strip().lower() for i in self.pantry.items("in") if i.get("name", "").strip()]
+
+        def _has_ing(item):
+            xl = item.strip().lower()
+            if not xl:
+                return False
+            for s in in_stock:
+                if s == xl or re.search(rf"\b{re.escape(s)}\b", xl) or re.search(rf"\b{re.escape(xl)}\b", s):
+                    return True
+            return False
+
+        need = [x for x in rec["ingredients"] if not _has_ing(x)]
         skipped = [x for x in rec["ingredients"] if x not in need]
         added = await self.pantry.add_to_shopping(need) if need else []
         return {"added": added, "skipped": skipped}
