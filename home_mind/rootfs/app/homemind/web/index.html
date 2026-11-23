@@ -3204,9 +3204,52 @@ function mpDefaultDays() {
   const base = new Date();
   for (let i = 0; i < 7; i++) {
     const d = new Date(base); d.setDate(base.getDate() + i);
-    out.push({index: i, weekday: wds[d.getDay()], short: sh[d.getDay()], day_num: d.getDate(),
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    out.push({index: i, date: iso, weekday: wds[d.getDay()], short: sh[d.getDay()], day_num: d.getDate(),
       label: sh[d.getDay()] + ' ' + d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'})});
   }
+  return out;
+}
+function mpPlanDayMeta(pd, idx) {
+  const wds = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'], sh = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const todayIso = mlTodayIso(), iso = String((pd && pd.date) || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const dt = new Date(iso + 'T12:00:00');
+    return {
+      idx, date: iso, weekday: wds[dt.getDay()], short: sh[dt.getDay()], day_num: dt.getDate(),
+      label: (pd && pd.day) || (sh[dt.getDay()] + ' ' + dt.toLocaleDateString('en-US', {month: 'short', day: 'numeric'})),
+      isToday: iso === todayIso, isPast: iso < todayIso,
+    };
+  }
+  const fb = MP.days[idx] || {};
+  const rawLbl = String((pd && pd.day) || fb.label || ('Day ' + (idx + 1)));
+  return {
+    idx, date: fb.date || '', weekday: fb.weekday || '', short: rawLbl.split(' ')[0] || fb.short || '',
+    day_num: fb.day_num != null ? fb.day_num : (rawLbl.match(/\d+/) ? rawLbl.match(/\d+/)[0] : ''),
+    label: rawLbl, isToday: idx === 0, isPast: false,
+  };
+}
+function mpAlignGridToPick(plan, pickDays, cal) {
+  const base = mpDefaultGrid(pickDays, cal);
+  if (!plan || !plan.grid || !Object.keys(plan.grid).length) return base;
+  const pDays = Array.isArray(plan.days) ? plan.days : [];
+  const byDate = {}, byWd = {};
+  pDays.forEach((pd, pi) => {
+    const meta = mpPlanDayMeta(pd, pi);
+    if (meta.date) byDate[meta.date] = pi;
+    if (meta.weekday && byWd[meta.weekday] === undefined) byWd[meta.weekday] = pi;
+  });
+  const out = {};
+  pickDays.forEach((d, i) => {
+    const srcIdx = (d.date && byDate[d.date] !== undefined) ? byDate[d.date]
+      : (d.weekday && byWd[d.weekday] !== undefined) ? byWd[d.weekday] : null;
+    MP_SLOTS.forEach(s => {
+      const k = i + '|' + s;
+      if (srcIdx !== null && plan.grid[srcIdx + '|' + s]) out[k] = plan.grid[srcIdx + '|' + s];
+      else out[k] = base[k] || 'normal';
+    });
+  });
+  Object.keys(cal || {}).forEach(k => { out[k] = 'skip'; });
   return out;
 }
 function mpDefaultGrid(days, cal) {
@@ -3234,8 +3277,7 @@ function mpLoad(plan, calInfo) {
     MP.req = MP.plan.request || MP.req;
     if (MP.plan.prep_day) MP.prepDay = MP.plan.prep_day;
     if (MP.plan.prep_time) MP.prepTime = MP.plan.prep_time;
-    if (MP.plan.grid && Object.keys(MP.plan.grid).length) MP.grid = Object.assign({}, MP.plan.grid);
-    else if (!Object.keys(MP.grid).length) MP.grid = mpDefaultGrid(MP.days, MP.cal);
+    MP.grid = mpAlignGridToPick(MP.plan, MP.days, MP.cal);
     MP.step = 'plan';
   } else {
     if (!Object.keys(MP.grid).length) MP.grid = mpDefaultGrid(MP.days, MP.cal);
@@ -3398,15 +3440,30 @@ function mpRender() {
     ? `<button onclick="mpPaintCol(${jsq(s)})" title="Set all ${esc(s)}s to ${esc(MP_EFF[MP.brush][1])}">${esc(s)} ↓</button>`
     : `<div>${esc(s)}</div>`).join('');
 
-  $('#mp_rows').innerHTML = MP.days.map((d, i) => {
-    const lbl = `<div style="font-size:13px;font-weight:600">${esc(d.short)}</div><div class="mute" style="font-size:11px">${esc(d.day_num)}${i === 0 ? ' · today' : ''}</div>`;
-    let dayCol = `<div class="mp-day">${lbl}</div>`;
-    if (MP.step === 'pick') {
+  if (MP.step === 'pick') {
+    $('#mp_rows').innerHTML = MP.days.map((d, i) => {
+      const lbl = `<div style="font-size:13px;font-weight:600">${esc(d.short)}</div><div class="mute" style="font-size:11px">${esc(d.day_num)}${i === 0 ? ' · today' : ''}</div>`;
       const allOff = MP_SLOTS.every(s => MP.grid[i + '|' + s] === 'skip');
-      dayCol = `<div class="mp-day"><button class="dname" onclick="mpPaintDay(${i})" title="Set whole day to ${esc(MP_EFF[MP.brush][1])}">${lbl}</button>`
+      const dayCol = `<div class="mp-day"><button class="dname" onclick="mpPaintDay(${i})" title="Set whole day to ${esc(MP_EFF[MP.brush][1])}">${lbl}</button>`
         + `<button class="dskip" onclick="mpToggleSkipDay(${i}, event)">${allOff ? '↺ day' : '✕ day'}</button></div>`;
-    } else {
-      const pd = MP.plan && MP.plan.days && MP.plan.days[i];
+      const cells = MP_SLOTS.map(s => {
+        const k = i + '|' + s, e = MP.grid[k] || 'skip', calLbl = MP.cal[k];
+        const E = MP_EFF[e] || MP_EFF.normal;
+        const xBtn = `<span role="button" class="mp-x" onclick="mpToggleSkip(${jsq(k)}, event)" title="${e === 'skip' ? 'Restore this meal' : 'Skip this meal'}">${e === 'skip' ? '↺' : '✕'}</span>`;
+        if (e === 'skip') {
+          return `<button class="mp-slot skip" onclick="mpToggleSkip(${jsq(k)}, event)" title="Tap to restore">${xBtn}<span style="font-size:12px;font-weight:600">Skipped</span><span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${calLbl ? '📅 ' + esc(calLbl) : 'tap to restore'}</span></button>`;
+        }
+        return `<button class="mp-slot e-${esc(e)}" onclick="mpPaint(${jsq(k)})" title="${esc(E[1])} · ${esc(E[2])}">${xBtn}<span style="font-size:12px;font-weight:600;white-space:nowrap">${E[0]} ${esc(E[1])}</span><span style="font-size:11px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${calLbl ? '📅 ' + esc(calLbl) : esc(E[2])}</span></button>`;
+      }).join('');
+      return `<div class="mp-row${i === 0 ? ' today' : ''}">${dayCol}${cells}</div>`;
+    }).join('');
+  } else {
+    const planDays = (MP.plan && Array.isArray(MP.plan.days)) ? MP.plan.days : [];
+    const planGrid = (MP.plan && MP.plan.grid) || {};
+    const planCal = (MP.plan && MP.plan.calendar_skips) || {};
+    const renderPlanRow = meta => {
+      const idx = meta.idx, pd = planDays[idx];
+      const lbl = `<div style="font-size:13px;font-weight:600">${esc(meta.short)}</div><div class="mute" style="font-size:11px">${esc(meta.day_num)}${meta.isToday ? ' · today' : ''}</div>`;
       const tot = (pd && pd.totals) || {}, rem = (pd && pd.remaining) || {};
       const lines = [];
       if (tot.calories) {
@@ -3417,43 +3474,47 @@ function mpRender() {
         const rp = rem.protein_g;
         lines.push(`<div>${esc(tot.protein_g)}g P${rp != null ? (rp >= 0 ? ` <span class="extra">+${esc(rp)}g</span>` : ` <span class="over">${esc(rp)}g</span>`) : ''}</div>`);
       }
-      dayCol = `<div class="mp-day">${lbl}${lines.length ? `<div class="mp-day-nut" title="Planned totals and remaining room for extras">${lines.join('')}</div>` : ''}</div>`;
-    }
-    const cells = MP_SLOTS.map(s => {
-      const k = i + '|' + s, e = MP.grid[k] || 'skip', calLbl = MP.cal[k];
-      if (MP.step === 'pick') {
-        const E = MP_EFF[e] || MP_EFF.normal;
-        const xBtn = `<span role="button" class="mp-x" onclick="mpToggleSkip(${jsq(k)}, event)" title="${e === 'skip' ? 'Restore this meal' : 'Skip this meal'}">${e === 'skip' ? '↺' : '✕'}</span>`;
-        if (e === 'skip') {
-          return `<button class="mp-slot skip" onclick="mpToggleSkip(${jsq(k)}, event)" title="Tap to restore">${xBtn}<span style="font-size:12px;font-weight:600">Skipped</span><span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${calLbl ? '📅 ' + esc(calLbl) : 'tap to restore'}</span></button>`;
+      const dayCol = `<div class="mp-day">${lbl}${lines.length ? `<div class="mp-day-nut" title="Planned totals and remaining room for extras">${lines.join('')}</div>` : ''}</div>`;
+      const cells = MP_SLOTS.map(s => {
+        const k = idx + '|' + s, m = mpFindMeal(idx, s);
+        const e = planGrid[k] || (m ? (m.effort || 'normal') : 'skip');
+        const calLbl = planCal[k];
+        if (!m || m.skipped || e === 'skip') {
+          const canRestore = !!(m && m.skipped);
+          return `<div class="mp-slot skip"><span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${calLbl ? '📅 ' + esc(calLbl) : 'Skipped'}</span>`
+            + `<a onclick="mpAddPlanned(${idx}, ${jsq(s)}, ${canRestore ? 'true' : 'false'})" style="font-size:11px;margin-top:auto">+ add</a></div>`;
         }
-        return `<button class="mp-slot e-${esc(e)}" onclick="mpPaint(${jsq(k)})" title="${esc(E[1])} · ${esc(E[2])}">${xBtn}<span style="font-size:12px;font-weight:600;white-space:nowrap">${E[0]} ${esc(E[1])}</span><span style="font-size:11px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${calLbl ? '📅 ' + esc(calLbl) : esc(E[2])}</span></button>`;
+        const bc = m.batch_id ? (MP_COLORS[m.batch_id] || '#d97706') : '';
+        const isLeft = !!(m.batch_id && m.is_cook === false);
+        const isCook = !!(m.batch_id && m.is_cook !== false);
+        const effIcon = (MP_EFF[m.effort || e] || MP_EFF.normal)[0];
+        const calChip = m.calories ? ` · ${m.calories} cal` : '';
+        const metaTxt = isLeft
+          ? `<span class="mp-meta"><span class="mp-dot"></span>↺ ${esc(m.batch_label || 'leftovers')} · 5 min${m.protein_g ? ' · ' + esc(m.protein_g) + 'g P' : ''}${esc(calChip)}</span>`
+          : isCook
+            ? `<span class="mp-meta"><span class="mp-dot"></span>${effIcon} ${esc(m.minutes || 30)} min${m.servings ? ' · makes ' + esc(m.servings) : ''}${m.protein_g ? ' · ' + esc(m.protein_g) + 'g P' : ''}</span>`
+            : `<span class="mp-meta">${effIcon} ${m.minutes ? esc(m.minutes) + ' min' : ''}${m.protein_g ? ' · ~' + esc(m.protein_g) + 'g P' : ''}${esc(calChip)}</span>`;
+        return `<div class="mp-slot ${isLeft ? 'left' : 'need'}${isCook ? ' cook' : ''}"${bc ? ` style="--bc:${esc(bc)}"` : ''}>`
+          + `<div class="mp-mtitle click" onclick="mpOpenMeal(${idx}, ${jsq(s)})" title="Click for nutrition & ingredients">${esc(m.name)}</div>${metaTxt}`
+          + `<div class="mp-acts"><a onclick="mpOpenMeal(${idx}, ${jsq(s)})">info</a>`
+          + `<a onclick="mpSwapPlanned(${idx}, ${jsq(s)}, ${jsq(meta.label + ' ' + m.name)})">↻ swap</a>`
+          + `<a onclick="mpSkipPlanned(${idx}, ${jsq(s)})">✕ skip</a></div></div>`;
+      }).join('');
+      return `<div class="mp-row${meta.isToday ? ' today' : ''}">${dayCol}${cells}</div>`;
+    };
+    const allMeta = planDays.map((pd, idx) => mpPlanDayMeta(pd, idx));
+    const upcoming = allMeta.filter(r => !r.isPast);
+    const past = allMeta.filter(r => r.isPast);
+    let html = upcoming.map(renderPlanRow).join('');
+    if (past.length) {
+      if (upcoming.length) {
+        html += `<details style="margin-top:8px"><summary class="mute" style="cursor:pointer;font-size:12px;font-weight:600;padding:4px 2px">Earlier days in this plan (${past.length})</summary><div style="opacity:.78;margin-top:6px">${past.map(renderPlanRow).join('')}</div></details>`;
+      } else {
+        html += `<div class="mute" style="font-size:12px;margin-bottom:6px">This saved plan is from earlier — switch to <b>1 · Pick</b> to build a fresh week.</div>` + past.map(renderPlanRow).join('');
       }
-      // Step 2: Plan view
-      const m = mpFindMeal(i, s);
-      if (!m || m.skipped || e === 'skip') {
-        const canRestore = !!(m && m.skipped);
-        return `<div class="mp-slot skip"><span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${calLbl ? '📅 ' + esc(calLbl) : 'Skipped'}</span>`
-          + `<a onclick="mpAddPlanned(${i}, ${jsq(s)}, ${canRestore ? 'true' : 'false'})" style="font-size:11px;margin-top:auto">+ add</a></div>`;
-      }
-      const bc = m.batch_id ? (MP_COLORS[m.batch_id] || '#d97706') : '';
-      const isLeft = !!(m.batch_id && m.is_cook === false);
-      const isCook = !!(m.batch_id && m.is_cook !== false);
-      const effIcon = (MP_EFF[m.effort || e] || MP_EFF.normal)[0];
-      const calChip = m.calories ? ` · ${m.calories} cal` : '';
-      const meta = isLeft
-        ? `<span class="mp-meta"><span class="mp-dot"></span>↺ ${esc(m.batch_label || 'leftovers')} · 5 min${m.protein_g ? ' · ' + esc(m.protein_g) + 'g P' : ''}${esc(calChip)}</span>`
-        : isCook
-          ? `<span class="mp-meta"><span class="mp-dot"></span>${effIcon} ${esc(m.minutes || 30)} min${m.servings ? ' · makes ' + esc(m.servings) : ''}${m.protein_g ? ' · ' + esc(m.protein_g) + 'g P' : ''}</span>`
-          : `<span class="mp-meta">${effIcon} ${m.minutes ? esc(m.minutes) + ' min' : ''}${m.protein_g ? ' · ~' + esc(m.protein_g) + 'g P' : ''}${esc(calChip)}</span>`;
-      return `<div class="mp-slot ${isLeft ? 'left' : 'need'}${isCook ? ' cook' : ''}"${bc ? ` style="--bc:${esc(bc)}"` : ''}>`
-        + `<div class="mp-mtitle click" onclick="mpOpenMeal(${i}, ${jsq(s)})" title="Click for nutrition & ingredients">${esc(m.name)}</div>${meta}`
-        + `<div class="mp-acts"><a onclick="mpOpenMeal(${i}, ${jsq(s)})">info</a>`
-        + `<a onclick="mpSwapPlanned(${i}, ${jsq(s)}, ${jsq(d.label + ' ' + m.name)})">↻ swap</a>`
-        + `<a onclick="mpSkipPlanned(${i}, ${jsq(s)})">✕ skip</a></div></div>`;
-    }).join('');
-    return `<div class="mp-row${i === 0 ? ' today' : ''}">${dayCol}${cells}</div>`;
-  }).join('');
+    }
+    $('#mp_rows').innerHTML = html;
+  }
 
   if (MP.step === 'pick') {
     $('#mp_footer').innerHTML =
@@ -3470,7 +3531,7 @@ function mpRender() {
 function renderWeekPlan(plan) {
   MP.plan = (plan && Array.isArray(plan.days) && plan.days.length) ? plan : null;
   if (MP.plan && MP.plan.grid && Object.keys(MP.plan.grid).length) {
-    MP.grid = Object.assign({}, MP.plan.grid);
+    MP.grid = mpAlignGridToPick(MP.plan, MP.days, MP.cal);
   }
   const wrap = $('#w_shop_wrap');
   const list = (MP.plan && MP.plan.shopping_list) || [];
@@ -3679,8 +3740,10 @@ async function mpAddPlanned(dayIndex, slot, canRestore) {
     const r = await api('api/pantry/plan_cell', {day_index: dayIndex, slot, action: 'restore'});
     if (!r.error) { renderWeekPlan(r); return; }
   }
+  const pd = MP.plan && MP.plan.days && MP.plan.days[dayIndex];
   const d = MP.days[dayIndex];
-  mpSwapPlanned(dayIndex, slot, (d ? d.label : 'Day ' + (dayIndex + 1)) + ' ' + slot);
+  const lbl = (pd && pd.day) || (d && d.label) || ('Day ' + (dayIndex + 1));
+  mpSwapPlanned(dayIndex, slot, lbl + ' ' + slot);
 }
 async function mpSwapPlanned(dayIndex, slot, label) {
   const req = prompt(`Swap ${label} — want something specific? (leave blank for any fresh idea)`, '');
