@@ -330,6 +330,7 @@ async def build(A, now=None):
     fit = getattr(A, "fitness", None)
     if fit:
         try:
+            from .speakers import VIEWER
             g = dict(fit.goals() or {})
             bl = fit.auto_baseline(now) if hasattr(fit, "auto_baseline") else None
             if bl and isinstance(bl.get("effective"), dict):
@@ -338,7 +339,7 @@ async def build(A, now=None):
                         g[k] = v
             pt = out["food"].get("protein_target_g")
             if hasattr(fit, "prefs") and hasattr(fit, "daily_plan") and fit.prefs().get("sync_adaptive", True):
-                dp = fit.daily_plan(now)
+                dp = fit.daily_plan(now, viewer=VIEWER.get())
                 t_dp = dp.get("targets") or {}
                 if t_dp.get("calories"):
                     g["calories"] = t_dp["calories"]
@@ -367,7 +368,7 @@ async def build(A, now=None):
                     "id": f"maint:{over[0]['id']}", "kind": "Upkeep",
                     "title": f"{over[0]['name']} is overdue",
                     "sub": f"Was due {over[0]['next_due']}. Tap to mark done or update.",
-                    "a": "Upkeep", "act": "go", "go": "house",
+                    "a": "Upkeep", "act": "go", "go": "upkeep",
                 })
         except Exception:  # noqa: BLE001
             pass

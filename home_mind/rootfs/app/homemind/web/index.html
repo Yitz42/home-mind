@@ -864,7 +864,7 @@
       <span class="ck-sub" id="mo_sub"></span>
       <div class="ck-tabs" role="tablist" aria-label="System views">
         <button id="sy_t_over" class="on" onclick="sysTab('over')">Overview &amp; Persona</button>
-        <button id="sy_t_brain" onclick="sysTab('brain')">Brain</button>
+        <button id="sy_t_brain" onclick="sysTab('brain')">Brain <b class="badge hide" id="sy_br_rev" style="margin-left:4px;font-size:10px;padding:0 5px;vertical-align:middle"></b></button>
         <button id="sy_t_models" onclick="sysTab('models')">Models &amp; Training</button>
         <button id="sy_t_tests" onclick="sysTab('tests')">Tests</button>
         <button id="sy_t_access" onclick="sysTab('access')">Access &amp; Updates</button>
@@ -1348,6 +1348,7 @@ const SUB_TAB = {
   memory: ['more', () => sysTab('brain')],
   worked: ['more', () => { sysTab('brain'); brainTab('worked'); }],
   graph: ['more', () => { sysTab('brain'); brainTab('graph'); }],
+  upkeep: ['house', () => homeTab('u')],
   tests: ['more', () => sysTab('tests')],
   models: ['more', () => sysTab('models')],
   updates: ['more', () => sysTab('access')],
@@ -1997,6 +1998,7 @@ async function hubLoad() {
   HUB = h; HC = c && !c.error ? c : null; T = {room: HC ? HC.room : {}};
   $('#ver').textContent = 'v' + h.version;
   $('#nav_review').textContent = h.review; $('#nav_review').classList.toggle('hide', !h.review);
+  if ($('#sy_br_rev')) { $('#sy_br_rev').textContent = h.review; $('#sy_br_rev').classList.toggle('hide', !h.review); }
   hbRender();
 }
 function hbRender() {
@@ -2551,6 +2553,7 @@ async function review() {
   const rs = await api('api/review');
   if (!Array.isArray(rs)) return;
   $('#reviewcard').classList.toggle('hide', !rs.length);
+  ['#nav_review', '#sy_br_rev'].forEach(s => { const el = $(s); if (el) { el.textContent = rs.length; el.classList.toggle('hide', !rs.length); } });
   $('#review').innerHTML = rs.map(r => `<tr><td><a onclick="item(${r.id})">${esc(r.title)}</a><br><span class="mute">${esc(r.why)} · from ${esc(r.source)} · ${when(r.created)}</span></td>
     <td style="white-space:nowrap"><button class="go" onclick="reviewOp(${r.id}, 'confirm')">${r.status === 'review' ? 'Approve' : 'Confirm'}</button>
     <button class="go" style="background:var(--bad)" onclick="reviewOp(${r.id}, 'forget')">Drop</button></td></tr>`).join('');

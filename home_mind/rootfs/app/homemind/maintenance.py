@@ -102,11 +102,12 @@ class Maintenance:
         if isinstance(every_days, bool):
             raise ValueError("every_days must be a number")
         try:
-            ev = int(round(float(every_days if every_days not in (None, "") else 90)))
+            ev_f = float(every_days if every_days not in (None, "") else 90)
         except (TypeError, ValueError):
             raise ValueError("every_days must be a number") from None
-        if not (0 <= ev <= 3650):
+        if not math.isfinite(ev_f) or not (0 <= ev_f <= 3650):
             raise ValueError("every_days must be between 0 and 3650")
+        ev = int(round(ev_f))
         ts = now or time.time()
         today = datetime.fromtimestamp(ts).date()
         nd = self._opt_date(next_due, "next_due") or ((today + timedelta(days=ev)).isoformat() if ev > 0 else "")

@@ -4,6 +4,7 @@ Keeps a lightweight catalog of recurring meds/supplements (`kind='med'`) and dai
 along with per-day completion logs and streak calculations. Taking a med/supplement also records a note
 on `body/meds` so MemGraph and brain-fog patterns can correlate it with sleep and energy.
 """
+import json
 import time
 from datetime import date, datetime, timedelta
 
@@ -100,16 +101,30 @@ class MedsHabits:
             else:
                 self.store.db.execute("DELETE FROM habit_logs WHERE habit_id=? AND day=?", (int(hid), d))
             self.store.db.commit()
-        if want and row["kind"] == "med":
-            meta = {"at": ts, "day": d, "habit_id": int(hid), "med": row["name"], "dose": row["dose"] or ""}
-            if row["owner"] and row["scope"] == "personal":
-                meta.update(scope="personal", owner=row["owner"])
-            label = f"{row['name']} ({row['dose']})" if row["dose"] else row["name"]
-            self.store.remember(
-                text=f"Took {label} on {d}.",
-                title=f"Med: {label}"[:80], kind="fact", shelf="body/meds",
-                source="web", tags=["med", "health"], meta=meta, at=ts,
-            )
+        if row["kind"] == "med":
+            existing_ids = []
+            for mr in self.store.db.execute(
+                "SELECT id, meta FROM items WHERE shelf='body/meds' AND status='active'"
+            ).fetchall():
+                try:
+                    mm = json.loads(mr["meta"] or "{}") if isinstance(mr["meta"], str) else (mr["meta"] or {})
+                except ValueError:
+                    mm = {}
+                if mm.get("habit_id") == int(hid) and mm.get("day") == d:
+                    existing_ids.append(mr["id"])
+            if want and not existing_ids:
+                meta = {"at": ts, "day": d, "habit_id": int(hid), "med": row["name"], "dose": row["dose"] or ""}
+                if row["owner"] and row["scope"] == "personal":
+                    meta.update(scope="personal", owner=row["owner"])
+                label = f"{row['name']} ({row['dose']})" if row["dose"] else row["name"]
+                self.store.remember(
+                    text=f"Took {label} on {d}.",
+                    title=f"Med: {label}"[:80], kind="fact", shelf="body/meds",
+                    source="web", tags=["med", "health"], meta=meta, at=ts,
+                )
+            elif not want and existing_ids:
+                for mid in existing_ids:
+                    self.store.set_status(mid, "archived")
         return {"id": int(hid), "day": d, "done": want, "streak": self._streak(int(hid), d)}
 
     def _streak(self, hid, ref_day):

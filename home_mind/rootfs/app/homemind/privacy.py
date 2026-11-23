@@ -44,10 +44,10 @@ def is_cloud(model):
     if t in ("anthropic", "ha_ai_task", "ha_conversation"):
         return True
     if t in ("ollama", "mock"):
-        host = urlparse(model.cfg.get("url") or "").hostname or "localhost"
+        host = urlparse((getattr(model, "cfg", None) or {}).get("url") or "").hostname or "localhost"
         return not _local(host)
     if t == "openai":
-        host = urlparse(model.cfg.get("url") or "").hostname or ""
+        host = urlparse((getattr(model, "cfg", None) or {}).get("url") or "").hostname or ""
         return not _local(host)
     return True
 
@@ -137,3 +137,48 @@ def bulk(question):
 def mask_all(text):
     """Hide every secret value in text (no question is about any of them)."""
     return mask(text, "", lambda x: [], lambda x: set())
+
+
+def mask_reversible(text):
+    """Replace every secret value and IP/MAC with unique placeholders ([secret_1], [address_1], ...)
+    and return (masked_text, mapping) so local code can restore them after a cloud call."""
+    if not text:
+        return text, {}
+    mapping = {}
+    s_n = [0]
+    a_n = [0]
+
+    def _tok(prefix, counter, val):
+        counter[0] += 1
+        key = f"[{prefix}_{counter[0]}]"
+        mapping[key] = val
+        return key
+
+    out = []
+    for line in text.split("\n"):
+        if SECRET.search(line) and (VALUE.search(line) or RIGHT_AFTER.search(line)):
+            parts = re.split(r"([.;|\"](?:\s|$)|\|)", line)
+            p_out = []
+            for p in parts:
+                if SECRET.search(p) or re.search(r"\[re: [^\]]*" + SECRET_WORDS, p, re.I):
+                    p = WORD_AFTER.sub(lambda m: m.group(1) + _tok("secret", s_n, m.group(2)), p)
+                    p = RIGHT_AFTER.sub(lambda m: m.group(1) + _tok("secret", s_n, m.group(2)), p)
+                    p = DIGITS.sub(lambda m: _tok("secret", s_n, m.group(0)), p)
+                p_out.append(p)
+            line = "".join(p_out)
+        line = IP.sub(lambda m: _tok("address", a_n, m.group(0)), line)
+        line = MAC.sub(lambda m: _tok("address", a_n, m.group(0)), line)
+        out.append(line)
+    return "\n".join(out), mapping
+
+
+def unmask(text, mapping):
+    """Restore placeholders created by mask_reversible()."""
+    if not text or not mapping:
+        return text
+    out = text
+    for k, v in mapping.items():
+        if k in out:
+            out = out.replace(k, v)
+    return out
+
