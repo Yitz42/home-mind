@@ -1320,6 +1320,7 @@ note), 502 (a model failed) or 500.
 | POST | `/api/controls/{op}` | admin | `act` (`entity`, `service`, `data`; allow-listed per domain, values clamped), `scene` (`name`), `routine` (`entity`, `on`) |
 | GET | `/api/tiles` | read | the House tab's tiles (each drawn by its domain, with its state) and the dashboards shown in the Dashboards sub-tab |
 | GET | `/api/tiles/catalog` | read | Home Assistant entities a tile can show, not already added, matching `q`; at most 60 |
+| GET | `/api/tiles/scenes` | read | the scene names of a light on the room map or a tile (`light`), from its Govee scene list (`select.<light>_scene`); pick one with `/api/controls/act` and `select.select_option` |
 | GET | `/api/tiles/picture` | admin | the picture of an image, camera or speaker tile (`entity`), through Home Assistant's proxy; 404 when there is none |
 | POST | `/api/tiles/{op}` | admin | `add` (`entity`, `name`), `remove` / `move` (`id`, `step`) / `rename` (`id`, `name`), `embed_add` (`name`, `path`), `embed_remove` (`path`). A tile lets the controls switch what is on it, never locks, alarms, valves, garage doors or gates |
 | GET | `/api/today` | read | readiness, fog, food to eat first, protein so far, the bedroom, what was learned |

@@ -10,6 +10,10 @@
              /lovelace/0, opened with ?kiosk (the kiosk-mode card hides HA's header) in a frame. Works when the panel
              is opened through Home Assistant (the frame is on the same address); not from the direct port.
 
+0.39: an alarm tile sets input_datetime.alarm (time only); light tiles and the room map's lights get their Govee scene
+list (select.<light>_scene, picked from its own options); number tiles draw a 7-day trend line from Home Assistant's
+history (cached 10 minutes); the Updates tile (homemind.updates) lists Home Assistant updates waiting, to read only.
+
 Safety: a tile can only switch what is on it, with the same per-domain allowlist as the room controls (home_ctrl).
 Locks, alarms, valves, garage doors and gates are never controllable from a tile; they show their state only.
 """
@@ -26,9 +30,14 @@ MAX_EMBEDS = 8
 # domains a tile can draw; the ones in CONTROL can also be switched from the tile
 DRAW = ("light", "switch", "input_boolean", "fan", "cover", "climate", "humidifier", "media_player", "sensor",
         "binary_sensor", "image", "camera", "todo", "script", "scene", "button", "input_number", "number", "lock",
-        "weather", "person", "device_tracker", "input_select", "select", "input_button")
+        "weather", "person", "device_tracker", "input_select", "select", "input_button", "input_datetime",
+        "homemind")
 CONTROL = ("light", "switch", "input_boolean", "fan", "cover", "climate", "humidifier", "media_player", "script",
-           "scene", "button", "input_button")
+           "scene", "button", "input_button", "input_datetime")
+UPDATES = "homemind.updates"      # a tile of Home Mind's own: Home Assistant updates waiting (read only)
+VIRTUAL = {UPDATES: "Updates"}
+TREND_DOMAINS = ("sensor", "input_number", "number")
+TREND_DAYS, TREND_POINTS, TREND_TTL = 7, 48, 600
 BUTTONS = ("button", "input_button", "script", "scene")   # drawn as a row of buttons above the tiles
 NEVER = ("lock", "alarm_control_panel", "valve")
 NEVER_COVER = ("garage", "gate", "door")          # cover device classes that open the house
@@ -52,6 +61,9 @@ ADDED_LATER = {"sleep_buttons": [
     {"entity": "input_button.comfort_cold", "name": "Too cold"},
     {"entity": "input_button.comfort_ok", "name": "Just right"},
     {"entity": "input_button.comfort_hot", "name": "Too hot"},
+], "alarm_updates": [   # 0.39
+    {"entity": "input_datetime.alarm", "name": "Alarm"},
+    {"entity": UPDATES, "name": "Updates"},
 ]}
 KV_ADDED = "house_modules_added"
 DEFAULT_EMBEDS = [{"name": "Overview", "path": "/lovelace/0"}]
@@ -103,7 +115,45 @@ def controllable(A):
         mods = (_store(A).kv_get(KV) or []) if getattr(A, "mind", None) else []
     except Exception:  # noqa: BLE001
         return set()
-    return {m["entity"] for m in mods if m["entity"].split(".")[0] in CONTROL}
+    ents = {m["entity"] for m in mods if m["entity"].split(".")[0] in CONTROL}
+    return ents | {scene_select(e) for e in ents if e.startswith("light.")}
+
+
+def scene_select(light):
+    """The Govee scene list that goes with a light: light.x -> select.x_scene, light.x_2 -> select.x_scene_2."""
+    obj = str(light).split(".", 1)[-1]
+    m = re.match(r"^(.+)_(\d+)$", obj)
+    return f"select.{m.group(1)}_scene_{m.group(2)}" if m else f"select.{obj}_scene"
+
+
+def scene_info(light, st):
+    """{entity, current} of a light's scene list when Home Assistant has one, else None (options come with scenes())."""
+    s = st.get(scene_select(light)) or {}
+    opts = (s.get("attributes") or {}).get("options") or []
+    if s.get("state") in DEAD or not opts:
+        return None
+    return {"entity": s["entity_id"], "current": None if s.get("state") in ("None", "none") else s.get("state"),
+            "count": len(opts)}
+
+
+async def scenes(A, light):
+    """The scene names of a light on the room map or on a tile, for its scene picker."""
+    from . import home_ctrl
+    lights = {d["entity"] for d in home_ctrl.DEVICES if d["kind"] == "light"}
+    lights |= {m["entity"] for m in load(A) if m["entity"].startswith("light.")}
+    if light not in lights:
+        raise ValueError(f"{light or 'that'} is not a light on the House tab")
+    ha = A.ha if getattr(A, "ha", None) and A.ha.available else None
+    if not ha:
+        return {"entity": None, "options": [], "available": False}
+    s = await ha.state(scene_select(light)) or {}
+    opts = [o for o in (s.get("attributes") or {}).get("options") or [] if o not in ("None", "none")]
+    return {"entity": s.get("entity_id"), "current": s.get("state"), "options": opts, "available": True}
+
+
+def scene_ok(state, option):
+    """Is option one of this scene list's own options?"""
+    return option in (((state or {}).get("attributes") or {}).get("options") or []) and option not in ("None", "none")
 
 
 def blocked(entity, state=None):
@@ -160,7 +210,84 @@ def view(m, s):
         out.update(version=a.get("access_token", "")[:8] + str(state or ""), picture=bool(a.get("entity_picture")))
     elif dom == "todo":
         out.update(open=int(_num(state) or 0))
+    elif dom == "input_datetime":
+        only = bool(a.get("has_time")) and not a.get("has_date")
+        out.update(time=(state or "")[:5] if only and state not in DEAD else None, control=out["control"] and only)
+    elif dom == "homemind":
+        out.update(name=m.get("name") or VIRTUAL.get(ent, ent), control=False)
     return out
+
+
+def updates_view(t, st):
+    """Fill the Updates tile from the update entities that are on."""
+    ups = []
+    for e, s in st.items():
+        if e.startswith("update.") and s.get("state") == "on":
+            a = s.get("attributes") or {}
+            name = a.get("title") or a.get("friendly_name") or e
+            ver = a.get("latest_version")
+            ups.append(f"{name} {ver}" if ver else name)
+    ups.sort(key=str.lower)
+    t.update(found=True, available=True, state=str(len(ups)), open=len(ups), items=ups[:8])
+    return t
+
+
+_TREND = {"at": 0.0, "key": (), "data": {}}
+
+
+def _downsample(rows, start, end, n=TREND_POINTS):
+    """Numbers at n even steps from start to end, each the last reading at or before it (None before the first)."""
+    pts = []
+    for r in rows:
+        v = _num(r.get("state"))
+        t = r.get("last_changed") or r.get("last_updated")
+        if v is None or not t:
+            continue
+        try:
+            from datetime import datetime
+            ts = datetime.fromisoformat(str(t).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+        pts.append((ts, v))
+    pts.sort()
+    out, i, cur = [], 0, None
+    for k in range(n):
+        at = start + (end - start) * (k + 1) / n
+        while i < len(pts) and pts[i][0] <= at:
+            cur = pts[i][1]
+            i += 1
+        out.append(None if cur is None else round(cur, 2))
+    return out
+
+
+async def trends(ha, entities, now=None):
+    """{entity: [number or None] * 48} over the last 7 days, from Home Assistant's history; cached 10 minutes."""
+    import time
+    now = now or time.time()
+    key = tuple(sorted(entities))
+    if key and _TREND["key"] == key and now - _TREND["at"] < TREND_TTL:
+        return _TREND["data"]
+    data = {}
+    if key:
+        from datetime import datetime, timezone
+        start = now - TREND_DAYS * 86400
+        iso = lambda t: datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+        try:
+            r = await ha.get_json(f"history/period/{iso(start)}", {
+                "filter_entity_id": ",".join(key), "end_time": iso(now), "minimal_response": "",
+                "no_attributes": "", "significant_changes_only": "0"})
+        except Exception as e:  # noqa: BLE001
+            log.info("trends: %s", e)
+            r = None
+        for rows in r or []:
+            if rows and isinstance(rows, list):
+                ent = rows[0].get("entity_id")
+                if ent in key:
+                    line = _downsample(rows, start, now)
+                    if sum(v is not None for v in line) >= 2:
+                        data[ent] = line
+    _TREND.update(at=now, key=key, data=data)
+    return data
 
 
 async def build(A):
@@ -178,6 +305,17 @@ async def build(A):
         for t in tiles:
             if t["domain"] == "todo":
                 t["items"] = items.get(t["entity"], [])
+    for t in tiles:
+        if t["entity"] == UPDATES:
+            updates_view(t, st)
+        elif t["domain"] == "light" and t["found"]:
+            t["scenes"] = scene_info(t["entity"], st)
+    nums = [t["entity"] for t in tiles if t["domain"] in TREND_DOMAINS and isinstance(t.get("value"), (int, float))]
+    if nums:
+        lines = await trends(ha, nums)
+        for t in tiles:
+            if t["entity"] in lines:
+                t["trend"] = lines[t["entity"]]
     out["modules"] = tiles
     return out
 
@@ -210,13 +348,17 @@ async def catalog(A, q=""):
         hay = (name + " " + ent).lower()
         if all(w in hay for w in words):
             out.append({"entity": ent, "name": name, "domain": ent.split(".")[0], "state": s.get("state")})
-    out.sort(key=lambda x: (x["state"] in DEAD, x["domain"], x["name"].lower()))
+    for ent, name in VIRTUAL.items():
+        if ent not in have and all(w in (name + " " + ent + " home assistant").lower() for w in words):
+            out.append({"entity": ent, "name": name, "domain": "homemind", "state": None})
+    out.sort(key=lambda x: (x["state"] in DEAD and x["domain"] != "homemind", x["domain"], x["name"].lower()))
     return {"entities": out[:60], "total": len(out), "available": True}
 
 
 def add(A, entity, name=""):
     entity = str(entity or "").strip()
-    if not ENTITY.match(entity) or entity.split(".")[0] not in DRAW:
+    if not ENTITY.match(entity) or entity.split(".")[0] not in DRAW or (
+            entity.startswith("homemind.") and entity not in VIRTUAL):
         raise ValueError(f"{entity or 'that'} can't be shown as a tile")
     mods = load(A)
     if any(m["entity"] == entity for m in mods):

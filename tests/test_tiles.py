@@ -53,6 +53,13 @@ class FakeHA:
             "lock.front": {"entity_id": "lock.front", "state": "locked", "attributes": {}},
             "cover.garage": {"entity_id": "cover.garage", "state": "closed", "attributes": {"device_class": "garage"}},
             "automation.x": {"entity_id": "automation.x", "state": "on", "attributes": {}},
+            "input_datetime.alarm": {"entity_id": "input_datetime.alarm", "state": "07:00:00",
+                                     "attributes": {"has_time": True, "has_date": False}},
+            "select.desk_scene": {"entity_id": "select.desk_scene", "state": "None",
+                                  "attributes": {"options": ["None", "Sunrise", "Movie"]}},
+            "update.core": {"entity_id": "update.core", "state": "on",
+                            "attributes": {"title": "Home Assistant Core", "latest_version": "2026.12.0"}},
+            "update.zigbee": {"entity_id": "update.zigbee", "state": "off", "attributes": {"title": "Zigbee"}},
         }
 
     async def states(self):
@@ -60,6 +67,15 @@ class FakeHA:
 
     async def state(self, eid):
         return self.st.get(eid)
+
+    async def get_json(self, path, params=None):
+        self.hist = (path, params)
+        t0 = path.split("/")[-1].replace("Z", "+00:00")
+        from datetime import datetime, timedelta
+        base = datetime.fromisoformat(t0)
+        return [[{"entity_id": "sensor.yitz_weight", "state": "183", "last_changed": (base + timedelta(days=1)).isoformat()},
+                 {"state": "unavailable", "last_changed": (base + timedelta(days=2)).isoformat()},
+                 {"state": "181.5", "last_changed": (base + timedelta(days=5)).isoformat()}]]
 
     async def post_json(self, path, payload, timeout=10):
         return {"service_response": {"todo.ideas_projects": {"items": [{"summary": "Forklift"}, {"summary": "Pebble"}]}}}
@@ -69,13 +85,14 @@ A = NS(mind=NS(store=Store()), ha=FakeHA())
 
 mods = modules.load(A)
 sleep = modules.ADDED_LATER["sleep_buttons"]
-check("first load seeds the defaults and the sleep buttons",
-      len(mods) == len(modules.DEFAULTS) + len(sleep) and mods[0]["entity"] == "sensor.yitz_weight")
+later = [d for k in modules.ADDED_LATER for d in modules.ADDED_LATER[k]]
+check("first load seeds the defaults, the sleep buttons, the alarm and updates",
+      len(mods) == len(modules.DEFAULTS) + len(later) and mods[0]["entity"] == "sensor.yitz_weight")
 B = NS(mind=NS(store=Store()), ha=FakeHA())
 B.mind.store.kv_set(modules.KV, [{"id": "light_desk", "entity": "light.desk", "name": ""}])
 got = modules.load(B)
 check("an existing list gets the sleep buttons once, at the end",
-      got[0]["entity"] == "light.desk" and [m["entity"] for m in got[1:]] == [d["entity"] for d in sleep])
+      got[0]["entity"] == "light.desk" and [m["entity"] for m in got[1:]] == [d["entity"] for d in later])
 modules.remove(B, "input_button_comfort_hot")
 check("a removed sleep button stays removed", "input_button.comfort_hot" not in {m["entity"] for m in modules.load(B)})
 check("a sleep button can be pressed from its tile",
@@ -91,7 +108,7 @@ check("a to-do list shows its open items", by["todo.ideas_projects"]["items"] ==
 check("a missing entity says so", by["image.a1_camera"]["found"] is False)
 
 cat = asyncio.run(modules.catalog(A, "desk"))
-check("the picker finds by name", [e["entity"] for e in cat["entities"]] == ["light.desk"])
+check("the picker finds by name", [e["entity"] for e in cat["entities"]][0] == "light.desk")
 cat = asyncio.run(modules.catalog(A, ""))
 check("the picker leaves out what's added and what can't be drawn",
       "sensor.yitz_weight" not in [e["entity"] for e in cat["entities"]] and "automation.x" not in [e["entity"] for e in cat["entities"]])
@@ -127,6 +144,35 @@ for bad in ("/api/states", "https://evil.example/x", "/auth/token", "//evil", "/
     check(f"not a dashboard: {bad}", raises(lambda b=bad: modules.embed_add(A, "x", b)))
 modules.embed_remove(A, "/dashboard-bedroom/console")
 check("remove a dashboard", all(e["path"] != "/dashboard-bedroom/console" for e in modules.embeds(A)))
+
+# 0.39: alarm, scenes, trends, updates
+by = {t["entity"]: t for t in asyncio.run(modules.build(A))["modules"]}
+check("the alarm tile shows its time and can be set", by["input_datetime.alarm"]["time"] == "07:00" and by["input_datetime.alarm"]["control"])
+ok = home_ctrl.check("input_datetime.alarm", "set_datetime", {"time": "6:45"}, modules.controllable(A))[1]
+check("an alarm time is cleaned to HH:MM:00", ok["time"] == "06:45:00")
+for bad in ("25:00", "7", "07:61", "tomorrow"):
+    check(f"a bad alarm time is refused: {bad}",
+          raises(lambda b=bad: home_ctrl.check("input_datetime.alarm", "set_datetime", {"time": b}, modules.controllable(A))))
+check("the updates tile counts what's waiting", by["homemind.updates"]["open"] == 1
+      and by["homemind.updates"]["items"] == ["Home Assistant Core 2026.12.0"] and not by["homemind.updates"]["control"])
+check("the updates tile can't be switched", "homemind.updates" not in modules.controllable(A))
+check("only Home Mind's own virtual tiles can be added", raises(lambda: modules.add(A, "homemind.anything")))
+w = by["sensor.yitz_weight"]["trend"]
+check("a number tile gets a 7-day line", len(w) == modules.TREND_POINTS and w[-1] == 181.5 and 183 in w and w[0] is None)
+check("the history call asks for numbers only", "minimal_response" in A.ha.hist[1] and "no_attributes" in A.ha.hist[1])
+check("scene list names follow the light", modules.scene_select("light.rgbic_tv_light_bars_2") == "select.rgbic_tv_light_bars_scene_2"
+      and modules.scene_select("light.dreamview_p1") == "select.dreamview_p1_scene")
+check("the room map's lights can pick a scene", "select.rgbic_neon_rope_lights_scene" in home_ctrl.controllable())
+check("but no other select", raises(lambda: home_ctrl.check("select.other", "select_option", {"option": "x"}, modules.controllable(A))))
+modules.add(A, "light.desk")
+by = {t["entity"]: t for t in asyncio.run(modules.build(A))["modules"]}
+check("a light tile shows its scene list", by["light.desk"]["scenes"] == {"entity": "select.desk_scene", "current": None, "count": 3})
+sc = asyncio.run(modules.scenes(A, "light.desk"))
+check("its scene names, without None", sc["options"] == ["Sunrise", "Movie"])
+check("scenes of a light that isn't on the House tab are refused", raises(lambda: asyncio.run(modules.scenes(A, "light.other"))))
+check("a scene from its own list is allowed", modules.scene_ok(A.ha.st["select.desk_scene"], "Movie"))
+check("a made-up scene isn't", not modules.scene_ok(A.ha.st["select.desk_scene"], "Hack") and not modules.scene_ok(A.ha.st["select.desk_scene"], "None"))
+modules.remove(A, "light_desk")
 
 # pictures only for tiles
 check("no picture for an entity that isn't a tile", asyncio.run(modules.picture(A, "camera.someone_elses")) is None)

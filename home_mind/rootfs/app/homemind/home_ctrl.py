@@ -5,6 +5,7 @@ listed here, with only the services each kind of device needs (an allowlist, so 
 anything else in Home Assistant).
 """
 import logging
+import re
 import time
 from datetime import datetime
 
@@ -83,6 +84,7 @@ ALLOWED = {
     "script": {"turn_on": set()},
     "scene": {"turn_on": set()},
     "input_datetime": {"set_datetime": {"time"}},
+    "select": {"select_option": {"option"}},   # only a light's Govee scene list, and only its own options (act)
 }
 
 
@@ -90,6 +92,8 @@ def controllable():
     """Every entity the panel may act on."""
     ents = {d["entity"] for d in DEVICES if d["kind"] != "printer"} | {p["entity"] for p in PLUGS}
     ents |= {p["script"] for p in PRESETS} | set(PRINTER_BUTTONS.values()) | {PRINTER_LIGHT, FAN_NIGHT, COMFORT, ALARM}
+    from . import modules
+    ents |= {modules.scene_select(d["entity"]) for d in DEVICES if d["kind"] == "light" and d["id"] != "all"}
     return ents
 
 
@@ -111,6 +115,13 @@ def check(entity, service, data, extra=()):
             clean[k] = max(lo, min(hi, float(clean[k]) if k == "temperature" else int(float(clean[k]))))
     if "volume_level" in clean:
         clean["volume_level"] = round(max(0.0, min(1.0, float(clean["volume_level"]))), 2)
+    if "time" in clean:
+        m = re.match(r"^(\d{1,2}):(\d{2})(?::\d{2})?$", str(clean["time"]).strip())
+        if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+            raise ValueError("time needs to look like 07:30")
+        clean["time"] = f"{int(m.group(1)):02d}:{m.group(2)}:00"
+    if "option" in clean:
+        clean["option"] = str(clean["option"])[:120]
     if "rgb_color" in clean:
         rgb = [max(0, min(255, int(v))) for v in list(clean["rgb_color"])[:3]]
         if len(rgb) != 3:
@@ -162,6 +173,9 @@ def device_view(d, st):
         out.update(on=state == "on", level=round(b / 255 * 100) if isinstance(b, (int, float)) else (100 if state == "on" else 0),
                    color=_hex(a.get("rgb_color")) if a.get("rgb_color") else None, kelvin=a.get("color_temp_kelvin"),
                    min=1, max=100)
+        if d["id"] != "all":
+            from . import modules
+            out["scenes"] = modules.scene_info(d["entity"], st)
     elif d["kind"] == "climate":
         out.update(on=state not in ("off", None, "unavailable"), mode=state, level=a.get("temperature"),
                    current=a.get("current_temperature"), action=a.get("hvac_action"), preset=a.get("preset_mode"),
@@ -306,6 +320,8 @@ async def act(A, entity, service, data=None):
             if why:
                 raise ValueError(why)
     domain, clean = check(entity, service, data, extra)
+    if domain == "select" and not modules.scene_ok(await A.ha.state(entity), clean.get("option")):
+        raise ValueError("that scene isn't one of this light's scenes")
     dlog = getattr(A, "decisions", None)
     prior = A.home.state_now(entity) if dlog is not None and getattr(A, "home", None) else None
     if dlog is not None and hasattr(A.ha, "call_ctx"):

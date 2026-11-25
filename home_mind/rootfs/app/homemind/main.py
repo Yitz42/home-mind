@@ -3510,6 +3510,14 @@ def build(app_state):
         from . import modules
         return J(await modules.catalog(A, q.query.get("q", "")))
 
+    @r.get("/api/tiles/scenes")
+    async def tiles_scenes(q):
+        from . import modules
+        try:
+            return J(await modules.scenes(A, q.query.get("light", "")))
+        except ValueError as e:
+            return J({"error": str(e)}, status=400)
+
     @r.get("/api/tiles/picture")
     async def tiles_picture(q):
         from . import modules

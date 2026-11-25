@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.39.0
+- **Alarm tile (`House › Your tiles`):** shows your alarm time and lets you change it (time only, `input_datetime.alarm`; the Mon–Sat wake-up follows it). Added once to your tiles with the Updates tile.
+- **Light scenes:** the room map's lights and any light tile get a scene picker with that light's own Govee scenes (`select.<light>_scene`). Only those lights' scene lists, and only their own scene names, can be set. Names load once per light from the new `GET /api/tiles/scenes`.
+- **Trend lines:** number tiles (weight, body fat, any sensor) draw the last 7 days from Home Assistant's history, refreshed every 10 minutes.
+- **Updates tile:** how many Home Assistant updates are waiting and which, to read only (install them in Home Assistant).
+
 ## 0.38.0
 - **Simple view (on by default):** hides the tools you rarely need so the panel is easier to use: Health › Voice Learning, Food › Rules, House › Automations and Sensors & Habits, System › Models & Training and Tests, the Brain's Graph and Worked Out, and the Overview's test cards. Turn it off in System › Overview › Display & household view to see everything (kept per device).
 - **Sleep and comfort buttons (`House › Your tiles`):** wind down, bedtime, nap start and end, and too cold / just right / too hot are added once to your tiles and drawn as a row of buttons above them (Edit shows them as tiles to move or remove). Buttons, scripts and scenes on tiles all join that row. `input_button` tiles can be pressed (`press` only).

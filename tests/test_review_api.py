@@ -253,6 +253,7 @@ ROUTES = [
     ("POST", "/api/controls/{op}", ["entity", "service", "data", "name", "on"]),
     ("GET", "/api/tiles", []),
     ("GET", "/api/tiles/catalog", ["q"]),
+    ("GET", "/api/tiles/scenes", ["light"]),
     ("GET", "/api/tiles/picture", ["entity"]),
     ("POST", "/api/tiles/{op}", ["entity", "name", "id", "step", "path"]),
     ("GET", "/api/today", []),

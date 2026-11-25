@@ -20,7 +20,7 @@ ADMIN_PATHS = [r"^/api/tokens", r"^/api/item/\d+/purge$", r"^/api/purge_about$",
                r"^/api/import", r"^/api/control/", r"^/api/export", r"^/api/vault/key$", r"^/api/compare/run$",
                r"^/api/control_model/", r"^/api/trainer/", r"^/api/email/check$", r"^/api/home/act$", r"^/api/do$",
                r"^/api/controls/",   # house control (and the Home tab's controls): admin, as mind_control/mind_do
-               r"^/api/tiles/(?!catalog$)",   # House tiles: adding one widens what the controls may switch; cameras
+               r"^/api/tiles/(?!catalog$|scenes$)",   # House tiles: adding one widens what the controls may switch; cameras
                r"^/api/decisions", r"^/api/replay$",   # the decision log holds everyone's requests: admin only
                r"^/api/access", r"^/api/safety/run$",   # who may move what, and the safety suite
                r"^/api/converse$",   # a voice turn can act on the house, like /api/do
