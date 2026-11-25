@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.37.1
+- **Reading light preset (`House`, All lights):** a new **Reading** pill runs `script.reading_light`: everything else off, and only a small section of the wall rope above the bed lit in warm amber at 30%, high enough to stay out of your eyes.
+
 ## 0.37.0
 - **Your tiles (`House › Live Controls`):** a new card that shows anything from Home Assistant, picked from a searchable list (**+ Add**), and drawn by its kind: lights, switches, fans, blinds, climate and humidifiers get their controls; speakers get play/pause, skip, volume and the album art; sensors show their value; images and cameras show their picture; to-do lists show their open items; scripts, scenes and buttons get a Run/Press button. **Edit** moves, renames and removes tiles. A first load adds the scale (weight, body fat), both speakers, the printer camera and the three Ideas lists. New `modules.py`, `GET /api/tiles`, `GET /api/tiles/catalog`, `GET /api/tiles/picture`, `POST /api/tiles/{op}`.
 - **Tile safety:** a tile can only switch what is on it, through the same per-domain allowlist and value clamps as the room controls (now also cover open/close/stop/position, fan and humidifier toggle, speaker volume and scenes). Locks, alarms, valves, garage doors, gates and doors are never switchable from a tile; they show their state only. Adding or removing tiles needs the admin scope.

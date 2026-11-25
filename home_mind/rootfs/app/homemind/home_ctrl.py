@@ -40,6 +40,7 @@ PRESETS = [  # the Console's light presets (Home Assistant scripts)
     {"id": "dim", "name": "Dim", "color": "#c96f1c", "script": "script.bedroom_dim"},
     {"id": "night", "name": "Night", "color": "#ff3b3b", "script": "script.nightlight_mode"},
     {"id": "rope", "name": "Rope night", "color": "#ff890e", "script": "script.nightlight_rope"},
+    {"id": "reading", "name": "Reading", "color": "#ff8c00", "script": "script.reading_light"},
 ]
 PRINTER = {k: f"sensor.a1_{k}" for k in ("print_status", "task_name", "current_layer", "total_layer_count",
                                           "print_progress", "remaining_time", "current_stage", "nozzle_temperature",

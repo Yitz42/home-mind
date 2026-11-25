@@ -4087,7 +4087,7 @@ function homeLevel(v, id) {
 }
 function homeToggle() { const d = dev(HSEL); homeAct(d.entity, d.kind === 'climate' ? 'set_hvac_mode' : (d.on ? 'turn_off' : 'turn_on'), d.kind === 'climate' ? { hvac_mode: d.on ? 'off' : 'heat' } : {}); }
 function homeColor(v) { const d = dev(HSEL); homeAct(d.entity, 'turn_on', Array.isArray(v) ? { rgb_color: v } : { color_temp_kelvin: v }); }
-function homePreset(id) { const p = { white: 'script.all_lights_white', warm: 'script.bedroom_warm', dim: 'script.bedroom_dim', night: 'script.nightlight_mode', rope: 'script.nightlight_rope' }[id]; homeAct(p, 'turn_on'); }
+function homePreset(id) { const p = { white: 'script.all_lights_white', warm: 'script.bedroom_warm', dim: 'script.bedroom_dim', night: 'script.nightlight_mode', rope: 'script.nightlight_rope', reading: 'script.reading_light' }[id]; homeAct(p, 'turn_on'); }
 async function homeScene(name, btn) { if (btn) btn.classList.add('on'); HBUSY = 1; const r = await api('api/controls/scene', { name }); HBUSY = 0; if (r.error) alert(r.error); homeTip = H && H.suggestion ? H.suggestion.title : null; setTimeout(homeLoad, 900); }
 async function homeBrain() { await homeAct('input_boolean.mind_comfort_enabled', H.comfort ? 'turn_off' : 'turn_on'); }
 function homeComfort() {
