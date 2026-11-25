@@ -21,7 +21,7 @@ DEVICES = [
     {"id": "heater", "name": "Heater", "kind": "climate", "entity": "climate.bedroom_temp", "x": 48.5, "y": 92},
     {"id": "purifier", "name": "Air purifier", "kind": "fan", "entity": "fan.dyson_c2a_us_mdb9996a", "x": 9, "y": 10},
     # the humidifier is in the Comfort card; no spot on the map until Yitz says where it sits (x, y stay None)
-    {"id": "humid", "name": "Humidifier", "kind": "humidifier", "entity": "humidifier.humidifier_bedroom", "x": None, "y": None},
+    {"id": "humid", "name": "Humidifier", "kind": "humidifier", "entity": "humidifier.humidifier_bedroom", "x": 12, "y": 40},
     {"id": "blind", "name": "Blind", "kind": "cover", "entity": "cover.blind_tilt_47d0", "x": 50, "y": 3.5},
     {"id": "printer", "name": "3D printer (A1)", "kind": "printer", "entity": "sensor.a1_print_status", "x": 90, "y": 61},
 ]

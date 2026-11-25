@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.37.2
+- **Humidifier on the room map (`House › Live Controls`):** the bedroom humidifier now has its spot on the map, under the desk.
+- `version.py` caught up with `config.yaml` (it still said 0.37.0 in 0.37.1).
+
 ## 0.37.1
 - **Reading light preset (`House`, All lights):** a new **Reading** pill runs `script.reading_light`: everything else off, and only a small section of the wall rope above the bed lit in warm amber at 30%, high enough to stay out of your eyes.
 
