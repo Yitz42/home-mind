@@ -12,7 +12,7 @@ class HomeMindEntity(CoordinatorEntity):
 
     def __init__(self, coordinator, group, key):
         super().__init__(coordinator)
-        self.group, self.key = group, key
+        self._hm_group, self.key = group, key   # not "group": Home Assistant reserves that name on entities (2027.2)
         self._attr_unique_id = f"home_mind_{group}_{key}"
         spec = self.spec or {}
         self._attr_name = spec.get("label") or key.replace("_", " ").capitalize()
@@ -22,7 +22,7 @@ class HomeMindEntity(CoordinatorEntity):
 
     @property
     def spec(self):
-        return ((self.coordinator.data or {}).get(self.group) or {}).get(self.key)
+        return ((self.coordinator.data or {}).get(self._hm_group) or {}).get(self.key)
 
     @property
     def available(self):

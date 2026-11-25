@@ -58,7 +58,7 @@ Models can switch things only when all of these hold:
 
 ## Home Mind as your voice assistant
 
-The Home Mind Bridge integration (version 0.3.2, installed by the app) adds a conversation agent called Home Mind.
+The Home Mind Bridge integration (version 0.3.3, installed by the app) adds a conversation agent called Home Mind.
 To use it: Settings › Voice assistants › your assistant › Conversation agent: **Home Mind**, and turn on **Prefer
 handling commands locally**. Then:
 - Home Assistant's own commands (lights, timers, shopping list) are handled by Home Assistant first, as fast as ever.

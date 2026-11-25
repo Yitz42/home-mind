@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.41.2
+- **Bridge 0.3.3:** its switches, numbers, buttons and sensors no longer use an attribute name Home Assistant reserves (`group`), which it warns will stop working in 2027.2. Loads at Home Assistant's next restart; nothing changes until then.
+
 ## 0.41.1
 - **Cleaner event names on the watch and in answers:** the glance and the situation lines drop the date a calendar event was filed with ("Work Remote", not "Work Remote (Wednesday Nov 25 2026)"), so the line fits the Pebble.
 
