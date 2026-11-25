@@ -3500,6 +3500,49 @@ def build(app_state):
         return web.Response(body=body, content_type=ctype.split(";")[0],
                             headers={"Cache-Control": "private, max-age=300"})
 
+    @r.get("/api/tiles")
+    async def tiles_get(_):
+        from . import modules
+        return J(await modules.build(A))
+
+    @r.get("/api/tiles/catalog")
+    async def tiles_catalog(q):
+        from . import modules
+        return J(await modules.catalog(A, q.query.get("q", "")))
+
+    @r.get("/api/tiles/picture")
+    async def tiles_picture(q):
+        from . import modules
+        got = await modules.picture(A, q.query.get("entity", ""))
+        if not got:
+            raise web.HTTPNotFound()
+        body, ctype = got
+        return web.Response(body=body, content_type=ctype.split(";")[0], headers={"Cache-Control": "private, max-age=5"})
+
+    @r.post("/api/tiles/{op}")
+    async def tiles_op(q):
+        from . import modules
+        b = await q.json() if q.can_read_body else {}
+        op = q.match_info["op"]
+        if not isinstance(b, dict):
+            return J({"error": "send a JSON object"}, status=400)
+        try:
+            if op == "add":
+                return J(modules.add(A, b.get("entity", ""), b.get("name", "")))
+            if op == "remove":
+                return J(modules.remove(A, b.get("id", "")))
+            if op == "move":
+                return J(modules.move(A, b.get("id", ""), b.get("step", 1)))
+            if op == "rename":
+                return J(modules.rename(A, b.get("id", ""), b.get("name", "")))
+            if op == "embed_add":
+                return J(modules.embed_add(A, b.get("name", ""), b.get("path", "")))
+            if op == "embed_remove":
+                return J(modules.embed_remove(A, b.get("path", "")))
+        except (ValueError, TypeError) as e:
+            return J({"error": str(e)}, status=400)
+        return J({"error": f"unknown op {op}"}, status=404)
+
     @r.post("/api/controls/{op}")
     async def controls_op(q):
         from . import home_ctrl

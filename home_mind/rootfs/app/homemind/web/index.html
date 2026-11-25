@@ -154,6 +154,15 @@
   .hc-days { margin-top:10px } .hc-days > div { display:flex; align-items:center; gap:10px; padding:6px 0; border-top:1px solid var(--line); font-size:13px }
   .hc-days .rng { flex:1; position:relative; height:6px; border-radius:99px; background:var(--line) } .hc-days .rng i { position:absolute; top:0; height:6px; border-radius:99px; background:linear-gradient(90deg, var(--acc), var(--food)) }
   .hc-rt { display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-top:1px solid var(--line) } .hc-rt .tm { min-width:70px; font-size:12px; font-weight:600; padding:3px 8px; border-radius:8px; text-align:center; background:var(--card2); margin-right:10px }
+  .ht-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:10px }
+  .ht { background:var(--card2); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:8px; min-width:0 }
+  .ht .tt { display:flex; align-items:flex-start; justify-content:space-between; gap:6px } .ht .tt b { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap } .ht .sub { font-size:12px; color:var(--mute) }
+  .ht .big { font-size:26px; font-weight:700; line-height:1.1 } .ht .big small { font-size:13px; font-weight:500; color:var(--mute); margin-left:3px }
+  .ht img { width:100%; aspect-ratio:16/10; object-fit:cover; border-radius:10px; background:var(--bg); display:block } .ht input[type=range] { width:100% }
+  .ht .row3 { display:flex; gap:6px } .ht .row3 button { flex:1; min-height:32px; border-radius:10px; border:1px solid var(--line); background:none; color:var(--ink); font:inherit; font-size:13px; cursor:pointer }
+  .ht ul { margin:0; padding-left:16px; font-size:12px } .ht .ed { display:flex; gap:4px } .ht .ed button { border:0; background:none; color:var(--mute); cursor:pointer; font-size:15px; padding:0 3px }
+  .ht-pick { margin-top:12px; border-top:1px solid var(--line); padding-top:12px } .ht-pick .r { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); font-size:13px } .ht-pick .r span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .he-frame { width:100%; height:75vh; border:0; border-radius:14px; background:var(--card) }
   .hc-plugs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px 6px } .hc-plugs button { display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:0; color:var(--ink); font:inherit; cursor:pointer; padding:0 }
   .hc-plugs .pring { width:52px; height:52px; border-radius:99px; display:flex; align-items:center; justify-content:center; background:var(--card2); color:var(--mute); border:1px solid var(--line) }
   .hc-plugs .on .pring { background:var(--ink); color:var(--bg); border-color:var(--ink) } .hc-plugs .nm { font-size:12px; text-align:center; line-height:1.15 } .hc-plugs .st { font-size:11px; color:var(--mute) }
@@ -1108,6 +1117,7 @@
         <button id="hs_u" onclick="homeTab('u')">Upkeep</button>
         <button id="hs_a" onclick="homeTab('a')">Automations</button>
         <button id="hs_s" onclick="homeTab('s')">Sensors &amp; Habits</button>
+        <button id="hs_d" onclick="homeTab('d')">Dashboards</button>
       </div>
     </div>
     <div class="wpill" id="hc_wpill"></div>
@@ -1150,6 +1160,19 @@
       <div class="hc-side"><div class="card"><h2>Plugs &amp; media</h2><div class="hc-plugs" id="hc_plugs"></div>
         <div class="mute" style="font-size:12px;margin-top:10px">Batteries: <span id="hc_batt"></span></div></div></div>
     </div>
+    <div class="card">
+      <div class="hrow" style="align-items:center"><div><h2 style="margin:0">Your tiles</h2><span class="mute" style="font-size:12px">anything from Home Assistant</span></div>
+        <div style="display:flex;gap:6px"><button class="soft" id="ht_edit" onclick="HTEDIT=!HTEDIT;tilesRender()">Edit</button><button class="go" onclick="tilesPick()">+ Add</button></div></div>
+      <div class="ht-grid" id="ht_grid" style="margin-top:12px"></div>
+      <div class="ht-pick hide" id="ht_pick"><div class="row"><input id="ht_q" placeholder="Search Home Assistant: speaker, weight, camera…" style="flex:1" oninput="tilesQ()"><button class="soft" onclick="$('#ht_pick').classList.add('hide')">Done</button></div><div id="ht_res"></div></div>
+    </div>
+  </div>
+  <div id="h_embeds" class="hide">
+    <div class="card">
+      <div class="hrow" style="align-items:center"><div class="hc-pills" id="he_tabs" style="margin:0"></div><span class="mute" style="font-size:12px" id="he_note"></span></div>
+      <div class="row" style="margin-top:10px"><input id="he_name" placeholder="Name" style="width:120px"><input id="he_path" placeholder="/dashboard-bedroom/0" style="flex:1" onkeydown="if (event.key === 'Enter') embAdd()"><button class="go" onclick="embAdd()">+ Add</button></div>
+    </div>
+    <iframe class="he-frame" id="he_frame" title="Home Assistant dashboard"></iframe>
   </div>
   <div id="h_upkeep" class="hide">
     <div class="ck-grid">
@@ -2498,7 +2521,7 @@ async function load(t) {
   }
   if (t === 'worked') { worked(); }
   if (t === 'graph') { graphLoad(); }
-  if (t === 'house') { homeLoad(); if (HTAB === 'u') upLoad(); else if (HTAB !== 'c') houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
+  if (t === 'house') { homeLoad(); if (HTAB === 'u') upLoad(); else if (HTAB === 'd') embLoad(); else if (HTAB !== 'c') houseTab(); const ms = await api('api/models'); $('#ad_model').innerHTML = ms.map(m => `<option>${esc(m.name)}</option>`).join(''); }
   if (t === 'pantry') { pantry(); if (FD_TAB === 'recipes') rcLoad(); }
   if (t === 'tests') {
     const s = await api('api/suites'); $('#t_suite').innerHTML = Object.keys(s).map(k => `<option>${esc(k)}</option>`).join(''); $('#t_info').textContent = Object.entries(s).map(([k, v]) => k + ': ' + v).join(' · ');
@@ -3966,16 +3989,17 @@ const DEVCOL = { climate: '#fbbf24', fan: '#2dd4bf', humidifier: '#2dd4bf', cove
 const dev = id => (H.devices || []).find(d => d.id === id);
 function homeTab(t) {
   HTAB = t === 'l' ? 'a' : (t || 'c');
-  [['c', 'h_controls'], ['u', 'h_upkeep'], ['a', 'h_autos'], ['s', 'h_sensors']].forEach(([k, p]) => {
+  [['c', 'h_controls'], ['u', 'h_upkeep'], ['a', 'h_autos'], ['s', 'h_sensors'], ['d', 'h_embeds']].forEach(([k, p]) => {
     $('#hs_' + k).classList.toggle('on', HTAB === k);
     $('#' + p).classList.toggle('hide', HTAB !== k);
   });
   if (HTAB === 'u') upLoad();
+  else if (HTAB === 'd') embLoad();
   else if (HTAB !== 'c') houseTab();
 }
 async function homeLoad() {
   if (HBUSY > 0) return;
-  H = await api('api/controls'); homeRender();
+  H = await api('api/controls'); homeRender(); tilesLoad();
   clearTimeout(HTIMER); HTIMER = setTimeout(() => !$('#house').classList.contains('hide') && HTAB === 'c' && homeLoad(), 10000);
 }
 function homeRender() {
@@ -4093,6 +4117,67 @@ function homePlugs() {
   $('#hc_plugs').innerHTML = H.plugs.map(p => `<button class="${p.on ? 'on' : ''}" onclick="${p.entity.startsWith('media_player') ? `homeAct(${jsq(p.entity)},'media_play_pause')` : `homeAct(${jsq(p.entity)},'toggle')`}" aria-label="${esc(p.name)}"><span class="pring">${svg(HI[p.id] || HI.bulb, 22, 1.8)}</span><span class="nm">${esc(p.name)}</span><span class="st">${esc(p.state == null ? '–' : p.state)}</span></button>`).join('');
   const b = H.batteries || {}; $('#hc_batt').innerHTML = `phone <b style="color:${(b.phone ?? 100) <= 25 ? 'var(--bad)' : 'var(--ink)'}">${nf(b.phone)}%</b> · laptop <b>${nf(b.laptop)}%</b>`;
 }
+
+// ---- House tiles and dashboards (0.37, modules.py) ----------------------------------------------------------------
+let HT = null, HTEDIT = false, HTQ = null, HE = null, HESEL = 0;
+async function tilesLoad() { const r = await api('api/tiles'); if (r.error || HBUSY) return; HT = r; tilesRender(); }
+function tileBody(t) {
+  const E = jsq(t.entity), act = (svc, data) => `homeAct(${E},'${svc}'${data ? ',' + data : ''})`;
+  const sw = t.control ? `<button class="sw sm ${t.on ? 'on' : ''}" onclick="${act('toggle')}" aria-label="${esc(t.name)} on or off"></button>` : '';
+  const range = (v, min, max, step, onch) => t.control ? `<input type="range" min="${min}" max="${max}" step="${step}" value="${v ?? min}" aria-label="${esc(t.name)} level" oninput="HBUSY=1" onchange="HBUSY=0;${onch}">` : '';
+  if (!t.found) return ['not in Home Assistant now', '', ''];
+  switch (t.domain) {
+    case 'light': return [t.on ? `on · ${t.level}%` : t.state, sw, range(t.level, 1, 100, 1, `homeAct(${E},'turn_on',{brightness_pct:+this.value})`)];
+    case 'switch': case 'input_boolean': return [t.state, sw, ''];
+    case 'fan': return [t.on ? `on · ${t.level}%` : t.state, sw, range(t.level, 0, 100, 10, `homeAct(${E},+this.value?'set_percentage':'turn_off',+this.value?{percentage:+this.value}:{})`)];
+    case 'humidifier': return [`${t.state} · room ${nf(t.current)}%`, sw, range(t.level, t.min, t.max, 1, `homeAct(${E},'set_humidity',{humidity:+this.value})`) + (t.level ? `<span class="sub">target ${nf(t.level)}%</span>` : '')];
+    case 'climate': return [`${t.state} · room ${nf(t.current)}°`, '', `<div class="big">${nf(t.level)}°</div>` + (t.control ? `<div class="row3"><button onclick="${act('set_temperature', `{temperature:${(t.level || 68) - 1}}`)}">−</button><button onclick="${act('set_temperature', `{temperature:${(t.level || 68) + 1}}`)}">+</button></div>` : '')];
+    case 'cover': return [t.level == null ? t.state : `${t.state} · ${t.level}`, '', t.control ? (t.tilt
+      ? `<div class="row3"><button onclick="${act('close_cover_tilt')}">Close</button><button onclick="${act('open_cover_tilt')}">Open</button></div>` + range(t.level, 0, 100, 1, `homeAct(${E},'set_cover_tilt_position',{tilt_position:+this.value})`)
+      : `<div class="row3"><button onclick="${act('close_cover')}">Close</button><button onclick="${act('stop_cover')}">Stop</button><button onclick="${act('open_cover')}">Open</button></div>`) : ''];
+    case 'media_player': return [t.available ? (t.title ? t.title + (t.artist ? ' · ' + t.artist : '') : t.state) : 'unavailable', '',
+      (t.picture && t.on ? `<img src="api/tiles/picture?entity=${encodeURIComponent(t.entity)}&v=${encodeURIComponent(t.title || '')}" alt="" onerror="this.remove()">` : '')
+      + (t.control && t.available ? `<div class="row3"><button onclick="${act('media_previous_track')}" aria-label="Previous">⏮</button><button onclick="${act('media_play_pause')}" aria-label="Play or pause">⏯</button><button onclick="${act('media_next_track')}" aria-label="Next">⏭</button></div>`
+        + (t.volume != null ? range(t.volume, 0, 100, 5, `homeAct(${E},'volume_set',{volume_level:this.value/100})`) : '') : '')];
+    case 'sensor': case 'input_number': case 'number': return ['', '', `<div class="big">${esc(t.value ?? t.state ?? '–')}<small>${esc(t.unit || '')}</small></div>`];
+    case 'binary_sensor': return [t.on ? 'on' : t.state, '', ''];
+    case 'image': case 'camera': return ['', '', `<img src="api/tiles/picture?entity=${encodeURIComponent(t.entity)}&v=${encodeURIComponent(t.version || '')}${t.domain === 'camera' ? '&t=' + Math.floor(Date.now() / 10000) : ''}" alt="${esc(t.name)}" onerror="this.outerHTML='<div class=&quot;sub&quot;>no picture right now</div>'">`];
+    case 'todo': return [`${t.open} open`, '', (t.items || []).length ? `<ul>${t.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : '<span class="sub">nothing open</span>'];
+    case 'script': case 'scene': return ['', '', t.control ? `<div class="row3"><button onclick="${act('turn_on')}">Run</button></div>` : ''];
+    case 'button': return ['', '', t.control ? `<div class="row3"><button onclick="${act('press')}">Press</button></div>` : ''];
+    default: return [t.state, '', ''];
+  }
+}
+function tilesRender() {
+  if (!HT) return;
+  $('#ht_edit').textContent = HTEDIT ? 'Done' : 'Edit';
+  $('#ht_grid').innerHTML = HT.modules.length ? HT.modules.map(t => {
+    const [sub, right, body] = tileBody(t), I = jsq(t.id);
+    const ed = HTEDIT ? `<span class="ed"><button onclick="tilesOp('move',{id:${I},step:-1})" aria-label="Move left">‹</button><button onclick="tilesOp('move',{id:${I},step:1})" aria-label="Move right">›</button><button onclick="tilesRename(${I})" aria-label="Rename">✎</button><button onclick="tilesOp('remove',{id:${I}})" aria-label="Remove">×</button></span>` : right;
+    return `<div class="ht"><div class="tt"><div style="min-width:0"><b>${esc(t.name)}</b>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>${ed}</div>${body}</div>`; }).join('')
+    : '<div class="mute" style="font-size:13px">No tiles yet. Tap + Add to put anything from Home Assistant here.</div>';
+}
+async function tilesOp(op, body) { const r = await api('api/tiles/' + op, body); if (r.error) alert(r.error); await tilesLoad(); if (op === 'add') tilesSearch(); }
+function tilesRename(id) { const t = HT.modules.find(m => m.id === id); const n = prompt('Name for this tile', t ? t.name : ''); if (n != null) tilesOp('rename', { id, name: n }); }
+function tilesQ() { clearTimeout(HTQ); HTQ = setTimeout(tilesSearch, 250); }
+function tilesPick() { $('#ht_pick').classList.remove('hide'); $('#ht_q').focus(); tilesSearch(); }
+async function tilesSearch() {
+  const r = await api('api/tiles/catalog?q=' + encodeURIComponent($('#ht_q').value || ''));
+  if (r.error) { $('#ht_res').textContent = r.error; return; }
+  $('#ht_res').innerHTML = (r.entities || []).map(e => `<div class="r"><span><b>${esc(e.name)}</b> <span class="mute">${esc(e.domain)} · ${esc(e.state)}</span></span><button class="soft" onclick="tilesOp('add',{entity:${jsq(e.entity)}})">Add</button></div>`).join('')
+    + (r.total > (r.entities || []).length ? `<div class="mute" style="font-size:12px;margin-top:6px">${r.total - r.entities.length} more: type to narrow</div>` : '') || '<div class="mute" style="font-size:12px">Nothing matches.</div>';
+}
+async function embLoad() { const r = await api('api/tiles'); if (r.error) return; HE = r.embeds || []; embRender(); }
+function embRender() {
+  HESEL = Math.min(HESEL, Math.max(0, HE.length - 1));
+  const inHA = location.pathname.includes('hassio_ingress');
+  $('#he_note').textContent = inHA ? '' : 'Open Home Mind from Home Assistant to see dashboards here.';
+  $('#he_tabs').innerHTML = HE.map((e, i) => `<button class="${i === HESEL ? 'on' : ''}" onclick="HESEL=${i};embRender()">${esc(e.name)}<span onclick="event.stopPropagation();embRemove(${jsq(e.path)})" aria-label="Remove" style="margin-left:4px;color:var(--mute)">×</span></button>`).join('');
+  const e = HE[HESEL], f = $('#he_frame'), src = e && inHA ? e.path + '?kiosk' : 'about:blank';
+  if (f.getAttribute('src') !== src) f.setAttribute('src', src);
+}
+async function embAdd() { const r = await api('api/tiles/embed_add', { name: $('#he_name').value, path: $('#he_path').value }); if (r.error) { alert(r.error); return; } HE = r.embeds; HESEL = HE.length - 1; $('#he_name').value = $('#he_path').value = ''; embRender(); }
+async function embRemove(path) { if (!confirm('Remove this dashboard from Home Mind? (It stays in Home Assistant.)')) return; const r = await api('api/tiles/embed_remove', { path }); if (!r.error) { HE = r.embeds; embRender(); } }
 
 // ---- Meds, Supplements & Daily Habits ----
 async function mhLoad() {

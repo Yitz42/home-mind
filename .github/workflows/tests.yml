@@ -150,3 +150,5 @@ jobs:
         run: python tests/suites_check.py
       - name: Turnkey small-LLM training (control, persona, memgraph)
         run: python tests/test_trainer.py
+      - name: House tiles and dashboards
+        run: python tests/test_tiles.py

@@ -20,7 +20,8 @@ DEVICES = [
     {"id": "storage", "name": "Storage light", "kind": "light", "entity": "light.dreamview_p1", "x": 90, "y": 70},
     {"id": "heater", "name": "Heater", "kind": "climate", "entity": "climate.bedroom_temp", "x": 48.5, "y": 92},
     {"id": "purifier", "name": "Air purifier", "kind": "fan", "entity": "fan.dyson_c2a_us_mdb9996a", "x": 9, "y": 10},
-    # humidifier.humidifier_bedroom: not installed yet. Add it back here (with its spot on the map) once it is set up.
+    # the humidifier is in the Comfort card; no spot on the map until Yitz says where it sits (x, y stay None)
+    {"id": "humid", "name": "Humidifier", "kind": "humidifier", "entity": "humidifier.humidifier_bedroom", "x": None, "y": None},
     {"id": "blind", "name": "Blind", "kind": "cover", "entity": "cover.blind_tilt_47d0", "x": 50, "y": 3.5},
     {"id": "printer", "name": "3D printer (A1)", "kind": "printer", "entity": "sensor.a1_print_status", "x": 90, "y": 61},
 ]
@@ -67,14 +68,18 @@ SUN = "sun.sun"
 ALLOWED = {
     "light": {"turn_on": {"brightness_pct", "rgb_color", "color_temp_kelvin"}, "turn_off": set(), "toggle": set()},
     "climate": {"set_temperature": {"temperature"}, "set_hvac_mode": {"hvac_mode"}, "set_preset_mode": {"preset_mode"}},
-    "humidifier": {"turn_on": set(), "turn_off": set(), "set_humidity": {"humidity"}},
-    "fan": {"turn_on": set(), "turn_off": set(), "set_percentage": {"percentage"}, "set_preset_mode": {"preset_mode"}},
-    "cover": {"set_cover_tilt_position": {"tilt_position"}, "open_cover_tilt": set(), "close_cover_tilt": set()},
+    "humidifier": {"turn_on": set(), "turn_off": set(), "toggle": set(), "set_humidity": {"humidity"}},
+    "fan": {"turn_on": set(), "turn_off": set(), "toggle": set(), "set_percentage": {"percentage"},
+            "set_preset_mode": {"preset_mode"}},
+    "cover": {"set_cover_tilt_position": {"tilt_position"}, "open_cover_tilt": set(), "close_cover_tilt": set(),
+              "open_cover": set(), "close_cover": set(), "stop_cover": set(), "set_cover_position": {"position"}},
     "switch": {"turn_on": set(), "turn_off": set(), "toggle": set()},
     "input_boolean": {"turn_on": set(), "turn_off": set(), "toggle": set()},
-    "media_player": {"media_play_pause": set(), "media_next_track": set(), "media_previous_track": set()},
+    "media_player": {"media_play_pause": set(), "media_next_track": set(), "media_previous_track": set(),
+                     "volume_set": {"volume_level"}},
     "button": {"press": set()},
     "script": {"turn_on": set()},
+    "scene": {"turn_on": set()},
     "input_datetime": {"set_datetime": {"time"}},
 }
 
@@ -86,9 +91,9 @@ def controllable():
     return ents
 
 
-def check(entity, service, data):
-    """(domain, clean data) or raise ValueError when the action isn't allowed."""
-    if entity not in controllable():
+def check(entity, service, data, extra=()):
+    """(domain, clean data) or raise ValueError when the action isn't allowed. extra: entities on House tiles."""
+    if entity not in controllable() and entity not in extra:
         raise ValueError(f"{entity} is not on the Home controls")
     domain = entity.split(".")[0]
     keys = ALLOWED.get(domain, {}).get(service)
@@ -99,9 +104,11 @@ def check(entity, service, data):
         raise ValueError(f"not allowed with {domain}.{service}: {', '.join(sorted(bad))}")
     clean = dict(data or {})
     for k, lo, hi in (("brightness_pct", 1, 100), ("temperature", 50, 86), ("humidity", 30, 80), ("percentage", 0, 100),
-                      ("tilt_position", 0, 100), ("color_temp_kelvin", 2000, 6500)):
+                      ("tilt_position", 0, 100), ("position", 0, 100), ("color_temp_kelvin", 2000, 6500)):
         if k in clean:
             clean[k] = max(lo, min(hi, float(clean[k]) if k == "temperature" else int(float(clean[k]))))
+    if "volume_level" in clean:
+        clean["volume_level"] = round(max(0.0, min(1.0, float(clean["volume_level"]))), 2)
     if "rgb_color" in clean:
         rgb = [max(0, min(255, int(v))) for v in list(clean["rgb_color"])[:3]]
         if len(rgb) != 3:
@@ -288,7 +295,15 @@ async def forecasts(ha):
 
 
 async def act(A, entity, service, data=None):
-    domain, clean = check(entity, service, data)
+    from . import modules
+    extra = set()
+    if entity not in controllable():
+        extra = modules.controllable(A)
+        if entity in extra:
+            why = modules.blocked(entity, await A.ha.state(entity))
+            if why:
+                raise ValueError(why)
+    domain, clean = check(entity, service, data, extra)
     dlog = getattr(A, "decisions", None)
     prior = A.home.state_now(entity) if dlog is not None and getattr(A, "home", None) else None
     if dlog is not None and hasattr(A.ha, "call_ctx"):

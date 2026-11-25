@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.37.0
+- **Your tiles (`House › Live Controls`):** a new card that shows anything from Home Assistant, picked from a searchable list (**+ Add**), and drawn by its kind: lights, switches, fans, blinds, climate and humidifiers get their controls; speakers get play/pause, skip, volume and the album art; sensors show their value; images and cameras show their picture; to-do lists show their open items; scripts, scenes and buttons get a Run/Press button. **Edit** moves, renames and removes tiles. A first load adds the scale (weight, body fat), both speakers, the printer camera and the three Ideas lists. New `modules.py`, `GET /api/tiles`, `GET /api/tiles/catalog`, `GET /api/tiles/picture`, `POST /api/tiles/{op}`.
+- **Tile safety:** a tile can only switch what is on it, through the same per-domain allowlist and value clamps as the room controls (now also cover open/close/stop/position, fan and humidifier toggle, speaker volume and scenes). Locks, alarms, valves, garage doors, gates and doors are never switchable from a tile; they show their state only. Adding or removing tiles needs the admin scope.
+- **Dashboards (`House › Dashboards`):** Home Assistant dashboard views shown inside Home Mind, opened in kiosk mode, with pills to switch between them and a form to add one by its path (such as `/dashboard-bedroom/0`). Starts with the Overview. Works when Home Mind is opened from Home Assistant.
+- **Humidifier on the Comfort card:** `humidifier.humidifier_bedroom` is now one of the House devices (not yet placed on the room map).
+
 ## 0.36.1
 - **Printer time left in hours and minutes (`House › 3D printer`):** the A1 reports its remaining time in hours, and the card showed that number as minutes ("2.55 min left"). The time is now read in the sensor's own unit and shown as hours and minutes ("2h 33m left"); `/api/controls` adds `printer.remaining_min`.
 - **Print preview on the printer card and map icon:** while a print is loaded, the Bambu cover image (`image.a1_cover_image`) shows in the card's picture tile and on the printer's icon on the room map, served by the new `GET /api/controls/printer/cover`.
