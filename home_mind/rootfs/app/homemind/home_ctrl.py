@@ -79,6 +79,7 @@ ALLOWED = {
     "media_player": {"media_play_pause": set(), "media_next_track": set(), "media_previous_track": set(),
                      "volume_set": {"volume_level"}},
     "button": {"press": set()},
+    "input_button": {"press": set()},
     "script": {"turn_on": set()},
     "scene": {"turn_on": set()},
     "input_datetime": {"set_datetime": {"time"}},

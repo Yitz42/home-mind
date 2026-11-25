@@ -26,9 +26,10 @@ MAX_EMBEDS = 8
 # domains a tile can draw; the ones in CONTROL can also be switched from the tile
 DRAW = ("light", "switch", "input_boolean", "fan", "cover", "climate", "humidifier", "media_player", "sensor",
         "binary_sensor", "image", "camera", "todo", "script", "scene", "button", "input_number", "number", "lock",
-        "weather", "person", "device_tracker", "input_select", "select")
+        "weather", "person", "device_tracker", "input_select", "select", "input_button")
 CONTROL = ("light", "switch", "input_boolean", "fan", "cover", "climate", "humidifier", "media_player", "script",
-           "scene", "button")
+           "scene", "button", "input_button")
+BUTTONS = ("button", "input_button", "script", "scene")   # drawn as a row of buttons above the tiles
 NEVER = ("lock", "alarm_control_panel", "valve")
 NEVER_COVER = ("garage", "gate", "door")          # cover device classes that open the house
 
@@ -42,6 +43,17 @@ DEFAULTS = [
     {"entity": "todo.ideas_random", "name": "Ideas: random"},
     {"entity": "todo.ideas_book_and_framework", "name": "Ideas: book"},
 ]
+# added once to an existing list (0.38): the sleep and comfort buttons
+ADDED_LATER = {"sleep_buttons": [
+    {"entity": "input_button.steady_wind_down", "name": "Wind down"},
+    {"entity": "input_button.steady_bedtime", "name": "Bedtime"},
+    {"entity": "input_button.steady_nap_start", "name": "Nap start"},
+    {"entity": "input_button.steady_nap_end", "name": "Nap end"},
+    {"entity": "input_button.comfort_cold", "name": "Too cold"},
+    {"entity": "input_button.comfort_ok", "name": "Just right"},
+    {"entity": "input_button.comfort_hot", "name": "Too hot"},
+]}
+KV_ADDED = "house_modules_added"
 DEFAULT_EMBEDS = [{"name": "Overview", "path": "/lovelace/0"}]
 
 ENTITY = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
@@ -64,6 +76,16 @@ def load(A):
     if mods is None:
         mods = [dict(d, id=_slug(d["entity"])) for d in DEFAULTS]
         s.kv_set(KV, mods)
+    done = s.kv_get(KV_ADDED) or []
+    todo = [k for k in ADDED_LATER if k not in done]
+    if todo:
+        have = {m["entity"] for m in mods}
+        for k in todo:
+            for d in ADDED_LATER[k]:
+                if d["entity"] not in have and len(mods) < MAX_MODULES:
+                    mods.append(dict(d, id=_slug(d["entity"])))
+        s.kv_set(KV, mods)
+        s.kv_set(KV_ADDED, done + todo)
     return mods
 
 
@@ -110,7 +132,7 @@ def view(m, s):
     out = {"id": m["id"], "entity": ent, "domain": dom, "name": m.get("name") or a.get("friendly_name") or ent,
            "state": state, "available": state not in DEAD or dom in ("image", "camera", "todo"),
            "unit": a.get("unit_of_measurement"), "icon": a.get("icon"), "found": bool(s),
-           "control": dom in CONTROL and not blocked(ent, s)}
+           "control": dom in CONTROL and not blocked(ent, s), "button": dom in BUTTONS}
     if dom == "light":
         b = a.get("brightness")
         out.update(on=state == "on", level=round(b / 255 * 100) if isinstance(b, (int, float)) else (100 if state == "on" else 0))

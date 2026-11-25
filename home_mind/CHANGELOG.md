@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.0
+- **Simple view (on by default):** hides the tools you rarely need so the panel is easier to use: Health › Voice Learning, Food › Rules, House › Automations and Sensors & Habits, System › Models & Training and Tests, the Brain's Graph and Worked Out, and the Overview's test cards. Turn it off in System › Overview › Display & household view to see everything (kept per device).
+- **Sleep and comfort buttons (`House › Your tiles`):** wind down, bedtime, nap start and end, and too cold / just right / too hot are added once to your tiles and drawn as a row of buttons above them (Edit shows them as tiles to move or remove). Buttons, scripts and scenes on tiles all join that row. `input_button` tiles can be pressed (`press` only).
+
 ## 0.37.2
 - **Humidifier on the room map (`House › Live Controls`):** the bedroom humidifier now has its spot on the map, under the desk.
 - `version.py` caught up with `config.yaml` (it still said 0.37.0 in 0.37.1).

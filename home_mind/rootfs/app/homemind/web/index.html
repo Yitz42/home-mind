@@ -533,6 +533,7 @@
   .rc-acts { display:flex; flex-wrap:wrap; gap:5px; align-items:center }
   .rc-acts button { min-height:28px; padding:3px 9px; font-size:11px }
   .rc-bc { padding:8px 10px; border-radius:10px; background:var(--food-bg); border:1px solid var(--food-line); font-size:12px; margin-top:6px }
+  body.simple [data-adv] { display:none !important }
 </style>
 </head>
 <body>
@@ -605,7 +606,7 @@
         <button id="hl_t_pat" class="on" onclick="hlTab('pat')">Patterns</button>
         <button id="hl_t_meds" onclick="hlTab('meds')">Meds &amp; Habits</button>
         <button id="hl_t_logs" onclick="hlTab('logs')">Logs &amp; Sleep</button>
-        <button id="hl_t_pb" onclick="hlTab('pb')">Voice Learning</button>
+        <button id="hl_t_pb" data-adv onclick="hlTab('pb')">Voice Learning</button>
       </div>
     </div>
     <button class="go" style="background:var(--health);color:var(--health-on);min-height:32px;padding:5px 12px;font-size:12px" onclick="sendReport()">Send report</button>
@@ -875,8 +876,8 @@
       <div class="ck-tabs" role="tablist" aria-label="System views">
         <button id="sy_t_over" class="on" onclick="sysTab('over')">Overview &amp; Persona</button>
         <button id="sy_t_brain" onclick="sysTab('brain')">Brain <b class="badge hide" id="sy_br_rev" style="margin-left:4px;font-size:10px;padding:0 5px;vertical-align:middle"></b></button>
-        <button id="sy_t_models" onclick="sysTab('models')">Models &amp; Training</button>
-        <button id="sy_t_tests" onclick="sysTab('tests')">Tests</button>
+        <button id="sy_t_models" data-adv onclick="sysTab('models')">Models &amp; Training</button>
+        <button id="sy_t_tests" data-adv onclick="sysTab('tests')">Tests</button>
         <button id="sy_t_access" onclick="sysTab('access')">Access &amp; Updates</button>
       </div>
     </div>
@@ -900,7 +901,7 @@
             <textarea id="ps_prompt" readonly rows="5" style="width:100%" aria-label="Agent instructions"></textarea>
           </details>
         </div>
-        <div class="ck-card"><div class="hrow"><h2>Does the brain help?</h2><a style="font-size:12px" onclick="sysTab('tests')">Tests →</a></div><div class="mute" id="mo_bench_sub" style="font-size:12px;margin-bottom:8px"></div><div id="mo_bench" style="display:flex;flex-direction:column;gap:8px"></div></div>
+        <div class="ck-card" data-adv><div class="hrow"><h2>Does the brain help?</h2><a style="font-size:12px" onclick="sysTab('tests')">Tests →</a></div><div class="mute" id="mo_bench_sub" style="font-size:12px;margin-bottom:8px"></div><div id="mo_bench" style="display:flex;flex-direction:column;gap:8px"></div></div>
       </div>
       <div class="ck-col">
         <div class="ck-card">
@@ -916,9 +917,11 @@
             <button type="button" class="soft" style="min-height:34px;padding:5px 12px;font-size:12px" onclick="go('today');toggleWall(true)">⛶ Wall mode</button>
           </div>
           <div class="mute" style="font-size:11px;margin-top:6px">Switch to a person's personal view or shared household-only view, or open full-screen Wall mode for a tablet/kiosk display.</div>
+          <label style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px;cursor:pointer"><button type="button" class="sw sm" id="vw_simple" role="switch" aria-checked="true" aria-label="Simple view" onclick="setSimple(!SIMPLE)"></button>
+            <span><b>Simple view</b> <span class="mute">hides tools you rarely need: Voice Learning, food Rules, house Automations and Sensors, Models, Tests, and the brain's Graph and Worked Out. Turn off to see everything.</span></span></label>
         </div>
-        <div class="ck-card"><h2>Offline reference</h2><div id="mo_ref" class="feed"></div></div>
-        <div class="ck-card"><h2>Latest test results</h2><table id="latest"></table></div>
+        <div class="ck-card" data-adv><h2>Offline reference</h2><div id="mo_ref" class="feed"></div></div>
+        <div class="ck-card" data-adv><h2>Latest test results</h2><table id="latest"></table></div>
         <div class="ck-card"><h2>Recent activity</h2><div class="list" id="events" style="max-height:240px;overflow-y:auto"></div></div>
       </div>
     </div>
@@ -977,8 +980,8 @@
       <div class="ck-head-l">
         <div class="ck-tabs" role="tablist" aria-label="Brain views">
           <button id="br_t_notes" class="on" onclick="brainTab('notes')">Notes</button>
-          <button id="br_t_graph" onclick="brainTab('graph')">Graph</button>
-          <button id="br_t_worked" onclick="brainTab('worked')">Worked Out</button>
+          <button id="br_t_graph" data-adv onclick="brainTab('graph')">Graph</button>
+          <button id="br_t_worked" data-adv onclick="brainTab('worked')">Worked Out</button>
           <button id="br_t_data" onclick="brainTab('data')">Docs &amp; Data</button>
         </div>
         <span class="ck-sub" id="mem_sub"></span>
@@ -1115,8 +1118,8 @@
       <div class="ck-tabs" role="tablist" aria-label="House views">
         <button class="on" id="hs_c" onclick="homeTab('c')">Live Controls</button>
         <button id="hs_u" onclick="homeTab('u')">Upkeep</button>
-        <button id="hs_a" onclick="homeTab('a')">Automations</button>
-        <button id="hs_s" onclick="homeTab('s')">Sensors &amp; Habits</button>
+        <button id="hs_a" data-adv onclick="homeTab('a')">Automations</button>
+        <button id="hs_s" data-adv onclick="homeTab('s')">Sensors &amp; Habits</button>
         <button id="hs_d" onclick="homeTab('d')">Dashboards</button>
       </div>
     </div>
@@ -1163,6 +1166,7 @@
     <div class="card">
       <div class="hrow" style="align-items:center"><div><h2 style="margin:0">Your tiles</h2><span class="mute" style="font-size:12px">anything from Home Assistant</span></div>
         <div style="display:flex;gap:6px"><button class="soft" id="ht_edit" onclick="HTEDIT=!HTEDIT;tilesRender()">Edit</button><button class="go" onclick="tilesPick()">+ Add</button></div></div>
+      <div class="hc-pills hide" id="ht_btns" role="group" aria-label="Buttons"></div>
       <div class="ht-grid" id="ht_grid" style="margin-top:12px"></div>
       <div class="ht-pick hide" id="ht_pick"><div class="row"><input id="ht_q" placeholder="Search Home Assistant: speaker, weight, camera…" style="flex:1" oninput="tilesQ()"><button class="soft" onclick="$('#ht_pick').classList.add('hide')">Done</button></div><div id="ht_res"></div></div>
     </div>
@@ -1233,7 +1237,7 @@
         <button id="fd_t_plan" onclick="foodTab('plan')">Meal Plan</button>
         <button id="fd_t_recipes" onclick="foodTab('recipes')">Recipes</button>
         <button id="fd_t_pantry" onclick="foodTab('pantry')">Pantry</button>
-        <button id="fd_t_rules" onclick="foodTab('rules')">Rules</button>
+        <button id="fd_t_rules" data-adv onclick="foodTab('rules')">Rules</button>
       </div>
     </div>
   </div>
@@ -1412,6 +1416,24 @@ const SUB_TAB = {
   models: ['more', () => sysTab('models')],
   updates: ['more', () => sysTab('access')],
 };
+// Simple view (0.38): hides the rarely used tabs and cards marked data-adv; on unless turned off on this device
+let SIMPLE = true;
+try { if (typeof localStorage !== 'undefined' && localStorage.getItem('hm_simple') === '0') SIMPLE = false; } catch (e) {}
+function applySimple() {
+  if (document.body && document.body.classList) document.body.classList.toggle('simple', SIMPLE);
+  const sw = $('#vw_simple'); if (sw) { sw.classList.toggle('on', SIMPLE); sw.setAttribute('aria-checked', String(SIMPLE)); }
+}
+function setSimple(on) {
+  SIMPLE = !!on;
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem('hm_simple', SIMPLE ? '1' : '0'); } catch (e) {}
+  applySimple();
+  if (!SIMPLE) return;
+  if (HL_TAB === 'pb') hlTab('pat');
+  if (FD_TAB === 'rules') foodTab('today');
+  if (BR_TAB === 'graph' || BR_TAB === 'worked') brainTab('notes');
+  if (typeof HTAB !== 'undefined' && (HTAB === 'a' || HTAB === 's')) homeTab('c');
+  if (SY_TAB === 'models' || SY_TAB === 'tests') sysTab('over');
+}
 function go(t) {
   const sub = SUB_TAB[t], sec = sub ? sub[0] : t;
   CUR_SEC = sec;
@@ -1458,6 +1480,7 @@ function sysTab(t) {
   if (t === 'access') tokens();
 }
 document.querySelectorAll('#nav button[data-t]').forEach(b => b.onclick = () => go(b.dataset.t));
+try { applySimple(); } catch (e) { /* no page to style (tests) */ }
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const dayName = d => DAYS[new Date(d + 'T12:00').getDay()];
 const fmtH = h => h == null ? '' : (h => { const H = Math.floor(h) % 24, M = Math.round((h % 1) * 60); return ((H % 12) || 12) + ':' + String(M).padStart(2, '0') + (H < 12 ? ' AM' : ' PM'); })(h);
@@ -4144,18 +4167,26 @@ function tileBody(t) {
     case 'image': case 'camera': return ['', '', `<img src="api/tiles/picture?entity=${encodeURIComponent(t.entity)}&v=${encodeURIComponent(t.version || '')}${t.domain === 'camera' ? '&t=' + Math.floor(Date.now() / 10000) : ''}" alt="${esc(t.name)}" onerror="this.outerHTML='<div class=&quot;sub&quot;>no picture right now</div>'">`];
     case 'todo': return [`${t.open} open`, '', (t.items || []).length ? `<ul>${t.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : '<span class="sub">nothing open</span>'];
     case 'script': case 'scene': return ['', '', t.control ? `<div class="row3"><button onclick="${act('turn_on')}">Run</button></div>` : ''];
-    case 'button': return ['', '', t.control ? `<div class="row3"><button onclick="${act('press')}">Press</button></div>` : ''];
+    case 'button': case 'input_button': return ['', '', t.control ? `<div class="row3"><button onclick="${act('press')}">Press</button></div>` : ''];
     default: return [t.state, '', ''];
   }
 }
 function tilesRender() {
   if (!HT) return;
   $('#ht_edit').textContent = HTEDIT ? 'Done' : 'Edit';
-  $('#ht_grid').innerHTML = HT.modules.length ? HT.modules.map(t => {
+  const pills = HTEDIT ? [] : HT.modules.filter(t => t.button && t.found && t.control), tiles = HT.modules.filter(t => !pills.includes(t));
+  $('#ht_btns').innerHTML = pills.map(t => `<button onclick="tilePress(this,${jsq(t.entity)},'${t.domain === 'script' || t.domain === 'scene' ? 'turn_on' : 'press'}')">${esc(t.name)}</button>`).join('');
+  $('#ht_btns').classList.toggle('hide', !pills.length);
+  $('#ht_grid').innerHTML = tiles.length ? tiles.map(t => {
     const [sub, right, body] = tileBody(t), I = jsq(t.id);
     const ed = HTEDIT ? `<span class="ed"><button onclick="tilesOp('move',{id:${I},step:-1})" aria-label="Move left">‹</button><button onclick="tilesOp('move',{id:${I},step:1})" aria-label="Move right">›</button><button onclick="tilesRename(${I})" aria-label="Rename">✎</button><button onclick="tilesOp('remove',{id:${I}})" aria-label="Remove">×</button></span>` : right;
     return `<div class="ht"><div class="tt"><div style="min-width:0"><b>${esc(t.name)}</b>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>${ed}</div>${body}</div>`; }).join('')
-    : '<div class="mute" style="font-size:13px">No tiles yet. Tap + Add to put anything from Home Assistant here.</div>';
+    : pills.length ? '' : '<div class="mute" style="font-size:13px">No tiles yet. Tap + Add to put anything from Home Assistant here.</div>';
+}
+async function tilePress(btn, entity, service) {
+  btn.classList.add('on'); const r = await api('api/controls/act', { entity, service, data: {} });
+  if (r.error) { btn.classList.remove('on'); alert(r.error); return; }
+  setTimeout(() => btn.classList.remove('on'), 1200);
 }
 async function tilesOp(op, body) { const r = await api('api/tiles/' + op, body); if (r.error) alert(r.error); await tilesLoad(); if (op === 'add') tilesSearch(); }
 function tilesRename(id) { const t = HT.modules.find(m => m.id === id); const n = prompt('Name for this tile', t ? t.name : ''); if (n != null) tilesOp('rename', { id, name: n }); }

@@ -68,7 +68,19 @@ class FakeHA:
 A = NS(mind=NS(store=Store()), ha=FakeHA())
 
 mods = modules.load(A)
-check("first load seeds the defaults", len(mods) == len(modules.DEFAULTS) and mods[0]["entity"] == "sensor.yitz_weight")
+sleep = modules.ADDED_LATER["sleep_buttons"]
+check("first load seeds the defaults and the sleep buttons",
+      len(mods) == len(modules.DEFAULTS) + len(sleep) and mods[0]["entity"] == "sensor.yitz_weight")
+B = NS(mind=NS(store=Store()), ha=FakeHA())
+B.mind.store.kv_set(modules.KV, [{"id": "light_desk", "entity": "light.desk", "name": ""}])
+got = modules.load(B)
+check("an existing list gets the sleep buttons once, at the end",
+      got[0]["entity"] == "light.desk" and [m["entity"] for m in got[1:]] == [d["entity"] for d in sleep])
+modules.remove(B, "input_button_comfort_hot")
+check("a removed sleep button stays removed", "input_button.comfort_hot" not in {m["entity"] for m in modules.load(B)})
+check("a sleep button can be pressed from its tile",
+      home_ctrl.check("input_button.steady_bedtime", "press", {}, modules.controllable(A))[0] == "input_button")
+check("but not given anything else", raises(lambda: home_ctrl.check("input_button.steady_bedtime", "turn_on", {}, modules.controllable(A))))
 check("the overview dashboard is there by default", modules.embeds(A)[0]["path"] == "/lovelace/0")
 
 out = asyncio.run(modules.build(A))
