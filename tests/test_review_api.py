@@ -129,6 +129,8 @@ ROUTES = [
     ("GET", "/api/recall", ["q", "limit", "shelf", "kind", "old", "touch", "raw"]),
     ("POST", "/api/remember", ["text", "title", "kind", "shelf", "tags", "key", "meta", "scope", "owner", "inferred",
                                "source", "at"]),
+    ("GET", "/api/glance", ["speaker"]),
+    ("POST", "/api/capture", ["text", "kind", "speaker"]),
     ("GET", "/api/review", []),
     ("GET", "/api/browse", ["shelf"]),
     ("GET", "/api/item/{id}", []),

@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.40.0"
+version: "0.41.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -161,6 +161,9 @@ options:
   router_cloud: []
   private_to_cloud: when_local_away
   plain_link_admin: false
+  tool_model: ""
+  tool_writes: false
+  tool_daily_limit: 50
   db_snapshots: 7
 schema:
   models:
@@ -320,4 +323,7 @@ schema:
     - str
   private_to_cloud: list(when_local_away|never)?
   plain_link_admin: bool?
+  tool_model: str?
+  tool_writes: bool?
+  tool_daily_limit: int(0,1000)?
   db_snapshots: int(1,60)?

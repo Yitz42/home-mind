@@ -914,6 +914,15 @@ class Mind:
                 now_lines = ""
             if now_lines:
                 ctx = now_lines + "\n\n" + (ctx or "")
+        sit = getattr(self, "situation", None)
+        if sit is not None and store is self.store:
+            from .speakers import VIEWER
+            try:
+                sl = sit(VIEWER.get())          # time, where, next events, sleep mode, top tasks (every answer)
+            except Exception:  # noqa: BLE001
+                sl = ""
+            if sl:
+                ctx = flag_instructions(sl) + "\n\n" + (ctx or "")
         return about_names(store.fix_typos(question), hits), procs, ctx
 
     async def _with_meaning(self, store, question, hits, k):
@@ -1617,6 +1626,7 @@ class Mind:
             chain = self._chain(model) if fallback else [model]
         if not chain:
             chain = [model]
+        private = None
         if use_brain and system is None and (auto_model or route_info is not None):
             # private questions: a local model first when one is awake, and with private_to_cloud "never" no cloud
             # model at all (the router's own "local first" can't do this when the fallback list is cloud only)
@@ -1785,6 +1795,31 @@ class Mind:
                             loop_back_used = True
                     except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                         log.warning("memgraph loop_back chat: %s", e)
+        tl = getattr(self, "toolloop", None)
+        tools_used = None
+        if (tl is not None and use_brain and system is None and store is self.store and not voice and used
+                and not privacy.bulk(question) and DONT_KNOW.search(text) and tl.ready()):
+            if private is None:
+                from .router import classify
+                private = classify(question, hits, voice)[1]
+            left = None if deadline is None else deadline - (time.time() - t0)
+            if not private and (left is None or left > 5):
+                # the usual answer didn't know: a Claude model may look it up with tools (toolloop.py, costs money)
+                try:
+                    t_obj = tl.model()
+                    t_content = cloud_safe(plain, question, t_obj, store)
+                    t_prior = [(cloud_safe(pq, question, t_obj, store), cloud_safe(pa, question, t_obj, store))
+                               for pq, pa in prior]
+                    coro3 = tl.answer(question, t_content, t_prior)
+                    r3 = await (asyncio.wait_for(coro3, left) if left is not None else coro3)
+                    if r3 and r3.get("text") and not DONT_KNOW.search(r3["text"]):
+                        r, text, named, used = r3, r3["text"], [], r3["model"]
+                        tools_used = r3.get("tools") or []
+                    elif r3 is not None:
+                        errors.append(f"{r3.get('model')}: looked with tools and didn't find it")
+                except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001 - the first answer stands
+                    log.warning("tool loop: %s", e)
+                    errors.append(f"tools: {type(e).__name__} {e}"[:200])
         if mg is not None and store is self.store and graph_links and not DONT_KNOW.search(text):
             try:
                 used_ids = [i for i in mg.used_links(text, graph_links) if i not in loop_back_ids]
@@ -1833,6 +1868,8 @@ class Mind:
             ]
         if loop_back_used:
             out["loop_back"] = True
+        if tools_used is not None:
+            out["tools"] = tools_used
         if streamed:
             out["_streamed"] = streamed
         if question != original:

@@ -174,10 +174,15 @@ class App:
         await self.models.start()
         self.mind.rerank_model = self.opts.get("rerank_model") or None
         self.mind.librarian_model = self.opts.get("librarian_model") or None
-        if self.opts.get("embed_model"):
+        em_name = self.opts.get("embed_model") or next(
+            (m.name for m in self.models.models.values() if (getattr(m, "cfg", None) or {}).get("embed_model")), "")
+        self.embed_name = em_name
+        if em_name:
+            # option embed_model, or else the first model that names an embedding model (its embed_model field)
             from .embeddings import Embeddings
             try:
-                self.mind.embeddings = Embeddings(self.mind.store, self.models.get(self.opts["embed_model"]))
+                self.mind.embeddings = Embeddings(self.mind.store, self.models.get(em_name),
+                                                  is_up=lambda n=em_name: self.models.up(n) is not False)
             except Exception as e:  # noqa: BLE001 - a missing model name: keyword search only
                 log.warning("embed_model: %s", e)
         self.ha = HA(self.models.session)
@@ -246,9 +251,11 @@ class App:
         self.modes = Modes(self, self.mind.store, self.warm)
         self.board = NowBoard(self.mind.store)
         self.mind.board = self.board
+        from .nowboard import situation
+        self.mind.situation = lambda viewer, _a=self: situation(_a, viewer)
         self.worsening = Worsening(self.mind.store)
         from .learned import Learned
-        em = self.opts.get("embed_model") or ""
+        em = getattr(self, "embed_name", "") or ""
         self.learned = Learned(self.mind.store, self.home, embed=(
             (lambda texts: self.models.get(em).embed(texts)) if em else None))
         from .learned_answers import LearnedAnswers
@@ -361,6 +368,9 @@ class App:
         self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
         self.mind.ORDER = "edges" if self.opts.get("answer_edges") else "default"
         self.mind.NOTES_FIRST = bool(self.opts.get("answer_notes_first"))
+        from .toolloop import ToolLoop
+        self.mind.toolloop = ToolLoop(self, self.opts.get("tool_model") or None, bool(self.opts.get("tool_writes")),
+                                      self.opts.get("tool_daily_limit") if self.opts.get("tool_daily_limit") is not None else 50)
         self.journal = Journal(self.mind.store, self.models, mind=self.mind)
         self.calendars = Calendars(self.mind.store, self.ha, self.opts.get("calendar_quiet"))
         self._mark_secrets()
@@ -2111,6 +2121,19 @@ class App:
                                   "device_class": "timestamp",
                                   "automations_run": sorted(e for e in self.engine.owned
                                                             if self.engine.autos.get(e, {}).get("ha_state") != "on")})
+            try:        # the watch card (Pebble, or any dashboard): the most pressing few lines, every minute
+                from .nowboard import glance
+                from .speakers import VIEWER as _GV
+                tv = _GV.set("")        # household only: a sensor anyone in Home Assistant can read keeps personal
+                try:                    # notes, tasks and events out
+                    g = glance(self, "")
+                finally:
+                    _GV.reset(tv)
+                await self.ha.sensor("sensor.home_mind_now", g["text"][:250],
+                                     {"friendly_name": "Home Mind now", "icon": "mdi:watch", "lines": g["lines"],
+                                      "next": g.get("next"), "tasks": g.get("tasks", [])})
+            except Exception:  # noqa: BLE001
+                log.exception("glance sensor")
         await self.journal.tick()
         self._spawn("overnight", self.overnight.tick)      # can take a long while: the loop keeps ticking
         if self.ha.available and now - last.get("shop", 0) > 300:
@@ -2766,6 +2789,32 @@ def build(app_state):
         return J(st.remember(text=b.get("text", ""), title=b.get("title", ""), kind=b.get("kind", "note"),
                              shelf=b.get("shelf", "inbox"), tags=b.get("tags"), key=b.get("key"), meta=meta or None,
                              source=b.get("source", "api"), at=b.get("at")))
+
+    @r.get("/api/glance")
+    async def glance_get(q):
+        # a watch-sized look at right now (the Pebble card): next event, top tasks, the day's check-in, approvals
+        from .nowboard import glance
+        return J(glance(A, A.speaker_for(dict(q.query))[0]))
+
+    @r.post("/api/capture")
+    async def capture_post(q):
+        # one-tap capture from a watch or a shortcut: "idea: ...", "journal: ...", "note to self: ..." as by voice;
+        # plain text is filed by kind (idea, journal or note; idea when not given)
+        b = await read_body(q, text=str, kind=str)
+        text = (b.get("text") or "").strip()
+        if len(text) < 2:
+            raise ValueError("text is needed")
+        from .ask_actions import _handle_capture, capture_parse
+        if not capture_parse(text):
+            kind = (b.get("kind") or "idea").lower()
+            if kind not in ("idea", "journal", "note"):
+                raise ValueError("kind is idea, journal or note")
+            text = {"idea": "idea: ", "journal": "journal: ", "note": "note to self: "}[kind] + text
+        who = A.speaker_for(b)[0]
+        r = await _handle_capture(A, text, who, voice=False)
+        if not r:
+            raise ValueError("nothing to save (a question isn't captured)")
+        return J({"saved_to": r["captured"], "answer": r["answer"], "id": (r.get("remembered") or {}).get("id")})
 
     @r.get("/api/review")
     async def review(_):

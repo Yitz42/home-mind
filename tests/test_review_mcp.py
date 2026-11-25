@@ -254,6 +254,24 @@ def plain_link(app, A):
     check("the owner's own client sees the note whole", "4417" in r["content"][0]["text"], r["content"][0]["text"][:300])
 
 
+def glance_capture(app, A):
+    """0.41: the Pebble card and one-tap capture."""
+    s, d = API.call(app, "POST", "/api/capture", {"text": "a pebble app that shows my next class"})
+    check("capture: plain text is an idea", s == 200 and d["saved_to"].startswith("ideas/"), (s, d))
+    s, d = API.call(app, "POST", "/api/capture", {"text": "slept badly, long day", "kind": "journal", "speaker": "Dana"})
+    check("capture: kind journal goes to the journal", s == 200 and d["saved_to"] == "journal", (s, d))
+    s, d = API.call(app, "POST", "/api/capture", {"text": "note to self: buy stamps"})
+    check("capture: spoken forms work too", s == 200 and d["saved_to"] == "notes", (s, d))
+    s, d = API.call(app, "POST", "/api/capture", {"text": "x"})
+    check("capture: empty text is a 400", s == 400, (s, d))
+    s, d = API.call(app, "POST", "/api/capture", {"text": "hello", "kind": "poem"})
+    check("capture: an unknown kind is a 400", s == 400, (s, d))
+    A.mind.store.remember(text="Mail the rent check", kind="task")
+    s, d = API.call(app, "GET", "/api/glance")
+    check("glance: short lines with the open task", s == 200 and d["lines"] and all(len(x) <= 30 for x in d["lines"])
+          and any("rent" in x for x in d["lines"]), (s, d))
+
+
 def main():
     A = API.make_app()
     app = API.M.build(A)
@@ -263,6 +281,7 @@ def main():
     scopes_and_safety(A)
     big_output(A)
     plain_link(app, A)
+    glance_capture(app, A)
 
 
 if __name__ == "__main__":

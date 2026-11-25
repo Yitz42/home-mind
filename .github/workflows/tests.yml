@@ -48,6 +48,8 @@ jobs:
         run: python tests/test_people.py
       - name: Meaning, links and categories (embeddings, modifiers, links, importance, fading)
         run: python tests/test_meaning.py
+      - name: Claude with tools (look-ups when an answer didn't know)
+        run: python tests/test_toolloop.py
       - name: Security and setup (tokens, signatures, encryption, backups, comfort rooms)
         run: python tests/test_security.py
       - name: Files and filing (documents, filing, apps, pronoun links)

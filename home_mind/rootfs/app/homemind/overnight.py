@@ -186,6 +186,8 @@ class ConvLog:
             return False
         if speaker is None and device_id and self.who:
             speaker, how = self.who(device_id)
+        if run_id and self._same_turn(ts, user_text, run_id, device_id, speaker, how):
+            return False
         try:
             with self.store.lock:
                 self.store.db.execute("INSERT INTO conversations(ts,conversation_id,run_id,pipeline,user_text,reply,speaker,"
@@ -195,6 +197,23 @@ class ConvLog:
             return True
         except Exception:  # noqa: BLE001 - duplicate run id
             return False
+
+    def _same_turn(self, ts, user_text, run_id, device_id, speaker, how):
+        """An Assist run whose turn Home Mind already logged itself (its own conversation agent answered it): the
+        two are one turn, so the run's id and device go on that row instead of a second copy being learned from."""
+        said = " ".join((user_text or "").lower().split())
+        with self.store.lock:
+            rows = self.store.db.execute(
+                "SELECT id, user_text, speaker FROM conversations WHERE run_id IS NULL AND pipeline='home_mind' "
+                "AND ts BETWEEN ? AND ?", ((ts or time.time()) - 300, (ts or time.time()) + 300)).fetchall()
+            for r in rows:
+                if " ".join((r["user_text"] or "").lower().split()) == said:
+                    self.store.db.execute(
+                        "UPDATE conversations SET run_id=?, device_id=COALESCE(device_id, ?), speaker=COALESCE(speaker, ?), "
+                        "speaker_how=COALESCE(speaker_how, ?) WHERE id=?", (run_id, device_id, speaker, how, r["id"]))
+                    self.store.db.commit()
+                    return True
+        return False
 
     def known(self, run_id):
         return self.store.db.execute("SELECT 1 FROM conversations WHERE run_id=?", (run_id,)).fetchone() is not None
@@ -265,15 +284,19 @@ class Overnight:
         self.enabled = True          # the Overnight learning switch; off skips the nightly run (not a button press)
         self.structure_on = False    # option overnight_structure: the model reads structure the patterns missed
 
+    PREFER = ("qwen9b", "qwen35b")       # 9b first: it reads a night's turns in minutes and leaves the GPU sooner
+    RETRY_MIN = 15                       # a sleeping model computer is tried again this often inside the window
+    CATCH_UP_HOURS = 12                  # a night skipped for a sleeping computer runs when it's next awake, until then
+
     def pick_model(self):
         names = list(self.models.models)
         if self.model and self.model in names:
             return self.model
-        for pref in ("qwen35b", "qwen9b"):
-            if pref in names:
-                return pref
         local = [n for n, m in self.models.models.items() if getattr(m, "type", "") == "ollama"]
-        return local[0] if local else None
+        order = [p for p in self.PREFER if p in names] + [n for n in local if n not in self.PREFER]
+        up = getattr(self.models, "up", None)
+        awake = [n for n in order if up is None or up(n) is not False]
+        return (awake or order or [None])[0]
 
     async def run(self, limit_turns=24):
         name = self.pick_model()
@@ -285,7 +308,7 @@ class Overnight:
             await asyncio.wait_for(model.chat("Reply with OK.", [{"role": "user", "content": "OK?"}], max_tokens=5), 90)
         except Exception as e:  # noqa: BLE001
             self.last = {"at": time.time(), "model": name, "skipped": f"model not reachable ({type(e).__name__}); "
-                                                                       "will retry next night"}
+                                                                       "will try again when it's awake"}
             return self.last
         rows = self.log.pending()
         convs = {}
@@ -529,15 +552,34 @@ class Overnight:
         # day its window opened, so 23:10 and 00:30 are the same night
         since = (now.hour * 60 + now.minute - self.at[0] * 60 - self.at[1]) % 1440
         night = (now - timedelta(minutes=since)).date()
-        if since < 180 and self.done_for != night:
-            self.done_for = night
-            if self.store.kv_get("overnight_done_for") == str(night):
-                return          # a restart inside the window after tonight's run: don't run it again
-            self.store.kv_set("overnight_done_for", str(night))
-            if not self.enabled:
+        # inside the window it runs once; if the model computer was asleep it is tried again every RETRY_MIN minutes,
+        # and after the window the first time that computer is seen awake (until CATCH_UP_HOURS after it opened)
+        if since >= self.CATCH_UP_HOURS * 60 or self.done_for == night:
+            return
+        if self.store.kv_get("overnight_done_for") == str(night):
+            self.done_for = night       # a restart after tonight's run: don't run it again
+            return
+        if not self.enabled:
+            if since < 180:
+                self.done_for = night
                 self.last = {"at": time.time(), "skipped": "overnight learning switched off"}
-                return
-            try:
-                log.info("overnight: %s", await self.run())
-            except Exception:  # noqa: BLE001
-                log.exception("overnight")
+            return
+        if since >= 180:
+            name = self.pick_model()
+            up = getattr(self.models, "up", None)
+            if not name or up is None or up(name) is not True:
+                return          # catch-up only once the computer is known to be awake
+        tried = getattr(self, "_tried", None)
+        if tried and tried[0] == night and time.time() - tried[1] < self.RETRY_MIN * 60:
+            return
+        self._tried = (night, time.time())
+        try:
+            res = await self.run()
+            log.info("overnight: %s", res)
+        except Exception:  # noqa: BLE001
+            log.exception("overnight")
+            res = None
+        if res is not None and isinstance(res, dict) and "not reachable" in str(res.get("skipped") or ""):
+            return              # tried again in RETRY_MIN minutes, or when the computer wakes
+        self.done_for = night
+        self.store.kv_set("overnight_done_for", str(night))

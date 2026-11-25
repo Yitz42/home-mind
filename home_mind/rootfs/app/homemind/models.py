@@ -82,6 +82,19 @@ class _ThinkFilter:
         return rem
 
 
+def sends_temperature(model):
+    """Whether a Claude model takes a temperature. Claude 3 and Claude 4.0 to 4.6 do; Opus 4.7 and every 5.x model
+    reject a non-default one with HTTP 400, so it is left out for them (and for names this code doesn't know yet)."""
+    m = (model or "").lower()
+    if m.startswith("claude-3") or "claude-instant" in m:
+        return True
+    v = re.search(r"-(\d+)(?:-(\d{1,2}))?(?:-\d{8}|$|[^\d])", m.replace("claude-", "-", 1))
+    if not v:
+        return False
+    major, minor = int(v.group(1)), int(v.group(2) or 0)
+    return major < 4 or (major == 4 and minor <= 6)
+
+
 class Model:
     def __init__(self, cfg, session):
         self.cfg = dict(cfg)
@@ -291,7 +304,9 @@ class Model:
         if sysp and self.cfg.get("cache") is not False and self._cacheable(sysp):
             sysp = [{"type": "text", "text": sysp, "cache_control": {"type": "ephemeral"}}]
         payload = {"model": self.cfg.get("model") or "claude-haiku-5-5", "max_tokens": max_tokens,
-                   "temperature": temperature, "system": sysp, "messages": messages, "stream": True}
+                   "system": sysp, "messages": messages, "stream": True}
+        if sends_temperature(payload["model"]):
+            payload["temperature"] = temperature
         headers = {"x-api-key": self.cfg["api_key"], "anthropic-version": "2023-06-01"}
         tin, tout = 0, 0
         async for line in self._post_lines(url, payload, headers):
@@ -442,14 +457,39 @@ class Model:
         sysp = system or ""
         if sysp and self.cfg.get("cache") is not False and self._cacheable(sysp):
             sysp = [{"type": "text", "text": sysp, "cache_control": {"type": "ephemeral"}}]
-        j = await self._post(url, {"model": self.cfg.get("model") or "claude-haiku-5-5", "max_tokens": max_tokens,
-                                   "temperature": temperature, "system": sysp, "messages": messages},
-                             {"x-api-key": self.cfg["api_key"], "anthropic-version": "2023-06-01"})
+        payload = {"model": self.cfg.get("model") or "claude-haiku-5-5", "max_tokens": max_tokens,
+                   "system": sysp, "messages": messages}
+        if sends_temperature(payload["model"]):
+            payload["temperature"] = temperature
+        j = await self._post(url, payload, {"x-api-key": self.cfg["api_key"], "anthropic-version": "2023-06-01"})
         text = "".join(b.get("text", "") for b in j.get("content", []) if b.get("type") == "text")
         u = j.get("usage") or {}
         tin = (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
         self._cached = u.get("cache_read_input_tokens") or None
         return text, (tin, u.get("output_tokens") or 0)
+
+    async def messages_tools(self, system, messages, tools, max_tokens=700, tool_choice=None):
+        """One Messages API turn with tools (toolloop.py). Anthropic models only. Returns the response as sent:
+        {"content": [...blocks], "stop_reason", "usage"}; the caller appends content back unchanged."""
+        if self.type != "anthropic":
+            raise ModelError(f"{self.name}: tools need an anthropic model, not {self.type}")
+        if not self.cfg.get("api_key"):
+            raise ModelError(f"{self.name}: needs api_key")
+        t0 = time.monotonic()
+        url = (self.cfg.get("url") or "https://api.anthropic.com").rstrip("/") + "/v1/messages"
+        body = {"model": self.cfg.get("model") or "claude-haiku-5-5", "max_tokens": max_tokens, "system": system or "",
+                "messages": messages, "tools": tools}
+        if tool_choice:
+            body["tool_choice"] = tool_choice
+        try:
+            j = await self._post(url, body, {"x-api-key": self.cfg["api_key"], "anthropic-version": "2023-06-01"})
+        except Exception:
+            _use(self.name, False, None, None, int((time.monotonic() - t0) * 1000))
+            raise
+        u = j.get("usage") or {}
+        _use(self.name, True, (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0),
+             u.get("output_tokens") or 0, int((time.monotonic() - t0) * 1000))
+        return j
 
     # ---- Home Assistant's own models -----------------------------------------------------------------------------
     def _ha_headers(self):

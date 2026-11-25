@@ -80,7 +80,7 @@ configuration:
     description: admin = calls that say nothing about who is asking (the panel, Claude, the API) see everything, personal notes and secrets included; guest = they see household notes only. Choose guest if anyone besides you can reach the panel or a token.
   embed_model:
     name: Embedding model (search by meaning)
-    description: One of your models, type ollama or openai, used to make embeddings, so "planter" finds "flower box". Give that model an embed_model field (e.g. nomic-embed-text, all-minilm) or its model is used. Empty = keyword search only.
+    description: One of your models, type ollama or openai, used to make embeddings, so "planter" finds "flower box". Give that model an embed_model field (e.g. nomic-embed-text, all-minilm) or its model is used. Empty = the first model that has an embed_model field, else keyword search only. While that computer sleeps, search falls back to keywords.
   comfort_rooms:
     name: Comfort rooms
     description: "Rooms the comfort brain runs, each learning from its own votes: name, person, and the entities climate, temp_sensor, humidifier, fan, phone_battery, alarm; signals (body signals, e.g. hrv=input_number.steady_hrv, steps=sensor.my_steps) and helpers it writes (enabled, target, fan, humidity, min, max, hum_min, hum_max, sleep, wake = input_number/input_boolean entities), comma-separated key=entity. Empty = the original bedroom setup. GET /api/comfort/check?room=NAME lists entities Home Assistant doesn't have."
@@ -296,7 +296,7 @@ configuration:
     description: When a local model reads the day's conversations with your assistant and files what you stated (HH:MM).
   overnight_model:
     name: Overnight learning model
-    description: Name of the model that reads conversations at night. Empty = a model named qwen35b or qwen9b, else your first ollama model; with none, overnight learning is skipped. Skipped (and retried the next night) if its computer is off. A cloud model sees the conversations with secret values hidden.
+    description: Name of the model that reads conversations at night. Empty = qwen9b, else qwen35b, else your other ollama models, whichever is awake. If its computer is asleep it tries again every few minutes in the 3-hour window, and later that morning once the computer wakes up. A cloud model sees the conversations with secret values hidden.
   overnight_enabled:
     name: Overnight learning
     description: Off skips the nightly run (the button still runs it). Also a switch in Home Assistant (Home Mind device).
@@ -353,7 +353,16 @@ configuration:
     description: "Health, body, money, journal and personal-note questions go to a local model first whenever one is awake (any local model you've connected, even one not in the fallback list). when_local_away = the cloud model answers them only while every local model is away; never = they never leave the house, and with no local model awake the answer comes from your notes alone."
   plain_link_admin:
     name: Plain Claude link may control the house
-    description: "The plain Claude link (the one with no ?token=hm_...) can be reached from the internet, so by default it may read and write notes but not control the house, purge notes or install automations. On = it may do everything, as before 0.39. Safer: make a person's own link (Developer tools > Actions > home_mind_bridge.person_link with scope admin) and leave this off."
+    description: "The plain Claude link (the one with no ?token=hm_...) can be reached from the internet, so by default it may read and write notes but not control the house, purge notes or install automations. On = it may do everything, as before 0.40. Safer: make a person's own link (Developer tools > Actions > home_mind_bridge.person_link with scope admin) and leave this off."
+  tool_model:
+    name: Claude model that may look things up
+    description: "Name of one of your models with type anthropic and an api_key. When an answer comes back \"I don't know\", that model may search memory in other words, read the house, the calendar and the task list (up to three rounds), then answer. Each use is billed to that API key. Never for private questions or voice. Empty = off."
+  tool_writes:
+    name: Let it also store notes and control things
+    description: Off = it only reads. On = it may also store a note or control a thing on the control list when the question asks for it (never a lock, alarm or garage door, never for an unknown voice).
+  tool_daily_limit:
+    name: Most look-ups a day
+    description: The most times a day that model may be used this way, to cap what it costs. 0 = never.
   db_snapshots:
     name: Database snapshots to keep
     description: One a day. If the database is ever damaged, Home Mind starts from the newest good one, tells you, and keeps the damaged file.

@@ -28,8 +28,11 @@ def _norm(v):
 
 
 class Embeddings:
-    def __init__(self, store, model):
+    def __init__(self, store, model, is_up=None):
         self.store, self.model = store, model
+        # is_up() is False while the embedding model's computer is known to be asleep: questions use keywords alone
+        # at once (no connect timeout), and indexing waits until it's back
+        self.is_up = is_up or (lambda: True)
         self._cache, self._mat, self._ids, self._stamp = {}, None, [], None
         with store.lock:
             store.db.execute("CREATE TABLE IF NOT EXISTS vectors (item_id INTEGER PRIMARY KEY, model TEXT, dim INTEGER,"
@@ -51,7 +54,7 @@ class Embeddings:
             f"WHERE i.status IN ('active','faded') AND i.source NOT IN ({','.join('?' * len(SKIP_SOURCES))}) "
             f"AND (v.item_id IS NULL OR v.updated < i.updated OR v.model != ?) ORDER BY i.id DESC LIMIT ?",
             (*SKIP_SOURCES, self.name, batch)).fetchall()
-        if not rows:
+        if not rows or not self.is_up():
             return 0
         vecs = await self.model.embed([self.text_of(r) for r in rows])
         now = time.time()
@@ -80,6 +83,8 @@ class Embeddings:
     async def nearest(self, question, k=8):
         """[(item_id, similarity)] for the notes nearest a question, nearest first."""
         q = self._cache.get(question)
+        if q is None and not self.is_up():
+            return []
         if q is None:
             q = _norm((await self.model.embed([question]))[0])
             if len(self._cache) > 200:

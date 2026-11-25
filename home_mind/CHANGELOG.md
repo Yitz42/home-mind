@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.41.0
+- **Overnight learning survives a sleeping laptop:** with no overnight model named it uses qwen9b, else qwen35b, whichever is awake. If the laptop is asleep it tries again every few minutes in the 3-hour window, then catches up later that morning once it wakes (until 12 hours after the window opened), instead of skipping the night. A conversation logged twice in one turn is now kept once.
+- **Search by meaning, more easily:** with `embed_model` empty, the first model that has an `embed_model` field is used. While its computer sleeps, search falls back to keywords at once and indexing waits, instead of each search waiting on a timeout.
+- **Where and when in every answer:** every answer's brief opens with a short situation built at question time: the time, where the person asking is (zone, home or away; nothing for a guest), the next two calendar events (title and time), sleep mode, and the top three tasks.
+- **Pebble glance and one-tap capture:** `GET /api/glance` gives a watch-sized look at now (next event, top tasks, the day's check-in, approvals waiting, five lines of at most 30 characters), also as `sensor.home_mind_now` for Home Assistant cards. `POST /api/capture` saves an idea, journal entry or note in one call. Both are allowed through the bridge's `home_mind_bridge.call` (bridge 0.3.2; restart Home Assistant once to load it).
+- **Claude with tools (option `tool_model`, off):** when an answer comes back "I don't know", a Claude model you name may search memory in other words, read the house, the calendar and the task list (up to three rounds), then answer. Billed to that model's API key, at most `tool_daily_limit` times a day (50), never for private questions, voice or whole-memory requests, through the same gates as the plain Claude link. `tool_writes` (off) also lets it store notes and control things on the control list, never locks, alarms or garage doors.
+- **Claude 5 models through the API:** requests to `anthropic` models no longer send a temperature to models that reject it (Opus 4.7 and every 5.x model, including the default `claude-haiku-5-5`), which made every request fail with HTTP 400.
+- The plain-link option's description now says "as before 0.40".
+
 ## 0.40.0
 - **The safety bar can pass (`System › Tests`):** a zero-tolerance gate (a bar of 100%) could never pass, because it compared the bar against the low end of a confidence range. It now passes when every case passes, and fails on the first failure.
 - **Private questions stay home:** questions the router marks private now go to an awake local model first in every mode, by voice too, instead of always going to Haiku. New option `private_to_cloud` (`never` answers from your notes alone when no local model is awake). The nightly journal summary uses the same rule and retries later if the laptop is asleep, instead of skipping the night.

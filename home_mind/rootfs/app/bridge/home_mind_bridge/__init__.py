@@ -108,7 +108,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                            "updated": i["updated"]} for i in items]}
 
     ALLOWED = ("/api/pantry", "/api/ask", "/api/do", "/api/journal", "/api/morning", "/api/calendar", "/api/home",
-               "/api/patterns", "/api/control")
+               "/api/patterns", "/api/control", "/api/glance", "/api/capture")
 
     async def call_api(call: ServiceCall):
         """Reach one of Home Mind's own endpoints from a script (pantry, meals, ask...)."""

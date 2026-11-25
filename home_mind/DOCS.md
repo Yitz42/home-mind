@@ -58,7 +58,7 @@ Models can switch things only when all of these hold:
 
 ## Home Mind as your voice assistant
 
-The Home Mind Bridge integration (version 0.3.1, installed by the app) adds a conversation agent called Home Mind.
+The Home Mind Bridge integration (version 0.3.2, installed by the app) adds a conversation agent called Home Mind.
 To use it: Settings › Voice assistants › your assistant › Conversation agent: **Home Mind**, and turn on **Prefer
 handling commands locally**. Then:
 - Home Assistant's own commands (lights, timers, shopping list) are handled by Home Assistant first, as fast as ever.
@@ -357,6 +357,21 @@ sees only their own), what Home Mind did in the last 15 minutes, approvals it's 
 starts with it, and entries expire by themselves. A model can only propose notes like "waiting on Anna's answer" or
 "unsure which lamp"; they are checked and expire within a day. On about one day in seven per person the board is left
 out, so its value can be measured.
+
+**The situation.** Every answer's brief also opens with a few lines built fresh at question time: the time, where the
+person asking is (home, away, or the zone they're in; a guest or unknown voice gets no one's whereabouts), the next
+two calendar events today and tomorrow (title and time only), whether the bedroom is in sleep mode, and the top three
+open tasks. So "should I leave now?" or "what's next?" is answered from what's true right now.
+
+**Claude with tools (option `tool_model`, off).** When an answer comes back "I don't know", a Claude model you name
+(type `anthropic`, with an `api_key`) may look it up itself: search memory in other words, read the live state of the
+house, the calendar or the task list, up to three rounds, then answer. Each use is billed to that key, so it runs
+only after a don't-know, at most `tool_daily_limit` times a day (50), never for a private question, never by voice
+and never for a request for the whole memory. Its tools go through the same gates as the plain Claude link: secret
+values the question doesn't ask for are hidden and only notes the person may see come back. With `tool_writes` on it
+may also store a note or control a thing on the control list when the question asks for it, never a lock, alarm or
+garage door (those are only asked about) and never for an unknown voice. Answers it gives show `tools` in
+`/api/ask`.
 
 **Worsening: see your doctor.** Each morning Home Mind looks at the trend of rough days and brain fog against your
 own baseline (the 60 days before the last two weeks), with a fixed rule that gives about one false alarm a year. If
@@ -767,6 +782,8 @@ named Rufus".
   and give it an `embed_model` field naming the embedding model (for Ollama, e.g. `nomic-embed-text`). Notes are
   embedded in the background, a batch every 30 seconds, and each question's nearest notes are fused with the keyword
   results, so "planter" finds "flower box". Without it, search is by keywords (with the extra search keys) as before.
+  With `embed_model` empty, the first model that has an `embed_model` field is used. While that model's computer
+  sleeps, search quietly falls back to keywords and the indexing waits for it to wake.
 - **Links.** Notes that name the same specific thing ("the red Trek", a rare name) are linked when filed. A question
   that finds one note is led to a linked note that has the missing words: "where is Dana's bike locked?" reaches "the
   red Trek is locked at the station" through "Dana's bike is the red Trek".
@@ -1000,6 +1017,9 @@ you turn them on are listed after the tables.
 | `local_model` | empty | A local chat model for answers in private mode; empty = notes alone |
 | `private_to_cloud` | when_local_away | Private questions use an awake local model first; `never` = never send them to a cloud model (notes alone when no local model is awake) |
 | `plain_link_admin` | off | Give the bridge's plain Claude link full access (house control, purge, automations) again |
+| `tool_model` | empty | A Claude model (type anthropic, with api_key) that may look things up with tools when an answer didn't know; billed to that key |
+| `tool_writes` | off | Let that model also store notes and control things on the control list |
+| `tool_daily_limit` | 50 | Most look-ups a day |
 | `shadow_rate` | 0.1 | Share of house requests also planned by a second model in the background (never acts), to compare them; 0 = off |
 | `approval_phone` | empty | The phone that approves locks, garage doors, alarms and heaters (`notify.mobile_app_...`); empty = the first phone with the Home Assistant app |
 | `safety_contact` | empty | Someone told when you describe an emergency, a double dose or a big decline (a notify service); empty = no one |
@@ -1037,7 +1057,7 @@ you turn them on are listed after the tables.
 |---|---|---|
 | `overnight_enabled` | on | Overnight learning |
 | `overnight_time` | `03:00` | Overnight learning time |
-| `overnight_model` | empty | Overnight learning model |
+| `overnight_model` | empty | Overnight learning model (empty = qwen9b, else qwen35b, whichever is awake; if the laptop sleeps it retries in the window and catches up that morning) |
 | `overnight_structure` | off | Overnight, read what the patterns missed |
 | `phrasebook_grow` | on | Each night, write new odd wordings for sleep and workouts; keep those a blind second reading agrees with |
 | `persona_model` | empty | a model that rewords answers in the persona's voice (checked like the rules); empty = rules only |
@@ -1160,6 +1180,9 @@ you turn them on are listed after the tables.
 - `automation_pin`: whoever knows it can install drafted automations that unlock doors, open the garage or disarm the
   alarm.
 - `overnight_model` pointing at a cloud model: the day's conversations go to it, with secret values hidden.
+- `tool_model`: each look-up is billed to that Claude API key (capped by `tool_daily_limit`), and the question with
+  the notes found goes to that model, with secret values hidden. `tool_writes` lets it store notes and control things
+  on the control list.
 - `knowledge_wikipedia` (on): about 50 GB of disk; `knowledge_food` (on): about 450 MB.
 - Deleting for good (purge, `POST /api/item/{id}/purge`, `mind_purge_about`) can't be undone; see **Trust and privacy**.
 
@@ -1196,6 +1219,8 @@ note), 502 (a model failed) or 500.
 | GET | `/api/recall` | read | search for a caller that writes its own answer (`q`, `limit`, `shelf`, `kind`, `old=1`, `raw=1`); secrets not asked for are masked |
 | POST | `/api/ask` | read | answer a question (`question`, `model?`, `use_brain`, `voice`, `deadline`, `conversation_id`, `user`/`speaker`) |
 | POST | `/api/remember` | write | file a note (`text`, `title?`, `shelf?`, `key?`, `kind?`, `tags?`, `scope?`, `owner?`) |
+| GET | `/api/glance` | read | a watch-sized look at right now: next event, top tasks, the day's check-in, approvals waiting (`lines`, `text`) |
+| POST | `/api/capture` | write | one-tap capture (`text`, `kind?`: idea, journal or note); "idea: …" and the other spoken forms work too |
 | GET | `/api/item/{id}` | read | one note with its versions (null if missing) |
 | POST | `/api/item/{id}/{op}` | write; purge: admin | `forget`, `restore`, `revise`, `sensitive`, `feedback`, `confirm`, `photo`, `keep`, `move`, `scope`, `purge` (`confirm: true`) |
 | GET | `/api/photo/{name}` | read | a note's photo |

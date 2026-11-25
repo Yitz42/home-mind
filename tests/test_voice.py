@@ -227,7 +227,7 @@ check("bridge: a person's own link is answered with their token, the plain link 
       'own.startswith("hm_") else conn["token"]' in src and 'request.query.get("token")' in src)
 check("bridge: the conversation platform is loaded", '"conversation"]' in src)
 man = json.load(open(os.path.join(APP, "bridge", "home_mind_bridge", "manifest.json")))
-check("bridge: a new version, so the app reinstalls it", man["version"] == "0.3.1" and
+check("bridge: a new version, so the app reinstalls it", man["version"] == "0.3.2" and
       "conversation" in man["dependencies"])
 
 # ---- routine notices held for the morning -----------------------------------------------------------------------

@@ -299,6 +299,38 @@ check("board: filled by code from the check-in, presence, actions and approvals"
 check("board: presence is only for the person themselves", not any("Dana is" in r["value"]
                                                                    for r in nb2.snapshot("Sam")))
 
+# 0.41: the zone's name stays on the board, and every answer gets a SITUATION block
+from homemind.nowboard import situation, where_from  # noqa: E402
+check("where: a zone keeps its name", where_from("UMBC") == "at UMBC" and where_from("not_home") == "away"
+      and where_from("home") == "home")
+_dt = __import__("datetime")
+_now = _dt.datetime(2026, 11, 25, 9, 0)
+_st = store()
+_st.remember(text="Return the library books", kind="task")
+
+
+class _Cal:
+    def events_on(self, day, question=None):
+        if day == _now.date():
+            return [{"title": "ASL 102", "meta": {"start": "2026-11-25T10:00:00"}},
+                    {"title": "Earlier thing", "meta": {"start": "2026-11-25T07:00:00"}},
+                    {"title": "Holiday", "meta": {"start": "2026-11-25T00:00:00", "all_day": True}}]
+        return [{"title": "1-1 with Dr. Seaman", "meta": {"start": "2026-11-26T13:30:00"}},
+                {"title": "Third", "meta": {"start": "2026-11-26T15:00:00"}}]
+
+
+sa = types.SimpleNamespace(home=types.SimpleNamespace(catalog={
+    "person.dana": {"state": "UMBC"}, "switch.adaptive_lighting_sleep_mode_bedroom": {"state": "on", "name": "Bedroom sleep mode"}}),
+    people=lambda: [{"name": "Dana", "persons": ["person.dana"]}], calendars=_Cal(),
+    mind=types.SimpleNamespace(store=_st))
+sit = situation(sa, "Dana", now=_now)
+check("situation: time, zone, next two events, sleep mode and tasks",
+      sit.startswith("SITUATION") and "Wednesday, November 25, 9:00 AM" in sit and "Dana is at UMBC" in sit
+      and "ASL 102 (today 10:00 AM); 1-1 with Dr. Seaman (tomorrow 1:30 PM)" in sit and "Earlier" not in sit
+      and "Third" not in sit and "Holiday" not in sit and "Sleep mode is on" in sit and "library books" in sit, sit)
+check("situation: someone else's presence and a guest's are left out",
+      "Dana is" not in situation(sa, "Sam", now=_now) and "Dana is" not in situation(sa, "", now=_now))
+
 # ---- worsening ---------------------------------------------------------------------------------------------------
 
 

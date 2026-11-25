@@ -99,6 +99,19 @@ async def meaning():
     m.embeddings = E.Embeddings(st, Down())
     hits, _ = await m.search(st, "Where is the drill?", 5)
     check("an embedding model that's down leaves keyword search working", hits and "drill" in hits[0]["body"])
+
+    class Counting:
+        name = "asleep"
+        calls = 0
+
+        async def embed(self, texts):
+            Counting.calls += 1
+            return [[1.0, 0.0] for _ in texts]
+    m.embeddings = E.Embeddings(st, Counting(), is_up=lambda: False)
+    hits, _ = await m.search(st, "Where is the drill kept?", 5)
+    n = await m.embeddings.index(8)
+    check("0.41: an asleep embedding computer isn't called (keywords at once, indexing waits)",
+          hits and Counting.calls == 0 and n == 0, Counting.calls)
     check("fuse: rank fusion keeps both lists' best", [h["id"] for h in E.fuse([{"id": 1}, {"id": 2}], [{"id": 3}, {"id": 1}], 3)]
           == [1, 3, 2])
 

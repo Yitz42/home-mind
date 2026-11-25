@@ -4,6 +4,7 @@ zone with DST (America/New_York) and a controlled clock. No network needed.
   python tests/test_review_time.py
 """
 import asyncio
+import types
 import os
 import sys
 import time
@@ -115,6 +116,68 @@ async def nights():
 asyncio.run(nights())
 check("overnight: 23:00 runs once at 23:05, not again after midnight, again next night, after a missed 23:xx",
       ran == [datetime(2026, 11, 16, 23, 5), datetime(2026, 11, 17, 23, 1), datetime(2026, 11, 19, 0, 15)], ran)
+
+
+# 0.41: a sleeping model computer is tried again inside the window, and caught up when it wakes the next morning
+tries = []
+
+
+async def asleep_then_awake():
+    st4 = Store(":memory:")
+    state = {"up": False}
+    ms = types.SimpleNamespace(models={"qwen9b": types.SimpleNamespace(type="ollama"),
+                                       "qwen35b": types.SimpleNamespace(type="ollama")},
+                               up=lambda n: state["up"])
+    o = overnight.Overnight(st4, ms, None, at="03:00")
+
+    async def run():
+        tries.append((FakeNow.at, o.pick_model()))
+        return {"skipped": "model not reachable (OSError); will try again when it's awake"} if not state["up"] else {"filed": 1}
+    o.run = run
+    real, real_time = overnight.datetime, overnight.time.time
+    overnight.datetime = FakeNow
+    clock = {"t": 1_000_000.0}
+    overnight.time.time = lambda: clock["t"]
+    try:
+        FakeNow.at = datetime(2026, 11, 20, 3, 1)
+        await o.tick()                          # asleep: tried, not done
+        clock["t"] += 60
+        FakeNow.at = datetime(2026, 11, 20, 3, 2)
+        await o.tick()                          # too soon to try again
+        clock["t"] += 16 * 60
+        FakeNow.at = datetime(2026, 11, 20, 3, 18)
+        await o.tick()                          # tried again
+        clock["t"] += 4 * 3600
+        FakeNow.at = datetime(2026, 11, 20, 7, 18)
+        await o.tick()                          # after the window, still asleep: not even tried
+        state["up"] = True
+        clock["t"] += 3600
+        FakeNow.at = datetime(2026, 11, 20, 8, 20)
+        await o.tick()                          # awake: catch-up run
+        clock["t"] += 3600
+        FakeNow.at = datetime(2026, 11, 20, 9, 20)
+        await o.tick()                          # done for the night
+    finally:
+        overnight.datetime, overnight.time.time = real, real_time
+    return o
+
+o4 = asyncio.run(asleep_then_awake())
+check("overnight: asleep at 3:01, retried at 3:18, caught up at 8:20 once awake, then done",
+      [t for t, _ in tries] == [datetime(2026, 11, 20, 3, 1), datetime(2026, 11, 20, 3, 18), datetime(2026, 11, 20, 8, 20)],
+      tries)
+check("overnight: qwen9b is picked before qwen35b", all(m == "qwen9b" for _, m in tries), tries)
+
+# 0.41: a voice turn Home Mind answered itself and the same Assist run are one turn, not two
+st5 = Store(":memory:")
+cl = overnight.ConvLog(st5)
+cl.add(1_000_000.0, "Remember the bins go out Tuesday", "Noted.", "c1", None, "home_mind")
+dup = cl.add(1_000_002.0, "remember the bins go out tuesday", "Noted.", "c1", "run-1", "Jeeve", device_id="dev1")
+rows = cl.pending()
+check("convlog: the Assist copy of a turn Home Mind logged is merged, not added",
+      dup is False and len(rows) == 1 and rows[0]["run_id"] == "run-1" and rows[0]["device_id"] == "dev1", rows)
+check("convlog: a known run isn't copied again", cl.known("run-1"))
+cl.add(1_000_500.0, "what's the weather", "Sunny.", "c2", "run-2", "Jeeve")
+check("convlog: other Assist runs are still copied", len(cl.pending()) == 2, cl.pending())
 
 if FAILS:
     print(f"\n{len(FAILS)} failed")

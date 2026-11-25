@@ -18,7 +18,8 @@ against days without it (counted as board_off_days).
 import hashlib
 import json
 import time
-from datetime import date
+import re
+from datetime import date, datetime, timedelta
 
 KINDS = ("checkin", "home", "did", "waiting", "waiting_on", "unsure_which", "doing", "note")
 MODEL_KINDS = ("waiting_on", "unsure_which", "doing", "note")
@@ -124,8 +125,7 @@ class NowBoard:
             for e in p.get("persons") or []:
                 c = (app.home.catalog or {}).get(e) or {}
                 if c.get("state"):
-                    where = "home" if c["state"] == "home" else "out"
-                    self.set("home", f"{p['name']} is {where}", "home", 600, owner=p["name"])
+                    self.set("home", f"{p['name']} is {where_from(c['state'])}", "home", 600, owner=p["name"])
         dlog = getattr(app, "decisions", None)
         if dlog is not None:
             for d in dlog.recent(5, status="done", since=self.clock() - 900):
@@ -143,3 +143,129 @@ class NowBoard:
 
     def dump(self):
         return json.dumps(self.snapshot(), default=str)
+
+
+def where_from(state):
+    """A person entity's state in words: home, away, or the zone they're in ("at UMBC"), not just "out"."""
+    st = str(state or "").strip()
+    if st == "home":
+        return "home"
+    if st in ("not_home", "away", "", "unknown", "unavailable"):
+        return "away" if st in ("not_home", "away") else "somewhere unknown"
+    return f"at {st}"
+
+
+SLEEP_ENTITY = re.compile(r"^(?:switch\.[a-z0-9_]*sleep_mode[a-z0-9_]*|input_boolean\.[a-z0-9_]*(?:asleep|sleeping|sleep_mode)[a-z0-9_]*)$")
+
+
+def situation(app, viewer=None, now=None, events=2, tasks=3):
+    """The SITUATION block every answer gets (0.41), board-off days too: the time, where the person asking is, the next
+    calendar events, whether the house is in sleep mode, and the top open tasks. Built fresh at question time from
+    what Home Mind already holds (no Home Assistant call). Only what the viewer may see: their own presence (a guest
+    gets none), visible calendar events by title and time (never an invite's description), visible tasks."""
+    now = now or datetime.now()
+    out = [f"It's {now.strftime('%A, %B %d, %I:%M %p').replace(' 0', ' ')}."]
+    catalog = getattr(getattr(app, "home", None), "catalog", None) or {}
+    try:
+        people = app.people() if hasattr(app, "people") else []
+    except Exception:  # noqa: BLE001
+        people = []
+    if viewer != "":
+        for p in people:
+            if viewer is not None and (p.get("name") or "").lower() != viewer.lower():
+                continue
+            for e in p.get("persons") or []:
+                c = catalog.get(e) or {}
+                if c.get("state"):
+                    out.append(f"{p['name']} is {where_from(c['state'])}.")
+                    break
+    cal = getattr(app, "calendars", None)
+    if cal is not None and events:
+        nxt = []
+        try:
+            for day in (now.date(), now.date() + timedelta(days=1)):
+                for d in cal.events_on(day):
+                    m = d.get("meta") or {}
+                    if m.get("all_day"):
+                        continue
+                    st = datetime.fromisoformat(m["start"])
+                    if st.tzinfo is not None:
+                        st = st.astimezone().replace(tzinfo=None)
+                    if st >= now - timedelta(minutes=15):
+                        nxt.append((st, (d.get("title") or "").strip()[:80]))
+        except Exception:  # noqa: BLE001
+            nxt = []
+        nxt.sort()
+        if nxt:
+            def fmt(st):
+                day = "today" if st.date() == now.date() else "tomorrow"
+                return f"{day} {st.strftime('%I:%M %p').lstrip('0')}"
+            out.append("Next on the calendar: " + "; ".join(f"{t or '(no title)'} ({fmt(st)})" for st, t in nxt[:events]) + ".")
+    asleep = [c.get("name") or e for e, c in catalog.items() if SLEEP_ENTITY.match(e) and c.get("state") == "on"]
+    if asleep:
+        out.append(f"Sleep mode is on ({asleep[0]}).")
+    store = getattr(getattr(app, "mind", None), "store", None)
+    if store is not None and tasks:
+        try:
+            open_t = store.tasks(limit=tasks)
+        except Exception:  # noqa: BLE001
+            open_t = []
+        if open_t:
+            out.append("Open tasks: " + "; ".join((t.get("title") or "")[:60] for t in open_t) + ".")
+    return "SITUATION (right now):\n" + "\n".join(f"- {x}" for x in out)
+
+
+def glance(app, viewer=None, now=None):
+    """A watch-sized look at right now (0.41, the Pebble card and sensor.home_mind_now): a few lines of at most about
+    30 characters, most pressing first. Same privacy as situation()."""
+    now = now or datetime.now()
+    lines, out = [], {"at": now.isoformat(timespec="minutes")}
+    cal = getattr(app, "calendars", None)
+    if cal is not None:
+        try:
+            nxt = []
+            for day in (now.date(), now.date() + timedelta(days=1)):
+                for d in cal.events_on(day):
+                    m = d.get("meta") or {}
+                    if m.get("all_day"):
+                        continue
+                    st = datetime.fromisoformat(m["start"])
+                    if st.tzinfo is not None:
+                        st = st.astimezone().replace(tzinfo=None)
+                    if st >= now - timedelta(minutes=15):
+                        nxt.append((st, (d.get("title") or "(no title)").strip()))
+            nxt.sort()
+            if nxt:
+                st, t = nxt[0]
+                when = st.strftime("%I:%M%p").lstrip("0").lower()
+                if st.date() != now.date():
+                    when = "tmrw " + when
+                out["next"] = {"title": t[:60], "start": st.isoformat(timespec="minutes")}
+                lines.append(f"{when} {t}"[:30])
+        except Exception:  # noqa: BLE001
+            pass
+    store = getattr(getattr(app, "mind", None), "store", None)
+    if store is not None:
+        try:
+            ts = store.tasks(limit=2)
+        except Exception:  # noqa: BLE001
+            ts = []
+        out["tasks"] = [(t.get("title") or "")[:60] for t in ts]
+        lines += [("- " + x)[:30] for x in out["tasks"]]
+    day = getattr(app, "day", None)
+    if day is not None and viewer:
+        try:
+            dstate = day.get(viewer)
+        except Exception:  # noqa: BLE001
+            dstate = "unknown"
+        if dstate and dstate != "unknown":
+            out["day"] = dstate
+            lines.append(f"Day: {dstate}")
+    ap = getattr(app, "approvals", None)
+    n = len(getattr(ap, "pending", {}) or {}) if ap is not None else 0
+    if n:
+        out["waiting"] = n
+        lines.insert(0, f"{n} approval{'s' if n > 1 else ''} waiting")
+    out["lines"] = lines[:5] or ["Nothing pressing"]
+    out["text"] = " | ".join(out["lines"])
+    return out
