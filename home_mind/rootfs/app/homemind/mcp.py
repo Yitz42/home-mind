@@ -214,7 +214,7 @@ class MCP:
                     return {"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text":
                             f"{name} needs {', '.join(missing)}"}], "isError": True}}
                 try:
-                    out = await self.call(name, args)
+                    out = await self.call(name, args, scope=scope)
                     res = {"content": [{"type": "text", "text": _text(out)}],
                            "isError": bool(isinstance(out, dict) and out.get("error"))}
                 except Exception as e:  # noqa: BLE001 - tool errors go back to the model
@@ -227,7 +227,7 @@ class MCP:
         except Exception as e:  # noqa: BLE001
             return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(e)}}
 
-    async def call(self, name, a):
+    async def call(self, name, a, scope="admin"):
         app, st = self.app, self.app.mind.store
         from .speakers import VIEWER
         bound = VIEWER.get()            # a person-bound token (#48): only their own and household notes
@@ -249,10 +249,29 @@ class MCP:
                                source="mcp")
         if name == "mind_recall":
             from .mind import lookup
-            return lookup(st, a["query"], max(1, min(200, int(a.get("limit") or 8))), a.get("shelf"), a.get("kind"),
-                          bool(a.get("include_old")))
+            from . import privacy as sec
+            from .store import words, names_in
+            # a plain link or a read/write token: hide secret values the question doesn't ask for, as /api/recall
+            # does for Jeeves
+            qq = st.fix_typos(a["query"])
+            res = lookup(st, a["query"], max(1, min(200, int(a.get("limit") or 8))), a.get("shelf"), a.get("kind"),
+                         bool(a.get("include_old")))
+            if scope == "admin":        # the owner's own client (main token on the LAN, or a person's admin link)
+                return res
+            return [dict(h, body=sec.mask(h.get("body") or "", qq, words, names_in),
+                         title=sec.mask(h.get("title") or "", qq, words, names_in)) for h in res]
         if name == "mind_get":
-            return st.seen(int(a["id"]), history=True)
+            from . import privacy as sec
+            d = st.seen(int(a["id"]), history=True)
+            if not d or scope == "admin":
+                return d
+            # one note by its id has no question to ask for a secret: every secret value is hidden (mind_recall
+            # with the question shows the one asked for)
+            d = dict(d, body=sec.mask_all(d.get("body") or ""), title=sec.mask_all(d.get("title") or ""))
+            if isinstance(d.get("history"), list):
+                d["history"] = [dict(v, body=sec.mask_all(v.get("body") or ""), title=sec.mask_all(v.get("title") or ""))
+                                if isinstance(v, dict) else v for v in d["history"]]
+            return d
         if name == "mind_update":
             return st.revise(int(a["id"]), title=a.get("title"), body=a.get("text"), shelf=a.get("shelf"),
                              tags=a.get("tags"), key=a.get("key"), meta=a.get("meta"))

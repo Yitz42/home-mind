@@ -76,6 +76,7 @@ PORT = int(os.environ.get("HOME_MIND_PORT", "8099"))
 STOP_GRACE = 30                 # config.yaml timeout: seconds between SIGTERM and SIGKILL
 REQUESTS_GRACE, TASKS_GRACE = 10, 10
 INGRESS_IPS = {"172.30.32.2"}
+HA_CORE_IP = "172.30.32.1"      # Home Assistant itself, as an add-on sees it (the bridge's webhook)
 # events that carry what someone asked or wrote: not for a token tied to another person (#48)
 PRIVATE_EVENTS = {"ask", "recall", "mdsync_edit", "forget_about", "feedback", "email", "revise", "remember", "browse"}
 WEB = os.path.join(os.path.dirname(__file__), "web")
@@ -355,10 +356,12 @@ class App:
         self.mind.ROUTER = self.opts.get("router", True) is not False
         self.mind.ROUTE_LOCAL = list(self.opts.get("router_local") or [])
         self.mind.ROUTE_CLOUD = list(self.opts.get("router_cloud") or [])
+        self.mind.LOCAL_MODEL = self.opts.get("local_model") or None
+        self.mind.PRIVATE_CLOUD = "never" if self.opts.get("private_to_cloud") == "never" else "when_local_away"
         self.mind.VOICE_SECONDS = float(self.opts.get("voice_seconds") or 8)
         self.mind.ORDER = "edges" if self.opts.get("answer_edges") else "default"
         self.mind.NOTES_FIRST = bool(self.opts.get("answer_notes_first"))
-        self.journal = Journal(self.mind.store, self.models)
+        self.journal = Journal(self.mind.store, self.models, mind=self.mind)
         self.calendars = Calendars(self.mind.store, self.ha, self.opts.get("calendar_quiet"))
         self._mark_secrets()
         if self.mind.store.kv_get("structure_backfill") != 1:
@@ -1186,6 +1189,7 @@ class App:
                          expand=bool(b.get("expand")), voice=bool(b.get("voice")),
                          deadline=(b.get("deadline") or self.HANDOFF_LATE) if phone else b.get("deadline"),
                          fallback=b.get("fallback", True), conversation_id=b.get("conversation_id"), speaker=who,
+                         auto_model=bool(b.get("mode_model")) or b.get("model") in (None, "", "auto"),
                          **({"on_sentence": on_sent} if raw_on_sent is not None else {}))
         if ar:
             ask = self.automation_answer(b, who, ar, ask)  # "set up an automation to...": autodraft.draft()
@@ -1397,6 +1401,9 @@ class App:
         if private:     # private mode: nothing leaves the house
             local, _ = self.mind.route_lists()
             chain = [m for m in chain if m in local]
+        elif getattr(self.mind, "PRIVATE_CLOUD", "") == "never":
+            # connected answers read health data: with private_to_cloud "never" they stay on local models
+            chain = self.mind.private_chain(chain)
         return chain[:2]
 
     async def deep_answer(self, b, who, quick):
@@ -4910,7 +4917,15 @@ def build(app_state):
             return J({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}, 400)
         if not isinstance(msg, (dict, list)) or msg == []:
             return J({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request"}}, 400)
-        out = await A.mcp.handle(msg, scope=q.get("scope", "admin"))
+        scope = q.get("scope", "admin")
+        via_link = (q.headers.get("X-Home-Mind-Via") or "").lower() == "webhook" or (q.remote or "") == HA_CORE_IP
+        if scope == "admin" and q.get("token") is None and via_link and not A.opts.get("plain_link_admin"):
+            # the main token coming through the bridge's plain Claude link, which is reachable from the internet
+            # (newer bridges say so in a header; older ones are known by Home Assistant's own address). It may read
+            # and write notes but not control the house, purge or install automations; a person's own link
+            # (person_link, scope admin) or option plain_link_admin gives that
+            scope = "write"
+        out = await A.mcp.handle(msg, scope=scope)
         if out is None:
             return web.Response(status=202)
         return J(out)

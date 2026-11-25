@@ -73,6 +73,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # token's scope; the plain link uses the app's main token, as before
         own = request.query.get("token") or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
         headers["X-Home-Mind-Token"] = own if own.startswith("hm_") else conn["token"]
+        if not own.startswith("hm_"):
+            headers["X-Home-Mind-Via"] = "webhook"      # the app limits what the plain link may do
         body = await request.read()
         s = async_get_clientsession(hass)
         try:
@@ -112,7 +114,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Reach one of Home Mind's own endpoints from a script (pantry, meals, ask...)."""
         d = dict(call.data)
         path = "/" + d["path"].lstrip("/")
-        if not path.startswith(ALLOWED):
+        base = path.split("?", 1)[0]
+        if ".." in path or "\\" in path or not any(base == a or base.startswith(a + "/") for a in ALLOWED):
             raise ValueError(f"{path} is not allowed from Home Assistant")
         method = d.get("method", "POST" if d.get("body") is not None else "GET").upper()
         r = await _call(hass, method, path, d.get("body") if method == "POST" else None)

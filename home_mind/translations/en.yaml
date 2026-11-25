@@ -348,6 +348,12 @@ configuration:
   router_cloud:
     name: Cloud models (router)
     description: Models tried first for harder questions. Empty = the other fallback models.
+  private_to_cloud:
+    name: Private questions and the cloud
+    description: "Health, body, money, journal and personal-note questions go to a local model first whenever one is awake (any local model you've connected, even one not in the fallback list). when_local_away = the cloud model answers them only while every local model is away; never = they never leave the house, and with no local model awake the answer comes from your notes alone."
+  plain_link_admin:
+    name: Plain Claude link may control the house
+    description: "The plain Claude link (the one with no ?token=hm_...) can be reached from the internet, so by default it may read and write notes but not control the house, purge notes or install automations. On = it may do everything, as before 0.39. Safer: make a person's own link (Developer tools > Actions > home_mind_bridge.person_link with scope admin) and leave this off."
   db_snapshots:
     name: Database snapshots to keep
     description: One a day. If the database is ever damaged, Home Mind starts from the newest good one, tells you, and keeps the damaged file.

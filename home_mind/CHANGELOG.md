@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.40.0
+- **The safety bar can pass (`System › Tests`):** a zero-tolerance gate (a bar of 100%) could never pass, because it compared the bar against the low end of a confidence range. It now passes when every case passes, and fails on the first failure.
+- **Private questions stay home:** questions the router marks private now go to an awake local model first in every mode, by voice too, instead of always going to Haiku. New option `private_to_cloud` (`never` answers from your notes alone when no local model is awake). The nightly journal summary uses the same rule and retries later if the laptop is asleep, instead of skipping the night.
+- **The plain Claude link is limited:** the bridge's plain link can read and write notes but no longer control the house, purge or install automations, and secret values in notes it reads back (`mind_recall`, `mind_get`) are hidden unless the question asks for them. Option `plain_link_admin` restores full access. A person's own link and the main token on your network are unchanged. The bridge now marks plain-link requests and checks `home_mind_bridge.call` paths more strictly; the bridge is now 0.3.1; restart Home Assistant once to load it (older bridges are limited too, by Home Assistant's address).
+- **Ideas and journal by voice:** "idea: …", "idea for <project>: …", "journal: …", "dear journal, …" and "note to self: …" are saved to the right shelf (Ideas › book and framework, projects or random; your personal journal) and answered "Saved to …". Before, only "remember…" and "note…" were saved.
+
 ## 0.39.0
 - **Alarm tile (`House › Your tiles`):** shows your alarm time and lets you change it (time only, `input_datetime.alarm`; the Mon–Sat wake-up follows it). Added once to your tiles with the Updates tile.
 - **Light scenes:** the room map's lights and any light tile get a scene picker with that light's own Govee scenes (`select.<light>_scene`). Only those lights' scene lists, and only their own scene names, can be set. Names load once per light from the new `GET /api/tiles/scenes`.

@@ -320,6 +320,71 @@ def _extract_when(text, now_dt=None):
     return s, d_obj, hm, dur
 
 
+# ---- 1b. Ideas and journal entries, by voice or typed (0.39) -------------------------------------------------------
+# "idea for the book: ...", "project idea, ...", "I have an idea: ...", "journal: ...", "dear journal ...",
+# "note to self: ..." land on the shelf script.home_mind_remember uses, so they're saved even when the conversation
+# agent is Home Mind itself (which never calls that script).
+CAPTURE_RX = re.compile(
+    r"^\s*(?:(?:save|log|add|file|capture|record|remember|take)\s+(?:down\s+)?(?:an?\s+|this\s+|my\s+|the\s+)?)?"
+    r"(?:(?:i\s+(?:have|had|got)\s+an?|here'?s\s+an?|new|another|quick)\s+)?"
+    r"(?:(?P<kind>book|framework|religion|project|app|pebble|random|business)\s+)?"
+    r"(?P<what>idea|journal(?:\s+entry)?|note\s+to\s+self)"
+    r"(?:\s+(?:for|about|on)\s+(?:the\s+|my\s+|a\s+|an\s+)?(?P<topic>[^:,;.!?\u2014-]{1,40}?))?"
+    r"\s*(?::|,|;|\u2014|\s-\s|\.\s|\s+that\s+|\s+is\s+)\s*(?P<text>\S.{1,})$", re.I)
+DEAR_JOURNAL_RX = re.compile(r"^\s*(?:dear\s+journal|add\s+to\s+my\s+journal|journal\s+this)\b[\s,:.-]*(?P<text>\S.{1,})$",
+                             re.I)
+_BOOK = re.compile(r"\b(?:book|framework|religion|secular|ideology|chapter|philosoph\w*)\b", re.I)
+_PROJECT = re.compile(r"\b(?:project|app|apps|pebble|watch\w*|home mind|jeeves|robot\w*|rc|game|code|build|website|"
+                      r"plugin|feature|firmware|lora|print|3d|cad|design|invention|business|startup|product)\b", re.I)
+IDEA_SHELVES = {"book": ("ideas/book-and-framework", "Idea (book and framework)", "book ideas"),
+                "projects": ("ideas/projects", "Idea (projects)", "project ideas"),
+                "random": ("ideas/random", "Idea", "ideas")}
+
+
+def capture_parse(text):
+    """(shelf, saved text, spoken place) for an idea / journal / note-to-self, or None."""
+    t = (text or "").strip()
+    m = DEAR_JOURNAL_RX.match(t)
+    if m:
+        body = m.group("text").strip()
+        return ("journal", "Journal entry: " + body, "your journal") if len(body) >= 2 else None
+    m = CAPTURE_RX.match(t)
+    if not m:
+        return None
+    body = m.group("text").strip()
+    if len(body) < 2 or body.endswith("?"):
+        return None                     # "idea, what should I cook?" is a question
+    what = m.group("what").lower()
+    if what.startswith("journal"):
+        return "journal", "Journal entry: " + body, "your journal"
+    if what.startswith("note"):
+        return "notes", body, "your notes"
+    kind, topic = (m.group("kind") or "").lower(), (m.group("topic") or "").strip()
+    probe = " ".join([kind, topic, body])
+    which = "book" if _BOOK.search(kind + " " + topic) else "projects" if (_PROJECT.search(kind) or topic) else \
+        "book" if _BOOK.search(probe) else "projects" if _PROJECT.search(probe) else "random"
+    shelf, prefix, place = IDEA_SHELVES[which]
+    label = f"{prefix} for {topic}" if topic and which != "book" else prefix
+    return shelf, f"{label}: {body}", f"your {place}"
+
+
+async def _handle_capture(app, text, who, voice):
+    parsed = capture_parse(text)
+    if not parsed:
+        return None
+    st = getattr(getattr(app, "mind", None), "store", None)
+    if st is None:
+        return None
+    shelf, body, place = parsed
+    meta = {"said_by": who} if who else {}
+    if shelf == "journal" and who:
+        meta.update(scope="personal", owner=who)     # a journal is its writer's own (personal_rule first_person)
+    out = st.remember(text=body, kind="note", shelf=shelf, tags=["voice"] if voice else None,
+                      source="voice" if voice else "ask", meta=meta or None)
+    return {"answer": f"Saved to {place}.", "hits": [], "model": None, "remembered": out, "via": "action",
+            "captured": shelf}
+
+
 # ---- handlers ----------------------------------------------------------------------------------------------------
 async def _handle_remember(app, text, who, voice):
     m = REMEMBER_RX.match(text)
@@ -918,6 +983,7 @@ async def dispatch(app, b, who, other=None, scope="admin", now_dt=None):
         return None
     for fn in (
         lambda: _handle_todo(app, text, who, voice, now_dt=now_dt),
+        lambda: _handle_capture(app, text, who, voice),
         lambda: _handle_remember(app, text, who, voice),
         lambda: _handle_pantry(app, text, who, voice),
         lambda: _handle_calendar(app, text, now_dt=now_dt),

@@ -203,6 +203,57 @@ def big_output(A):
     check("a small result isn't cut", "cut:" not in r["content"][0]["text"])
 
 
+def plain_link(app, A):
+    """0.39: the main token from outside the panel (the bridge's plain Claude link) can't control the house, and
+    notes going back over MCP have secret values hidden unless the question asks for them."""
+    orig = API.Req.__init__
+
+    def via_webhook(self, *a, **k):
+        orig(self, *a, **k)
+        self.headers = dict(self.headers, **{"X-Home-Mind-Via": "webhook"})
+
+    def call_tool(name, args, how="header"):
+        API.Req.__init__ = via_webhook if how == "header" else orig
+        try:
+            if how == "ha":
+                orig_init = API.Req.__init__
+
+                def from_ha(self, *a, **k):
+                    orig_init(self, *a, **k)
+                    self.remote = "172.30.32.1"
+                API.Req.__init__ = from_ha
+            s, d = API.call(app, "POST", "/mcp", {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                                                  "params": {"name": name, "arguments": args}})
+        finally:
+            API.Req.__init__ = orig
+        return d["result"]
+    r = call_tool("mind_purge", {"query": "nothing matches this zzqx"}, how="lan")
+    check("main token on the LAN keeps admin tools", "not allowed" not in r["content"][0]["text"], r)
+    r = call_tool("mind_purge", {"query": "nothing matches this zzqx"}, how="ha")
+    check("an older bridge (from Home Assistant's address) is limited too", "not allowed" in r["content"][0]["text"], r)
+    r = call_tool("mind_do", {"request": "turn off the den lamp"})
+    check("plain link: house control is refused", r["isError"] and "not allowed" in r["content"][0]["text"], r)
+    r = call_tool("mind_purge", {"query": "bike"})
+    check("plain link: purge is refused", r["isError"] and "not allowed" in r["content"][0]["text"], r)
+    r = call_tool("mind_recall", {"query": "bike"})
+    check("plain link: recall still works", not r["isError"], r)
+    A.opts["plain_link_admin"] = True
+    r = call_tool("mind_purge", {"query": "nothing matches this zzqx"})
+    check("plain_link_admin on: admin tools are allowed again", "not allowed" not in r["content"][0]["text"], r)
+    A.opts.pop("plain_link_admin", None)
+    st = A.mind.store
+    nid = st.remember(text="The garage door code is 4417 and the bike lock is in the shed.", title="Garage")["id"]
+    r = call_tool("mind_recall", {"query": "where is the bike lock"})
+    t = r["content"][0]["text"]
+    check("mind_recall hides a code the question doesn't ask for", "4417" not in t and "shed" in t, t[:300])
+    r = call_tool("mind_recall", {"query": "what is the garage door code"})
+    check("mind_recall shows the code that's asked for", "4417" in r["content"][0]["text"], r["content"][0]["text"][:300])
+    r = call_tool("mind_get", {"id": nid})
+    check("mind_get hides every secret value", "4417" not in r["content"][0]["text"], r["content"][0]["text"][:300])
+    r = call_tool("mind_get", {"id": nid}, how="lan")
+    check("the owner's own client sees the note whole", "4417" in r["content"][0]["text"], r["content"][0]["text"][:300])
+
+
 def main():
     A = API.make_app()
     app = API.M.build(A)
@@ -211,6 +262,7 @@ def main():
     protocol(app, A)
     scopes_and_safety(A)
     big_output(A)
+    plain_link(app, A)
 
 
 if __name__ == "__main__":

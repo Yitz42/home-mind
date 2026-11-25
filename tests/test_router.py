@@ -89,6 +89,21 @@ async def test_mind():
     r = await mind.ask("where is the drill?", model="haiku")
     check("a named model is never rerouted", r["model"] == "haiku" and "route" not in r)
 
+    # private questions (0.39): a local model first even when the fallback list is cloud only, as the mode picks it
+    mind.FALLBACK = ["haiku"]
+    mind.store.remember(text="Slept badly on Monday, woke at 4 and couldn't get back to sleep.", title="Sleep Monday")
+    calls.clear()
+    r = await mind.ask("how did I sleep on monday?", model="haiku", auto_model=True)
+    check("private, model chosen by the mode: the awake local model answers first", calls[:1] == ["gpu"] and
+          r["model"] == "gpu", (calls, r.get("model")))
+    calls.clear()
+    r = await mind.ask("where is the drill?", model="haiku", auto_model=True)
+    check("not private, model chosen by the mode: the mode's model as before", calls[:1] == ["haiku"], calls)
+    calls.clear()
+    r = await mind.ask("how did I sleep on monday?", model="haiku")
+    check("private but a model named by hand: never rerouted", calls[:1] == ["haiku"], calls)
+    mind.FALLBACK = ["gpu", "haiku"]
+
     replies["gpu"] = "I don't know where the drill is."
     calls.clear()
     r = await mind.ask("where is the drill?")
@@ -106,6 +121,24 @@ async def test_mind():
     r = await mind.ask("where is the drill?")
     check("the local computer away: the cloud answers straight away", calls == ["haiku"] and r["model"] == "haiku",
           (calls, r.get("model")))
+    calls.clear()
+    r = await mind.ask("how did I sleep on monday?", model="haiku", auto_model=True)
+    check("private, local away, when_local_away: the cloud answers", r["model"] == "haiku", (calls, r.get("model")))
+    mind.PRIVATE_CLOUD = "never"
+    calls.clear()
+    r = await mind.ask("how did I sleep on monday?", model="haiku", auto_model=True)
+    check("private, local away, never: the cloud is never asked", "haiku" not in calls and r.get("model") != "haiku",
+          (calls, r.get("model")))
+    mind.FALLBACK = ["haiku"]
+    calls.clear()
+    r = await mind.ask("how did I sleep on monday?", model="haiku", auto_model=True)
+    check("private, no local awake, never: the best note answers, nothing leaves the house", calls == [] and
+          r["model"] is None and r.get("private") and "4" in (r.get("answer") or ""), (calls, r.get("answer")))
+    mind.FALLBACK = ["gpu", "haiku"]
+    calls.clear()
+    r = await mind.ask("where is the drill?", model="haiku", auto_model=True)
+    check("never only covers private questions", calls[:1] == ["haiku"], calls)
+    mind.PRIVATE_CLOUD = "when_local_away"
 
     mind.ROUTER = False
     r = await mind.ask("where is the drill?")

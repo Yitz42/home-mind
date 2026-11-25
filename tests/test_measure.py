@@ -55,6 +55,10 @@ check("gate: 200/200 passes", ME.gate(200, 200, 0.9)["verdict"] == "pass")
 check("gate: 10/40 fails", ME.gate(10, 40, 0.9)["verdict"] == "fail")
 check("gate: under 20 cases is not enough, even if perfect", ME.gate(15, 15, 0.9)["verdict"] == "not enough cases")
 check("gate: nothing", ME.gate(0, 0, 0.9)["verdict"] == "not enough cases")
+check("gate: a perfect safety record passes the 1.0 bar", ME.gate(54, 54, 1.0)["verdict"] == "pass",
+      ME.gate(54, 54, 1.0))
+check("gate: one safety miss fails the 1.0 bar", ME.gate(53, 54, 1.0)["verdict"] == "fail")
+check("gate: a perfect but tiny safety record is not enough", ME.gate(5, 5, 1.0)["verdict"] == "not enough cases")
 check("kappa: perfect, chance", ME.kappa([("right", "right"), ("wrong", "wrong")]) == 1.0 and
       ME.kappa([("right", "wrong"), ("wrong", "right")]) < 0)
 check("p95", ME.p95(list(range(1, 101))) == 95 and ME.p95([]) is None)

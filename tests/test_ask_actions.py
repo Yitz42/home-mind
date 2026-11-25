@@ -141,6 +141,29 @@ async def main():
           await ask("Do you remember the gate code?") is None
           and await ask("Can you remember the gate code?") is None)
 
+    # ---- 1b. Ideas and journal entries (0.39) ---------------------------------------------------------------------
+    for q, shelf, prefix in [("idea for the book: rituals for the new moon", "ideas/book-and-framework",
+                              "Idea (book and framework): "),
+                             ("project idea, a pebble app that shows bus times", "ideas/projects", "Idea (projects): "),
+                             ("idea for Plunk: add a hard mode", "ideas/projects", "Idea (projects) for Plunk: "),
+                             ("I have an idea: paint the shed blue", "ideas/random", "Idea: "),
+                             ("journal: rough day but finished the lab", "journal", "Journal entry: "),
+                             ("Dear journal, slept well finally", "journal", "Journal entry: "),
+                             ("note to self: call the dentist", "notes", "")]:
+        r = await ask(q)
+        saved = st.get(r["remembered"]["id"]) if r and r.get("remembered") else {}
+        check(f"capture {q!r} -> {shelf}", r and r.get("captured") == shelf and saved.get("shelf") == shelf and
+              (saved.get("body") or "").startswith(prefix), (r, saved.get("shelf"), saved.get("body")))
+    r = await ask("journal: talked to Ness about camp")
+    saved = st.get(r["remembered"]["id"])
+    check("capture: a journal entry is its writer's own", (saved.get("meta") or {}).get("owner") == "Dana" and
+          (saved.get("meta") or {}).get("scope") == "personal", saved.get("meta"))
+    check("capture: questions about ideas aren't saved", await ask("any idea where my keys are?") is None and
+          await ask("what is my best idea") is None and await ask("idea, what should I cook?") is None)
+    r = await ask("remember this idea: a solar-powered birdfeeder")
+    check("capture: 'remember this idea' goes to ideas, not the inbox", r and r.get("captured") == "ideas/random", r)
+    check("capture: a read token can't save", await ask("idea: x y z", scope="read") is None)
+
     # ---- 2. Shopping list & reminders / to-dos -------------------------------------------------------------------
     ha.calls.clear()
     r = await ask("Can you add milk, eggs and avocados to my shopping list?")

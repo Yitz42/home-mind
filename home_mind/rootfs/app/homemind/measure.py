@@ -50,7 +50,12 @@ def gate(k, n, bar, min_n=MIN_CASES):
         return {"n": 0, "correct": 0, "rate": None, "lo": None, "hi": None, "width": None, "bar": bar,
                 "verdict": "not enough cases"}
     lo, hi = wilson(k, n)
-    v = "pass" if lo >= bar else "fail" if hi < bar else "unclear"
+    if bar >= 1.0:
+        # a zero-tolerance bar (safety): no interval can reach 1.0, so it is judged on the record itself; every
+        # case right passes, a single miss fails
+        v = "pass" if k >= n else "fail"
+    else:
+        v = "pass" if lo >= bar else "fail" if hi < bar else "unclear"
     if n < min_n and v != "fail":
         v = "not enough cases"
     return {"n": n, "correct": k, "rate": round(k / n, 3), "lo": round(lo, 3), "hi": round(hi, 3),

@@ -14,8 +14,8 @@ INSTRUCTIONS = ("These are my spoken journal entries from today, with the time o
 
 
 class Journal:
-    def __init__(self, store, models, at="23:30"):
-        self.store, self.models = store, models
+    def __init__(self, store, models, at="23:30", mind=None):
+        self.store, self.models, self.mind = store, models, mind
         self.at = tuple(int(x) for x in at.split(":"))
         self.done_for = None
 
@@ -38,6 +38,13 @@ class Journal:
         if not ents:
             return {"day": str(day), "entries": 0, "summary": None}
         names = [n for n in self.models.models if n != "mock"]
+        if not model and self.mind is not None and hasattr(self.mind, "private_chain"):
+            # journal entries are private: a local model first when one is awake; with private_to_cloud "never"
+            # only a local one, and with none awake the summary waits and is tried again
+            chain = self.mind.private_chain(["haiku"] if "haiku" in names else names[:1])
+            if not chain:
+                return {"day": str(day), "entries": len(ents), "summary": None, "skipped": "no local model awake"}
+            model = chain[0]
         model = model or ("haiku" if "haiku" in names else names[0] if names else None)
         if not model:
             return {"error": "no model connected"}
@@ -84,5 +91,7 @@ class Journal:
             try:
                 r = await self.summarize(now.date())
                 log.info("journal summary: %s", {k: v for k, v in r.items() if k != "summary"})
+                if r.get("skipped"):
+                    self.done_for = None        # try again on the next tick, until midnight
             except Exception:  # noqa: BLE001
                 log.exception("journal summary")

@@ -58,7 +58,7 @@ Models can switch things only when all of these hold:
 
 ## Home Mind as your voice assistant
 
-The Home Mind Bridge integration (version 0.3.0, installed by the app) adds a conversation agent called Home Mind.
+The Home Mind Bridge integration (version 0.3.1, installed by the app) adds a conversation agent called Home Mind.
 To use it: Settings › Voice assistants › your assistant › Conversation agent: **Home Mind**, and turn on **Prefer
 handling commands locally**. Then:
 - Home Assistant's own commands (lights, timers, shopping list) are handled by Home Assistant first, as fast as ever.
@@ -72,7 +72,15 @@ handling commands locally**. Then:
   answer.
 - It knows who's speaking from the signed-in user and the satellite you spoke to.
 
-**A Claude link per person.** The plain Claude link uses the app's main access and sees everything. For someone's
+**Saying an idea or a journal entry.** "Idea: …" files it under Ideas (book and framework ideas, project ideas or
+random ones, picked from the words), "idea for the robot arm: …" files it under that project, "journal: …" or "dear
+journal, …" files a personal journal entry for whoever is speaking, and "note to self: …" files a plain note. Home
+Mind answers "Saved to …" with the shelf.
+
+**A Claude link per person.** The plain Claude link can read and write notes but not control the house, purge notes
+or install automations, and secret values in notes it reads back are hidden unless the question asks for them
+(option `plain_link_admin` gives it full access again). The main token used directly on your network keeps full
+access. For someone's
 own Claude, call the `home_mind_bridge.person_link` action with their name (and `scope`: read, write, or admin to
 also control the house). A notification shows a link ending `?token=hm_…`, once. That Claude then answers as that
 person: their notes and the household's, not anyone else's. Links expire after 90 days unless `days` is 0; revoke
@@ -330,6 +338,10 @@ reflex.
   hand that kind back to the cloud.
 - **private:** nothing leaves the house. House requests use the local model; answers use your local chat model
   (`local_model`) or your notes alone. If the home computer is asleep, Home Mind says so instead of using the cloud.
+- **Private questions in every mode:** a question the router marks private (health, money, a person, your journal)
+  goes to an awake local model first, in every mode, by voice too. If none is awake it goes to the cloud as before,
+  unless `private_to_cloud` is `never`: then it's answered from your notes alone. The nightly journal summary
+  follows the same rule and tries again later in the night if no local model is awake.
 
 The local models are pinged every 30 seconds in the background and only used when awake, so a sleeping laptop never
 makes you wait.
@@ -986,6 +998,8 @@ you turn them on are listed after the tables.
 | `model_mode` | balanced | cloud, balanced (the local model for kinds it has earned) or private (nothing leaves the house) |
 | `confidence_dial` | 0.55 | Below this confidence, a local plan goes to the cloud model, else Home Mind asks before acting |
 | `local_model` | empty | A local chat model for answers in private mode; empty = notes alone |
+| `private_to_cloud` | when_local_away | Private questions use an awake local model first; `never` = never send them to a cloud model (notes alone when no local model is awake) |
+| `plain_link_admin` | off | Give the bridge's plain Claude link full access (house control, purge, automations) again |
 | `shadow_rate` | 0.1 | Share of house requests also planned by a second model in the background (never acts), to compare them; 0 = off |
 | `approval_phone` | empty | The phone that approves locks, garage doors, alarms and heaters (`notify.mobile_app_...`); empty = the first phone with the Home Assistant app |
 | `safety_contact` | empty | Someone told when you describe an emergency, a double dose or a big decline (a notify service); empty = no one |

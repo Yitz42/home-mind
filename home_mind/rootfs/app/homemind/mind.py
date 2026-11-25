@@ -1204,6 +1204,39 @@ class Mind:
 
     ROUTER = True               # option router: with no model named, pick by difficulty and privacy
     ROUTE_LOCAL, ROUTE_CLOUD = [], []
+    LOCAL_MODEL = None          # option local_model: the local chat model, first for private questions
+    PRIVATE_CLOUD = "when_local_away"   # option private_to_cloud: or "never" (private questions stay in the house)
+
+    def _is_local(self, name):
+        """A model that runs on a computer on your network (Ollama, OpenAI-compatible at a local address)."""
+        m = self.models.get(name) if getattr(self, "models", None) is not None else None
+        ep = m.endpoint() if m is not None and hasattr(m, "endpoint") else None
+        return bool(ep) and not ep[0].endswith((".com", ".ai", ".io", ".net", ".org"))
+
+    def private_locals(self):
+        """Local models for private questions, best first: router_local, then local_model, then every local model
+        connected, quickest first (by its timeout), so the GPU laptop answers health and journal questions when it's
+        awake even if it isn't in the fallback list."""
+        names = list(getattr(getattr(self, "models", None), "models", None) or {})
+        out = [m for m in list(self.ROUTE_LOCAL) + [self.LOCAL_MODEL] if m and m in names]
+        rest = [m for m in names if m != "mock" and m not in out and self._is_local(m)]
+        rest.sort(key=lambda m: int((getattr(self.models.get(m), "cfg", {}) or {}).get("timeout") or 120))
+        return list(dict.fromkeys(out + rest))
+
+    def private_chain(self, chain, voice=False):
+        """The model order for a private question (health, body, money, journal, a personal note): local models
+        that are awake first; with private_to_cloud "never", no cloud model at all (an empty chain = the notes
+        alone). By voice only the first local model is tried before the cloud, so the voice deadline still holds."""
+        up = getattr(self.models, "up", None)
+        down = getattr(self, "_down", {})
+        now = time.time()
+        locals_up = [m for m in self.private_locals()
+                     if not (up and up(m) is False) and now - down.get(m, 0) > self.DOWN_SECONDS]
+        if voice:
+            locals_up = locals_up[:1]
+        if self.PRIVATE_CLOUD == "never":
+            return locals_up + [m for m in chain if m not in locals_up and self._is_local(m)]
+        return locals_up + [m for m in chain if m not in locals_up]
 
     def route_lists(self):
         """(local, cloud) model names: the options router_local/router_cloud, else the fallback list split by where
@@ -1388,8 +1421,10 @@ class Mind:
         return full
 
     async def ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False,
-                  voice=False, deadline=None, fallback=True, conversation_id=None, speaker=None, on_sentence=None):
-        """speaker: None = no speaker information (sees everything, as before); "" = unknown (household notes only,
+                  voice=False, deadline=None, fallback=True, conversation_id=None, speaker=None, on_sentence=None,
+                  auto_model=False):
+        """auto_model: the model was chosen for the question (by the mode or the router), not named by hand, so the
+        private-question rule applies. speaker: None = no speaker information (sees everything, as before); "" = unknown (household notes only,
         no secrets by voice, no bulk lists); a name = that person (their personal notes too). (#3, #48, #78)"""
         from .speakers import VIEWER
         from . import redflags
@@ -1408,7 +1443,8 @@ class Mind:
         vtok = VOICE.set(bool(voice))        # per question: two questions at once never see each other's flag
         try:
             out = await self._ask(question, model, use_brain, k, shelf, store, system, expand, voice, deadline, fallback,
-                                  conversation_id, on_sentence=on_sentence)
+                                  conversation_id, on_sentence=on_sentence,
+                                  auto_model=auto_model or model in (None, "auto"))
         finally:
             VOICE.reset(vtok)
             VIEWER.reset(tok)
@@ -1417,7 +1453,8 @@ class Mind:
         return out
 
     async def _ask(self, question, model=None, use_brain=True, k=8, shelf=None, store=None, system=None, expand=False,
-                   voice=False, deadline=None, fallback=True, conversation_id=None, on_sentence=None):
+                   voice=False, deadline=None, fallback=True, conversation_id=None, on_sentence=None,
+                   auto_model=False):
         """Answer with a model. If it fails or is too slow, try the fallbacks (option "fallback", default Haiku through
         Home Assistant), and if none answers, give the best matching note. voice=True caps the whole answer at
         VOICE_SECONDS so a voice question never hangs."""
@@ -1580,6 +1617,18 @@ class Mind:
             chain = self._chain(model) if fallback else [model]
         if not chain:
             chain = [model]
+        if use_brain and system is None and (auto_model or route_info is not None):
+            # private questions: a local model first when one is awake, and with private_to_cloud "never" no cloud
+            # model at all (the router's own "local first" can't do this when the fallback list is cloud only)
+            from .router import classify
+            private = route_info["private"] if route_info else classify(question, hits, voice)[1]
+            if private:
+                chain = self.private_chain(chain, voice)
+                if not chain:
+                    return {"answer": best_note(hits, voice) if hits else None, "hits": hits, "model": None,
+                            "weak": weak, "private": True,
+                            "sources": sources_for(hits[0]["body"], hits[:1], question) if hits else []}
+                model = chain[0]
         sysmsg = system or (ANSWER_SYSTEM if use_brain else ALONE_SYSTEM)
         open_ended = bool(use_brain and system is None and OPEN_ENDED_Q.search(question or ""))
         if open_ended:
