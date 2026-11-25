@@ -249,6 +249,7 @@ ROUTES = [
     ("POST", "/api/decisions/freeze", ["name"]),
     ("POST", "/api/replay", ["model", "limit", "frozen"]),
     ("GET", "/api/controls", []),
+    ("GET", "/api/controls/printer/cover", []),
     ("POST", "/api/controls/{op}", ["entity", "service", "data", "name", "on"]),
     ("GET", "/api/today", []),
     ("GET", "/api/automations", []),

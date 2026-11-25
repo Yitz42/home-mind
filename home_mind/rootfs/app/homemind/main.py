@@ -3490,6 +3490,16 @@ def build(app_state):
         from . import home_ctrl
         return J(await home_ctrl.build(A))
 
+    @r.get("/api/controls/printer/cover")
+    async def controls_printer_cover(_):
+        from . import home_ctrl
+        got = await home_ctrl.printer_cover(A)
+        if not got:
+            raise web.HTTPNotFound()
+        body, ctype = got
+        return web.Response(body=body, content_type=ctype.split(";")[0],
+                            headers={"Cache-Control": "private, max-age=300"})
+
     @r.post("/api/controls/{op}")
     async def controls_op(q):
         from . import home_ctrl

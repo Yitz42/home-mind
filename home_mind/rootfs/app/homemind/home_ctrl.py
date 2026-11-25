@@ -44,6 +44,8 @@ PRINTER = {k: f"sensor.a1_{k}" for k in ("print_status", "task_name", "current_l
                                           "print_progress", "remaining_time", "current_stage", "nozzle_temperature",
                                           "bed_temperature", "print_weight")}
 PRINTER_LIGHT = "light.a1_chamber_light"
+PRINTER_COVER = "image.a1_cover_image"   # the Bambu integration's picture of the model being printed
+_MINUTES = {"d": 1440, "h": 60, "min": 1, "s": 1 / 60}   # duration units Home Assistant reports
 PRINTER_BUTTONS = {"pause": "button.a1_pause_printing", "resume": "button.a1_resume_printing",
                    "stop": "button.a1_stop_printing"}
 FAN_NIGHT = "switch.dyson_c2a_us_mdb9996a_night_mode"
@@ -115,6 +117,15 @@ def _num(s, default=None):
         return default
 
 
+def _minutes(s):
+    """A duration sensor as whole minutes, read in its own unit (the A1 reports hours: 2.55 h = 153 min)."""
+    v = _num(s)
+    if v is None:
+        return None
+    unit = ((s or {}).get("attributes") or {}).get("unit_of_measurement") or "min"
+    return round(v * _MINUTES.get(unit, 1))
+
+
 def _hex(rgb):
     try:
         return "#%02x%02x%02x" % tuple(int(v) for v in rgb[:3])
@@ -160,10 +171,41 @@ def device_view(d, st):
         out.update(on=live and p["print_status"] in ("running", "prepare", "pause"), printer={
             "live": live, "status": p["print_status"] if live else "offline", "task": p["task_name"],
             "layer": p["current_layer"], "layers": p["total_layer_count"], "progress": _num(st.get(PRINTER["print_progress"])),
-            "remaining": p["remaining_time"], "stage": p["current_stage"], "nozzle": p["nozzle_temperature"],
+            "remaining": p["remaining_time"], "remaining_min": _minutes(st.get(PRINTER["remaining_time"])),
+            "stage": p["current_stage"], "nozzle": p["nozzle_temperature"],
             "bed": p["bed_temperature"], "weight": p["print_weight"],
-            "chamber": (st.get(PRINTER_LIGHT) or {}).get("state") == "on"})
+            "chamber": (st.get(PRINTER_LIGHT) or {}).get("state") == "on",
+            "cover": _cover_version(st)})
     return out
+
+
+def _cover_version(st):
+    """The cover image's state (when it last changed), so the panel reloads it for a new print; None = no picture."""
+    s = st.get(PRINTER_COVER) or {}
+    v = s.get("state")
+    return v if v not in (None, "unavailable", "unknown") else None
+
+
+async def printer_cover(A):
+    """(bytes, content type) of the print's preview picture, fetched from Home Assistant's image proxy, or None."""
+    import aiohttp
+    ha = A.ha if getattr(A, "ha", None) and A.ha.available else None
+    if not ha:
+        return None
+    s = await ha.state(PRINTER_COVER) or {}
+    tok = (s.get("attributes") or {}).get("access_token")
+    if s.get("state") in (None, "unavailable", "unknown") or not tok:
+        return None
+    url, headers = ha._ctl(f"image_proxy/{PRINTER_COVER}")
+    try:
+        async with ha.session.get(url, params={"token": tok}, headers=headers,
+                                  timeout=aiohttp.ClientTimeout(total=10)) as r:
+            if r.status != 200:
+                return None
+            return await r.read(), r.headers.get("Content-Type", "image/png")
+    except Exception:  # noqa: BLE001
+        log.debug("printer cover image not reachable", exc_info=True)
+        return None
 
 
 def suggestion(st, model, now):

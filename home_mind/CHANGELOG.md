@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.1
+- **Printer time left in hours and minutes (`House › 3D printer`):** the A1 reports its remaining time in hours, and the card showed that number as minutes ("2.55 min left"). The time is now read in the sensor's own unit and shown as hours and minutes ("2h 33m left"); `/api/controls` adds `printer.remaining_min`.
+- **Print preview on the printer card and map icon:** while a print is loaded, the Bambu cover image (`image.a1_cover_image`) shows in the card's picture tile and on the printer's icon on the room map, served by the new `GET /api/controls/printer/cover`.
+
 ## 0.36.0
 - **General Data-Link Layer (`memgraph.py`):** expanded MemGraph beyond category-specific relations with 9 domain-agnostic structural & temporal link types: `AT` *(exclusive location)*, `PART_OF`, `DURING` *(era/chapter)*, `REQUIRES`, `AFFECTS` *(signed +/−, negative displays as `IMPAIRS`)*, `DERIVED_FROM`, `CONTRADICTS`, `SAME_AS`, and `SUPERSEDES`. Updated the Archivist prompt and dynamic signed display labels to support all of them.
 - **Automatic Temporal Superseding & Era Closeout (`retire_link`, `close_era`, `POST /api/memgraph/close_era`):** superseded `EXCLUSIVE` links now automatically populate `valid_to` and `superseded_by` when they go dormant; retiring a link or closing an era/place (e.g. moving from `"Oak St House"` → `"Austin House"`) retires every active link tied to it in one step and records a `SUPERSEDES` edge, excluding past links from `CURRENT_STATE` answers while keeping them searchable for `HISTORICAL` questions (rendered with `ended:YYYY-MM-DD`). Confirming a past link reactivates it cleanly.

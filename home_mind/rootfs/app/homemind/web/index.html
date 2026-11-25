@@ -129,6 +129,7 @@
   .hc-dev { position:absolute; transform:translate(-50%,-50%); width:44px; height:44px; border:0; background:none; padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center }
   .hc-dev .halo { position:absolute; border-radius:99px; pointer-events:none }
   .hc-dev .disc { position:relative; width:38px; height:38px; border-radius:99px; display:flex; align-items:center; justify-content:center; background:var(--card2); color:var(--mute); border:1px solid var(--line) }
+  .hc-dev .disc .pv { position:absolute; inset:3px; width:calc(100% - 6px); height:calc(100% - 6px); object-fit:contain; border-radius:99px; background:inherit }
   .hc-dev.on .disc { color:#1a1205; border-color:transparent } .hc-dev.sel .disc { box-shadow:0 0 0 3px var(--card), 0 0 0 5px var(--ink) } .hc-dev.na .disc { opacity:.45 }
   .hc-panel { background:color-mix(in srgb, var(--acc) 6%, var(--card)) }
   .hc-ptop { display:flex; justify-content:space-between; align-items:center; gap:10px } .hc-ptop b { font:600 18px var(--head) }
@@ -156,7 +157,7 @@
   .hc-plugs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px 6px } .hc-plugs button { display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:0; color:var(--ink); font:inherit; cursor:pointer; padding:0 }
   .hc-plugs .pring { width:52px; height:52px; border-radius:99px; display:flex; align-items:center; justify-content:center; background:var(--card2); color:var(--mute); border:1px solid var(--line) }
   .hc-plugs .on .pring { background:var(--ink); color:var(--bg); border-color:var(--ink) } .hc-plugs .nm { font-size:12px; text-align:center; line-height:1.15 } .hc-plugs .st { font-size:11px; color:var(--mute) }
-  .hc-pr { display:flex; gap:12px; margin-top:12px } .hc-cam { width:110px; height:110px; flex:none; border-radius:14px; background:color-mix(in srgb, var(--bg) 70%, var(--card)); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; text-align:center; font-size:11px; color:var(--mute); padding:8px; box-sizing:border-box }
+  .hc-pr { display:flex; gap:12px; margin-top:12px } .hc-cam { width:110px; height:110px; flex:none; border-radius:14px; background:color-mix(in srgb, var(--bg) 70%, var(--card)); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; text-align:center; font-size:11px; color:var(--mute); padding:8px; box-sizing:border-box } .hc-cam img { width:100%; height:100%; object-fit:contain; display:block }
   .hc-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:12px } .hc-stats div { background:color-mix(in srgb, var(--bg) 70%, var(--card)); border-radius:10px; padding:6px 8px; display:flex; flex-direction:column } .hc-stats span { font-size:10px; color:var(--mute) } .hc-stats b { font-size:13px }
   .hc-btns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:12px } .hc-btns button { min-height:40px; border-radius:12px; border:1px solid var(--line); background:var(--card2); color:var(--ink); font:inherit; font-size:13px; cursor:pointer } .hc-btns button:disabled { opacity:.4; cursor:default } .hc-btns .stop { color:var(--bad) }
   .room { max-width:560px }
@@ -3996,7 +3997,7 @@ function homeRender() {
     const col = d.kind === 'light' ? (d.color || '#ffb35c') : DEVCOL[d.kind], glow = d.kind === 'light' && d.on ? Math.round(36 + (d.level || 0) * 0.45) : 0;
     return `<button class="hc-dev ${d.on ? 'on' : ''} ${HSEL === d.id ? 'sel' : ''} ${d.available ? '' : 'na'}" style="left:${d.x}%;top:${d.y}%" onclick="homeSel(${jsq(d.id)})" aria-label="${esc(d.name)}">
       ${glow ? `<span class="halo" style="width:${glow * 2}px;height:${glow * 2}px;background:radial-gradient(circle, ${col}66, transparent 70%)"></span>` : ''}
-      <span class="disc" style="${d.on ? 'background:' + col : ''}">${svg(d.kind === 'light' ? HI.bulb : HI[d.kind])}</span></button>`; }).join('');
+      <span class="disc" style="${d.on ? 'background:' + col : ''}">${svg(d.kind === 'light' ? HI.bulb : HI[d.kind])}${printPreview(d) ? `<img class="pv" src="${printPreview(d)}" alt="" onerror="this.remove()">` : ''}</span></button>`; }).join('');
   homePanel(); homeComfort(); homeTonight(); homePlugs();
 }
 let homeTip = null;
@@ -4033,10 +4034,10 @@ function homePanel() {
   } else if (d.kind === 'printer') {
     const pr = d.printer || {}, live = pr.live, run = d.on;
     sub = live ? pr.status.replace('_', ' ') : 'offline right now';
-    extra = `<div class="hc-pr"><div class="hc-cam">${live ? 'camera is in Home Assistant' : 'camera shows a picture once a print starts'}</div>
+    extra = `<div class="hc-pr"><div class="hc-cam">${printPreview(d) ? `<img src="${printPreview(d)}" alt="Print preview" onerror="this.replaceWith('preview not available')">` : (live ? 'no preview for this print' : 'the print preview shows here once a print starts')}</div>
       <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px"><b style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(live && pr.task && !['unknown', 'unavailable'].includes(pr.task) ? pr.task : 'No print loaded')}</b>
       <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mute)"><span>Layer ${esc(live ? pr.layer || '–' : '–')} of ${esc(live ? pr.layers || '–' : '–')}</span><b style="color:var(--ink)">${pr.progress == null ? '–' : Math.round(pr.progress) + '%'}</b></div>
-      <div class="meter"><i style="width:${pr.progress || 0}%;background:var(--acc)"></i></div><span style="font-size:12px;color:var(--mute)">${live && pr.remaining ? esc(pr.remaining) + ' min left' : 'Turn the printer on and it shows up here'}</span></div></div>
+      <div class="meter"><i style="width:${pr.progress || 0}%;background:var(--acc)"></i></div><span style="font-size:12px;color:var(--mute)">${live && pr.remaining_min != null ? (run ? leftTime(pr.remaining_min) : '') : (live ? '' : 'Turn the printer on and it shows up here')}</span></div></div>
       <div class="hc-stats">${[['Stage', pr.stage], ['Nozzle', pr.nozzle && pr.nozzle + '°C'], ['Bed', pr.bed && pr.bed + '°C'], ['Filament', pr.weight && Math.round(pr.weight) + ' g']].map(([k, v]) => `<div><span>${k}</span><b>${esc(live && v && !String(v).startsWith('unknown') ? v : '–')}</b></div>`).join('')}</div>
       <div class="hc-ptop" style="margin-top:12px"><span>Chamber light</span><button class="sw sm ${pr.chamber ? 'on' : ''}" style="--sw:var(--acc)" ${live ? '' : 'disabled'} onclick="homeAct('light.a1_chamber_light','toggle')" aria-label="Chamber light"></button></div>
       <div class="hc-btns"><button ${run ? '' : 'disabled'} onclick="homeAct('button.a1_pause_printing','press')">Pause</button><button ${run ? '' : 'disabled'} onclick="homeAct('button.a1_resume_printing','press')">Resume</button><button class="stop" ${run ? '' : 'disabled'} onclick="confirm('Stop the current print?') && homeAct('button.a1_stop_printing','press')">Stop…</button></div>`;
@@ -4044,6 +4045,9 @@ function homePanel() {
   const canSwitch = !['printer', 'cover'].includes(d.kind) && d.available;
   p.innerHTML = `<div class="hc-ptop"><div><b>${esc(d.name)}</b><div class="mute" style="font-size:12px">${esc(sub)}</div></div>${canSwitch ? `<button class="sw ${d.on ? 'on' : ''}" style="--sw:${col}" onclick="homeToggle()" aria-label="On or off"></button>` : ''}</div>${d.available || d.kind === 'printer' ? lev + extra : '<div class="mute" style="margin-top:10px">Not reachable in Home Assistant right now.</div>'}`;
 }
+// the print's preview picture (Bambu cover image) while a print is loaded, or null
+function printPreview(d) { const pr = d && d.kind === 'printer' && d.printer; return pr && pr.live && pr.cover ? `api/controls/printer/cover?v=${encodeURIComponent(pr.cover)}` : null; }
+function leftTime(m) { m = Math.max(0, Math.round(m)); const h = Math.floor(m / 60), r = m % 60; return (h ? `${h}h ${r}m` : `${r}m`) + ' left'; }
 function homeSlide(el, min, max, unit) { HBUSY = 1; $('#hp_v').textContent = Math.round(el.value) + unit; $('#hp_f').style.width = Math.max(6, (el.value - min) / (max - min) * 100) + '%'; }
 async function homeAct(entity, service, data) {
   HBUSY = 1; const r = await api('api/controls/act', { entity, service, data: data || {} }); HBUSY = 0;

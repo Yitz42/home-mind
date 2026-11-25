@@ -1316,6 +1316,7 @@ note), 502 (a model failed) or 500.
 | POST | `/api/decisions/freeze` | admin | keep the current test cases under a name (`name`) |
 | POST | `/api/replay` | admin | replay logged requests through the planner without acting (`model?`, `limit?`, `frozen?`) |
 | GET | `/api/controls` | read | the Home tab: devices with their map spots, presets, comfort, weather, routines, plugs |
+| GET | `/api/controls/printer/cover` | read | the 3D print's preview picture (the Bambu cover image), 404 when there is none |
 | POST | `/api/controls/{op}` | admin | `act` (`entity`, `service`, `data`; allow-listed per domain, values clamped), `scene` (`name`), `routine` (`entity`, `on`) |
 | GET | `/api/today` | read | readiness, fog, food to eat first, protein so far, the bedroom, what was learned |
 | GET | `/api/hub` | read | the Home page: place, log counts, Energy / Fog / Ready with seven days and factors, For you, food, reminders, calendar, house |

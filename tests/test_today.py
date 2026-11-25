@@ -128,6 +128,19 @@ def body_and_controls():
     s = home_ctrl.suggestion(stt, model, late)
     check("bedtime nudge after the usual lights-off with lights on", s and s["scene"] == "bedtime" and "10:16 PM" in s["title"], s)
     check("no nudge in the afternoon", home_ctrl.suggestion(stt, model, _dt(2026, 11, 16, 15, 0).timestamp()) is None)
+    # the printer: the A1 reports time left in hours, so 2.55 h must read as 153 minutes, with the preview picture's version
+    pst = {"sensor.a1_print_status": {"state": "running"},
+           "sensor.a1_remaining_time": {"state": "2.55", "attributes": {"unit_of_measurement": "h", "device_class": "duration"}},
+           "image.a1_cover_image": {"state": "2026-11-24T22:47:29", "attributes": {"access_token": "x"}}}
+    pdev = next(d for d in home_ctrl.DEVICES if d["kind"] == "printer")
+    pr = home_ctrl.device_view(pdev, pst)["printer"]
+    check("printer time left read in hours", pr["remaining_min"] == 153, pr)
+    check("printer preview version passed to the panel", pr["cover"] == "2026-11-24T22:47:29", pr)
+    pst["sensor.a1_remaining_time"]["attributes"]["unit_of_measurement"] = "min"
+    pst["image.a1_cover_image"]["state"] = "unavailable"
+    pr = home_ctrl.device_view(pdev, pst)["printer"]
+    check("printer time left in minutes stays minutes", pr["remaining_min"] == 3, pr)
+    check("no preview when the picture is unavailable", pr["cover"] is None, pr)
 
 
 asyncio.run(main())
