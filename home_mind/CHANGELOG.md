@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.41.1
+- **Cleaner event names on the watch and in answers:** the glance and the situation lines drop the date a calendar event was filed with ("Work Remote", not "Work Remote (Wednesday Nov 25 2026)"), so the line fits the Pebble.
+
 ## 0.41.0
 - **Overnight learning survives a sleeping laptop:** with no overnight model named it uses qwen9b, else qwen35b, whichever is awake. If the laptop is asleep it tries again every few minutes in the 3-hour window, then catches up later that morning once it wakes (until 12 hours after the window opened), instead of skipping the night. A conversation logged twice in one turn is now kept once.
 - **Search by meaning, more easily:** with `embed_model` empty, the first model that has an `embed_model` field is used. While its computer sleeps, search falls back to keywords at once and indexing waits, instead of each search waiting on a timeout.

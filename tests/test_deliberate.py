@@ -301,6 +301,9 @@ check("board: presence is only for the person themselves", not any("Dana is" in 
 
 # 0.41: the zone's name stays on the board, and every answer gets a SITUATION block
 from homemind.nowboard import situation, where_from  # noqa: E402
+from homemind.nowboard import _bare_title  # noqa: E402
+check("calendar titles lose the date they were filed with",
+      _bare_title("Work Remote (Wednesday Nov 25 2026)") == "Work Remote" and _bare_title("Lunch (with Sam)") == "Lunch (with Sam)")
 check("where: a zone keeps its name", where_from("UMBC") == "at UMBC" and where_from("not_home") == "away"
       and where_from("home") == "home")
 _dt = __import__("datetime")

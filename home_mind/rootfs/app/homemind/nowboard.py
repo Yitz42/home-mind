@@ -158,6 +158,14 @@ def where_from(state):
 SLEEP_ENTITY = re.compile(r"^(?:switch\.[a-z0-9_]*sleep_mode[a-z0-9_]*|input_boolean\.[a-z0-9_]*(?:asleep|sleeping|sleep_mode)[a-z0-9_]*)$")
 
 
+_DATE_TAIL = re.compile(r"\s*\((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\.? [A-Z][a-z]{2,8} \d{1,2},? \d{4}\)\s*$")
+
+
+def _bare_title(t):
+    """A calendar note's title without the date it was filed with ("Work Remote (Wednesday Nov 25 2026)")."""
+    return _DATE_TAIL.sub("", (t or "").strip())
+
+
 def situation(app, viewer=None, now=None, events=2, tasks=3):
     """The SITUATION block every answer gets (0.41), board-off days too: the time, where the person asking is, the next
     calendar events, whether the house is in sleep mode, and the top open tasks. Built fresh at question time from
@@ -192,7 +200,7 @@ def situation(app, viewer=None, now=None, events=2, tasks=3):
                     if st.tzinfo is not None:
                         st = st.astimezone().replace(tzinfo=None)
                     if st >= now - timedelta(minutes=15):
-                        nxt.append((st, (d.get("title") or "").strip()[:80]))
+                        nxt.append((st, _bare_title(d.get("title"))[:80]))
         except Exception:  # noqa: BLE001
             nxt = []
         nxt.sort()
@@ -233,7 +241,7 @@ def glance(app, viewer=None, now=None):
                     if st.tzinfo is not None:
                         st = st.astimezone().replace(tzinfo=None)
                     if st >= now - timedelta(minutes=15):
-                        nxt.append((st, (d.get("title") or "(no title)").strip()))
+                        nxt.append((st, _bare_title(d.get("title")) or "(no title)"))
             nxt.sort()
             if nxt:
                 st, t = nxt[0]
