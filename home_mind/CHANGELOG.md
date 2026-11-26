@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.41.3
+- **No more "HTTP 401: not a JSON answer" after the phone sleeps:** when Home Assistant's session for the page has run out, the page tries again twice over a few seconds, then reloads Home Assistant's page around it to get a fresh one, keeping what was typed in the ask box and the tab you were on. Coming back to the app after more than two minutes checks the session straight away. Home Mind's own refusals (a revoked token) still show as before, and it never reloads twice in a minute.
+
 ## 0.41.2
 - **Bridge 0.3.3:** its switches, numbers, buttons and sensors no longer use an attribute name Home Assistant reserves (`group`), which it warns will stop working in 2027.2. Loads at Home Assistant's next restart; nothing changes until then.
 

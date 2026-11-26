@@ -231,6 +231,32 @@ else:
              "steps": ["revokeToken('x')"]})
     check("a failed revoke is reported", ["alert", "needs admin"] in o.get("calls", []), o)
 
+    # an expired Home Assistant ingress session (a plain 401 when the phone slept): retry twice, then reload the page
+    SS = ("var SSD = {}; sessionStorage = {getItem: k => SSD[k] === undefined ? null : SSD[k], setItem: (k, v) => { SSD[k] = String(v); },"
+          " removeItem: k => { delete SSD[k]; }}; location.reload = () => alert('reloaded');")
+    SHOW = "api('api/x').then(r => alert('result:' + (r.error || 'ok')));"
+    o = run({"routes": dict(BASE, **{"api/x": {"status": 401, "body": "401: Unauthorized"}}), "steps": [SS, SHOW], "settle": 5200})
+    calls = o.get("calls", [])
+    check("expired session: two retries, then the page reloads for a fresh one",
+          o.get("fetched", []).count("api/x") == 3 and ["alert", "reloaded"] in calls
+          and any(c[0] == "alert" and str(c[1]).startswith("result:Getting a fresh session") for c in calls), o)
+    o = run({"routes": dict(BASE, **{"api/x": {"status": 401, "body": "401: Unauthorized"}}),
+             "steps": [SS + " SSD.hm_reload_at = String(Date.now());", SHOW], "settle": 5200})
+    calls = o.get("calls", [])
+    check("expired session: no reload loop when a reload a minute ago didn't help",
+          ["alert", "reloaded"] not in calls and any(c[0] == "alert" and "Close Home Mind and open it again" in str(c[1]) for c in calls), o)
+    o = run({"routes": dict(BASE, **{"api/x": {"status": 401, "body": {"error": "not allowed: that token is unknown"}}}),
+             "steps": [SS, SHOW], "settle": 300})
+    calls = o.get("calls", [])
+    check("Home Mind's own 401 (JSON) is shown as is: no retry, no reload",
+          o.get("fetched", []).count("api/x") == 1 and ["alert", "result:not allowed: that token is unknown"] in calls, o)
+    o = run({"routes": dict(BASE, **{"api/x": {"body": {"ok": True}}}),
+             "steps": [SS + " var F0 = fetch, NF = 0; fetch = async (p, op) => (p === 'api/x' && ++NF === 1)"
+                            " ? {ok: false, status: 401, text: async () => '401: Unauthorized'} : F0(p, op);", SHOW], "settle": 2200})
+    calls = o.get("calls", [])
+    check("expired session: a retry that works answers without reloading",
+          ["alert", "result:ok"] in calls and ["alert", "reloaded"] not in calls, o)
+
     # race: a slow older recent() must not overwrite the newer one
     o = run({"routes": dict(BASE, **{"api/recent?filter=told": {"wait": 150, "body": [{"id": 1, "title": "OLD", "created": 0, "status": "active", "shelf": "s"}]},
              "api/recent?filter=all": {"body": [{"id": 2, "title": "NEW", "created": 0, "status": "active", "shelf": "s"}]}}),

@@ -1381,13 +1381,42 @@ let VIEWER_SEL = '', CUR_SEC = 'today';
 try { if (typeof localStorage !== 'undefined') VIEWER_SEL = localStorage.getItem('hm_viewer') || ''; } catch (e) {}
 function api(path, body) { return jfetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); }
 // fetch + JSON that never throws on an error page (ingress 502, aiohttp 404 text): gives {error} instead
-async function jfetch(path, opts) {
+async function jfetch(path, opts, again) {
   const o = Object.assign({}, opts || {});
   if (VIEWER_SEL) o.headers = Object.assign({}, o.headers || {}, {'X-Home-Mind-Viewer': VIEWER_SEL});
   let r; try { r = await fetch(path, o); } catch (e) { return {error: 'cannot reach Home Mind: ' + e.message}; }
-  let d; try { const t = await r.text(); d = t ? JSON.parse(t) : {}; } catch (e) { return {error: `HTTP ${r.status}: not a JSON answer`}; }
+  let d, bad = false; try { const t = await r.text(); d = t ? JSON.parse(t) : {}; } catch (e) { bad = true; }
+  // Home Mind's own 401s are JSON with an error; a plain 401 is Home Assistant saying the page's ingress session ran out
+  // (the phone slept or the app sat in the background). Home Assistant usually makes a new one within seconds, so try
+  // again twice, then reload Home Assistant's page around us, which always gets a fresh session.
+  if (r.status === 401 && (bad || !d || !d.error)) {
+    if ((again || 0) < 2 && !(typeof ReadableStream !== "undefined" && o.body instanceof ReadableStream)) {
+      await new Promise(res => setTimeout(res, again ? 3000 : 1500));
+      return jfetch(path, opts, (again || 0) + 1);
+    }
+    return sessionLost();
+  }
+  if (bad) return {error: `HTTP ${r.status}: not a JSON answer`};
   return !r.ok && (d === null || typeof d !== 'object' || Array.isArray(d) || !d.error) ? {error: `HTTP ${r.status}`} : d;
 }
+function sessionLost() {
+  const msg = "Home Assistant's session for this page ran out. Close Home Mind and open it again.";
+  let last = 0; try { last = +sessionStorage.getItem('hm_reload_at') || 0; } catch (e) {}
+  if (Date.now() - last < 60000) return {error: msg};       // reloaded a minute ago and it didn't help: don't loop
+  try {
+    sessionStorage.setItem('hm_reload_at', String(Date.now()));
+    sessionStorage.setItem('hm_resume', JSON.stringify({sec: CUR_SEC, q: ($('#hb_q') || {}).value || ''}));
+  } catch (e) {}
+  try { window.top.location.reload(); } catch (e) { try { location.reload(); } catch (e2) {} }
+  return {error: 'Getting a fresh session from Home Assistant…'};
+}
+// after a long time in the background, check the session before someone taps anything
+let HIDDEN_AT = 0;
+if (document.addEventListener) document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { HIDDEN_AT = Date.now(); return; }
+  if (HIDDEN_AT && Date.now() - HIDDEN_AT > 120000) api('api/status');
+  HIDDEN_AT = 0;
+});
 function setViewer(v) {
   VIEWER_SEL = v || '';
   try { if (typeof localStorage !== 'undefined') localStorage.setItem('hm_viewer', VIEWER_SEL); } catch (e) {}
@@ -4420,7 +4449,9 @@ async function rcDel(id) {
 (function () { let q = ''; try { q = window.top.location.search; } catch (e) { q = location.search; }
   const m = /[?&]hm_thing=([^&]+)/.exec(q); let name = null; try { name = m && decodeURIComponent(m[1].replace(/\+/g, ' ')); } catch (e) {}
   if (name) setTimeout(() => thingPage(name), 300); })();
-hbBtn(); loadViewerOpts(); load('today'); setInterval(() => { if (!$('#today').classList.contains('hide') && !document.hidden && !HB.mode && !$('#hb_q').value && !HB.win) hubLoad(); }, 120000);
+let RESUME = null; try { RESUME = JSON.parse(sessionStorage.getItem('hm_resume') || 'null'); sessionStorage.removeItem('hm_resume'); } catch (e) {}
+if (RESUME && RESUME.q && $('#hb_q')) $('#hb_q').value = RESUME.q;
+hbBtn(); loadViewerOpts(); if (RESUME && /^[a-z]+$/.test(RESUME.sec || '') && RESUME.sec !== 'today' && document.getElementById(RESUME.sec)) go(RESUME.sec); else load('today'); setInterval(() => { if (!$('#today').classList.contains('hide') && !document.hidden && !HB.mode && !$('#hb_q').value && !HB.win) hubLoad(); }, 120000);
 </script>
 </body>
 </html>
