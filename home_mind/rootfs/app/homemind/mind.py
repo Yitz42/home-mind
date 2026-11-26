@@ -735,7 +735,8 @@ def code_from_notes(store, question, hits, voice=False):
     text = lambda h: (h.get("title") or "") + " " + (h.get("body") or "")
     named = [n for n in names_in(q) if n in want]
     if named and not any(n in words(text(h)) for h in hits for n in named):
-        return f"I don't know the {said.group(0).lower()} for {thing}: nothing in memory mentions it."
+        # not naming it: the typo fixer may have turned an unknown name into a known word ("Zephyr" into "Star")
+        return f"I don't know that {said.group(0).lower()}: nothing in memory mentions it."
     if not hits:
         return None
     top = hits[0]

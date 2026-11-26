@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.41.5
+- **"I don't know that code"** no longer names the thing back: the typo fixer could turn a name memory never heard ("Zephyr") into a word it knows, so the answer named the wrong thing.
+
 ## 0.41.4
 - **Your logs go by date:** "what did I eat last?" is the newest meal you logged and "brain fog yesterday" is yesterday's check-ins, put ahead of older notes that only share the words. A day you name ("two days ago", "last Friday") gets that day's entries; someone else's personal entries never come up.
 - **Codes from memory, with no model:** a plain "what's the code for the X?" is read straight from the top note when it is a current, stated note about X, so a local model can no longer repeat a planted instruction, give a value learned overnight and not checked, or name another thing's code after X was forgotten. A thing memory never heard of gets "I don't know". Past values, lists of codes and unknown voices go the usual way. The model+brain test arm does the same, so the attacks suite measures what an answer does.
