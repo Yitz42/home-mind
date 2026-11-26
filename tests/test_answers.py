@@ -102,6 +102,7 @@ async def main():
     check("no source for 'I don't know'", r["sources"] == [])
 
     m.NOTES_FIRST = True
+    m.CODE_FROM_NOTES = False       # notes-first is the model's reply format; a plain code question skips the model
     r = await m.ask("What's the Kosk locker code?", "first", fallback=False)
     check("notes-first: system asks for NOTES/ANSWER", M.NOTES_FIRST in first.sent[-1][0])
     check("notes-first: answer read after ANSWER:", r["answer"] == "It's 4417.", r["answer"])

@@ -525,6 +525,15 @@ def guess_location(name):
     return "pantry"
 
 
+
+QUESTION = re.compile(r"\?\s*$|^\s*(?:what|which|how|when|where|why|who|should|shall|could|would|does|did)"
+                      r"\b", re.I)
+
+
+def looks_like_question(text):
+    """A meal text that is really a question ("What should I eat now?")."""
+    return bool(QUESTION.search(text or ""))
+
 class Pantry:
     def __init__(self, store, ha, models, data_dir):
         self.store, self.ha, self.models, self.data_dir = store, ha, models, data_dir
@@ -631,6 +640,9 @@ class Pantry:
         text = (text or "").strip()
         if not text:
             raise ValueError("nothing eaten")
+        if looks_like_question(text):
+            # "What should I eat now?" typed in the meal box was filed as a meal, and "what did I eat last" answered it
+            raise ValueError("that reads as a question, not a meal: ask it instead")
         now = when or time.time()
         caf = caffeinated(text)
         t = datetime.fromtimestamp(now)

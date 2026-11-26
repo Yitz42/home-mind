@@ -424,6 +424,7 @@ class StreamStubModels:
 
 
 m_str = Mind(tempfile.mkdtemp(), StreamStubModels())
+m_str.CODE_FROM_NOTES = False      # this checks the model's streaming; a plain secret question is read from memory
 m_str.store.remember(text="The drill is in the garage on the second shelf.", title="Drill location")
 m_str.store.remember(text="My diary secret is blue.", title="Diary secret",
                      meta={"scope": "personal", "owner": "Dana"})

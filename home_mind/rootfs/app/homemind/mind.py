@@ -530,7 +530,72 @@ def find(store, question, k=8, shelf=None, touch=True, kind=None, include_old=Fa
         # "Where does my partner work?": the who-is-who note is always shown anyway; the note about Dana answers
         alias = lambda h: bool((h.get("meta") or {}).get("alias"))
         hits = [h for h in hits if not alias(h)] + [h for h in hits if alias(h)]
-    return then_first(hits, at[0]) if at else hits
+    return log_first(store, question, then_first(hits, at[0]) if at else hits)
+
+
+LOG_MEALS = re.compile(r"\b(?:eat|ate|eaten|meals?|breakfast|lunch|dinner|snacks?)\b", re.I)
+LOG_ADVICE = re.compile(r"\b(?:should|could|can|shall) (?:i|we) (?:eat|have)\b|\bwhat to eat\b|\brecipe", re.I)
+LOG_FOG = re.compile(r"\b(?:fog|foggy|check-?ins?)\b", re.I)
+LOG_LAST = re.compile(r"\b(?:last|latest|most recent|recently|just)\b", re.I)
+LOG_SHELVES = {"meals": ("body/meals",), "fog": ("body/fog", "body/checkins")}
+
+
+def _log_kind(question):
+    q = question or ""
+    if LOG_FOG.search(q):
+        return "fog"
+    if LOG_MEALS.search(q) and not LOG_ADVICE.search(q) and re.search(r"\b(?:i|we|my|me)\b", q, re.I):
+        return "meals"
+    return None
+
+
+def _logged_at(h):
+    m = h.get("meta") or {}
+    try:
+        return float(m.get("at") or h.get("created") or 0)
+    except (TypeError, ValueError):
+        return float(h.get("created") or 0)
+
+
+def log_first(store, question, hits, limit=4):
+    """A question about the person's own logs (meals, fog check-ins) is answered by date, not by word match: "what did I
+    eat last" is the newest meal logged, "brain fog yesterday" is the check-ins of yesterday. Those entries go first,
+    newest first; a meal "logged" as a question ("Ate: What should I eat now?") is skipped. Other hits keep their order
+    after them. A question naming no time, or no log, is left as it is."""
+    kind = _log_kind(question)
+    if not kind:
+        return hits
+    now = store.clock()
+    at = asked_time(question, now)
+    span = None if at else asked_range(question, now)
+    if not (at or span or LOG_LAST.search(question)):
+        return hits
+    from .day import today as day_of
+    from .speakers import sql as _vis
+    vs, va = _vis()
+    shelves = LOG_SHELVES[kind]
+    rows = [store._row(r) for r in store.db.execute(
+        f"SELECT * FROM items WHERE shelf IN ({','.join('?' * len(shelves))}) AND status='active' AND {vs} "
+        "ORDER BY created DESC LIMIT 400", (*shelves, *va)).fetchall()]
+    rows = [h for h in rows if not (h.get("locked") or re.search(r"\?\s*$", re.sub(r"^ate:\s*", "", h.get("title") or "", flags=re.I)))]
+    if at:
+        start, end = at[0] - 86400, at[0]
+        want = datetime.fromtimestamp(start).date().isoformat()
+        if kind == "fog":
+            pick = [h for h in rows if ((h.get("meta") or {}).get("day") or day_of(_logged_at(h))) == want]
+        else:
+            pick = [h for h in rows if start <= _logged_at(h) < end]
+    elif span:
+        pick = [h for h in rows if span[0] <= _logged_at(h) < span[1]]
+    else:
+        pick = rows
+    pick = sorted(pick, key=_logged_at, reverse=True)[:limit]
+    if not pick:
+        return hits
+    top = max([h.get("score") or 0 for h in hits] + [0])
+    ids = {h["id"] for h in pick}
+    lead = [dict(h, score=top + 0.01 * (len(pick) - i)) for i, h in enumerate(pick)]
+    return lead + [h for h in hits if h["id"] not in ids]
 
 
 def lookup(store, question, k=8, shelf=None, kind=None, include_old=False, touch=True, extras=True):
@@ -640,6 +705,46 @@ def best_note(hits, voice=False):
     if other is not None:
         text = f"{text.rstrip()} But another note disagrees: {other.get('body') or other.get('title') or ''}"
     return spoken(text, VOICE_NOTE_MAX) if voice else text
+
+
+CODE_ASK = re.compile(r"^\s*(?:what(?:'s|s| is)|tell me|give me|remind me of|do you (?:know|have))\b", re.I)
+CODE_NOT_PLAIN = re.compile(r"\b(?:old|older|previous|before|used to|chang\w*|when|who|whose|why|how|new|first|last|ever|"
+                            r"all|every|each|list|which|digits?|ends?|ending|starts?|letters?|numbers? in|half)\b", re.I)
+
+
+def code_from_notes(store, question, hits, voice=False):
+    """A plain "what is the code for the X?" answered from memory with no model: the top note when it is a current,
+    stated note about X that holds a value (both sides when two notes disagree), or "I don't know" when the X it names
+    is in no note at all. The brain's own ranking already puts the stated value above a planted instruction, a value
+    learned overnight and not checked, and an older version; the tests showed local models then still repeating the
+    planted value, giving the unchecked one, or naming another thing's code after X was forgotten. None when the
+    question isn't that plain (a past value, a list, who changed it) or the top note isn't clearly the answer: the
+    model answers as before."""
+    from . import privacy
+    from .speakers import VIEWER
+    from .store import names_in, words
+    q = store.fix_typos(question or "")
+    said = privacy.SECRET.search(q)
+    if not said or VIEWER.get() == "" or privacy.bulk(q) or not CODE_ASK.match(q) or CODE_NOT_PLAIN.search(q) \
+            or WHEN_WORDS.search(q) or privacy.NEVER_TOPICAL.search(q):
+        return None
+    thing = thing_phrase(store, q)
+    want = [w for w in words(thing or "") if w not in privacy.GENERIC]
+    if not want:
+        return None
+    text = lambda h: (h.get("title") or "") + " " + (h.get("body") or "")
+    named = [n for n in names_in(q) if n in want]
+    if named and not any(n in words(text(h)) for h in hits for n in named):
+        return f"I don't know the {said.group(0).lower()} for {thing}: nothing in memory mentions it."
+    if not hits:
+        return None
+    top = hits[0]
+    if any(top.get(k) for k in ("instruction", "newer", "unconfirmed", "guess", "locked", "universal")):
+        return None
+    if not all(w in words(text(top)) for w in want) or not privacy.SECRET.search(text(top)) or \
+            not (privacy.RIGHT_AFTER.search(text(top)) or privacy.WORD_AFTER.search(text(top))):
+        return None
+    return best_note(hits, voice)
 
 
 NOTES_FIRST = (" Reply in two lines. First line: NOTES: the #ids of the notes the answer comes from, or none. "
@@ -809,6 +914,7 @@ class Mind:
 
     async def context_for(self, store, question, k=8, shelf=None, model=None, expand=False, voice=False):
         hits, _ = await self.search(store, question, k, shelf, model, expand)
+        hits = log_first(store, question, hits)      # by date again: meaning and rerank sort by words
         procs = [p for p in store.recall(question, kind="procedure", limit=2, touch=False) if p["score"] > 0.5]
         ctx, _, hits = guarded_context(store, question, hits, voice)
         home = getattr(self, "home", None)
@@ -1211,6 +1317,7 @@ class Mind:
         r["answer"] = r["answer"].rstrip(".") + f" (read as: {line})."
         return await done("sleep" if is_sleep else "workout", r, line, entry)
 
+    CODE_FROM_NOTES = True      # a plain "what's the code for X" is read from the top note, no model (0.41.4)
     ROUTER = True               # option router: with no model named, pick by difficulty and privacy
     ROUTE_LOCAL, ROUTE_CLOUD = [], []
     LOCAL_MODEL = None          # option local_model: the local chat model, first for private questions
@@ -1611,6 +1718,17 @@ class Mind:
             hits = [dict(h, body=privacy.mask_all(h.get("body") or ""), title=privacy.mask_all(h.get("title") or ""))
                     for h in hits]
         weak = bool(use_brain and (ctx or "").find(LOW_MATCH) >= 0)
+        if use_brain and system is None and self.CODE_FROM_NOTES:
+            said_code = code_from_notes(store, question, hits, voice)
+            if said_code:
+                known = not DONT_KNOW.search(said_code)
+                store.log("ask", None, question=question, model=None, ids=[h["id"] for h in hits[:3]],
+                          answer=privacy.mask_all(said_code)[:500], from_notes=True)
+                srcs = sources_for(hits[0]["body"], hits[:1], question) if known and hits else []
+                if conversation_id and conversation_id in convs:     # so "that's wrong" and "and the shed?" work
+                    self._record_turn(conversation_id, question, said_code, srcs, store=store, raw_q=original)
+                return {"answer": said_code, "hits": hits, "model": None, "from_notes": True, "weak": weak,
+                        "sources": srcs}
         route_info = None
         if model in (None, "auto"):
             chain, route_info = self.routed(question, hits, voice)
@@ -2168,6 +2286,7 @@ class Mind:
             left = [v for v in q["values"] if any(v.lower() in (x or "").lower() for x in dump)]
             d.update(answer="traces: " + ", ".join(left) if left else "no trace", correct=not left)
             return d
+        from_notes = None
         if run["suite"] == "tasks":
             p = q["params"]
             open_ = sb.tasks(project=p.get("project"), due_before=p.get("due_before"))
@@ -2373,7 +2492,8 @@ class Mind:
                     ok = bool(top) and contains(text, q["gold"])
                 d.update(answer=text[:300], correct=ok)
                 return d
-            ctx_text = guarded_context(sb, q["q"], hits)[0]
+            ctx_text, _, ghits = guarded_context(sb, q["q"], hits)
+            from_notes = code_from_notes(sb, q["q"], ghits) if self.CODE_FROM_NOTES else None
             ctx = cloud_safe(ctx_text, q["q"], self.models.get(model), sb)
             content = answer_content(sb, q["q"], ctx, run["config"].get("order") or "default")
             sysmsg = ANSWER_SYSTEM + (NOTES_FIRST if run["config"].get("notes_first") else "")
@@ -2382,8 +2502,11 @@ class Mind:
                                CONTEXT_SYSTEM)
         else:
             content, sysmsg = q["q"], ALONE_SYSTEM
-        r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}],
-                                              **({"cache_until": "\n\nQUESTION:"} if arm == "model+context" else {}))
+        if arm == "model+brain" and from_notes:     # what /api/ask does: no model for a plain code question
+            r = {"text": from_notes, "ms": 0}
+        else:
+            r = await self.models.get(model).chat(sysmsg, [{"role": "user", "content": content}],
+                                                  **({"cache_until": "\n\nQUESTION:"} if arm == "model+context" else {}))
         if arm == "model+brain":
             text, named = read_answer(r["text"], bool(run["config"].get("notes_first")))
             r = dict(r, text=text)

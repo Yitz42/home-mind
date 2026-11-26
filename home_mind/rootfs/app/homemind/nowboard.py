@@ -162,8 +162,26 @@ _DATE_TAIL = re.compile(r"\s*\((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\.? [A-Z][a-
 
 
 def _bare_title(t):
-    """A calendar note's title without the date it was filed with ("Work Remote (Wednesday Nov 25 2026)")."""
-    return _DATE_TAIL.sub("", (t or "").strip())
+    """A calendar note's title without the date it was filed with ("Work Remote (Wednesday Nov 25 2026)"), and with a
+    run of spaces or tabs between two parts ("Automatic Control          Dr. Wu Office Hours") as one " · ": the run
+    used up the watch's 30 characters, so only the first part showed."""
+    t = _DATE_TAIL.sub("", (t or "").strip())
+    t = re.sub(r"[ \t\u00a0]{2,}|\s*[\r\n\t]+\s*", " · ", t)
+    return re.sub(r"\s+", " ", t).strip(" ·")
+
+
+def _wrap(text, width=30, most=2):
+    """Up to `most` lines of at most `width` characters, broken between words (a word longer than a line is cut)."""
+    out, cur = [], ""
+    for w in text.split():
+        if cur and len(cur) + 1 + len(w) > width:
+            out.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}" if cur else w
+    if cur:
+        out.append(cur)
+    return [x[:width] for x in out[:most]]
 
 
 def situation(app, viewer=None, now=None, events=2, tasks=3):
@@ -249,7 +267,7 @@ def glance(app, viewer=None, now=None):
                 if st.date() != now.date():
                     when = "tmrw " + when
                 out["next"] = {"title": t[:60], "start": st.isoformat(timespec="minutes")}
-                lines.append(f"{when} {t}"[:30])
+                lines += _wrap(f"{when} {t}")
         except Exception:  # noqa: BLE001
             pass
     store = getattr(getattr(app, "mind", None), "store", None)

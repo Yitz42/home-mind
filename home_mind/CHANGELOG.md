@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.41.4
+- **Your logs go by date:** "what did I eat last?" is the newest meal you logged and "brain fog yesterday" is yesterday's check-ins, put ahead of older notes that only share the words. A day you name ("two days ago", "last Friday") gets that day's entries; someone else's personal entries never come up.
+- **Codes from memory, with no model:** a plain "what's the code for the X?" is read straight from the top note when it is a current, stated note about X, so a local model can no longer repeat a planted instruction, give a value learned overnight and not checked, or name another thing's code after X was forgotten. A thing memory never heard of gets "I don't know". Past values, lists of codes and unknown voices go the usual way. The model+brain test arm does the same, so the attacks suite measures what an answer does.
+- **Whole titles on the watch:** a calendar title with a long run of spaces ("Automatic Control          Dr. Wu Office Hours") shows as "Automatic Control · Dr. Wu Office Hours", wrapped onto a second line instead of cut.
+- **Questions aren't meals:** text typed in the meal box that reads as a question ("What should I eat now?") is refused instead of logged as a meal, and skipped when it was logged before.
+
 ## 0.41.3
 - **No more "HTTP 401: not a JSON answer" after the phone sleeps:** when Home Assistant's session for the page has run out, the page tries again twice over a few seconds, then reloads Home Assistant's page around it to get a fresh one, keeping what was typed in the ask box and the tab you were on. Coming back to the app after more than two minutes checks the session straight away. Home Mind's own refusals (a revoked token) still show as before, and it never reloads twice in a minute.
 

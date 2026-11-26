@@ -527,7 +527,10 @@ async def _handle_pantry(app, text, who, voice):
         slot = (ma.group(4) or ma.group(5) or "").strip().lower()
         if food and len(food) >= 2:
             full = f"{food} ({slot})" if slot else food
-            out = pantry.ate(full, source=src)
+            try:
+                out = pantry.ate(full, source=src)
+            except ValueError:
+                return None             # a question, not a meal: it is answered instead
             if out.get("id") and hasattr(app, "_spawn"):
                 mid = out["id"]
                 app._spawn(f"estimate:{mid}", lambda: pantry.estimate(mid, full))
