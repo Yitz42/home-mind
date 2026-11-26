@@ -135,6 +135,7 @@ async def corrections():
 async def voice():
     f = Fake("**The code is 4417** (#{id}). See https://example.com/codes for more.")
     m = mind(f=f, down=Down())
+    m.CODE_FROM_NOTES = False       # these check the model's spoken answer; a plain code question skips the model
     n = m.store.remember(text="The garage door code is 4417.", kind="fact", key="garage door|code")
     f.reply = f.reply.replace("{id}", str(n["id"]))
     m.store.remember(title="Boiler reset", text="Boiler manual: https://example.com/boiler.pdf - hold the reset button "

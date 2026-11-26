@@ -82,6 +82,7 @@ async def cloud_paths():
           all("7731" not in s for s in cloud.sent) and any("Leaving the house" in s for s in cloud.sent), cloud.sent[-1:])
     cloud.sent.clear()
     m.rerank_model = None
+    m.CODE_FROM_NOTES = False       # this checks what the cloud model is sent; a plain code question skips it
     await m.ask("what is the alarm code to leave the house?", "haiku", fallback=False)
     check("... but it is when the question asks for that code", any("7731" in s for s in cloud.sent))
     local = Recorder(cloud=False)
