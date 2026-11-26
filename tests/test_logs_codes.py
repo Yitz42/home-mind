@@ -136,6 +136,9 @@ check("wifi password from memory", "harbor42" in out["answer"] and out["model"] 
 out = run(md.ask("What is the code for the Zephyr vault?", "f", fallback=False))
 check("a thing memory never heard of: I don't know, and no other thing's code",
       "don't know" in out["answer"] and not any(c in out["answer"] for c in ("5821", "1144", "3307")), out["answer"])
+out = run(md.ask("What is the code for the Tamzin locker?", "f", fallback=False))
+check("a look-alike of a known name: not that thing's code, asks instead",
+      "3307" not in out["answer"] and "don't know" in out["answer"] and "Tamsin" in out["answer"], out["answer"])
 calls = par.calls
 out = run(md.ask("What was the Corvo safe code before it changed?", "f", fallback=False))
 check("a past value still goes to the model", par.calls == calls + 1)

@@ -733,6 +733,14 @@ def code_from_notes(store, question, hits, voice=False):
     if not want:
         return None
     text = lambda h: (h.get("title") or "") + " " + (h.get("body") or "")
+    # a name as typed that no note holds: the typo fixer would swap in a look-alike ("Zendor" for "Zandor") and the
+    # answer would be that other thing's code, so say so and ask (the tests: a forgotten vault got a locker's code)
+    vocab = store.vocab()
+    unheard = [n for n in names_in(question or "") if n not in vocab]
+    if unheard:
+        alt = [n for n in names_in(q) if n in vocab and n not in names_in(question or "")]
+        return (f"I don't know that {said.group(0).lower()}: nothing in memory mentions {unheard[0].capitalize()}."
+                + (f" Did you mean {alt[0].capitalize()}?" if alt else ""))
     named = [n for n in names_in(q) if n in want]
     if named and not any(n in words(text(h)) for h in hits for n in named):
         # not naming it: the typo fixer may have turned an unknown name into a known word ("Zephyr" into "Star")

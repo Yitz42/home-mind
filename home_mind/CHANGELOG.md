@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.41.6
+- **No look-alike codes:** a code question naming something memory never heard of ("the Zendor vault") no longer gets the code of a similar name the typo fixer swaps in ("the Zandor locker"). It says it doesn't know that one and asks whether you meant the other.
+
 ## 0.41.5
 - **"I don't know that code"** no longer names the thing back: the typo fixer could turn a name memory never heard ("Zephyr") into a word it knows, so the answer named the wrong thing.
 
