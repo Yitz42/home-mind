@@ -285,7 +285,7 @@ class Skills:
             sc += 0.5 if nd >= 2 else -1.0
         if (s.get("tools") or [None])[0] == "CONVERT" and UNIT_ASK.search(tl):
             sc += 3.0               # an amount in one unit asked for in another (one number is enough)
-        if s.get("check") == "list" and tl.count(",") >= 2 and re.search(r"\b(?:or|and)\b", tl):
+        if s.get("check") == "list" and tl.count(",") >= 2 and re.search(r",? or (?!\d)", tl):
             sc += 2.0               # a list of three or more to choose from
         if s.get("check") == "date":
             if re.search(r"\b\d{1,2}:\d{2}\b|\b\d{4}-\d{1,2}-\d{1,2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|"
@@ -526,6 +526,11 @@ def parse_step(text):
             rest = re.sub(r"^[*_`]+|[*_`]+$", "", rest).strip()
             return "ANSWER", rest, "\n".join(kept + [ln])
         arg = arg.strip("`*_ ").strip()
+        for _ in range(3):          # "CALC: DATE: weekday of ...": the inner keyword is the tool meant
+            inner = re.match(r"^(CALC|DATE|CONVERT|RECALL|LOOKUP)\s*[:：]\s*(.*)$", arg, re.I)
+            if not inner:
+                break
+            kind, arg = inner.group(1).upper(), inner.group(2).strip("`*_ ").strip()
         return kind, arg, "\n".join(kept + [ln])
     body = "\n".join(kept).strip()
     if any(ACTION.match(ln) for ln in lines):

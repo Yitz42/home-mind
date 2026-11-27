@@ -70,7 +70,7 @@ FUNCS = {
     "mean": _mean, "avg": _mean, "average": _mean, "median": _median, "factorial": _fact,
     "comb": lambda n, k: math.comb(int(n), int(k)), "perm": lambda n, k: math.perm(int(n), int(k)),
     "gcd": lambda *a: math.gcd(*(int(x) for x in _flat(a))), "lcm": lambda *a: math.lcm(*(int(x) for x in _flat(a))),
-    "hypot": math.hypot,
+    "hypot": math.hypot, "sort": lambda *a: sorted(_flat(a)), "sorted": lambda *a: sorted(_flat(a)),
 }
 CONSTS = {"pi": math.pi, "e": math.e, "tau": math.tau}
 BINOPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
@@ -81,6 +81,7 @@ WORD_OPS = [(r"\bmultiplied by\b|\btimes\b", "*"), (r"\bdivided by\b|\bover\b", 
 
 def _prep(expr):
     s = (expr or "").strip()
+    s = s.split("->")[0].split("→")[0].strip()                                  # "3*4 -> 12": its guess goes
     s = re.sub(r"\s*=\s*[^=]*$", "", s) if s.count("=") == 1 else s        # "14*23 = 322": the model's guess goes
     s = s.replace("×", "*").replace("·", "*").replace("÷", "/").replace("−", "-").replace("–", "-").replace("^", "**")
     s = s.replace("$", "").replace("€", "").replace("£", "").rstrip("?.! ")
@@ -160,7 +161,11 @@ def calc_value(expr):
     except TypeError as e:
         raise ValueError(f"wrong use of a function: {e}") from None
     if isinstance(v, list):
-        raise ValueError("that's a list, not one number")
+        if not v or len(v) > 50 or not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
+            raise ValueError("give numbers, or a short list of them separated by commas")
+        if any(abs(x) > MAX_ABS for x in v):
+            raise ValueError("number too large")
+        return v
     if isinstance(v, (int, float)) and abs(v) > MAX_ABS:
         raise ValueError("number too large")
     return v
@@ -168,7 +173,8 @@ def calc_value(expr):
 
 def calc(expr):
     try:
-        return fmt(calc_value(expr))
+        v = calc_value(expr)
+        return ", ".join(fmt(x) for x in v) if isinstance(v, list) else fmt(v)
     except ValueError as e:
         return f"can't calculate that: {e}"
     except Exception as e:  # noqa: BLE001 - math domain errors and the like
@@ -573,6 +579,8 @@ def direct(question, today=None):
         try:
             v = calc_value(expr)
         except Exception:  # noqa: BLE001
+            return None
+        if isinstance(v, list):
             return None
         return fmt(v), "calc"
     return None
