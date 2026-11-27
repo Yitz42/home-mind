@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.45.2
+- **See what Wikipedia by meaning found:** `GET /api/knowledge/search?q=…&meaning=1` lists the closest articles with their scores and how long the search took.
+
 ## 0.45.1
 - **Think path finds your local models:** with no `router_local` and no local model in `fallback`, any connected local model thinks first (quickest first), so a setup with only Haiku in `fallback` still gets the small model and Haiku as its consultant.
 - **Fixes from the first live bench (qwen 4b):** an oven temperature in °F gets the conversion method, not "explain"; a correct answer that repeats the question's numbers first is no longer marked unchecked; a model that takes two steps without the tool its method is built on (DATE for calendar work) is reminded once, with an example; "how many grams is 3.4 pounds" is answered by code.

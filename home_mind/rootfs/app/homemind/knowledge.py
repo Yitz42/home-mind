@@ -606,12 +606,12 @@ class Knowledge:
             self._save()
         return self.sense is not None
 
-    def by_meaning(self, question, k=5):
+    def by_meaning(self, question, k=5, floor=SENSE_MIN):
         """Articles whose first paragraph is closest in meaning to the question: [{title, text, score}]."""
         if not self.sense:
             return []
         try:
-            return [h for h in self.sense.search(question, k=k) if h["score"] >= SENSE_MIN]
+            return [h for h in self.sense.search(question, k=k) if h["score"] >= floor]
         except Exception as e:  # noqa: BLE001
             log.warning("wikipedia by meaning failed: %s", e)
             return []

@@ -1349,8 +1349,8 @@ note), 502 (a model failed) or 500.
 | POST | `/api/updates/apply` | admin | install pack updates |
 | GET | `/api/knowledge` | read | food database and Wikipedia download state |
 | GET | `/api/knowledge/food` | read | look a food up (`q`) |
-| GET | `/api/knowledge/search` | read | search offline Wikipedia (`q`, `n`) |
-| POST | `/api/knowledge/{op}` | write | `food` or `wiki`: start that download now |
+| GET | `/api/knowledge/search` | read | search offline Wikipedia (`q`, `n`; `passages=1` for what models see, `meaning=1` for the by-meaning hits and their scores) |
+| POST | `/api/knowledge/{op}` | write | `food`, `wiki` or `wiki_sense`: start that download now |
 | GET | `/api/home` | read | the house as Home Mind sees it (watched things, control list) |
 | POST | `/api/home/act` | admin | switch one thing (`entity_id`, `action`, `value?`, `confirm?`) |
 | POST | `/api/do` | admin | do what a sentence asks (`text`); never confirms locks |
