@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.45.0
+- **Wikipedia by meaning:** once the offline Wikipedia is in, Home Mind also downloads a search index of every article's first paragraph (NeuML's txtai-wikipedia, built with the e5-base model) and the model itself, about 9.5 GB, inside the same download window. A question then finds its articles by meaning, not only by sharing words ("is unbaked biscuit batter risky?" finds Cookie dough); the text still comes from the Wikipedia file. It runs on this machine with numpy alone (no new packages) and sends nothing out. Option `knowledge_wiki_meaning` (on); `POST /api/knowledge/wiki_sense` starts the download now.
+
 ## 0.44.0
 - **Think path for general tasks:** math and word problems, percents, rates, units, dates and clock times, picking from
   a list, logic, plans, priorities, how-to, comparisons, explanations, messages, creative requests, summaries and small

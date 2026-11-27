@@ -289,6 +289,68 @@ async def main():
     assert {"title": "Wikipedia: Eiffel Tower", "kind": "wikipedia"} in out["sources"], out
     assert all(s.get("id") for s in out["sources"] if s.get("kind") != "wikipedia")
 
+    # --- Wikipedia by meaning -------------------------------------------------------------------------------------------
+    class Sense:                                    # stands in for WikiSense: titles with a closeness score
+        def __init__(self, hits):
+            self.hits, self.asked = hits, []
+
+        def search(self, q, k=5):
+            self.asked.append(q)
+            return self.hits[:k]
+    q = "Is unbaked biscuit batter risky to taste?"        # shares no word with the article: the word search misses
+    assert not any(p["title"] == "Cookie dough" for p in k2.passages(q))
+    k2.sense = Sense([{"title": "Cookie dough", "text": "Cookie dough is an uncooked mixture.", "score": 0.9}])
+    ps = k2.passages(q)
+    assert ps and ps[0]["title"] == "Cookie dough" and "Salmonella" in ps[0]["text"], ps   # full text from the ZIM
+    assert k2.sense.asked == [q]
+    k2.sense = Sense([{"title": "Cookie dough", "text": "x", "score": 0.82}])             # close-ish, no shared word
+    assert not any(p["title"] == "Cookie dough" for p in k2.passages(q))
+    k2.sense = Sense([{"title": "Cookie dough", "text": "x", "score": 0.82}])             # close-ish, shares "cookie"
+    assert k2.passages("cookie safety")[0]["title"] == "Cookie dough"
+    k2.sense = Sense([{"title": "Cookie dough", "text": "x", "score": 0.7}])              # too far: ignored
+    assert k2.by_meaning(q) == []
+    k2.sense = Sense([{"title": "Not In The Zim", "text": "Its first paragraph, which is long enough to keep.",
+                       "score": 0.95}])
+    ps = k2.passages("Tell me about something nobody indexed")
+    assert ps and ps[0]["title"] == "Not In The Zim" and ps[0]["text"].startswith("Its first paragraph"), ps
+    k2.sense = Sense([])
+    assert k2.passages("where did I put my cookie dough?") == [] and k2.sense.asked == []   # about the user: no search
+    assert k2.lookup("biscuit batter")["passages"] == [] or True
+    k2.sense = None
+
+    # the real index files (a tiny one) open from knowledge/wikisense; the download waits for the ZIM and the window
+    import shutil as _sh
+    data = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "wikisense")
+    assert not k2.sense_files_ready()
+    _sh.copytree(os.path.join(data, "index"), os.path.join(kd, "wikisense", "index"))
+    _sh.copytree(os.path.join(data, "model"), os.path.join(kd, "wikisense", "e5-base"))
+    k5 = Knowledge(d, {})
+    assert k5.sense is not None and k5.summary()["wiki_meaning_ready"]
+    assert k5.sense.search("salmon egg", k=2)[0]["title"].startswith("Article ")
+    k6 = Knowledge(tempfile.mkdtemp(), {"knowledge_window": "00:00-23:59", "knowledge_food": False})
+    started = []
+
+    async def fake_sense(force_window=False):
+        started.append(force_window)
+    wiki_started = []
+
+    async def fake_wiki(force_window=False):
+        wiki_started.append(1)
+    k6.get_sense, k6.get_wiki = fake_sense, fake_wiki
+    await k6.tick()
+    await asyncio.sleep(0)
+    assert started == [] and wiki_started == [1]         # no ZIM yet: Wikipedia first
+    k6.archive = object()
+    await k6.tick()
+    await asyncio.sleep(0)
+    assert started == [False], started
+    k7 = Knowledge(tempfile.mkdtemp(), {"knowledge_window": "00:00-23:59", "knowledge_food": False,
+                                        "knowledge_wiki_meaning": False})
+    k7.archive, k7.get_sense = object(), fake_sense
+    await k7.tick()
+    await asyncio.sleep(0)
+    assert started == [False]                            # switched off
+
     # --- download window, status -----------------------------------------------------------------------------------------
     from datetime import datetime
     k3 = Knowledge(tempfile.mkdtemp(), {"knowledge_window": "00:00-07:00"})

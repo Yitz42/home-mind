@@ -13,6 +13,12 @@ Wikipedia (Kiwix ZIM, English, text only)
   the first search finds nothing on topic it tries again with shorter search words. A snapshot older than
   WIKI_REFRESH_DAYS is replaced by the newest one, downloaded the same way (the old file stays in use until then).
 
+Wikipedia by meaning (txtai-wikipedia + e5-base, about 9.5 GB)
+  Once the ZIM is in, the first paragraph of every article embedded with e5-base (NeuML's txtai-wikipedia index) and
+  the e5-base model itself are downloaded the same way, inside the window. wikisense.py reads them with numpy alone.
+  A question then finds its articles by meaning ("can I eat raw cookie dough" finds Cookie dough and Salmonellosis)
+  before the word search; the article text still comes from the ZIM.
+
 Everything lives in /data/knowledge, which is left out of Home Assistant backups (it can be downloaded again).
 """
 import asyncio
@@ -43,6 +49,12 @@ KIWIX_DIR = "https://download.kiwix.org/zim/wikipedia/"
 WIKI_FLAVOUR = "wikipedia_en_all_nopic"
 WIKI_REFRESH_DAYS = 180     # a snapshot older than this is replaced by the newest one
 WIKI_CHECK_DAYS = 7         # how often the Kiwix server is asked whether a newer snapshot is out
+SENSE_INDEX = "https://huggingface.co/NeuML/txtai-wikipedia/resolve/main/"
+SENSE_INDEX_FILES = ["config.json", "documents", "embeddings"]
+SENSE_MODEL = "https://huggingface.co/intfloat/e5-base/resolve/main/"
+SENSE_MODEL_FILES = ["config.json", "vocab.txt", "model.safetensors"]
+SENSE_MIN = 0.80            # e5 scores sit high; below this a hit is noise
+SENSE_SURE = 0.86           # at or above this a hit counts even when it shares no word with the question
 NUTRIENTS = {           # FoodData Central nutrient ids
     "1008": "kcal", "2047": "kcal_atwater", "2048": "kcal_atwater2", "1003": "protein", "1005": "carbs",
     "1004": "fat", "1079": "fiber", "2000": "sugar", "1063": "sugar_alt", "1093": "sodium",
@@ -93,6 +105,9 @@ class Knowledge:
         self.food_path = os.path.join(self.dir, "food.db")
         self.want_wiki = o.get("knowledge_wikipedia", True) is not False
         self.want_food = o.get("knowledge_food", True) is not False
+        self.want_sense = o.get("knowledge_wiki_meaning", True) is not False
+        self.sense_dir = os.path.join(self.dir, "wikisense")
+        self.sense = None
         win = (o.get("knowledge_window") or "00:00-07:00").split("-")
         self.window = tuple(tuple(int(x) for x in w.split(":")) for w in win) if len(win) == 2 else None
         self.http = http                 # an aiohttp.ClientSession factory (set by the app)
@@ -101,6 +116,7 @@ class Knowledge:
         self._task = None
         self.status = self._load()
         self._open_wiki()
+        self._open_sense()
 
     # ---- status --------------------------------------------------------------------------------------------------
     def _load(self):
@@ -125,6 +141,7 @@ class Knowledge:
         s["disk_free_gb"] = round(du.free / 1e9, 1)
         s["food_ready"] = self.food_ready()
         s["wiki_ready"] = self.archive is not None
+        s["wiki_meaning_ready"] = self.sense is not None
         return s
 
     def in_window(self, now=None):
@@ -530,6 +547,75 @@ class Knowledge:
                 break
         return out
 
+    def article(self, title):
+        """The ZIM article with this title (txtai's ids are article titles), or None."""
+        if not self.archive or not title:
+            return None
+        cands = [title.replace(" ", "_"), title, "A/" + title.replace(" ", "_")]
+        for p in cands:
+            try:
+                e = self.archive.get_entry_by_path(p)
+                if e.is_redirect:
+                    e = e.get_redirect_entry()
+                return {"title": e.title, "path": e.path, "text": self._text(bytes(e.get_item().content))}
+            except Exception:  # noqa: BLE001
+                continue
+        for a in self.search(title, limit=2):
+            if a["title"].lower() == title.lower():
+                return a
+        return None
+
+    # ---- by meaning ------------------------------------------------------------------------------------------------
+    def _sense_paths(self):
+        return os.path.join(self.sense_dir, "index"), os.path.join(self.sense_dir, "e5-base")
+
+    def sense_files_ready(self):
+        idx, mdl = self._sense_paths()
+        return all(os.path.exists(os.path.join(idx, f)) for f in SENSE_INDEX_FILES) and \
+            all(os.path.exists(os.path.join(mdl, f)) for f in SENSE_MODEL_FILES)
+
+    def _open_sense(self):
+        if not self.sense_files_ready():
+            return
+        try:
+            from .wikisense import WikiSense
+            self.sense = WikiSense(*self._sense_paths())
+            self.status.setdefault("wiki_sense", {}).update(state="ready")
+        except Exception as e:  # noqa: BLE001
+            log.warning("wikipedia by meaning not opened: %s", e)
+            self.sense = None
+            self.status.setdefault("wiki_sense", {}).update(state="error", error=str(e)[:200])
+
+    async def get_sense(self, force_window=False):
+        """Download the meaning index and its model, file by file (each resumable)."""
+        idx, mdl = self._sense_paths()
+        os.makedirs(idx, exist_ok=True)
+        os.makedirs(mdl, exist_ok=True)
+        for base, folder, files in ((SENSE_MODEL, mdl, SENSE_MODEL_FILES), (SENSE_INDEX, idx, SENSE_INDEX_FILES)):
+            for name in files:
+                dest = os.path.join(folder, name)
+                if os.path.exists(dest):
+                    continue
+                st = self.status.setdefault("wiki_sense", {})
+                st["file"] = name
+                if not await self._download(base + name, dest, "wiki_sense", respect_window=not force_window):
+                    return False
+        self._open_sense()
+        if self.sense:
+            self.status["wiki_sense"].update(state="ready", finished=time.time())
+            self._save()
+        return self.sense is not None
+
+    def by_meaning(self, question, k=5):
+        """Articles whose first paragraph is closest in meaning to the question: [{title, text, score}]."""
+        if not self.sense:
+            return []
+        try:
+            return [h for h in self.sense.search(question, k=k) if h["score"] >= SENSE_MIN]
+        except Exception as e:  # noqa: BLE001
+            log.warning("wikipedia by meaning failed: %s", e)
+            return []
+
     @staticmethod
     def _text(raw):
         h = raw.decode("utf-8", "replace")
@@ -553,16 +639,21 @@ class Knowledge:
             for art in arts:
                 if len(out) >= n:
                     return
-                if art["path"] in seen:
+                key = art.get("path") or art["title"]
+                if key in seen:
                     continue
-                seen.add(art["path"])
+                seen.add(key)
                 paras = art["text"]
                 if not paras or "(disambiguation)" in art["title"].lower() or \
                         re.search(r"\bmay (?:also )?refer to\b", paras[0][:300], re.I):
                     continue                               # a list of other articles, not an answer
                 title_terms = set(re.findall(r"[a-z0-9]+", art["title"].lower()))
                 body = " ".join(paras[:3]).lower()
-                if not (terms & title_terms) and sum(1 for t in terms if t in body) < max(1, len(terms) // 2):
+                score = art.get("score")
+                if score is not None:                      # found by meaning: one shared word, or a very close match
+                    if score < SENSE_SURE and not (terms & title_terms) and not any(t in body for t in terms):
+                        continue
+                elif not (terms & title_terms) and sum(1 for t in terms if t in body) < max(1, len(terms) // 2):
                     continue                               # off-topic hit
                 best = max(paras[1:12] or [""], key=lambda p: sum(1 for t in terms if t in p.lower()))
                 text = paras[0] if not best or best == paras[0] else paras[0] + " ... " + best
@@ -570,12 +661,25 @@ class Knowledge:
 
         words = [w for w in re.findall(r"[A-Za-z0-9'-]+", question) if w.lower() not in STOP and len(w) > 2]
         caps = " ".join(w for w in words if w[0].isupper())          # names are the best title search
-        take((self.search(caps, limit=2) if caps else []) + self.search(" ".join(words), limit=n + 1))
+        take(self.search(caps, limit=2) if caps else [])
+        take(self.meaning_articles(question, k=n + 3))
+        take(self.search(" ".join(words), limit=n + 1))
         if not out:
             for q in self.retry_queries(question)[:4]:
                 take(self.search(q, limit=2))
                 if out:
                     break
+        return out
+
+    def meaning_articles(self, question, k=5):
+        """By-meaning hits as articles: the full text from the ZIM when it has the title, else the indexed paragraph."""
+        out = []
+        for h in self.by_meaning(question, k=k):
+            art = self.article(h["title"]) or {"title": h["title"], "path": "", "text": [h["text"]] if h["text"] else []}
+            art = dict(art, score=h["score"])
+            if art["title"] != h["title"] and art["text"] and h["text"] and art["text"][0][:60] != h["text"][:60]:
+                art["text"] = [h["text"]] + art["text"]
+            out.append(art)
         return out
 
     @staticmethod
@@ -644,6 +748,10 @@ class Knowledge:
             return
         if self.want_wiki and self.archive and self.in_window() and (self.refresh_pending() or self.refresh_due()):
             self._task = asyncio.create_task(self._run(self.refresh_wiki(), "wiki"))
+            return
+        if self.want_wiki and self.want_sense and self.archive and not self.sense and self.in_window() and \
+                self.status.get("wiki_sense", {}).get("state") != "error":
+            self._task = asyncio.create_task(self._run(self.get_sense(), "wiki_sense"))
 
     # ---- keeping Wikipedia fresh ----------------------------------------------------------------------------------
     def wiki_age_days(self, now=None):
@@ -683,7 +791,8 @@ class Knowledge:
     def start_now(self, what):
         if self._task and not self._task.done():
             return "busy"
-        coro = self.build_food() if what == "food" else self.get_wiki(force_window=True)
+        coro = self.build_food() if what == "food" else self.get_sense(force_window=True) if what == "wiki_sense" \
+            else self.get_wiki(force_window=True)
         self._task = asyncio.create_task(self._run(coro, what))
         return "started"
 

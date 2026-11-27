@@ -40,7 +40,7 @@ are in place: a model, the bridge, and a first note.
 - Off by default: encryption, off-site backups, Telegram, web lookups, email, the Markdown folder, Homebox and
   Paperless. On by default and worth a look: *Install new packs automatically*, *Food database* (about 450 MB, with USDA's survey foods for dishes as eaten and portion weights) and
   *Offline Wikipedia* (about 50 GB, downloaded at night): turn those two off if disk space is short.
-- **Offline Wikipedia** answers general questions ("how tall is the Eiffel Tower?", "can I eat raw cookie dough?") with the best two passages, and the answer's source line names the article. Questions about your own things ("where did I put my keys?") never get a passage. When the whole question finds nothing, shorter search words are tried. Claude reaches it as `mind_wiki`, and the look-up model (`tool_model`) as its `wikipedia` tool. A snapshot older than six months is replaced by the newest one, downloaded the same way at night (about 50 GB more disk while it downloads; the old one stays in use until it's done).
+- **Offline Wikipedia** answers general questions ("how tall is the Eiffel Tower?", "can I eat raw cookie dough?") with the best two passages, and the answer's source line names the article. Questions about your own things ("where did I put my keys?") never get a passage. Once the ZIM is in, a search index of every article's first paragraph (NeuML's txtai-wikipedia, built with the e5-base model) and the model itself are downloaded the same way (about 9.5 GB, `knowledge_wiki_meaning`), so questions find their articles by meaning before the word search; it runs on the Home Assistant machine with nothing sent out. When the whole question finds nothing, shorter search words are tried. Claude reaches it as `mind_wiki`, and the look-up model (`tool_model`) as its `wikipedia` tool. A snapshot older than six months is replaced by the newest one, downloaded the same way at night (about 50 GB more disk while it downloads; the old one stays in use until it's done).
 
 ## Controlling the house
 
@@ -1179,6 +1179,7 @@ you turn them on are listed after the tables.
 | `compare_suites` | recall, tricky, hard | Suites for the model comparison |
 | `knowledge_food` | on | Food database |
 | `knowledge_wikipedia` | on | Offline Wikipedia |
+| `knowledge_wiki_meaning` | on | Wikipedia by meaning |
 | `knowledge_window` | `00:00-07:00` | Download window |
 | `log_level` | `info` | Log level |
 
@@ -1261,7 +1262,7 @@ you turn them on are listed after the tables.
 - `think` (on): a general task the small model can't solve goes to the consultant, a cloud model unless you name a
   local one, with the question, what the tools returned (notes found by `RECALL` with secret values hidden) and, once
   in a while, a request to write a skill (`think_learn_daily`). Private questions follow `private_to_cloud`.
-- `knowledge_wikipedia` (on): about 50 GB of disk; `knowledge_food` (on): about 450 MB.
+- `knowledge_wikipedia` (on): about 50 GB of disk; `knowledge_wiki_meaning` (on): about 9.5 GB more; `knowledge_food` (on): about 450 MB.
 - Deleting for good (purge, `POST /api/item/{id}/purge`, `mind_purge_about`) can't be undone; see **Trust and privacy**.
 
 ## Bedroom comfort

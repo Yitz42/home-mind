@@ -4929,7 +4929,7 @@ def build(app_state):
     @r.post("/api/knowledge/{op}")
     async def knowledge_op(q):
         op = q.match_info["op"]
-        if op in ("food", "wiki"):
+        if op in ("food", "wiki", "wiki_sense"):
             return J({"state": A.knowledge.start_now(op)})
         return J({"error": "unknown"}, status=404)
 

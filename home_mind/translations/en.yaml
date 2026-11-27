@@ -318,6 +318,9 @@ configuration:
   knowledge_wikipedia:
     name: Offline Wikipedia
     description: Download English Wikipedia, text only (about 50 GB), for general questions. Replaced by the newest snapshot once it is six months old, downloaded the same way. Kept out of backups.
+  knowledge_wiki_meaning:
+    name: Wikipedia by meaning
+    description: Once Wikipedia is in, also download a search index of every article's first paragraph and its small model (about 9.5 GB, same window), so a question finds its articles by meaning, not only by the same words. Runs on this machine; nothing is sent out.
   knowledge_window:
     name: Download window
     description: When the big Wikipedia download may run (HH:MM-HH:MM); it pauses outside and resumes the next night.

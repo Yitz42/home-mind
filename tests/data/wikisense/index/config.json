@@ -1,0 +1,25 @@
+{
+ "path": "intfloat/e5-base",
+ "instructions": {
+  "query": "query: ",
+  "data": "passage: "
+ },
+ "backend": "faiss",
+ "faiss": {
+  "quantize": true,
+  "components": "IVF12,SQ8"
+ },
+ "content": true,
+ "dimensions": 32,
+ "offset": 600,
+ "build": {
+  "create": "2026-11-27T04:14:44Z",
+  "python": "3.13.18",
+  "settings": {
+   "components": "IVF12,SQ8"
+  },
+  "system": "Linux (x86_64)",
+  "txtai": "9.15.0"
+ },
+ "update": "2026-11-27T04:14:44Z"
+}
