@@ -53,7 +53,7 @@ SENSE_INDEX = "https://huggingface.co/NeuML/txtai-wikipedia/resolve/main/"
 SENSE_INDEX_FILES = ["config.json", "documents", "embeddings"]
 SENSE_MODEL = "https://huggingface.co/intfloat/e5-base/resolve/main/"
 SENSE_MODEL_FILES = ["config.json", "vocab.txt", "model.safetensors"]
-SENSE_MIN = 0.80            # e5 scores sit high; below this a hit is noise
+SENSE_MIN = 0.83            # e5 scores sit high; nonsense tops out near 0.82 on the full index
 SENSE_SURE = 0.86           # at or above this a hit counts even when it shares no word with the question
 NUTRIENTS = {           # FoodData Central nutrient ids
     "1008": "kcal", "2047": "kcal_atwater", "2048": "kcal_atwater2", "1003": "protein", "1005": "carbs",

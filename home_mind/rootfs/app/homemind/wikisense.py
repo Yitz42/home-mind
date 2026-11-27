@@ -125,7 +125,7 @@ def read_safetensors(path):
 
 def _gelu(x):
     # BERT's exact gelu (erf); numpy has no erf, so the Abramowitz-Stegun 7.1.26 form (error < 1.5e-7)
-    z = x / np.sqrt(2.0)
+    z = x * np.float32(0.7071067811865476)       # numpy float64 scalars would turn the whole pass into float64
     s = np.sign(z)
     a = np.abs(z)
     t = 1.0 / (1.0 + 0.3275911 * a)
@@ -169,13 +169,14 @@ class Encoder:
         x = _ln(x, g("embeddings.LayerNorm.weight"), g("embeddings.LayerNorm.bias"))
         h = self.heads
         dk = x.shape[1] // h
+        scale = np.float32(1.0 / np.sqrt(dk))
         for i in range(self.layers):
             L = f"encoder.layer.{i}."
             q = x @ g(L + "attention.self.query.weight").T + g(L + "attention.self.query.bias")
             k = x @ g(L + "attention.self.key.weight").T + g(L + "attention.self.key.bias")
             v = x @ g(L + "attention.self.value.weight").T + g(L + "attention.self.value.bias")
             q, k, v = (t.reshape(n, h, dk).transpose(1, 0, 2) for t in (q, k, v))
-            s = q @ k.transpose(0, 2, 1) / np.sqrt(dk)
+            s = (q @ k.transpose(0, 2, 1)) * scale
             s = np.exp(s - s.max(-1, keepdims=True))
             s /= s.sum(-1, keepdims=True)
             a = (s @ v).transpose(1, 0, 2).reshape(n, h * dk)

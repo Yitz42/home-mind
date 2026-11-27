@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.45.4
+- **Wikipedia by meaning is about 8 times faster:** the question model stays in single precision all the way through, so a search takes a fraction of a second instead of about 1.5 s.
+- **Fewer stray articles:** meaning matches below 0.83 are dropped (made-up questions score up to about 0.82).
+
 ## 0.45.3
 - **Timing for Wikipedia by meaning:** `meaning=1` also shows how long each part took (the model, the index, the text) and takes `nprobe` to try a wider search.
 
