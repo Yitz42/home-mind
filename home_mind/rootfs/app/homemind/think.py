@@ -1113,4 +1113,3 @@ def bench_score(t, answer):
         first = min((m.start(), nm) for nm in names for m in [re.search(rf"\b{re.escape(nm)}\b", last)] if m)
         return first[1] == t["gold"]
     return False
-    return False
