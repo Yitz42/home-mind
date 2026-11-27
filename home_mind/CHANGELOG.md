@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.45.3
+- **Timing for Wikipedia by meaning:** `meaning=1` also shows how long each part took (the model, the index, the text) and takes `nprobe` to try a wider search.
+
 ## 0.45.2
 - **See what Wikipedia by meaning found:** `GET /api/knowledge/search?q=…&meaning=1` lists the closest articles with their scores and how long the search took.
 

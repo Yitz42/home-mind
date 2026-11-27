@@ -15,6 +15,7 @@ with a score. Knowledge uses the titles to pull the full article from the Kiwix 
 """
 import json
 import os
+import time
 import re
 import sqlite3
 import struct
@@ -312,18 +313,22 @@ class WikiSense:
         nlist = self.ann.nlist
         self.nprobe = max(6, min(64, round(nlist / 32)))
 
-    def search(self, question, k=5):
+    def search(self, question, k=5, nprobe=None):
+        t0 = time.time()
         q = self.encoder.embed(self.prefix + (question or ""))
-        hits = self.ann.search(q, k=k, nprobe=self.nprobe)
-        if not hits:
-            return []
-        db = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
-        try:
-            out = []
-            for idx, score in hits:
-                row = db.execute("SELECT id, text FROM sections WHERE indexid = ?", (idx,)).fetchone()
-                if row:
-                    out.append({"title": row[0], "text": re.sub(r"\s+", " ", row[1] or "").strip(), "score": score})
-            return out
-        finally:
-            db.close()
+        t1 = time.time()
+        hits = self.ann.search(q, k=k, nprobe=nprobe or self.nprobe)
+        t2 = time.time()
+        out = []
+        if hits:
+            db = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+            try:
+                for idx, score in hits:
+                    row = db.execute("SELECT id, text FROM sections WHERE indexid = ?", (idx,)).fetchone()
+                    if row:
+                        out.append({"title": row[0], "text": re.sub(r"\s+", " ", row[1] or "").strip(), "score": score})
+            finally:
+                db.close()
+        self.last_ms = {"encode": round((t1 - t0) * 1000), "index": round((t2 - t1) * 1000),
+                        "text": round((time.time() - t2) * 1000)}
+        return out

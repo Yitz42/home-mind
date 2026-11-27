@@ -4923,8 +4923,12 @@ def build(app_state):
         qq = q.query.get("q", "")
         if q.query.get("meaning"):                         # the raw by-meaning hits with their scores
             t0 = time.time()
-            hits = await asyncio.to_thread(A.knowledge.by_meaning, qq, num(q.query.get("n"), "n", 5, 1, 20), 0.0)
-            return J({"ready": A.knowledge.sense is not None, "ms": round((time.time() - t0) * 1000),
+            kw = {"nprobe": num(q.query.get("nprobe"), "nprobe", 0, 1, 2000)} if q.query.get("nprobe") else {}
+            hits = await asyncio.to_thread(A.knowledge.by_meaning, qq, num(q.query.get("n"), "n", 5, 1, 20), 0.0,
+                                           **kw)
+            sense = A.knowledge.sense
+            return J({"ready": sense is not None, "ms": round((time.time() - t0) * 1000),
+                      "parts_ms": getattr(sense, "last_ms", None), "nprobe": kw.get("nprobe", getattr(sense, "nprobe", None)),
                       "hits": [{"title": h["title"], "score": round(h["score"], 4), "text": h["text"][:200]}
                                for h in hits]})
         if q.query.get("passages"):
