@@ -1,5 +1,6 @@
 """MCP (Model Context Protocol) server over HTTP: JSON-RPC in a POST, JSON back. This is what Claude connects to
 (through the Home Mind Bridge webhook in Home Assistant)."""
+import asyncio
 import json
 
 from . import suites
@@ -127,6 +128,9 @@ TOOLS = [
     ("mind_meals", "Meal ideas from what's in the house: uses what expires first, fits today (tired days lower-carb) and "
                    "the goals (more protein, fewer calories). meal: breakfast/lunch/dinner/snack; request: anything extra.",
      S({"meal": STR, "request": STR, "model": STR}, [])),
+    ("mind_wiki", "Look a general topic up in the offline English Wikipedia on the Home Assistant machine (facts about the "
+                  "world, not about the household): the best passages and the snapshot date. Use a few search words, "
+                  "like an article title.", S({"query": STR, "n": INT}, ["query"])),
     ("mind_status", "Counts, version, packs, models.", S({})),
     ("mind_updates", "Check for updates (apply=true installs available packs).", S({"apply": BOOL})),
 ]
@@ -135,7 +139,7 @@ TOOLS = [
 # Tool annotations (MCP 2025-03-26+): clients use these to decide what to ask the user before a call. readOnlyHint for
 # tools that never change anything; destructiveHint for those that delete, archive in bulk, act on the house or
 # install things; openWorldHint for those that reach Home Assistant, models or the internet.
-_READ_ONLY = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_sql", "mind_tasks",
+_READ_ONLY = {"mind_wiki", "mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_sql", "mind_tasks",
               "mind_models", "mind_test_results", "mind_trend", "mind_home", "mind_status", "mind_draft_automation",
               "mind_meals"}
 _DESTRUCTIVE = {"mind_purge", "mind_purge_about", "mind_forget_about", "mind_install_automation", "mind_control",
@@ -349,6 +353,12 @@ class MCP:
             if act == "cycle":
                 return await app.comfort.cycle(reason="claude")
             return app.comfort.status()
+        if name == "mind_wiki":
+            kn = getattr(app, "knowledge", None)
+            if kn is None:
+                return {"error": "offline Wikipedia is off"}
+            n = max(1, min(int(a.get("n") or 3), 8))
+            return await asyncio.to_thread(kn.lookup, str(a["query"]), n)
         if name == "mind_home":
             if not app.home.catalog:
                 await app.home.refresh()

@@ -1989,8 +1989,13 @@ class Mind:
                   ms=r["ms"], errors=errors or None, sources=[x["id"] for x in sources] or None, weak=weak or None)
         if voice:
             text = " ".join(streamed) if streamed else (spoken(text, ids={h["id"] for h in hits}) or text)
+        try:        # the Wikipedia articles it drew on go on the source line (shown only, never logged as notes)
+            from .knowledge import Knowledge
+            wiki_src = Knowledge.sources(ctx, text) if use_brain and not DONT_KNOW.search(text) else []
+        except Exception:  # noqa: BLE001
+            wiki_src = []
         out = {"answer": text, "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"],
-               "sources": sources, "weak": weak}
+               "sources": sources + wiki_src, "weak": weak}
         if graph_links:
             out["graph_links"] = [
                 {"id": g["id"], "source": g.get("source_name"), "relation": g["relation"],

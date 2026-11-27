@@ -8,8 +8,10 @@ Food (USDA FoodData Central)
 
 Wikipedia (Kiwix ZIM, English, text only)
   Downloaded once (about 50 GB, resumable, only inside the download window - default overnight), searched with the
-  full-text index built into the file. For general questions (not about the user) Home Mind adds the best two
-  passages to what the model sees, labelled with the snapshot date; the user's own notes always win.
+  full-text index built into the file. For general questions (not about the user's own things) Home Mind adds the
+  best two passages to what the model sees, labelled with the snapshot date; the user's own notes always win. When
+  the first search finds nothing on topic it tries again with shorter search words. A snapshot older than
+  WIKI_REFRESH_DAYS is replaced by the newest one, downloaded the same way (the old file stays in use until then).
 
 Everything lives in /data/knowledge, which is left out of Home Assistant backups (it can be downloaded again).
 """
@@ -39,6 +41,8 @@ FDC_FILES = {           # newest at the time of writing; refresh() looks for new
 FOOD_VERSION = 6        # 6: no code-only portions; 5: FNDDS SR numbers; 2: FNDDS survey foods and portion weights; 3: counted, BOM-safe; 4: ids via nutrient.csv
 KIWIX_DIR = "https://download.kiwix.org/zim/wikipedia/"
 WIKI_FLAVOUR = "wikipedia_en_all_nopic"
+WIKI_REFRESH_DAYS = 180     # a snapshot older than this is replaced by the newest one
+WIKI_CHECK_DAYS = 7         # how often the Kiwix server is asked whether a newer snapshot is out
 NUTRIENTS = {           # FoodData Central nutrient ids
     "1008": "kcal", "2047": "kcal_atwater", "2048": "kcal_atwater2", "1003": "protein", "1005": "carbs",
     "1004": "fat", "1079": "fiber", "2000": "sugar", "1063": "sugar_alt", "1093": "sodium",
@@ -49,6 +53,20 @@ NUTRIENT_NBR = {     # the same nutrients by their older SR numbers (nutrient.cs
 }
 COLS = ["kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium"]
 PERSONAL = re.compile(r"\b(my|me|i|i'm|i've|i'd|mine|our|we|us|myself)\b", re.I)
+# A question about the user's own things or life gets no encyclopedia ("where did I put my key", "what did I eat");
+# a general question that only says "I" ("can I eat raw cookie dough?", "tell me about Mars") still does.
+ABOUT_USER = re.compile(
+    r"\b(?:my|mine|our|ours|myself|ourselves)\b"
+    r"|\b(?:did|have|had|was|were|am) (?:i|we)\b"
+    r"|\b(?:i|we) (?:did|was|were|have|had|put|left|ate|said|told|saved|asked|bought|paid|used|took|slept|felt)\b"
+    r"|\bi'(?:m|ve|d)\b", re.I)
+
+
+def about_user(question):
+    return bool(ABOUT_USER.search((question or "").replace("’", "'")))
+PERSONAL_WORDS = {"my", "me", "i", "i'm", "i've", "i'd", "mine", "our", "we", "us", "myself", "you", "your"}
+VERB_WORDS = set("eat eats eating drink take taking make makes use using get safe good bad okay ok work works happen "
+                 "happens mean means know tell explain need should would will have has had been being".split())
 STOP = set("the a an of in on at to for is are was were be what who when where which how why does do did can could "
            "and or with from by about as it its that this than then there their into much many".split())
 
@@ -520,36 +538,76 @@ class Knowledge:
         txt = [re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", p))).strip() for p in paras]
         return [t for t in txt if len(t) > 40]
 
-    def passages(self, question, n=2, chars=700):
+    def passages(self, question, n=2, chars=700, personal_ok=False):
         """The best paragraphs for a general question: each article's intro, plus its paragraph that shares the most
-        words with the question."""
-        if not self.archive or PERSONAL.search(question or ""):
+        words with the question. If the first search finds nothing on topic, shorter search words are tried (the
+        longest run of plain words, then the rarest single words). personal_ok: for a search a model words itself."""
+        if not self.archive or (not personal_ok and about_user(question)):
             return []
-        terms = {w for w in re.findall(r"[a-z0-9]+", question.lower()) if w not in STOP and len(w) > 2}
+        terms = {w for w in re.findall(r"[a-z0-9]+", (question or "").lower()) if w not in STOP and len(w) > 2}
         if not terms:
             return []
-        out = []
+        out, seen = [], set()
+
+        def take(arts):
+            for art in arts:
+                if len(out) >= n:
+                    return
+                if art["path"] in seen:
+                    continue
+                seen.add(art["path"])
+                paras = art["text"]
+                if not paras:
+                    continue
+                title_terms = set(re.findall(r"[a-z0-9]+", art["title"].lower()))
+                body = " ".join(paras[:3]).lower()
+                if not (terms & title_terms) and sum(1 for t in terms if t in body) < max(1, len(terms) // 2):
+                    continue                               # off-topic hit
+                best = max(paras[1:12] or [""], key=lambda p: sum(1 for t in terms if t in p.lower()))
+                text = paras[0] if not best or best == paras[0] else paras[0] + " ... " + best
+                out.append({"title": art["title"], "text": text[:chars]})
+
         words = [w for w in re.findall(r"[A-Za-z0-9'-]+", question) if w.lower() not in STOP and len(w) > 2]
         caps = " ".join(w for w in words if w[0].isupper())          # names are the best title search
-        arts = (self.search(caps, limit=2) if caps else []) + self.search(" ".join(words), limit=n + 1)
-        seen = set()
-        for art in arts:
-            if art["path"] in seen:
-                continue
-            seen.add(art["path"])
-            paras = art["text"]
-            if not paras:
-                continue
-            title_terms = set(re.findall(r"[a-z0-9]+", art["title"].lower()))
-            body = " ".join(paras[:3]).lower()
-            if not (terms & title_terms) and sum(1 for t in terms if t in body) < max(1, len(terms) // 2):
-                continue                               # off-topic hit
-            best = max(paras[1:12] or [""], key=lambda p: sum(1 for t in terms if t in p.lower()))
-            text = paras[0] if not best or best == paras[0] else paras[0] + " ... " + best
-            out.append({"title": art["title"], "text": text[:chars]})
-            if len(out) >= n:
-                break
+        take((self.search(caps, limit=2) if caps else []) + self.search(" ".join(words), limit=n + 1))
+        if not out:
+            for q in self.retry_queries(question)[:4]:
+                take(self.search(q, limit=2))
+                if out:
+                    break
         return out
+
+    @staticmethod
+    def retry_queries(question):
+        """Shorter searches for a second try: runs of two or more plain words in the question's order ("raw cookie
+        dough"), longest first, then single words, longest first. Words like "can", "eat" or "safe" stay in a run
+        but don't make one alone."""
+        toks = re.findall(r"[A-Za-z0-9'-]+", question or "")
+        runs, cur = [], []
+        for t in toks + [""]:
+            low = t.lower()
+            if t and low not in STOP and low not in PERSONAL_WORDS and low not in VERB_WORDS and len(t) > 1:
+                cur.append(t)
+            else:
+                if len(cur) >= 2:
+                    runs.append(" ".join(cur))
+                cur = []
+        runs.sort(key=lambda r: -len(r.split()))
+        singles = sorted({t for t in toks if t.lower() not in STOP and t.lower() not in PERSONAL_WORDS
+                          and t.lower() not in VERB_WORDS and len(t) > 3}, key=lambda w: (-len(w), w))
+        out = []
+        for q in runs + singles:
+            if q.lower() not in (x.lower() for x in out):
+                out.append(q)
+        return out
+
+    def lookup(self, query, n=3):
+        """For a model's own search (the look-up tool, Claude over MCP): the best passages and the snapshot date."""
+        if not self.archive:
+            return {"error": "offline Wikipedia isn't downloaded yet"}
+        ps = self.passages(query, n=n, chars=1200, personal_ok=True)
+        return {"snapshot": getattr(self, "wiki_date", ""), "passages": ps or [],
+                **({} if ps else {"note": "nothing on topic; try other words, like an article title"})}
 
     def reference_lines(self, question):
         ps = self.passages(question)
@@ -557,6 +615,20 @@ class Knowledge:
             return ""
         return (f"REFERENCE (offline Wikipedia, {getattr(self, 'wiki_date', '')} snapshot; general facts, not about "
                 f"the user):\n" + "\n".join(f"- {p['title']}: {p['text']}" for p in ps))
+
+    @staticmethod
+    def sources(ctx, answer):
+        """The Wikipedia articles an answer drew on, for its source line: only when the context had a REFERENCE block
+        and the answer says it came from Wikipedia. Articles whose title words the answer uses come first; up to two."""
+        if not ctx or "REFERENCE (offline Wikipedia" not in ctx or not re.search(r"wikipedia", answer or "", re.I):
+            return []
+        block = ctx[ctx.index("REFERENCE (offline Wikipedia"):].split("\n\n", 1)[0]
+        titles = [m.group(1).strip() for m in re.finditer(r"(?m)^- ([^:\n]{1,200}): ", block)]
+        if not titles:
+            return []
+        low = (answer or "").lower()
+        used = [t for t in titles if any(w in low for w in re.findall(r"[a-z0-9]{3,}", t.lower()))]
+        return [{"title": f"Wikipedia: {t}", "kind": "wikipedia"} for t in (used or titles[:1])[:2]]
 
     # ---- the clock --------------------------------------------------------------------------------------------------
     async def tick(self):
@@ -568,6 +640,44 @@ class Knowledge:
             return
         if self.want_wiki and not self.archive and self.in_window():
             self._task = asyncio.create_task(self._run(self.get_wiki(), "wiki"))
+            return
+        if self.want_wiki and self.archive and self.in_window() and (self.refresh_pending() or self.refresh_due()):
+            self._task = asyncio.create_task(self._run(self.refresh_wiki(), "wiki"))
+
+    # ---- keeping Wikipedia fresh ----------------------------------------------------------------------------------
+    def wiki_age_days(self, now=None):
+        m = re.match(r"(\d{4})-(\d{2})", getattr(self, "wiki_date", "") or "")
+        if not m:
+            return None
+        return ((now or datetime.now()) - datetime(int(m.group(1)), int(m.group(2)), 1)).days
+
+    def refresh_due(self, now=None):
+        """The snapshot is old and the server hasn't been asked about a newer one this week."""
+        age = self.wiki_age_days(now)
+        last = self.status.get("wiki", {}).get("checked", 0)
+        t = (now or datetime.now()).timestamp()
+        return age is not None and age >= WIKI_REFRESH_DAYS and t - last > WIKI_CHECK_DAYS * 86400
+
+    def refresh_pending(self):
+        """A newer snapshot was picked and its download isn't finished (it goes on in the next window)."""
+        name = self.status.get("wiki", {}).get("name")
+        files = self._zim_files()
+        return bool(name and files and name not in files and name > files[-1])
+
+    async def refresh_wiki(self):
+        st = self.status.setdefault("wiki", {})
+        if not self.refresh_pending():
+            st["checked"] = time.time()
+            self._save()
+            url, name = await self.latest_wiki_url()
+            cur = (self._zim_files() or [""])[-1]
+            if name <= cur:
+                st.update(newest_seen=name)
+                self._save()
+                return False
+            st.update(url_planned=url, name=name)
+            self._save()
+        return await self.get_wiki()
 
     def start_now(self, what):
         if self._task and not self._task.done():

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.43.0
+- **Wikipedia, smarter:** general questions that say "I" or "me" ("can I eat raw cookie dough?", "tell me about Mars") now get the offline Wikipedia passage too; only questions about your own things ("where did I put my keys?", "what did I eat?") are kept out. When the whole question finds nothing on topic, shorter search words are tried ("raw cookie dough", then single words), at most four more searches.
+- **Wikipedia on the source line:** an answer that came from Wikipedia names the article under it ("Wikipedia: Eiffel Tower"), beside the notes. It is shown only, never logged as a note.
+- **Look it up yourself:** Claude can search the offline Wikipedia over MCP with `mind_wiki` (read scope), and the look-up model (`tool_model`) gets a `wikipedia` tool, offered once the file is downloaded.
+- **A fresh snapshot every six months:** once the Wikipedia file is six months old, Home Mind checks weekly for a newer one and downloads it the same way, inside the download window (about 50 GB more disk while it downloads). The old file stays in use until the new one is complete, then is removed.
+
 ## 0.42.0
 - **TickTick tasks:** connect your TickTick account on System > Overview (setup in the docs) and Home Mind copies your open tasks every 15 minutes. "What's due today?" and "what homework do I have this week?" answer from them, overdue first; the morning summary lists overdue tasks and what's due today, and warns two weeks before the connection runs out. "Remind me to …" and "add a task …" go to your TickTick inbox with the day and time you say (option `ticktick_reminders`), and "check off the essay" completes it in TickTick. Tasks stay on their own shelf and never become ordinary notes; Disconnect forgets them.
 

@@ -53,6 +53,10 @@ def make_zim(path):
                         "<p>The Eiffel Tower is a wrought-iron lattice tower on the Champ de Mars in Paris, France, "
                         "named after the engineer Gustave Eiffel.</p><p>It was constructed from 1887 to 1889 as the "
                         "centerpiece of the 1889 World's Fair, and is 330 metres tall.</p>"))
+        c.add_item(Page("Cookie_dough", "Cookie dough",
+                        "<p>Cookie dough is an uncooked mixture of cookie ingredients, eaten raw by some people or "
+                        "baked into cookies.</p><p>Eating raw cookie dough carries a risk of food poisoning from raw "
+                        "eggs (Salmonella) and from uncooked flour (E. coli).</p>"))
         c.add_item(Page("Chickpea", "Chickpea",
                         "<p>The chickpea or garbanzo bean is an annual legume of the family Fabaceae, grown for its "
                         "edible seeds which are high in protein.</p><p>Chickpeas are a key ingredient in hummus and "
@@ -178,6 +182,76 @@ async def main():
     assert ref.startswith("REFERENCE (offline Wikipedia, 2026-10") and "legume" in ref, ref
     assert k2.passages("quantum chromodynamics lattice") == [] or True  # nothing relevant: nothing (or harmless)
 
+    # general questions that only say "I" or "me" get a passage; questions about the user's own things don't
+    from homemind.knowledge import about_user
+    for q in ("Can I eat raw cookie dough?", "Tell me about the Eiffel Tower", "Should I worry about chickpeas?",
+              "How do I make hummus?"):
+        assert not about_user(q), q
+    for q in ("Where did I put my keys?", "What did I eat yesterday?", "Have I taken my pills?", "When is our trip?",
+              "I'm tired, what is a chickpea", "What’s my code?"):
+        assert about_user(q), q
+    ps = k2.passages("Can I eat raw cookie dough?")
+    assert ps and ps[0]["title"] == "Cookie dough" and "Salmonella" in ps[0]["text"], ps
+    assert k2.passages("Tell me about the Eiffel Tower")[0]["title"] == "Eiffel Tower"
+    assert k2.passages("what did I eat last, chickpeas?") == []                     # about the user's day
+    # a second try with shorter search words when the whole question finds nothing on topic
+    rq = k2.retry_queries("Is it okay to eat raw cookie dough when you're hungry at midnight?")
+    assert rq[0] == "raw cookie dough", rq
+    assert "midnight" in rq and "okay" not in [x.lower() for x in rq], rq
+    calls = []
+    real = k2.search
+
+    def picky(q, limit=3):                      # a full-text index that only answers short searches
+        calls.append(q)
+        return real(q, limit) if len(q.split()) <= 3 else []
+    k2.search = picky
+    ps = k2.passages("is it really dangerous to snack on raw cookie dough late at night")
+    k2.search = real
+    assert ps and ps[0]["title"] == "Cookie dough", (ps, calls)
+    assert len(calls) <= 2 + 4, calls                                    # at most four extra searches
+
+    # a model's own search (tool, MCP)
+    lk = k2.lookup("Eiffel Tower")
+    assert lk["snapshot"] == "2026-10" and lk["passages"][0]["title"] == "Eiffel Tower", lk
+    assert "note" in k2.lookup("zzqxv")
+
+    # the source line names the article an answer used
+    from homemind.knowledge import Knowledge as K
+    ref = k2.reference_lines("How tall is the Eiffel Tower?")
+    src = K.sources("MEMORY NOTES:\n(none)\n\n" + ref, "According to Wikipedia, the Eiffel Tower is 330 metres tall.")
+    assert src == [{"title": "Wikipedia: Eiffel Tower", "kind": "wikipedia"}], src
+    assert K.sources(ref, "It is 330 metres tall.") == []                # the answer didn't use Wikipedia
+    assert K.sources("MEMORY NOTES:\n- x", "According to Wikipedia, yes.") == []
+
+    # refreshing an old snapshot
+    from datetime import datetime as _dt
+    from homemind.knowledge import WIKI_REFRESH_DAYS
+    k2.status.setdefault("wiki", {}).pop("checked", None)
+    assert not k2.refresh_due(_dt(2026, 12, 1)) and k2.refresh_due(_dt(2027, 5, 1))
+    assert k2.wiki_age_days(_dt(2027, 5, 1)) >= WIKI_REFRESH_DAYS
+    k2.status["wiki"]["checked"] = _dt(2027, 4, 29).timestamp()
+    assert not k2.refresh_due(_dt(2027, 5, 1))                          # asked the server this week already
+    asked = []
+
+    async def latest_same():
+        return "u", "wikipedia_en_all_nopic_2026-10.zim"
+    k2.latest_wiki_url = latest_same
+    assert await k2.refresh_wiki() is False and k2.status["wiki"]["newest_seen"].endswith("2026-10.zim")
+    assert not k2.refresh_pending()
+
+    async def latest_new():
+        return "https://example.invalid/wikipedia_en_all_nopic_2027-04.zim", "wikipedia_en_all_nopic_2027-04.zim"
+
+    async def fake_get(force_window=False):
+        asked.append(k2.status["wiki"]["url_planned"])
+        return False                                                  # paused: goes on in the next window
+    k2.latest_wiki_url, k2.get_wiki = latest_new, fake_get
+    assert await k2.refresh_wiki() is False and asked == ["https://example.invalid/wikipedia_en_all_nopic_2027-04.zim"]
+    assert k2.refresh_pending() and k2.archive is not None             # the old file stays in use meanwhile
+    del k2.latest_wiki_url, k2.get_wiki
+    k2.status["wiki"].pop("name", None)
+    k2.status["wiki"].pop("url_planned", None)
+
     # --- the brain uses it for general questions only -------------------------------------------------------------------
     from homemind.mind import Mind
     from homemind.models import Models
@@ -188,6 +262,27 @@ async def main():
     mind.store.remember(text="My bike lock code is 4471.", title="Bike lock code")
     _, _, ctx = await mind.context_for(mind.store, "What is my bike lock code?")
     assert "REFERENCE" not in ctx
+    _, _, ctx = await mind.context_for(mind.store, "Can I eat raw cookie dough?")
+    assert "REFERENCE (offline Wikipedia" in ctx and "Salmonella" in ctx, ctx
+
+    # the answer's source line names the article, next to the notes (never logged as a note)
+    class Says:
+        type, cfg = "ollama", {"url": "http://192.168.1.5:11434"}
+
+        async def chat(self, system, messages, **k):
+            return {"text": "According to Wikipedia, the Eiffel Tower is 330 metres tall.", "ms": 1}
+
+    class Ms:
+        models = {"f": Says()}
+
+        def get(self, n):
+            return self.models[n]
+    m2 = Mind(tempfile.mkdtemp(), Ms())
+    m2.FALLBACK = []
+    m2.knowledge = k2
+    out = await m2.ask("How tall is the Eiffel Tower?", "f", fallback=False)
+    assert {"title": "Wikipedia: Eiffel Tower", "kind": "wikipedia"} in out["sources"], out
+    assert all(s.get("id") for s in out["sources"] if s.get("kind") != "wikipedia")
 
     # --- download window, status -----------------------------------------------------------------------------------------
     from datetime import datetime

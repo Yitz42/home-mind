@@ -40,6 +40,7 @@ are in place: a model, the bridge, and a first note.
 - Off by default: encryption, off-site backups, Telegram, web lookups, email, the Markdown folder, Homebox and
   Paperless. On by default and worth a look: *Install new packs automatically*, *Food database* (about 450 MB, with USDA's survey foods for dishes as eaten and portion weights) and
   *Offline Wikipedia* (about 50 GB, downloaded at night): turn those two off if disk space is short.
+- **Offline Wikipedia** answers general questions ("how tall is the Eiffel Tower?", "can I eat raw cookie dough?") with the best two passages, and the answer's source line names the article. Questions about your own things ("where did I put my keys?") never get a passage. When the whole question finds nothing, shorter search words are tried. Claude reaches it as `mind_wiki`, and the look-up model (`tool_model`) as its `wikipedia` tool. A snapshot older than six months is replaced by the newest one, downloaded the same way at night (about 50 GB more disk while it downloads; the old one stays in use until it's done).
 
 ## Controlling the house
 
@@ -1507,6 +1508,7 @@ note), 502 (a model failed) or 500.
 | `mind_phrasebook` | read | the phrasebook of odd wordings (`add`, `approve`, `reject`, `remove` need write) |
 | `mind_fitness` | read | fitness goals, progress, workouts, weekly review (`log` and setting `goals` need write) |
 | `mind_models` | read | connected models (`check` pings them) |
+| `mind_wiki` | read | look a general topic up in the offline Wikipedia |
 | `mind_status` | read | counts, version, packs, models |
 | `mind_updates` | read; apply: admin | check for updates, install packs |
 | `mind_run_test` | admin | start a test run |

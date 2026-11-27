@@ -180,6 +180,30 @@ try:
 finally:
     VIEWER.reset(tok)
 
+# the offline Wikipedia as a tool, offered only once it is downloaded
+class FakeKnowledge:
+    def __init__(self, archive=True):
+        self.archive = object() if archive else None
+        self.asked = []
+
+    def lookup(self, query, n=3):
+        self.asked.append((query, n))
+        return {"snapshot": "2026-10", "passages": [{"title": "Eiffel Tower", "text": "It is 330 metres tall."}]}
+
+
+c = FakeClaude([use(1, "wikipedia", {"query": "Eiffel Tower"}), say("330 metres, according to Wikipedia.")])
+a = app_with(c)
+a.knowledge = FakeKnowledge()
+tl = ToolLoop(a, "claude")
+r = run(tl.answer("how tall is the eiffel tower?", "q"))
+check("wikipedia: offered when the offline copy is there", c.calls[0]["tools"] == ["recall", "home_state", "calendar",
+                                                                                    "tasks", "wikipedia"], c.calls[0])
+check("wikipedia: the model's own search words are looked up", a.knowledge.asked == [("Eiffel Tower", 3)], a.knowledge.asked)
+check("wikipedia: the passages come back as the tool result",
+      "330 metres" in c.calls[1]["messages"][2]["content"][0]["content"] and r["tools"] == ["wikipedia"], r)
+a.knowledge = FakeKnowledge(archive=False)
+check("wikipedia: not offered before the download finishes", "wikipedia" not in [t["name"] for t in tl.tools()])
+
 check("off: no tool_model", not ToolLoop(app_with(FakeClaude([])), None).ready())
 check("off: the model has no api_key", not ToolLoop(app_with(FakeClaude([], key="")), "claude").ready())
 check("off: a name that isn't connected", not ToolLoop(app_with(FakeClaude([])), "nope").ready())

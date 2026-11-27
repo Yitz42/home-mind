@@ -317,7 +317,7 @@ configuration:
     description: Download USDA FoodData Central (about 450 MB once) so meal ideas use real protein and calories.
   knowledge_wikipedia:
     name: Offline Wikipedia
-    description: Download English Wikipedia, text only (about 50 GB once), for general questions. Kept out of backups.
+    description: Download English Wikipedia, text only (about 50 GB), for general questions. Replaced by the newest snapshot once it is six months old, downloaded the same way. Kept out of backups.
   knowledge_window:
     name: Download window
     description: When the big Wikipedia download may run (HH:MM-HH:MM); it pauses outside and resumes the next night.
