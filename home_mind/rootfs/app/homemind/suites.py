@@ -2065,6 +2065,9 @@ SUITES = {"recall": recall, "update": update, "locate": locate, "tasks": tasks, 
           "salience": salience, "drafts": drafts, "people": people, "keys": keys, "lowercase": lowercase, "links": links, "filing": filing,
           "pronouns": pronouns}
 SUITE_INFO = {
+    "think": "general tasks with answers worked out by code (word problems, money, percents, rates, units, dates, "
+             "weekdays, clock times, averages, picking from a list, ordering clues). Arms: brain = code only, "
+             "model = the model alone, model + brain = the think path (skills, tools, checks)",
     "recurring": "things that repeat (every Tuesday, every other Thursday, the 15th of the month): when is the next one?",
     "chores": "chores with an interval and when each was done: last done, next due, which are overdue",
     "places": "things in containers in rooms, moved around: where is it now, what's in a room",

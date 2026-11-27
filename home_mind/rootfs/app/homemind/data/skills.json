@@ -1,0 +1,688 @@
+{
+  "version": "1.0.0",
+  "written_by": "Claude Opus 5.5 (large model), Nov 26 2026. First set: general methods, none tied to one task. Learned skills written by the consultant model join these on trial.",
+  "about": "Each skill is a method a small model follows for a KIND of task. 'cues' and 'when' decide which skill is shown (one at a time: more hurts small models). 'check' is what code verifies in the final answer: number (every number must come from a tool result or the question), date (the DATE result must be in it), list (it must use items from the question), text (no code check beyond the request's own counts and word limits).",
+  "skills": [
+    {
+      "id": "word-problem",
+      "title": "Word problem with numbers",
+      "when": "a question with several numbers that asks for a total, what is left, a cost, a count or an amount after some steps",
+      "cues": [
+        "how many",
+        "how much",
+        "total",
+        "left",
+        "each",
+        "per",
+        "altogether",
+        "remaining",
+        "cost",
+        "spend",
+        "share",
+        "split"
+      ],
+      "steps": [
+        "List every quantity in the question with what it counts.",
+        "Decide the order of steps: which quantities combine first, and with which operation.",
+        "Do every step with CALC, even easy ones. Use earlier RESULTS in later steps.",
+        "Check the result answers exactly what was asked (what is left, not what was used; each, not total).",
+        "ANSWER with the number and its unit."
+      ],
+      "check": "number",
+      "tools": [
+        "CALC"
+      ],
+      "examples": [
+        "A crate holds 24 jars and 3 crates arrive; 10 jars break. How many jars are left?",
+        "Tickets cost 12.50 each and we need 7 of them plus a 4 dollar fee. What is the total?"
+      ]
+    },
+    {
+      "id": "percent",
+      "title": "Percentages",
+      "when": "a percent of an amount, a discount, a tip, tax, a percent change or what percent one number is of another",
+      "cues": [
+        "%",
+        "percent",
+        "percentage",
+        "discount",
+        "off",
+        "tip",
+        "tax",
+        "increase",
+        "decrease",
+        "markup",
+        "interest"
+      ],
+      "steps": [
+        "Name the base amount the percent is of.",
+        "A percent of an amount: CALC amount * percent / 100. A price after a discount: CALC price * (1 - percent/100). After tax or a tip: CALC amount * (1 + percent/100).",
+        "Percent change: CALC (new - old) / old * 100. What percent A is of B: CALC A / B * 100.",
+        "Round money to 2 decimals with CALC round(x, 2).",
+        "ANSWER with the number and a % sign or unit as asked."
+      ],
+      "check": "number",
+      "tools": [
+        "CALC"
+      ],
+      "examples": [
+        "A jacket costs 80 and is 35% off. What do I pay?",
+        "Sales went from 240 to 300. By what percent did they rise?"
+      ]
+    },
+    {
+      "id": "rates",
+      "title": "Rates, speed and time to finish",
+      "when": "something happens at a rate (per minute, per hour, per day, miles per gallon, speed) and the question asks how long, how far or how much",
+      "cues": [
+        "per",
+        "rate",
+        "speed",
+        "mph",
+        "km/h",
+        "an hour",
+        "a minute",
+        "a day",
+        "how long",
+        "how far",
+        "fill",
+        "flow",
+        "gallon"
+      ],
+      "steps": [
+        "Write the rate as amount per unit of time (or per unit of something else).",
+        "Make the units match first; use CONVERT if they don't.",
+        "Amount = rate * time; time = amount / rate; rate = amount / time. Do it with CALC.",
+        "If only whole units make sense (whole trips, whole minutes to finish), round up with CALC ceil(x).",
+        "ANSWER with the number and its unit."
+      ],
+      "check": "number",
+      "tools": [
+        "CALC",
+        "CONVERT"
+      ],
+      "examples": [
+        "A pump moves 12 liters a minute. How many minutes to fill a 450 liter tank?",
+        "I drive 230 miles at 55 mph. How long does it take?"
+      ]
+    },
+    {
+      "id": "unit-conversion",
+      "title": "Converting units",
+      "when": "turning an amount in one unit into another (weight, length, volume, cooking measures, temperature, speed, area)",
+      "cues": [
+        "convert",
+        "in grams",
+        "in pounds",
+        "in kg",
+        "to cups",
+        "fahrenheit",
+        "celsius",
+        "inches",
+        "feet",
+        "liters",
+        "ounces",
+        "miles"
+      ],
+      "steps": [
+        "Find the amount and the unit it is in, and the unit wanted.",
+        "CONVERT: <amount> <unit> to <unit>.",
+        "If CONVERT says the kinds don't match (a cup of flour has no one weight), say so and give what is known.",
+        "ANSWER with the converted amount and the unit."
+      ],
+      "check": "number",
+      "tools": [
+        "CONVERT",
+        "CALC"
+      ],
+      "examples": [
+        "How many grams is 3.4 pounds?",
+        "What is 350 F in Celsius?"
+      ]
+    },
+    {
+      "id": "dates",
+      "title": "Dates, weekdays and clock times",
+      "when": "days between dates, a date some days or weeks from another, the weekday of a date, days until or since a date, or a clock time plus some minutes",
+      "cues": [
+        "days until",
+        "days between",
+        "weeks from",
+        "what day",
+        "weekday",
+        "date",
+        "how long until",
+        "since",
+        "o'clock",
+        "minutes after",
+        "deadline",
+        "how many days",
+        "day of the week",
+        "which day",
+        "what time",
+        "starts at",
+        "runs for",
+        "ends"
+      ],
+      "steps": [
+        "Find the dates or times in the question. 'Today' is given as TODAY.",
+        "DATE: write it plainly, e.g. 'days between 2026-11-26 and 2027-03-14', '2026-11-26 + 45 days', 'weekday of 2027-03-14', 'days until 2027-03-14', '9:40 + 135 minutes'.",
+        "Never count days on a calendar in your head.",
+        "ANSWER with the date (and weekday) or the number of days, as asked."
+      ],
+      "check": "date",
+      "tools": [
+        "DATE",
+        "CALC"
+      ],
+      "examples": [
+        "How many days from November 26 2026 to March 14 2027?",
+        "A meeting starts at 9:40 and lasts 135 minutes. When does it end?"
+      ]
+    },
+    {
+      "id": "stats",
+      "title": "Averages and other summaries of numbers",
+      "when": "the average, median, highest, lowest, total or spread of a list of numbers",
+      "cues": [
+        "average",
+        "mean",
+        "median",
+        "highest",
+        "lowest",
+        "range",
+        "sum",
+        "total of",
+        "typical"
+      ],
+      "steps": [
+        "Copy every number in the list; count them so none is missed.",
+        "CALC mean(a, b, c, ...) for the average, median(...) for the middle, max(...), min(...), sum(...).",
+        "ANSWER with the value; round only if asked."
+      ],
+      "check": "number",
+      "tools": [
+        "CALC"
+      ],
+      "examples": [
+        "What's the average of 13, 27, 41 and 8?",
+        "My runs were 5.2, 4.8, 6.1 and 5.5 km. What was the median?"
+      ]
+    },
+    {
+      "id": "estimate",
+      "title": "Rough estimate (Fermi)",
+      "when": "a rough estimate of a quantity nobody has written down, like how many of something there are or how much something uses in a year",
+      "cues": [
+        "roughly",
+        "about how many",
+        "estimate",
+        "ballpark",
+        "approximately",
+        "order of magnitude",
+        "how many would"
+      ],
+      "steps": [
+        "Split the quantity into factors you can guess (people, how often, how much each time).",
+        "Give each factor a round, sensible value and say it.",
+        "Multiply them with CALC.",
+        "ANSWER with a round number, the factors used, and that it is an estimate."
+      ],
+      "check": "number",
+      "tools": [
+        "CALC",
+        "LOOKUP"
+      ],
+      "examples": [
+        "Roughly how many cups of coffee does a person drink in a year?"
+      ]
+    },
+    {
+      "id": "sort-pick",
+      "title": "Sort a list and pick from it",
+      "when": "a list given in the question that must be ordered by something (date, size, price, priority) or from which the first, last, cheapest or nth item is wanted",
+      "cues": [
+        "sort",
+        "order",
+        "first",
+        "last",
+        "earliest",
+        "latest",
+        "cheapest",
+        "biggest",
+        "smallest",
+        "rank",
+        "which comes",
+        "soonest"
+      ],
+      "steps": [
+        "Write each item with the value it is sorted by, one per line.",
+        "Compare values with CALC or DATE if they need working out (dates in different formats, prices with tax).",
+        "Put them in order, then take the item asked for. Check ties.",
+        "ANSWER with the item's name exactly as written in the question."
+      ],
+      "check": "list",
+      "tools": [
+        "CALC",
+        "DATE"
+      ],
+      "examples": [
+        "Which is due first: rent on the 3rd, phone bill on the 28th, insurance on the 15th?",
+        "Rank these by price: 3 for 5 dollars, 2 for 3.50, 6 for 9."
+      ]
+    },
+    {
+      "id": "logic",
+      "title": "Logic puzzle or reasoning with clues",
+      "when": "a puzzle or question where clues must be combined to find who, which or what, or whether a statement must be true",
+      "cues": [
+        "puzzle",
+        "riddle",
+        "clue",
+        "who",
+        "which one",
+        "if",
+        "must be",
+        "true or false",
+        "logic",
+        "deduce",
+        "neither",
+        "either",
+        "who is the",
+        "taller than",
+        "shorter than",
+        "older than",
+        "younger than",
+        "faster than"
+      ],
+      "steps": [
+        "Write each clue on its own line in short form.",
+        "List every possible answer.",
+        "Go through the clues one at a time and cross out the possibilities each one rules out.",
+        "When one possibility is left, check it against every clue again.",
+        "ANSWER with it and the one or two clues that decide it."
+      ],
+      "check": "text",
+      "tools": [],
+      "examples": [
+        "Ann, Ben and Cy each own one pet: a cat, a dog, a fish. Ann is allergic to fur and Ben walks his pet. Who has the cat?"
+      ]
+    },
+    {
+      "id": "schedule",
+      "title": "Plan a schedule",
+      "when": "fitting tasks, errands or study into a day or week around fixed times and deadlines",
+      "cues": [
+        "plan my",
+        "schedule",
+        "fit in",
+        "this week",
+        "today",
+        "tomorrow",
+        "timetable",
+        "routine",
+        "when should i",
+        "time block"
+      ],
+      "steps": [
+        "RECALL the person's calendar, routine or tasks if the question is about their own day or week.",
+        "Place fixed things first (appointments, classes, work), then deadlines, hardest work when energy is best.",
+        "Give each task a time block with DATE for clock math; leave 10 to 15 minutes between blocks.",
+        "If it doesn't all fit, say what to move or drop.",
+        "ANSWER as a short timed list."
+      ],
+      "check": "text",
+      "tools": [
+        "RECALL",
+        "DATE"
+      ],
+      "examples": [
+        "Help me plan tomorrow: class 10 to 12, gym, groceries, and 3 hours on my project."
+      ]
+    },
+    {
+      "id": "prioritize",
+      "title": "Prioritize a list of tasks",
+      "when": "choosing what to do first among several tasks, or sorting tasks by urgency and importance",
+      "cues": [
+        "prioritize",
+        "priority",
+        "what first",
+        "most important",
+        "urgent",
+        "overwhelmed",
+        "too much to do",
+        "quadrant",
+        "eisenhower"
+      ],
+      "steps": [
+        "List the tasks. RECALL open tasks if the person means their own list.",
+        "Mark each: urgent (has a near deadline or a cost to waiting) and important (moves a real goal).",
+        "Order: urgent and important; important not urgent (schedule it); urgent not important (quick or hand off); neither (drop or later).",
+        "ANSWER with the order and one short reason for the top item."
+      ],
+      "check": "list",
+      "tools": [
+        "RECALL"
+      ],
+      "examples": [
+        "I have to do laundry, finish a lab report due tomorrow, call the bank and clean my desk. What first?"
+      ]
+    },
+    {
+      "id": "breakdown",
+      "title": "Break a goal into steps",
+      "when": "a big goal or project that needs a plan of smaller steps",
+      "cues": [
+        "how do i start",
+        "break down",
+        "steps to",
+        "plan to",
+        "project",
+        "goal",
+        "roadmap",
+        "milestones",
+        "get started"
+      ],
+      "steps": [
+        "Say what done looks like in one line.",
+        "Work backward: what must exist just before done, and before that.",
+        "Write 3 to 7 steps, each something that can be finished in one sitting, in order.",
+        "Mark the first step that can be done today.",
+        "ANSWER as a numbered list."
+      ],
+      "check": "text",
+      "tools": [
+        "RECALL"
+      ],
+      "examples": [
+        "Break down building a weather app for my watch into steps."
+      ]
+    },
+    {
+      "id": "compare",
+      "title": "Compare options and recommend",
+      "when": "choosing between two or more options (products, plans, approaches)",
+      "cues": [
+        "vs",
+        "versus",
+        "compare",
+        "better",
+        "which should",
+        "or",
+        "pros and cons",
+        "difference between",
+        "worth it"
+      ],
+      "steps": [
+        "Name the options and what the person cares about (ask RECALL if their needs may be stored).",
+        "Pick 3 or 4 criteria that matter for this choice.",
+        "Say briefly how each option does on each criterion; LOOKUP facts you aren't sure of.",
+        "ANSWER with a recommendation first, then the main reason and when the other option would be better."
+      ],
+      "check": "text",
+      "tools": [
+        "LOOKUP",
+        "RECALL",
+        "CALC"
+      ],
+      "examples": [
+        "Should I get an e-bike or a used car for a 6 mile commute?"
+      ]
+    },
+    {
+      "id": "explain",
+      "title": "Explain a concept",
+      "when": "explaining what something is, how it works or why it happens",
+      "cues": [
+        "what is",
+        "how does",
+        "why does",
+        "explain",
+        "what are",
+        "meaning of",
+        "how do",
+        "eli5",
+        "in simple terms"
+      ],
+      "steps": [
+        "If you are not sure of the facts, LOOKUP the topic first.",
+        "Start with a one-sentence answer in plain words.",
+        "Then the how or why in 2 to 4 short sentences, with one everyday example or comparison.",
+        "ANSWER. If LOOKUP was used, say it came from Wikipedia."
+      ],
+      "check": "text",
+      "tools": [
+        "LOOKUP"
+      ],
+      "examples": [
+        "How does a heat pump work?",
+        "Why is the sky blue?"
+      ]
+    },
+    {
+      "id": "fact",
+      "title": "A general fact",
+      "when": "a question about a fact of the world (a place, a person in history, a science fact, a definition) that is not about the household",
+      "cues": [
+        "who was",
+        "when was",
+        "where is",
+        "what year",
+        "capital of",
+        "how tall",
+        "how old",
+        "invented",
+        "discovered",
+        "population"
+      ],
+      "steps": [
+        "LOOKUP the main name or topic.",
+        "Take the answer from the RESULT; if the RESULT doesn't hold it, say what you know and that you aren't certain.",
+        "ANSWER in one sentence, saying it came from Wikipedia if it did."
+      ],
+      "check": "text",
+      "tools": [
+        "LOOKUP"
+      ],
+      "examples": [
+        "When was the Golden Gate Bridge finished?",
+        "What is the capital of Australia?"
+      ]
+    },
+    {
+      "id": "how-to",
+      "title": "How to do something",
+      "when": "practical steps to do, fix, make or set up something",
+      "cues": [
+        "how do i",
+        "how to",
+        "how can i",
+        "steps",
+        "fix",
+        "set up",
+        "install",
+        "clean",
+        "repair",
+        "make a",
+        "reset"
+      ],
+      "steps": [
+        "RECALL notes about the person's own device or setup if the task is about something they own.",
+        "Give the steps in order, one action each, starting with anything that must be checked first (power off, safety).",
+        "Add the one most common mistake to avoid.",
+        "ANSWER as a short numbered list."
+      ],
+      "check": "text",
+      "tools": [
+        "RECALL",
+        "LOOKUP"
+      ],
+      "examples": [
+        "How do I descale a coffee maker?",
+        "How do I reset my router?"
+      ]
+    },
+    {
+      "id": "write-message",
+      "title": "Write or rewrite a message",
+      "when": "drafting, rewriting or replying to an email, text, note or post",
+      "cues": [
+        "write",
+        "draft",
+        "email",
+        "message",
+        "text to",
+        "reply",
+        "rewrite",
+        "reword",
+        "letter",
+        "note to",
+        "post",
+        "make this sound"
+      ],
+      "steps": [
+        "Find who it is to, what it must achieve, and the tone wanted (RECALL the person's sign-off or style if stored).",
+        "Open with the point, then the details needed, then the ask or next step.",
+        "Keep it short: a text in 1 to 3 sentences, an email in under 150 words unless asked.",
+        "Read it as the receiver once and cut anything they don't need.",
+        "ANSWER with the message only, ready to send."
+      ],
+      "check": "text",
+      "tools": [
+        "RECALL"
+      ],
+      "examples": [
+        "Write an email to my professor asking for an extension on the lab report.",
+        "Make this text sound friendlier: can't come tonight."
+      ]
+    },
+    {
+      "id": "creative",
+      "title": "Creative writing and ideas",
+      "when": "a poem, story, joke, name ideas, gift ideas, or brainstorming",
+      "cues": [
+        "poem",
+        "story",
+        "haiku",
+        "limerick",
+        "joke",
+        "name ideas",
+        "names for",
+        "ideas for",
+        "brainstorm",
+        "gift",
+        "slogan",
+        "title for",
+        "creative"
+      ],
+      "steps": [
+        "Write down the request's limits: form (haiku = 3 lines, 5-7-5 syllables), length, how many ideas, tone.",
+        "For ideas, make them different from each other: vary the angle, not just the words.",
+        "Use one concrete, specific detail in place of a general word wherever you can.",
+        "Check the limits once more, then ANSWER with only the piece or the list."
+      ],
+      "check": "text",
+      "tools": [],
+      "examples": [
+        "Write a haiku about a cold morning.",
+        "Give me 5 names for a watch app that tracks recovery."
+      ]
+    },
+    {
+      "id": "summarize",
+      "title": "Summarize or extract",
+      "when": "summarizing a passage given in the question, or pulling out the key points, dates, names or action items",
+      "cues": [
+        "summarize",
+        "summary",
+        "tl;dr",
+        "key points",
+        "main points",
+        "action items",
+        "extract",
+        "what does this say",
+        "gist"
+      ],
+      "steps": [
+        "Read the passage and mark what the reader most needs (decisions, dates, numbers, asks).",
+        "Write the gist in one sentence, then up to 5 short points in the passage's own order.",
+        "Keep every number and name exactly as written; add nothing that isn't there.",
+        "ANSWER."
+      ],
+      "check": "text",
+      "tools": [],
+      "examples": [
+        "Summarize this email: ...",
+        "Pull the action items out of these meeting notes: ..."
+      ]
+    },
+    {
+      "id": "code",
+      "title": "Write or fix a small piece of code",
+      "when": "writing, explaining or fixing a short program, function, formula, regex or command",
+      "cues": [
+        "code",
+        "function",
+        "python",
+        "javascript",
+        "script",
+        "regex",
+        "formula",
+        "excel",
+        "command",
+        "bug",
+        "error",
+        "sql",
+        "c++",
+        "yaml"
+      ],
+      "steps": [
+        "Restate the input and the output wanted, and the language.",
+        "Write the simplest code that does it, with names that say what things are.",
+        "Walk through it once with a small example input; use CALC for any arithmetic in the check.",
+        "ANSWER with the code in a block and one line on how to use it."
+      ],
+      "check": "text",
+      "tools": [
+        "CALC"
+      ],
+      "examples": [
+        "Write a Python function that returns the median of a list.",
+        "A regex for a US zip code?"
+      ]
+    },
+    {
+      "id": "personal-reason",
+      "title": "Reason about my own information",
+      "when": "a question that needs the person's own notes, tasks or calendar combined with some reasoning or arithmetic",
+      "cues": [
+        "my",
+        "our",
+        "do i have",
+        "should i",
+        "can i",
+        "enough",
+        "in time",
+        "by then",
+        "before my"
+      ],
+      "steps": [
+        "RECALL what the question depends on (a few words: the thing's name, the event).",
+        "If RECALL doesn't hold it, say what is missing; never invent a personal fact.",
+        "Work out the rest with CALC or DATE.",
+        "ANSWER, naming the note the key fact came from."
+      ],
+      "check": "text",
+      "tools": [
+        "RECALL",
+        "CALC",
+        "DATE"
+      ],
+      "examples": [
+        "Do I have enough flour for two batches if each needs 450 grams?",
+        "Can I finish the project before my trip?"
+      ]
+    }
+  ]
+}

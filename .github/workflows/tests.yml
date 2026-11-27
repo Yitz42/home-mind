@@ -50,6 +50,8 @@ jobs:
         run: python tests/test_meaning.py
       - name: Claude with tools (look-ups when an answer didn't know)
         run: python tests/test_toolloop.py
+      - name: Think path (tools, skills, checks, consulting, learning, bench)
+        run: python tests/test_think.py
       - name: Logs by date, codes from memory, the watch glance
         run: python tests/test_logs_codes.py
       - name: TickTick tasks
