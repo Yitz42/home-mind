@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.43.1
+- **No disambiguation pages from Wikipedia:** a list of other articles ("Eiffel Tower may also refer to…") is no longer added as a passage or named on the source line.
+
 ## 0.43.0
 - **Wikipedia, smarter:** general questions that say "I" or "me" ("can I eat raw cookie dough?", "tell me about Mars") now get the offline Wikipedia passage too; only questions about your own things ("where did I put my keys?", "what did I eat?") are kept out. When the whole question finds nothing on topic, shorter search words are tried ("raw cookie dough", then single words), at most four more searches.
 - **Wikipedia on the source line:** an answer that came from Wikipedia names the article under it ("Wikipedia: Eiffel Tower"), beside the notes. It is shown only, never logged as a note.

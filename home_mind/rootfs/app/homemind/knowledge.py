@@ -557,8 +557,9 @@ class Knowledge:
                     continue
                 seen.add(art["path"])
                 paras = art["text"]
-                if not paras:
-                    continue
+                if not paras or "(disambiguation)" in art["title"].lower() or \
+                        re.search(r"\bmay (?:also )?refer to\b", paras[0][:300], re.I):
+                    continue                               # a list of other articles, not an answer
                 title_terms = set(re.findall(r"[a-z0-9]+", art["title"].lower()))
                 body = " ".join(paras[:3]).lower()
                 if not (terms & title_terms) and sum(1 for t in terms if t in body) < max(1, len(terms) // 2):

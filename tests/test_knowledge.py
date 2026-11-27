@@ -57,6 +57,9 @@ def make_zim(path):
                         "<p>Cookie dough is an uncooked mixture of cookie ingredients, eaten raw by some people or "
                         "baked into cookies.</p><p>Eating raw cookie dough carries a risk of food poisoning from raw "
                         "eggs (Salmonella) and from uncooked flour (E. coli).</p>"))
+        c.add_item(Page("Eiffel_Tower_(disambiguation)", "Eiffel Tower (disambiguation)",
+                        "<p>The Eiffel Tower is a landmark in Paris. Eiffel Tower may also refer to other towers "
+                        "built after it, such as the replica in Las Vegas or the Tokyo Tower.</p>"))
         c.add_item(Page("Chickpea", "Chickpea",
                         "<p>The chickpea or garbanzo bean is an annual legume of the family Fabaceae, grown for its "
                         "edible seeds which are high in protein.</p><p>Chickpeas are a key ingredient in hummus and "
@@ -193,6 +196,8 @@ async def main():
     ps = k2.passages("Can I eat raw cookie dough?")
     assert ps and ps[0]["title"] == "Cookie dough" and "Salmonella" in ps[0]["text"], ps
     assert k2.passages("Tell me about the Eiffel Tower")[0]["title"] == "Eiffel Tower"
+    assert all("disambiguation" not in p["title"] for p in k2.passages("Tell me about the Eiffel Tower", n=3))
+    assert all("disambiguation" not in p["title"] for p in k2.passages("Eiffel Tower replica Las Vegas", n=3))
     assert k2.passages("what did I eat last, chickpeas?") == []                     # about the user's day
     # a second try with shorter search words when the whole question finds nothing on topic
     rq = k2.retry_queries("Is it okay to eat raw cookie dough when you're hungry at midnight?")
