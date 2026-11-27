@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.45.5
+- **Think path, from held-out live runs (qwen 4b):** a keyword written inside another ("CALC: DATE: weekday of ...") runs the inner tool; CALC takes a comma list of values and `sort(...)`, and drops a "-> guess" written after the expression; a list of plain numbers (an average) no longer gets the "sort and pick" method, which is now for choosing among named items ("A, B, or C"); that method says plain dates and numbers need no tool to compare.
 ## 0.45.4
 - **Wikipedia by meaning is about 8 times faster:** the question model stays in single precision all the way through, so a search takes a fraction of a second instead of about 1.5 s.
 - **Fewer stray articles:** meaning matches below 0.83 are dropped (made-up questions score up to about 0.82).

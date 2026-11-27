@@ -50,7 +50,7 @@ check("calc: the model's own '= guess' is dropped and redone", TT.calc("14 * 23 
 check("calc: floats read as people write them", TT.calc("0.1+0.2") == "0.3" and TT.calc("10/3") == "3.333333333")
 check("calc: no names, no calls outside the list, no huge powers, no division by zero",
       all(TT.calc(e).startswith("can't") for e in ('__import__("os")', "open('x')", "2**99999", "9**9**9", "1/0",
-                                                    "x+1", "[1,2]", "().__class__")))
+                                                    "x+1", "[]", "().__class__", "[[1]]")))
 check("date: days between, plus days, weekday, until, clock",
       TT.date_tool("days between 2026-11-26 and 2027-03-14", TODAY).startswith("108 days") and
       TT.date_tool("2026-11-26 + 45 days", TODAY).startswith("2027-01-10") and
@@ -149,6 +149,11 @@ check("parse: an answer may run over lines; a RESULT it wrote itself is cut",
       T.parse_step("ANSWER: Line one\nLine two\nRESULT: x")[:2] == ("ANSWER", "Line one\nLine two"))
 check("parse: bold keywords and code fences", T.parse_step("**CALC:** `2+2`")[:2] == ("CALC", "2+2") and
       T.parse_step("```\nANSWER: 4\n```")[:2] == ("ANSWER", "4"))
+check("parse: a keyword nested in another ('CALC: DATE: ...') is the inner tool",
+      T.parse_step("CALC: DATE: weekday of 2028-07-20")[:2] == ("DATE", "weekday of 2028-07-20"))
+check("calc: a comma list of values, sort(), and its own '-> guess' dropped",
+      TT.calc("(3*100+20), (4*100+5), (3*100+23)") == "320, 405, 323" and TT.calc("sort(405, 320, 323)") == "320, 323, 405"
+      and TT.calc("3*4 -> 13") == "12")
 check("parse: no keyword at all is the answer; only THINK asks for the next action",
       T.parse_step("It is 4.")[:2] == ("ANSWER", "It is 4.") and T.parse_step("THINK: hmm")[0] is None)
 

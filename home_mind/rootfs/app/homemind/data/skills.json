@@ -1,5 +1,5 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "written_by": "Claude Opus 5.5 (large model), Nov 26 2026. First set: general methods, none tied to one task. Learned skills written by the consultant model join these on trial.",
   "about": "Each skill is a method a small model follows for a KIND of task. 'cues' and 'when' decide which skill is shown (one at a time: more hurts small models). 'check' is what code verifies in the final answer: number (every number must come from a tool result or the question), date (the DATE result must be in it), list (it must use items from the question), text (no code check beyond the request's own counts and word limits).",
   "skills": [
@@ -260,7 +260,7 @@
       ],
       "steps": [
         "Write each item with the value it is sorted by, one per line.",
-        "Compare values with CALC or DATE if they need working out (dates in different formats, prices with tax).",
+        "Plain dates in the same year or plain numbers need no tool: compare month first, then day (or the numbers). Use CALC or DATE only when a value must be worked out (a price with tax, a date in another format); CALC: sort(...) orders numbers.",
         "Put them in order, then take the item asked for. Check ties.",
         "ANSWER with the item's name exactly as written in the question."
       ],
