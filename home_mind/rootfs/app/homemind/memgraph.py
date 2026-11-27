@@ -3129,7 +3129,7 @@ class Janitor:
         rows = self.memgraph.store.db.execute(
             "SELECT id, title, body, created, source, meta FROM items "
             "WHERE id > ? AND status='active' AND kind NOT IN ('procedure','thing') "
-            "AND source NOT IN ('email','home','automations','calendar') "
+            "AND source NOT IN ('email','home','automations','calendar','ticktick') "
             "AND source NOT LIKE 'pack:%' ORDER BY id ASC LIMIT ?",
             (cursor, int(limit)),
         ).fetchall()

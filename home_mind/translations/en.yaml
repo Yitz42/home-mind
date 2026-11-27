@@ -123,6 +123,18 @@ configuration:
   homebox_token:
     name: Homebox token
     description: An API token from your Homebox user settings.
+  ticktick_client_id:
+    name: TickTick Client ID
+    description: From an app you make at developer.ticktick.com (Manage Apps). Then press Connect on Home Mind's System page.
+  ticktick_client_secret:
+    name: TickTick Client Secret
+    description: The Client Secret of that same app.
+  ticktick_redirect:
+    name: TickTick redirect URL
+    description: The OAuth redirect URL you set on the app. Leave empty for http://localhost/
+  ticktick_reminders:
+    name: New tasks go to TickTick
+    description: When TickTick is connected, "add a task", "remind me to" and "add … to my task list" go to your TickTick inbox instead of a Home Assistant list.
   paperless_url:
     name: Paperless-ngx URL
     description: Your Paperless-ngx server, asked at question time about receipts, warranties and other papers.

@@ -28,7 +28,7 @@ class Morning:
         self._checkin = None
 
     # ---- old facts: still true? ----------------------------------------------------------------------------------
-    SKIP_SOURCES = ("home", "calendar", "automations", "journal", "scale", "morning", "patterns", "check-in", "test", "habits",
+    SKIP_SOURCES = ("home", "calendar", "ticktick", "automations", "journal", "scale", "morning", "patterns", "check-in", "test", "habits",
                     "tidy", "evening",
                     "pantry", "nutrition")
 
@@ -129,7 +129,7 @@ class Morning:
     def _build(self, hours=24, commit=False):
         from .speakers import visible
         since = time.time() - hours * 3600
-        told = self._rows("created >= ? AND source NOT IN ('home','calendar','automations','journal','scale','habits','tidy','evening') "
+        told = self._rows("created >= ? AND source NOT IN ('home','calendar','ticktick','automations','journal','scale','habits','tidy','evening') "
                           "AND source NOT LIKE 'pack:%' AND kind != 'procedure' AND status='active'", (since,))
         told = [d for d in told if visible(d["meta"])]
         overnight = [d for d in told if d["source"] == "overnight"]
@@ -171,6 +171,12 @@ class Morning:
                 s = datetime.fromisoformat(e["meta"]["start"])
                 return f"{s:%I:%M %p}".lstrip("0") + f" {t}"
             lines.append("Today: " + "; ".join(brief(e) for e in today[:5]) + (" …" if len(today) > 5 else ""))
+        tt = getattr(self, "ticktick", None)
+        if tt:
+            try:
+                lines += tt.brief_lines()
+            except Exception:  # noqa: BLE001
+                pass
         last_w = self.store.db.execute("SELECT meta FROM items WHERE shelf='body/weight' AND status='active' "
                                        "ORDER BY created DESC LIMIT 1").fetchone()
         target = nutrition.protein_target(json.loads(last_w["meta"] or "{}").get("weight")) if last_w else None

@@ -664,7 +664,7 @@ class Store:
             # "Changed its code to 8812" names nothing: it is about whatever was just mentioned. Link it to the note
             # right before it (if recent), so it can be found under that thing's name.
             recent = [r for r in self.db.execute("SELECT id, title, body, created FROM items WHERE kind != 'procedure' "
-                                                 "AND source NOT IN ('home','automations','calendar') "
+                                                 "AND source NOT IN ('home','automations','calendar','ticktick') "
                                                  "ORDER BY id DESC LIMIT 5").fetchall()
                       if now - r["created"] <= self.LINK_SECONDS]
             # #13: "its code changed" is about the recent thing that has a code, not just the last thing said
@@ -1023,7 +1023,7 @@ class Store:
         with self.lock:
             for a in list(anchors)[:6]:
                 rows = self.db.execute("SELECT id FROM items WHERE id != ? AND status IN ('active','faded') AND "
-                                       "kind != 'procedure' AND source NOT IN ('home','automations','calendar') AND "
+                                       "kind != 'procedure' AND source NOT IN ('home','automations','calendar','ticktick') AND "
                                        "(title LIKE ? OR body LIKE ?) ORDER BY id DESC LIMIT ?",
                                        (new_id, f"%{a}%", f"%{a}%", self.LINK_MAX + 1)).fetchall()
                 if len(rows) > self.LINK_MAX:

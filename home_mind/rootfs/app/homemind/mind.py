@@ -991,6 +991,11 @@ class Mind:
             days = cal.lines_for(question)
             if days:
                 ctx = flag_instructions(days) + "\n\n" + (ctx or "")
+        tt = getattr(self, "ticktick", None)
+        if tt and store is self.store and tt.connected:
+            tl = tt.lines_for(question)
+            if tl:
+                ctx = flag_instructions(tl) + "\n\n" + (ctx or "")
         dc = getattr(self, "docs", None)
         if dc and store is self.store:
             dl = dc.lines(question)          # #50: manuals and other documents, after the notes

@@ -93,6 +93,7 @@ DEFAULTS = {"models": [{"name": "haiku", "type": "ha_ai_task", "entity_id": "ai_
             "encrypt_secrets": False, "backup_target": "", "backup_url": "", "backup_user": "", "backup_password": "",
             "backup_passphrase": "", "backup_every_hours": 6, "backup_keep": 14, "backup_region": "",
             "learn_filing": True, "docs_folder": "/share/home-mind/docs", "homebox_url": "", "homebox_token": "",
+            "ticktick_client_id": "", "ticktick_client_secret": "", "ticktick_redirect": "", "ticktick_reminders": True,
             "paperless_url": "", "paperless_token": "", "rerank_model": "", "librarian_model": "", "archivist_model": "", "control_model": "", "trainer_url": "", "trainer_token": "", "rule_planner": True,
             "markdown_folder": "", "markdown_minutes": 10, "compare_models": [], "compare_days": 0,
             "compare_suites": ["recall", "tricky", "hard"], "use_preferences": True, "label_url": "",
@@ -373,6 +374,9 @@ class App:
                                       self.opts.get("tool_daily_limit") if self.opts.get("tool_daily_limit") is not None else 50)
         self.journal = Journal(self.mind.store, self.models, mind=self.mind)
         self.calendars = Calendars(self.mind.store, self.ha, self.opts.get("calendar_quiet"))
+        from .ticktick import TickTick
+        self.ticktick = TickTick(self.mind.store, self.opts, lambda: self.models.session,
+                                 os.path.join(DATA, "ticktick.json"))
         self._mark_secrets()
         if self.mind.store.kv_get("structure_backfill") != 1:
             from . import structure
@@ -472,6 +476,8 @@ class App:
         if (datetime.now().hour, datetime.now().minute) >= mt:
             self.morning.done_for = datetime.now().date()      # started after the time: wait for tomorrow
         self.mind.calendars = self.calendars
+        self.mind.ticktick = self.ticktick
+        self.morning.ticktick = self.ticktick
         # started after 23:30: the journal's tick summarizes today unless a summary for today is already filed
         self.mind.on_test_done = self.test_done
         for r in self.updater.install_bundled():
@@ -2234,6 +2240,12 @@ class App:
                 await self.patterns.tick()
             except Exception:  # noqa: BLE001
                 log.exception("patterns")
+        if self.ticktick.connected and now - last.get("ticktick", 0) > 900:
+            last["ticktick"] = now
+            try:
+                log.info("ticktick: %s", await self.ticktick.sync())
+            except Exception as e:  # noqa: BLE001
+                log.warning("ticktick: %s", e)
         if self.ha.available and now - last.get("cal", 0) > 3600:
             last["cal"] = now
             try:
@@ -2844,7 +2856,7 @@ def build(app_state):
         hours = num(q.query.get("hours"), "hours", 48.0, 0, 24 * 365 * 100, float)
         lim = num(q.query.get("limit"), "limit", 100, 1, 500)
         f = q.query.get("filter", "told")
-        where = {"told": "source NOT IN ('home','calendar','automations','habits','tidy','evening') AND source NOT LIKE 'pack:%'", "all": "1=1",
+        where = {"told": "source NOT IN ('home','calendar','ticktick','automations','habits','tidy','evening') AND source NOT LIKE 'pack:%'", "all": "1=1",
                  "calendar": "source='calendar'", "house": "source='home'", "automations": "source='automations'",
                  "archived": "status='archived'"}.get(f, "1=1")
         col = "updated" if f == "archived" else "created"
@@ -4899,6 +4911,37 @@ def build(app_state):
     @r.post("/api/calendar/sync")
     async def cal_sync(_):
         return J(await A.calendars.sync())
+
+    @r.get("/api/ticktick")
+    async def tt_status(q):
+        if q.query.get("q"):
+            return J({"text": A.ticktick.lines_for(q.query["q"])})
+        return J(A.ticktick.status())
+
+    @r.post("/api/ticktick/start")
+    async def tt_start(_):
+        url = A.ticktick.auth_url()
+        if not url:
+            raise ValueError("set ticktick_client_id and ticktick_client_secret in the app's Configuration first")
+        return J({"url": url, "redirect": A.ticktick.redirect})
+
+    @r.post("/api/ticktick/connect")
+    async def tt_connect(q):
+        b = await read_body(q, pasted=str)
+        st = await A.ticktick.connect(b.get("pasted") or "")
+        try:
+            st["sync"] = await A.ticktick.sync()
+        except Exception as e:  # noqa: BLE001
+            st["sync"] = {"error": str(e)}
+        return J(st)
+
+    @r.post("/api/ticktick/sync")
+    async def tt_sync(_):
+        return J(await A.ticktick.sync())
+
+    @r.post("/api/ticktick/disconnect")
+    async def tt_disconnect(_):
+        return J(A.ticktick.disconnect())
 
     @r.post("/api/body/backfill")
     async def body_backfill(_):

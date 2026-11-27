@@ -439,7 +439,7 @@ class Overnight:
         from . import langs
         rows = self.store.db.execute(
             "SELECT id, body, meta FROM items WHERE status='active' AND created > ? AND kind != 'procedure' AND source NOT IN "
-            "('home','automations','calendar','habits','tidy','evening') ORDER BY id DESC LIMIT 300",
+            "('home','automations','calendar','ticktick','habits','tidy','evening') ORDER BY id DESC LIMIT 300",
             (time.time() - days * 86400,)).fetchall()
         n = 0
         for r in rows:
@@ -492,7 +492,7 @@ class Overnight:
             note_viewer = m.get("owner") if m.get("scope") == "personal" and m.get("owner") else ""
             raw_cands = self.store.db.execute(
                 "SELECT id, title, body, meta FROM items WHERE id < ? AND created >= ? AND kind != 'procedure' AND source NOT IN "
-                "('home','automations','calendar') ORDER BY id DESC LIMIT 12", (r["id"], r["created"] - 3600)).fetchall()
+                "('home','automations','calendar','ticktick') ORDER BY id DESC LIMIT 12", (r["id"], r["created"] - 3600)).fetchall()
             cands = [c for c in raw_cands if visible(json.loads(c["meta"] or "{}"), note_viewer)][:5]
             if len(cands) < 2:
                 continue
@@ -524,7 +524,7 @@ class Overnight:
         from . import structure
         rows = self.store.db.execute(
             "SELECT id, title, body, created, meta FROM items WHERE status='active' AND created > ? AND kind NOT IN "
-            "('procedure','task') AND source NOT IN ('home','calendar','automations','scale','morning','patterns','habits','tidy','evening') "
+            "('procedure','task') AND source NOT IN ('home','calendar','ticktick','automations','scale','morning','patterns','habits','tidy','evening') "
             "AND source NOT LIKE 'pack:%' ORDER BY created DESC LIMIT 200", (time.time() - days * 86400,)).fetchall()
         n = 0
         for r in rows:

@@ -825,6 +825,26 @@ Assistant doesn't have.
 - **Homebox and Paperless-ngx.** Give their URL and token and Home Mind asks them at question time ("where is the
   extension cord?", "do we still have the dishwasher receipt?") and says the answer came from them.
 
+## TickTick tasks
+
+Home Mind can read and add to your TickTick tasks, so "what's due today?", "what homework do I have this week?" and
+the morning summary see the same list you use on your phone.
+
+1. Go to developer.ticktick.com, sign in and choose **Manage Apps**, then **+App Name**. Give it any name.
+2. Set its **OAuth redirect URL** to `http://localhost/` and save. Copy the **Client ID** and **Client Secret**.
+3. Put them in the add-on's Configuration as `ticktick_client_id` and `ticktick_client_secret`, then restart the add-on.
+4. On System > Overview, press **Connect** in the TickTick card. TickTick opens in a new tab; allow it. The tab then
+   lands on a page that won't load. That's expected: copy that page's whole address, paste it into the card and press
+   **Finish**.
+
+Open tasks are copied every 15 minutes into the tasks shelf (they never become ordinary notes), and a task finished or
+deleted in TickTick drops out at the next sync. Answers list overdue tasks first, then what's due soon. The morning
+summary gives overdue tasks and what's due today. "Remind me to …" and "add a task …" go to your TickTick inbox, with a
+date and time when you say one (turn `ticktick_reminders` off to keep them on the Home Assistant list), and "check off
+the essay" or "mark the report done in TickTick" completes the task there. TickTick's connection lasts about six
+months; the morning summary warns two weeks before it runs out, and Connect again renews it. Disconnect forgets the
+connection and the copied tasks.
+
 ## Search details (0.27)
 
 - **Prefix matches** count for less than whole-word matches.
@@ -1050,6 +1070,10 @@ you turn them on are listed after the tables.
 | `comfort` | on | Bedroom comfort brain |
 | `comfort_rooms` | empty | Comfort rooms |
 | `calendar_quiet` | 4 entries | Calendars to leave out |
+| `ticktick_client_id` | empty | TickTick app Client ID |
+| `ticktick_client_secret` | empty | TickTick app Client Secret |
+| `ticktick_redirect` | empty | TickTick redirect URL, if not `http://localhost/` |
+| `ticktick_reminders` | on | "Remind me" and "add a task" go to TickTick |
 
 **Learning and upkeep**
 
@@ -1393,6 +1417,11 @@ note), 502 (a model failed) or 500.
 | POST | `/api/body/backfill` | write | fill in past body-signal readings |
 | GET | `/api/calendar` | read | calendar events for a day (`day`, `q`) |
 | POST | `/api/calendar/sync` | write | sync calendars now |
+| GET | `/api/ticktick` | admin | TickTick connection, last sync and open-task count; with `q`, the task lines an answer would get |
+| POST | `/api/ticktick/start` | admin | the TickTick address to allow Home Mind |
+| POST | `/api/ticktick/connect` | admin | finish connecting with the pasted address or code (`pasted`) |
+| POST | `/api/ticktick/sync` | admin | copy TickTick tasks now |
+| POST | `/api/ticktick/disconnect` | admin | forget the TickTick connection and the copied tasks |
 | GET | `/api/fitness` | read | fitness dashboard: goals, auto-baseline, adaptive daily plan, progressive routine, progress, today's tally, workouts, lift/cardio/weight series, volume, bests, stalls, suggestions, review |
 | GET | `/api/fitness/review` | read | the week in review and suggested changes |
 | GET | `/api/fitness/workouts` | read | `days?`, `exercise?`: logged workouts with bests and stalled lifts |

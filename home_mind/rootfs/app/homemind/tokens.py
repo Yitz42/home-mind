@@ -25,7 +25,7 @@ ADMIN_PATHS = [r"^/api/tokens", r"^/api/item/\d+/purge$", r"^/api/purge_about$",
                r"^/api/access", r"^/api/safety/run$",   # who may move what, and the safety suite
                r"^/api/converse$",   # a voice turn can act on the house, like /api/do
                r"^/api/learned", r"^/api/check$", r"^/api/outbox$", r"^/api/restore_test$", r"^/api/consent", r"^/api/guest$", r"^/api/spend$", r"^/api/surprises", r"^/api/backoff$", r"^/api/spaces$", r"^/api/scenes/", r"^/api/trackers$", r"^/api/meds", r"^/api/significant$", r"^/api/nudges$", r"^/api/travel$", r"^/api/zones", r"^/api/experiments", r"^/api/proposals", r"^/api/plain/", r"^/api/assistants$", r"^/api/plain_voice$", r"^/api/modes", r"^/api/calibration$", r"^/api/now/propose$", r"^/api/worsening$",
-               r"^/api/scorecard", r"^/api/labels", r"^/api/shadow", r"^/api/burden", r"^/api/timing"]   # measuring
+               r"^/api/scorecard", r"^/api/labels", r"^/api/shadow", r"^/api/burden", r"^/api/timing", r"^/api/ticktick"]   # measuring
 READ_POSTS = [r"^/api/ask$", r"^/api/recall$", r"^/api/search$", r"^/api/lookup$", r"^/api/models/check$", r"^/api/sql$"]
 MCP_READ = {"mind_recall", "mind_get", "mind_review", "mind_house", "mind_browse", "mind_tasks", "mind_ask",
             "mind_models", "mind_test_results", "mind_trend", "mind_home", "mind_automations", "mind_status",

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.42.0
+- **TickTick tasks:** connect your TickTick account on System > Overview (setup in the docs) and Home Mind copies your open tasks every 15 minutes. "What's due today?" and "what homework do I have this week?" answer from them, overdue first; the morning summary lists overdue tasks and what's due today, and warns two weeks before the connection runs out. "Remind me to …" and "add a task …" go to your TickTick inbox with the day and time you say (option `ticktick_reminders`), and "check off the essay" completes it in TickTick. Tasks stay on their own shelf and never become ordinary notes; Disconnect forgets them.
+
 ## 0.41.6
 - **No look-alike codes:** a code question naming something memory never heard of ("the Zendor vault") no longer gets the code of a similar name the typo fixer swaps in ("the Zandor locker"). It says it doesn't know that one and asks whether you meant the other.
 

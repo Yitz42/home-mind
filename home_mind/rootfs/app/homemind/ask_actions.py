@@ -45,6 +45,11 @@ REMINDER_ADD_RX = re.compile(
     r"add\s+(?:a\s+)?(?:to-?do|task|reminder)(?:\s+to|\s*:)?\s+)(.+?)\s*[.!?]?$",
     re.I,
 )
+TT_DONE_RX = re.compile(
+    _POLITE + r"(?:check off|cross off|mark|complete|finish(?:ed)?|i (?:just )?(?:finished|did))\s+(.+?)"
+    r"(?:\s+(?:as\s+)?(?:done|complete|completed|finished))?\s+(?:in|on|from)\s+(?:my\s+)?tick\s?tick\s*[.!?]?$",
+    re.I,
+)
 TODO_LIST_ADD_RX = re.compile(
     _POLITE + r"(?:add|put)\s+(.+?)\s+(?:to|on|onto)\s+(?:my\s+|the\s+)?(?:to-?do|reminders?|tasks?)\s*list\s*[.!?]?$",
     re.I,
@@ -445,7 +450,12 @@ async def _handle_todo(app, text, who, voice, now_dt=None):
         return {"answer": "Home Assistant isn't reachable right now, so I couldn't update your shopping list.",
                 "hits": [], "model": None}
 
-    # 2. Check off / complete an item on shopping or to-do list
+    # 2. Check off / complete an item on shopping or to-do list (a TickTick task first, when it is connected)
+    tt = getattr(app, "ticktick", None)
+    tt_on = bool(tt is not None and tt.connected)
+    mt = TT_DONE_RX.match(text) if tt_on else None
+    if mt:
+        return await _tt_complete(tt, mt.group(1), required=True)
     md = TODO_DONE_RX.match(text)
     if md:
         raw_item = (md.group(1) or "").strip()
@@ -454,6 +464,10 @@ async def _handle_todo(app, text, who, voice, now_dt=None):
         if not which_list and not re.match(_POLITE + r"(?:check off|cross off)\b", text, re.I):
             md = None
     if md:
+        if tt_on and which_list not in ("shopping", "grocery", "groceries"):
+            got = await _tt_complete(tt, raw_item, required=bool(which_list) or not ha_ok)
+            if got:
+                return got
         if not ha_ok:
             return {"answer": "Home Assistant isn't reachable right now, so I couldn't check off that item.",
                     "hits": [], "model": None}
@@ -486,6 +500,17 @@ async def _handle_todo(app, text, who, voice, now_dt=None):
             return None
         clean, d_obj, hm, _ = _extract_when(raw, now_dt)
         item = (clean or raw)[:200]
+        opts = getattr(app, "opts", None) or {}
+        if tt_on and opts.get("ticktick_reminders", True) is not False:
+            try:
+                await tt.add(item, d_obj, hm)
+                when_str = f", due {d_obj.strftime('%a %b %d')}" if d_obj else ""
+                if hm:
+                    when_str += f" at {datetime(2000, 1, 1, hm[0], hm[1]).strftime('%I:%M %p').lstrip('0')}"
+                return {"answer": f"Added to TickTick: {item}{when_str}.", "hits": [], "model": None,
+                        "ticktick_added": item, "via": "action"}
+            except Exception as e:  # noqa: BLE001
+                log.warning("ticktick add: %s", e)      # falls back to the Home Assistant list below
         ent = await _pick_reminder_list(ha)
         if ent and ha_ok:
             payload = {"entity_id": ent, "item": item}
@@ -511,6 +536,26 @@ async def _handle_todo(app, text, who, voice, now_dt=None):
                               source="voice" if voice else "ask", meta=meta or None)
             return {"answer": f"Saved task: {raw}.", "hits": [], "model": None,
                     "remembered": out, "via": "action"}
+    return None
+
+
+async def _tt_complete(tt, words, required=False):
+    """Complete the one open TickTick task the words name. required: say so when none matches (a list was named);
+    otherwise None lets the Home Assistant lists try."""
+    found = tt.find(words)
+    if len(found) == 1:
+        try:
+            name = await tt.complete(found[0])
+        except Exception as e:  # noqa: BLE001
+            return {"answer": f"I couldn't check that off in TickTick: {e}", "hits": [], "model": None}
+        return {"answer": f"Checked off {name} in TickTick.", "hits": [], "model": None,
+                "ticktick_done": name, "via": "action"}
+    if len(found) > 1:
+        names = [d["meta"].get("summary") or d["title"] for d in found[:4]]
+        return {"answer": "More than one task matches: " + "; ".join(names) + ". Which one?", "hits": [],
+                "model": None}
+    if required:
+        return {"answer": f"I couldn't find an open TickTick task called '{words.strip()}'.", "hits": [], "model": None}
     return None
 
 

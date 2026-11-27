@@ -52,6 +52,8 @@ jobs:
         run: python tests/test_toolloop.py
       - name: Logs by date, codes from memory, the watch glance
         run: python tests/test_logs_codes.py
+      - name: TickTick tasks
+        run: python tests/test_ticktick.py
       - name: Security and setup (tokens, signatures, encryption, backups, comfort rooms)
         run: python tests/test_security.py
       - name: Files and filing (documents, filing, apps, pronoun links)

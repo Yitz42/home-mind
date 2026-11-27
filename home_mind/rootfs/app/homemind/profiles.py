@@ -58,7 +58,7 @@ def picture(store, thing, now, cap=14):
     tw = [w for w in words(thing) if w not in STOP]
     rows = [store._row(r) for r in store.db.execute(
         "SELECT * FROM items WHERE status='active' AND kind != 'procedure' AND source NOT IN ('home','automations',"
-        "'calendar','habits','tidy','evening') AND " + " AND ".join("(title || ' ' || body) LIKE ?" for _ in tw) +
+        "'calendar','ticktick','habits','tidy','evening') AND " + " AND ".join("(title || ' ' || body) LIKE ?" for _ in tw) +
         " ORDER BY created DESC LIMIT 40", [f"%{w}%" for w in tw])] if tw else []
     from .speakers import visible
     rows = [d for d in rows if visible(d.get("meta")) and _has(d["title"] + " " + d["body"], thing)]

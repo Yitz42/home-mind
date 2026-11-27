@@ -923,6 +923,10 @@
           <label style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px;cursor:pointer"><button type="button" class="sw sm" id="vw_simple" role="switch" aria-checked="true" aria-label="Simple view" onclick="setSimple(!SIMPLE)"></button>
             <span><b>Simple view</b> <span class="mute">hides tools you rarely need: Voice Learning, food Rules, house Automations and Sensors, Models, Tests, and the brain's Graph and Worked Out. Turn off to see everything.</span></span></label>
         </div>
+        <div class="ck-card" id="tt_card"><div class="hrow"><h2>TickTick</h2><span class="mute" id="tt_sub" style="font-size:12px"></span></div>
+          <div class="mute" style="font-size:12px;margin-bottom:8px">Your tasks in Home Mind: ask what's due, hear them in the morning summary, add and check off tasks by voice.</div>
+          <div id="tt_body" style="font-size:13px"></div>
+        </div>
         <div class="ck-card" data-adv><h2>Offline reference</h2><div id="mo_ref" class="feed"></div></div>
         <div class="ck-card" data-adv><h2>Latest test results</h2><table id="latest"></table></div>
         <div class="ck-card"><h2>Recent activity</h2><div class="list" id="events" style="max-height:240px;overflow-y:auto"></div></div>
@@ -2054,8 +2058,50 @@ async function tryPersona() {
   const r = await api('api/persona/try', {text: $('#ps_text').value, emotion: $('#ps_emo').value});
   $('#ps_out').innerHTML = r.error ? `<span class="bad">${esc(r.error)}</span>` : `<b>${esc(r.styled)}</b>` + (r.applied ? '' : ' <span class="mute">(unchanged)</span>');
 }
+async function loadTT() {
+  const b = $('#tt_body'), sub = $('#tt_sub'); if (!b) return;
+  const s = await api('api/ticktick');
+  if (s.error) { b.innerHTML = `<span class="bad">${esc(s.error)}</span>`; sub.textContent = ''; return; }
+  if (!s.configured) {
+    sub.textContent = 'not set up';
+    b.innerHTML = `<ol style="margin:0;padding-left:18px"><li>At <b>developer.ticktick.com</b>, open Manage Apps and add an app. Set its OAuth redirect URL to <code>${esc(s.redirect)}</code>.</li>
+      <li>Copy its Client ID and Client Secret into Settings › Apps › Home Mind › Configuration (<code>ticktick_client_id</code>, <code>ticktick_client_secret</code>), save and restart Home Mind.</li>
+      <li>Come back here and press Connect.</li></ol>`;
+    return;
+  }
+  if (!s.connected) {
+    sub.textContent = 'not connected';
+    b.innerHTML = `<div class="row" style="gap:6px;flex-wrap:wrap"><button class="go" onclick="ttStart()">Connect</button></div>
+      <div id="tt_paste" class="hide" style="margin-top:8px"><div class="mute" style="font-size:12px;margin-bottom:4px">After you allow it, TickTick opens <code>${esc(s.redirect)}</code>, which won't load. Copy that whole address and paste it here.</div>
+      <div class="row" style="gap:6px"><input id="tt_url" placeholder="${esc(s.redirect)}?code=…" style="flex:1" aria-label="Address TickTick opened"><button class="go" onclick="ttConnect()">Finish</button></div></div>
+      <div id="tt_msg" class="mute" style="font-size:12px;margin-top:6px"></div>`;
+    return;
+  }
+  const l = s.last || {};
+  sub.textContent = 'connected' + (s.days_left != null ? ` · ${s.days_left} days left` : '');
+  b.innerHTML = `<div>${esc(String(s.open))} open tasks${l.at ? ` · synced ${esc(l.at.replace('T', ' '))}` : ''}</div>
+    <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="soft" onclick="ttSync()">Sync now</button><button class="soft" onclick="ttStart()">Connect again</button><button class="soft" onclick="ttOff()">Disconnect</button></div>
+    <div id="tt_paste" class="hide" style="margin-top:8px"><div class="row" style="gap:6px"><input id="tt_url" placeholder="${esc(s.redirect)}?code=…" style="flex:1" aria-label="Address TickTick opened"><button class="go" onclick="ttConnect()">Finish</button></div></div>
+    <div id="tt_msg" class="mute" style="font-size:12px;margin-top:6px"></div>`;
+}
+async function ttStart() {
+  const r = await api('api/ticktick/start', {});
+  if (r.error) { $('#tt_msg').textContent = r.error; return; }
+  window.open(r.url, '_blank', 'noopener');
+  $('#tt_paste').classList.remove('hide');
+  $('#tt_msg').textContent = 'TickTick opened in a new tab.';
+}
+async function ttConnect() {
+  $('#tt_msg').textContent = 'Connecting…';
+  const r = await api('api/ticktick/connect', {pasted: $('#tt_url').value});
+  if (r.error) { $('#tt_msg').textContent = r.error; return; }
+  loadTT();
+}
+async function ttSync() { $('#tt_msg').textContent = 'Syncing…'; const r = await api('api/ticktick/sync', {}); if (r.error) { $('#tt_msg').textContent = r.error; return; } loadTT(); }
+async function ttOff() { if (!confirm('Disconnect TickTick? Home Mind forgets the tasks it copied; they stay in TickTick.')) return; await api('api/ticktick/disconnect', {}); loadTT(); }
 async function loadMore() {
   loadPersona();
+  loadTT();
   const s = await api('api/status');
   if (s.error) { $('#start').classList.remove('hide'); $('#start').innerHTML = `<h2 class="bad">Home Mind isn't answering</h2><p>${esc(s.error)}</p><p class="mute">Check the app's Log tab (Settings › Apps › Home Mind › Log).</p>`; return; }
   $('#ver').textContent = 'v' + s.version;

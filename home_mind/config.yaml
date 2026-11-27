@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.41.6"
+version: "0.42.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -91,6 +91,10 @@ options:
   docs_folder: /share/home-mind/docs
   homebox_url: ""
   homebox_token: ""
+  ticktick_client_id: ""
+  ticktick_client_secret: ""
+  ticktick_redirect: ""
+  ticktick_reminders: true
   paperless_url: ""
   paperless_token: ""
   rerank_model: ""
@@ -238,6 +242,10 @@ schema:
   docs_folder: str?
   homebox_url: str?
   homebox_token: password?
+  ticktick_client_id: str?
+  ticktick_client_secret: password?
+  ticktick_redirect: str?
+  ticktick_reminders: bool?
   paperless_url: str?
   paperless_token: password?
   rerank_model: str?

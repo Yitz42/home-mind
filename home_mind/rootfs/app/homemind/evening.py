@@ -50,7 +50,7 @@ class Evening:
             lines.append(f"Comfort: {len(comfort)} change{'s' if len(comfort) != 1 else ''}, last: "
                          + mask_all(comfort[-1]["body"] or comfort[-1]["title"])[:90])
         learned = self._rows("created >= ? AND created <= ? AND status='active' AND kind != 'procedure' AND source NOT IN "
-                             "('home','calendar','automations','journal','scale','morning','evening','habits','tidy',"
+                             "('home','calendar','ticktick','automations','journal','scale','morning','evening','habits','tidy',"
                              "'patterns','comfort','weather') AND source NOT LIKE 'pack:%' AND shelf NOT LIKE 'summaries%'",
                              (start, now))
         from .speakers import visible

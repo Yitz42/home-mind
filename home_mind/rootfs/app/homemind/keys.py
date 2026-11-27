@@ -89,7 +89,7 @@ async def model_keys(store, model, days=2, limit=40):
     import time
     rows = store.db.execute(
         "SELECT id, title, body, keys, meta FROM items WHERE status='active' AND created > ? AND source NOT IN "
-        "('home','calendar','automations','habits','tidy','evening','morning','patterns') AND source NOT LIKE 'pack:%' "
+        "('home','calendar','ticktick','automations','habits','tidy','evening','morning','patterns') AND source NOT LIKE 'pack:%' "
         "AND kind != 'procedure' ORDER BY created DESC LIMIT ?", (time.time() - days * 86400, limit * 3)).fetchall()
     todo = [r for r in rows if not json.loads(r["meta"] or "{}").get("keys_by")][:limit]
     n = 0
