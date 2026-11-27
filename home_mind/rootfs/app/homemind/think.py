@@ -692,6 +692,7 @@ class Thinker:
                 r = await (asyncio.wait_for(coro, left) if left is not None else coro)
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                 run["problem"] = f"{type(e).__name__}: {e}"[:200]
+                run["error"] = run["steps"] == 0          # it never answered at all
                 break
             run["steps"] = step + 1
             act, arg, kept = parse_step(r.get("text") or "")
@@ -912,11 +913,13 @@ class Thinker:
                 ans = r.get("text") or ""
             except Exception as e:  # noqa: BLE001
                 ans = f"error: {e}"
+                d["error"] = True
         else:
             sk = self.skills.match(t["q"]) if arm != "think-noskills" else []
             run = await self.run_model(model, t["q"], sk[0] if sk else None, use_tools=arm != "think-notools")
             ans = run["answer"] or run.get("last_answer") or ""
             d.update(steps=run["steps"], skill=run["skill"], checked=run["ok"], problem=run["problem"],
+                     error=bool(run.get("error")),
                      tools=[x["tool"] for x in run["trace"] if x.get("tool")],
                      trace=[(f"{x['tool']}: {x['in'][:80]} -> {x['out'][:80]}" if x.get("tool") else
                              f"check: {x.get('check', '')[:100]}") for x in run["trace"]][:12])
@@ -932,6 +935,10 @@ class Thinker:
         details = []
         for t in tasks:
             details.append(await self.bench_one(t, arm, model))
+            tail = details[-3:]
+            if len(tail) == 3 and all(d.get("error") for d in tail):
+                raise RuntimeError(f"stopped after {len(details)} tasks: the model or the app stopped answering "
+                                   f"({str(tail[-1].get('problem') or tail[-1].get('answer'))[:120]})")
             if run is not None:
                 run["details"] = details
                 if len(details) % 4 == 0:

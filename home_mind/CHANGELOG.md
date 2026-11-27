@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.45.6
+- **Think bench stops cleanly:** when the model (or the app, during an update) stops answering, the run stops after 3 tasks in a row that got no answer and is saved as an error naming why, instead of finishing with a low score that would sit in the trend.
+
 ## 0.45.5
 - **Think path, from held-out live runs (qwen 4b):** a keyword written inside another ("CALC: DATE: weekday of ...") runs the inner tool; CALC takes a comma list of values and `sort(...)`, and drops a "-> guess" written after the expression; a list of plain numbers (an average) no longer gets the "sort and pick" method, which is now for choosing among named items ("A, B, or C"); that method says plain dates and numbers need no tool to compare.
 ## 0.45.4

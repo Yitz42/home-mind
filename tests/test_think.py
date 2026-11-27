@@ -570,6 +570,13 @@ details, summary3 = run(th.bench(None, "code", seed=11, n=48))
 check("bench: the code-only arm answers only whole questions code can read (here: days between dates, units)",
       0.05 < summary3["accuracy"] < 0.5 and summary3["by_type"].get("days_between") == 1.0 and
       summary3["by_type"].get("arith") == 0.0, summary3)
+small.fn = boom
+try:
+    run(th.bench("small", "think", seed=11, n=12))
+    check("bench: a model that stops answering stops the run as an error (not a low score)", False)
+except RuntimeError as e:
+    check("bench: a model that stops answering stops the run as an error (not a low score)", "stopped after 3" in str(e), e)
+small.fn = oracle
 try:
     run(th.bench("small", "nonsense"))
     check("bench: an unknown arm is refused", False)
