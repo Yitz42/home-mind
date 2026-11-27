@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "written_by": "Claude Opus 5.5 (large model), Nov 26 2026. First set: general methods, none tied to one task. Learned skills written by the consultant model join these on trial.",
   "about": "Each skill is a method a small model follows for a KIND of task. 'cues' and 'when' decide which skill is shown (one at a time: more hurts small models). 'check' is what code verifies in the final answer: number (every number must come from a tool result or the question), date (the DATE result must be in it), list (it must use items from the question), text (no code check beyond the request's own counts and word limits).",
   "skills": [
@@ -122,7 +122,10 @@
         "feet",
         "liters",
         "ounces",
-        "miles"
+        "miles",
+        "°f",
+        "°c",
+        "what is that in"
       ],
       "steps": [
         "Find the amount and the unit it is in, and the unit wanted.",

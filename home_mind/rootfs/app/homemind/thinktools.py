@@ -539,7 +539,8 @@ def direct(question, today=None):
     if m:
         r = convert(f"{m.group(1)} {m.group(2)} to {m.group(3)}")
         return (r, "convert") if not r.startswith("can't") else None
-    m = re.fullmatch(r"how many (" + _UPAT + r") (?:are |is )?(?:there )?(?:in|is|are|make|to) (?:a |an |one )?"
+    m = re.fullmatch(r"how many (" + _UPAT + r") (?:are there in|is there in|are in|is in|is|are|in|make|to|equals?) "
+                     r"(?:a |an |one )?"
                      r"(-?\d[\d,]*(?:\.\d+)?)?\s*(" + _UPAT + r")", ql)
     if m:
         n = m.group(2) or "1"
