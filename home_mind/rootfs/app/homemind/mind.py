@@ -2041,6 +2041,14 @@ class Mind:
     # ---- tests --------------------------------------------------------------------------------------------------------
     def start_test(self, suite, arm="brain", model=None, seed=None, n=None, ingest="raw", keyed=False, expand=False,
                    order="default", notes_first=False):
+        if suite == "think" and getattr(self, "thinker", None) is not None:
+            arm = {"brain": "code", "model+brain": "think"}.get(arm, arm)
+            run = self.thinker.start_bench(model, arm, seed, n)
+            t = self.thinker.bench_jobs.get(run["id"])
+            if t is not None:
+                self.jobs[run["id"]] = {"task": t, "run": run}
+                t.add_done_callback(lambda _t, rid=run["id"]: self.jobs.pop(rid, None))
+            return run
         if suite not in suites.SUITES and suite != "corrections":
             raise ValueError(f"unknown suite {suite}; have {', '.join(suites.SUITES)}, corrections")
         if suite in ("tidy", "injections", "conflicts", "reminders", "habits", "baselines", "salience", "filing") and \

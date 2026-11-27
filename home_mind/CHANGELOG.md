@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.44.0
+- **Think path for general tasks:** math and word problems, percents, rates, units, dates and clock times, picking from
+  a list, logic, plans, priorities, how-to, comparisons, explanations, messages, creative requests, summaries and small
+  code go to a small local model that works step by step with exact tools (`CALC`, `DATE`, `CONVERT`, `RECALL` for your
+  notes, `LOOKUP` for offline Wikipedia) and a method for the kind of task. Whole questions a tool can read are answered
+  by code with no model. Answers are checked by code (numbers must come from a tool, dates from `DATE`, the request's own
+  counts and word limits) and said back once if they fail. Start a question with `think:` to send it there.
+- **Consult and learn:** when the small model fails a check, doesn't know or runs out of steps, the consultant (the
+  first cloud model, or `think_consultant`) gets the same task and tools. When it solves a kind of task no method
+  covers, it writes one: on trial first, trusted after 3 wins by the small model, retired if it keeps failing. 21
+  methods written by a large model ship with the app. Never from private questions; private mode stays in the house.
+- **Measured:** `GET /api/think` (answered by code, by the small model, with the consultant, failed, skills learned,
+  share solved locally) and a new **think** test suite of 12 task kinds with answers worked out by code, with arms for
+  the model alone, the think path, and the think path without skills or without tools.
+- New options `think`, `think_model`, `think_consultant`, `think_steps`, `think_learn`, `think_learn_daily`.
 ## 0.43.1
 - **No disambiguation pages from Wikipedia:** a list of other articles ("Eiffel Tower may also refer to…") is no longer added as a passage or named on the source line.
 

@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.43.1"
+version: "0.44.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -168,6 +168,12 @@ options:
   tool_model: ""
   tool_writes: false
   tool_daily_limit: 50
+  think: true
+  think_model: ""
+  think_consultant: ""
+  think_steps: 6
+  think_learn: true
+  think_learn_daily: 5
   db_snapshots: 7
 schema:
   models:
@@ -334,4 +340,10 @@ schema:
   tool_model: str?
   tool_writes: bool?
   tool_daily_limit: int(0,1000)?
+  think: bool?
+  think_model: str?
+  think_consultant: str?
+  think_steps: int(2,12)?
+  think_learn: bool?
+  think_learn_daily: int(0,100)?
   db_snapshots: int(1,60)?

@@ -143,6 +143,50 @@ seconds the quick answer is said instead. A guest or another assistant never get
 (`/api/answer_pick`; totals at `/api/answer_picks`), so the new path is judged by you. Turn the whole thing off with
 `connected_answers: false`.
 
+## Thinking through general tasks (0.44)
+Questions that aren't about your memory or the house, but need working out, go to the **think path**: math and word
+problems, money and percentages, rates, units, dates and clock times, picking from a list, logic, planning a day,
+prioritizing, how-to, comparing options, explaining, writing a message, creative requests, summaries and small pieces of
+code. Start any question with `think:` to send it there on purpose. Memory questions, house commands, logs and your own
+health or money data take their usual paths.
+
+It is built so a **small local model** can do what a bigger one does:
+
+- **Code first.** A whole question a tool can read ("what's 17.5% of 368?", "how many grams in 3.4 pounds?", "what day
+  of the week is March 14 2027?", "days until Christmas", "9:40 plus 135 minutes") is answered by code, instantly.
+- **Tools, one line at a time.** The model works in steps: `CALC` (arithmetic and functions such as `round`, `ceil`,
+  `mean`), `DATE` (days between dates, a date plus days or months, weekdays, clock times), `CONVERT` (length, weight,
+  volume including cups and spoons, temperature, speed, area), `RECALL` (your notes, tasks and calendar, with the same
+  rules on who sees what and on secrets as an answer) and `LOOKUP` (offline Wikipedia). It never does arithmetic or
+  calendar math in its head.
+- **A method for the kind of task.** Home Mind keeps skills: short methods written as data by a large model
+  (`data/skills.json`, 21 of them: word problems, percents, rates, units, dates, averages, estimates, sorting, logic,
+  schedules, priorities, breaking down a goal, comparing, explaining, facts, how-to, messages, creative writing,
+  summaries, code, reasoning about your own notes). The one that fits best is shown to the model; none when nothing fits.
+- **Checked by code.** Every number in a numeric answer must come from a tool result (or the question, or a note it
+  recalled); a date answer must carry what `DATE` worked out; a pick from a list must name an item of it; and the
+  request's own limits are counted (5 ideas, under 50 words, a haiku's 3 lines). A failed check is said back once.
+- **Consulting.** If the answer still fails, the model says it doesn't know, it runs out of steps (`think_steps`, 6) or
+  it errors, the consultant (`think_consultant`, else the first cloud model) gets the same task, method and tools.
+  When nothing works, the usual path answers. Private questions follow `private_to_cloud`, private mode keeps
+  everything in the house, and by voice only numbers and dates are worked out this way (open tasks need more turns
+  than a voice reply has).
+- **Learning.** When the consultant solves a kind of task no skill covers, it writes a general method (no names or
+  numbers from the task; code checks). It starts **on trial** and is shown for tasks of its kind; after the small model
+  succeeds with it 3 times at 70% or better it is **trusted**, and after 3 or more fails below 40% it is **retired**.
+  Every skill keeps its record, and the tasks it helped with become examples that find it again. Never from private
+  questions; at most `think_learn_daily` (5) a day; off with `think_learn: false`.
+- **"That's wrong"** right after a think answer counts against the skill used and asks the consultant to work it out
+  again.
+
+**Measuring.** `GET /api/think` shows the last 30 days: questions answered by code, by the small model alone, with the
+consultant, failed, skills learned, and the share solved locally, which should rise as skills accumulate. The **think**
+test suite (Tests tab) generates 12 kinds of task with answers worked out by code (multi-step counts, splitting a bill,
+discounts, percent change, rates rounded up, units, days between dates, weekdays, clock times, averages, picking the
+earliest, ordering clues with made-up names). Arms: *brain* = code only, *model* = the model alone, *model + brain* =
+the think path, *think, no skills* and *think, no tools* to see what each part adds. Results are saved like the other
+suites, so `/api/trend?suite=think&name=accuracy` shows the trend.
+
 ## Home: the panel's first page
 **Home** runs the day from one screen; the other pages (Health, Food, Memory, Settings) are for data and fine tuning.
 Top to bottom:
@@ -1041,6 +1085,12 @@ you turn them on are listed after the tables.
 | `tool_model` | empty | A Claude model (type anthropic, with api_key) that may look things up with tools when an answer didn't know; billed to that key |
 | `tool_writes` | off | Let that model also store notes and control things on the control list |
 | `tool_daily_limit` | 50 | Most look-ups a day |
+| `think` | on | The think path for general tasks (math, dates, units, plans, writing, explaining): tools, skills, checks by code |
+| `think_model` | empty | The model that thinks first; empty = the first local model that's awake |
+| `think_consultant` | empty | The model asked when the first one fails a check or doesn't know, and that writes new skills; empty = the first cloud model in `fallback` |
+| `think_steps` | 6 | Most tool steps per task (2 to 12) |
+| `think_learn` | on | Let the consultant write a skill for a kind of task none covers (on trial until the small model succeeds with it) |
+| `think_learn_daily` | 5 | Most skills written a day |
 | `shadow_rate` | 0.1 | Share of house requests also planned by a second model in the background (never acts), to compare them; 0 = off |
 | `approval_phone` | empty | The phone that approves locks, garage doors, alarms and heaters (`notify.mobile_app_...`); empty = the first phone with the Home Assistant app |
 | `safety_contact` | empty | Someone told when you describe an emergency, a double dose or a big decline (a notify service); empty = no one |
@@ -1208,6 +1258,9 @@ you turn them on are listed after the tables.
 - `tool_model`: each look-up is billed to that Claude API key (capped by `tool_daily_limit`), and the question with
   the notes found goes to that model, with secret values hidden. `tool_writes` lets it store notes and control things
   on the control list.
+- `think` (on): a general task the small model can't solve goes to the consultant, a cloud model unless you name a
+  local one, with the question, what the tools returned (notes found by `RECALL` with secret values hidden) and, once
+  in a while, a request to write a skill (`think_learn_daily`). Private questions follow `private_to_cloud`.
 - `knowledge_wikipedia` (on): about 50 GB of disk; `knowledge_food` (on): about 450 MB.
 - Deleting for good (purge, `POST /api/item/{id}/purge`, `mind_purge_about`) can't be undone; see **Trust and privacy**.
 
@@ -1243,6 +1296,9 @@ note), 502 (a model failed) or 500.
 | GET | `/api/status` | read | version, counts, models, bridge state |
 | GET | `/api/recall` | read | search for a caller that writes its own answer (`q`, `limit`, `shelf`, `kind`, `old=1`, `raw=1`); secrets not asked for are masked |
 | POST | `/api/ask` | read | answer a question (`question`, `model?`, `use_brain`, `voice`, `deadline`, `conversation_id`, `user`/`speaker`) |
+| POST | `/api/think/solve` | read | work a task out on the think path alone (`question`): answer, who solved it, the skill, each tool step |
+| GET | `/api/think` | read | the think path: on or off, which models, stats per day (`days`), every skill with its record |
+| POST | `/api/think/skills` | admin | change a skill (`id`, `op`: retire, restore, trust, or delete for a learned one) |
 | POST | `/api/remember` | write | file a note (`text`, `title?`, `shelf?`, `key?`, `kind?`, `tags?`, `scope?`, `owner?`) |
 | GET | `/api/glance` | read | a watch-sized look at right now: next event, top tasks, the day's check-in, approvals waiting (`lines`, `text`) |
 | POST | `/api/capture` | write | one-tap capture (`text`, `kind?`: idea, journal or note); "idea: …" and the other spoken forms work too |

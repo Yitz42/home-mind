@@ -422,6 +422,9 @@ class App:
         self.knowledge = Knowledge(DATA, self.opts)
         self.mind.knowledge = self.knowledge
         self.pantry.knowledge = self.knowledge
+        from .think import Thinker
+        self.thinker = Thinker(self.mind, self.opts, knowledge=self.knowledge)   # general tasks (think.py)
+        self.mind.thinker = self.thinker
         self.morning.pantry = self.pantry
         self.patterns = Patterns(self.mind.store, self.ha, self.calendars, self.opts, phone=self.morning._phone)
         self.fitness = Fitness(self.mind.store, self.patterns, self.pantry)
@@ -1192,7 +1195,9 @@ class App:
         mr = mk(b, who, oa) if not ar and not urgent and mk is not None else None
         dk = getattr(self, "deep_ok", None)
         use_deep = bool(not ar and not mr and not urgent and dk is not None and dk(b, who, oa))
-        raw_on_sent = b.get("on_sentence") if not ar and not mr and not use_deep else None
+        tk = getattr(self, "think_ok", None)
+        think_why = tk(b, who, oa) if not ar and not mr and not use_deep and not urgent and tk is not None else None
+        raw_on_sent = b.get("on_sentence") if not ar and not mr and not use_deep and not think_why else None
         stream_state = {"started": False, "handed_off": False}
 
         def on_sent(s):
@@ -1213,6 +1218,8 @@ class App:
             ask = self.meal_answer(b, who, mr, ask)  # "what can I make with the large eggs?": Pantry.suggest()
         elif use_deep:
             ask = self.deep_answer(b, who, ask)      # why / lately / how am I: the brief, connected (connect.py)
+        elif think_why:
+            ask = self.think_answer(b, who, think_why, ask)   # math, dates, plans, writing: think.py, tools + checks
         if phone:
             # past HANDOFF_SECONDS by voice: say so, and send the whole answer to the person's phone when it's ready
             # (design step 19); without a phone the voice deadline and its best-note fallback stand as before
@@ -1258,6 +1265,45 @@ class App:
                 res["checkin_asked"] = True
         res["hits"] = [{"id": h["id"], "title": h["title"], "shelf": h["shelf"], "score": h["score"]} for h in res["hits"]]
         return await self._style(res, b["question"], who, bool(b.get("voice")))
+
+    def think_ok(self, b, who, other=None):
+        """Why a request belongs on the think path (think.wants, or "feedback" for "that's wrong" right after a think
+        answer), or None. Not for another assistant's speaker, a model picked by hand, or a brain-off request."""
+        th = getattr(self, "thinker", None)
+        if th is None or not th.on() or other:
+            return None
+        chosen = b.get("model") not in (None, "", "auto") and not b.get("mode_model")
+        if chosen or b.get("use_brain") is False:
+            return None
+        if th.is_feedback(b.get("question"), b.get("conversation_id")):
+            return "feedback"
+        from .think import wants
+        return wants(b.get("question") or "")
+
+    async def think_answer(self, b, who, why, quick):
+        """The think path's answer; the usual path's (quick) when it leaves the question or fails."""
+        th = self.thinker
+        md = getattr(self, "modes", None)
+        try:
+            house_only = md is not None and md.mode(who or None) == "private"     # private mode: nothing leaves
+        except Exception:  # noqa: BLE001
+            house_only = False
+        try:
+            if why == "feedback":
+                res = await th.feedback(b["question"], b.get("conversation_id"), who)
+            else:
+                res = await th.solve(b["question"], who=who, conversation_id=b.get("conversation_id"),
+                                     voice=bool(b.get("voice")), deadline=b.get("deadline"), why=why,
+                                     house_only=house_only)
+        except Exception:  # noqa: BLE001 - the usual path answers instead
+            log.exception("think path")
+            res = None
+        if res is None or not res.get("answer"):
+            return await quick
+        quick.close()
+        if b.get("conversation_id") and hasattr(self.mind, "_record_turn"):
+            self.mind._record_turn(b["conversation_id"], b["question"], res["answer"])
+        return res
 
     DEEP_VOICE_SECONDS = 6.0
 
@@ -3023,6 +3069,42 @@ def build(app_state):
                                 b.get("n"), b.get("ingest", "raw"), bool(b.get("keyed")),
                                 bool(b.get("expand")), b.get("order") or "default", bool(b.get("notes_first")))
         return J({"id": run["id"], "status": run["status"], "seed": run["seed"]})
+
+    @r.get("/api/think")
+    async def think_get(q):
+        th = getattr(A, "thinker", None)
+        if th is None:
+            raise ValueError("the think path isn't running")
+        days = num(q.query.get("days"), "days", 30, 1, 60)
+        return J({"on": th.on(), "chain": th.chain(), "stats": th.stats(days), "skills": th.skills.all()})
+
+    @r.post("/api/think/skills")
+    async def think_skills(q):
+        b = await read_body(q, id=str, op=str)
+        th = getattr(A, "thinker", None)
+        if th is None:
+            raise ValueError("the think path isn't running")
+        op = b.get("op")
+        if op == "delete":
+            th.skills.delete(b.get("id") or "")
+        elif op in ("retire", "restore", "trust"):
+            th.skills.set_status(b.get("id") or "", {"retire": "retired", "restore": "trial", "trust": "trusted"}[op])
+        else:
+            raise ValueError("op is retire, restore, trust or delete")
+        return J(th.skills.get(b["id"]) or {"deleted": b["id"]})
+
+    @r.post("/api/think/solve")
+    async def think_solve(q):
+        """The think path alone, for testing a task (the Ask box routes there by itself)."""
+        b = model_ok(await read_body(q, question=str))
+        th = getattr(A, "thinker", None)
+        if th is None:
+            raise ValueError("the think path isn't running")
+        if not (b.get("question") or "").strip():
+            raise ValueError("give a question")
+        who, _how = A.speaker_for(b)
+        res = await th.solve(b["question"], who=who, why="forced")
+        return J(res or {"answer": None, "think": {"by": None}})
 
     @r.get("/api/runs")
     async def runs(q):

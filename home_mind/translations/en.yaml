@@ -375,6 +375,24 @@ configuration:
   tool_daily_limit:
     name: Most look-ups a day
     description: The most times a day that model may be used this way, to cap what it costs. 0 = never.
+  think:
+    name: Think path for general tasks
+    description: "Math, dates and units, word problems, planning, sorting, how-to, writing and explaining go to a small model that works step by step with exact tools (calculator, dates, units, your memory, offline Wikipedia) and a method for the kind of task. Its answers are checked by code; when it can't, the consultant model is asked and writes a new method for next time. Off = these questions take the usual path."
+  think_model:
+    name: Model that thinks first
+    description: Name of the small model that tries general tasks first. Empty = the first local model that's awake.
+  think_consultant:
+    name: Model it consults
+    description: "Asked when the first model's answer fails a check or it doesn't know, and it writes a new method from what it did. Empty = the first cloud model in the fallback list. Private questions follow \"Private questions and the cloud\"."
+  think_steps:
+    name: Most steps per task
+    description: How many tool steps a model may take on one task before it must answer.
+  think_learn:
+    name: Learn methods from the consultant
+    description: On = when the consultant solves a kind of task no method covers, it writes one; it starts on trial and is trusted after the small model succeeds with it 3 times. Never from private questions.
+  think_learn_daily:
+    name: Most methods written a day
+    description: Caps the extra consultant calls used to write methods.
   db_snapshots:
     name: Database snapshots to keep
     description: One a day. If the database is ever damaged, Home Mind starts from the newest good one, tells you, and keeps the damaged file.
