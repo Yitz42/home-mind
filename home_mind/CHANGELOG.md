@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.45.1
+- **Think path finds your local models:** with no `router_local` and no local model in `fallback`, any connected local model thinks first (quickest first), so a setup with only Haiku in `fallback` still gets the small model and Haiku as its consultant.
+- **Fixes from the first live bench (qwen 4b):** an oven temperature in °F gets the conversion method, not "explain"; a correct answer that repeats the question's numbers first is no longer marked unchecked; a model that takes two steps without the tool its method is built on (DATE for calendar work) is reminded once, with an example; "how many grams is 3.4 pounds" is answered by code.
+- **Bench details** show each tool step and why a task stopped, and a running bench shows its progress every 4 tasks.
 ## 0.45.0
 - **Wikipedia by meaning:** once the offline Wikipedia is in, Home Mind also downloads a search index of every article's first paragraph (NeuML's txtai-wikipedia, built with the e5-base model) and the model itself, about 9.5 GB, inside the same download window. A question then finds its articles by meaning, not only by sharing words ("is unbaked biscuit batter risky?" finds Cookie dough); the text still comes from the Wikipedia file. It runs on this machine with numpy alone (no new packages) and sends nothing out. Option `knowledge_wiki_meaning` (on); `POST /api/knowledge/wiki_sense` starts the download now.
 

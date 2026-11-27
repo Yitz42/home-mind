@@ -426,6 +426,21 @@ check("feedback: the win becomes a fail and the consultant works it out again",
       th.skills.get("word-problem")["wins"] == wins - 1 and th.skills.get("word-problem")["fails"] == 1 and
       r2["model"] == "big" and r2["answer"] == "Let me redo that. 266" and th.stats()["total"].get("wrong") == 1, r2)
 
+# two steps without the method's main tool: reminded once
+def small_wd(s, msgs):
+    res = results_of(msgs)
+    if "NOTE: this kind of task is done with DATE" in msgs[-1]["content"]:
+        return "DATE: weekday of 2027-03-14"
+    if any("Sunday" in r for r in res):
+        return "ANSWER: It's a Sunday."
+    return "CALC: (14 + 13*(3+1)/5) % 7"
+
+
+th, small, big = make(small_wd, no_model)
+r = run(th.solve("A package is due on March 14, 2027. Which day of the week is that?"))
+check("reminder: two steps without the method's main tool gets one note naming it, with an example",
+      r and r["answer"] == "It's a Sunday." and any(t.get("check") == "reminded to use DATE" for t in r["think"]["trace"]), r)
+
 # no answer within the step limit: escalates; nothing at all: the usual path answers
 th, small, big = make(lambda s, m: "CALC: 1+1", lambda s, m: "LOOKUP: something", {"think_steps": 3})
 r = run(th.solve(Q))
@@ -453,6 +468,10 @@ check("unchecked: with no consultant, an answer that failed its check is given a
 # the chain follows options
 th, small, big = make(no_model, no_model, {"think_model": "big", "think_consultant": "small"})
 check("chain: think_model and think_consultant are followed", th.chain() == ["big", "small"])
+th, small, big = make(no_model, no_model)
+th.mind.ROUTE_LOCAL, th.mind.FALLBACK = [], ["big"]
+check("chain: with no local model in the router or fallback lists, any connected local model thinks first",
+      th.chain() == ["small", "big"], th.chain())
 th, small, big = make(no_model, no_model)
 th.mind.blocked_models = lambda: {"big"}
 check("chain: a model over its spend cap is left out", th.chain() == ["small"])
