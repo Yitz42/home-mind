@@ -495,9 +495,12 @@ check("bench: scoring takes the gold and refuses wrong ones",
 wk = next(t for t in ts if t["type"] == "weekday")
 check("bench: a weekday answer naming two days is wrong", not T.bench_score(wk, f"{wk['gold']} or maybe Monday Tuesday"))
 nm = next(t for t in ts if t["type"] == "order_logic")
-check("bench: the name the answer leads with counts",
+check("bench: the conclusion counts: the last line naming any of them, and the name it leads with",
       T.bench_score(nm, f"{nm['gold']} (not {nm['others'][0]})") and
-      not T.bench_score(nm, f"{nm['others'][0]}, then {nm['gold']}"))
+      not T.bench_score(nm, f"{nm['others'][0]}, then {nm['gold']}") and
+      T.bench_score(nm, f"{nm['others'][0]} is taller than {nm['others'][1]}.\nSo {nm['gold']} > {nm['others'][0]}.\n"
+                        f"{nm['gold']}") and
+      not T.bench_score(nm, f"{nm['gold']} is first in the clues.\nThe answer: {nm['others'][0]}"))
 ck = next(t for t in ts if t["type"] == "clock")
 h, mi = map(int, ck["gold"].split(":"))
 check("bench: a clock time in 12-hour form counts", T.bench_score(ck, f"{(h % 12) or 12}:{mi:02d} {'PM' if h >= 12 else 'AM'}"))

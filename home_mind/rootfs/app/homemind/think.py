@@ -923,7 +923,8 @@ class Thinker:
                      tools=[x["tool"] for x in run["trace"] if x.get("tool")],
                      trace=[(f"{x['tool']}: {x['in'][:80]} -> {x['out'][:80]}" if x.get("tool") else
                              f"check: {x.get('check', '')[:100]}") for x in run["trace"]][:12])
-        d.update(answer=ans[:400], correct=bench_score(t, ans), ms=int((time.monotonic() - t0) * 1000))
+        short = ans if len(ans) <= 400 else ans[:150] + " … " + ans[-250:]      # the conclusion is at the end
+        d.update(answer=short, correct=bench_score(t, ans), ms=int((time.monotonic() - t0) * 1000))
         return d
 
     async def bench(self, model=None, arm="think", seed=1, n=40, run=None):
@@ -1104,12 +1105,12 @@ def bench_score(t, answer):
             pats.append(rf"\b{(h % 12) or 12}:{m:02d}\s*(?:pm|p\.m\.)")
         return any(re.search(p, a, re.I) for p in pats)
     if t["kind"] == "name":
-        has = re.search(rf"\b{re.escape(t['gold'])}\b", a)
-        others = [o for o in t.get("others", []) if re.search(rf"\b{re.escape(o)}\b", a)]
-        if has and not others:
-            return True
-        if has:     # "Bexil is due first (before Toram and Quenna)": the name the answer leads with counts
-            first = min((m.start(), nm) for nm in [t["gold"]] + others for m in [re.search(rf"\b{re.escape(nm)}\b", a)] if m)
-            return first[1] == t["gold"]
-        return False
+        names = [t["gold"]] + list(t.get("others", []))
+        lines = [ln for ln in a.split("\n") if any(re.search(rf"\b{re.escape(nm)}\b", ln) for nm in names)]
+        if not lines:
+            return False
+        last = lines[-1]            # the conclusion: the last line naming any of them, and the name it leads with
+        first = min((m.start(), nm) for nm in names for m in [re.search(rf"\b{re.escape(nm)}\b", last)] if m)
+        return first[1] == t["gold"]
+    return False
     return False

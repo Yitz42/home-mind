@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.45.7
+- **Think bench scoring of names:** a pick or ordering answer is judged by its conclusion (the last line naming any of the candidates), not by whichever name comes first, so a model that restates the clues before answering isn't marked wrong. Run details keep the start and the end of long answers.
+
 ## 0.45.6
 - **Think bench stops cleanly:** when the model (or the app, during an update) stops answering, the run stops after 3 tasks in a row that got no answer and is saved as an error naming why, instead of finishing with a low score that would sit in the trend.
 
