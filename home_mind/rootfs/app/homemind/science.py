@@ -1257,9 +1257,11 @@ class Science:
             p = props.get(canon)
             dest = os.path.join(wd, "t_" + _slug(canon) + ".json")
             if p and (not os.path.exists(dest) or force):
-                q = ("SELECT ?item ?itemLabel ?itemDescription ?val ?sl WHERE { ?item wdt:" + p + " ?val . "
-                     "?item wikibase:sitelinks ?sl . SERVICE wikibase:label { bd:serviceParam wikibase:language "
-                     "\"en\". } }")
+                # labels only (no descriptions) and items with an article in 2+ languages: the full answer for
+                # 'defining formula' runs past 30 MB and comes back cut off
+                q = ("SELECT ?item ?itemLabel ?val ?sl WHERE { ?item wdt:" + p + " ?val . "
+                     "?item wikibase:sitelinks ?sl . FILTER(?sl >= 2) SERVICE wikibase:label { "
+                     "bd:serviceParam wikibase:language \"en\". } }")
                 try:
                     res = await self._sparql(s, q)
                     with open(dest, "w") as f:
