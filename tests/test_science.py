@@ -250,6 +250,9 @@ def main():
     assert "Fermat's Little Theorem [ProofWiki]" in a, a
     a = ask("definition of a prime number")
     assert "Prime Number [ProofWiki]: A prime number $p$ is a positive integer" in a, a
+    assert science.unit_short("joule per kilogram kelvin difference") == "J/(kg·K)"
+    a = ask("what is the definition of a prime number in math")
+    assert "Prime Number [ProofWiki]" in a, a
     a = ask("how many meters in an inch")
     assert "1 inch = 0.0254 metre" in a, a
     assert ask("inch") == ""                                          # a unit alone, no conversion asked

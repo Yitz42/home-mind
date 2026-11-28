@@ -37,7 +37,7 @@ from html.parser import HTMLParser
 
 log = logging.getLogger("homemind.science")
 
-SCIENCE_VERSION = 1          # bump when compile() changes: the database is rebuilt from the raw files
+SCIENCE_VERSION = 2          # bump when compile() changes: the database is rebuilt from the raw files
 REFRESH_DAYS = 180           # Wikidata and CODATA are fetched again after this
 CODATA_URL = "https://physics.nist.gov/cuu/Constants/Table/allascii.txt"
 WDQS = "https://query.wikidata.org/sparql"
@@ -191,6 +191,8 @@ STOP = set("the a an of in on at to for is are was were be what who when where w
            "please explain find get value i you we my your our state says say whats what's".split())
 CUE_WORDS = set("theorem lemma corollary prove proof proofs axiom axioms definition define defined identity "
                 "inequality conjecture criterion postulate statement formula equation".split())
+FIELD_WORDS = set("math maths mathematics mathematical physics chemistry science engineering statistics "
+                  "algebra geometry calculus".split())
 COMMON = STOP | set("one two three per not no yes all some any more most less very just also only like make use "
                     "used using thing things way part type kind".split())
 BRIT = {"aluminium": "aluminum", "sulphur": "sulfur", "caesium": "cesium", "sulphate": "sulfate",
@@ -300,7 +302,9 @@ def unit_short(label):
     lab = (label or "").strip()
     if lab.lower() in NON_UNITS or re.fullmatch(r"Q\d+", lab):
         return ""
-    return UNIT_SHORT.get(lab.lower(), lab)
+    low = re.sub(r"\s+difference$", "", lab.lower())        # 'joule per kilogram kelvin difference'
+    low = low.replace("kelvin difference", "kelvin").replace("degree celsius difference", "kelvin")
+    return UNIT_SHORT.get(low, UNIT_SHORT.get(lab.lower(), low if low != lab.lower() else lab))
 
 
 def _qid(uri):
@@ -717,6 +721,10 @@ def compile_raw(raw, path, have_mp=False):
             q = _qid(_b(row, "item"))
             sid = wd_subject(q, _b(row, "itemLabel"), _b(row, "itemDescription"), _num(_b(row, "sl")) or 0)
             si = _b(row, "siLabel")
+            lab_ = c.db.execute("SELECT label FROM subjects WHERE id=?", (sid,)).fetchone() if sid else None
+            if sid and si and lab_ and lab_[0] == si:
+                c.db.execute("UPDATE subjects SET kind='unit' WHERE id=?", (sid,))
+                continue                       # '1 metre = 1 metre'
             if sid and si:
                 c.db.execute("UPDATE subjects SET kind='unit' WHERE id=?", (sid,))
                 c.fact(sid, "in SI units", f"1 {c.db.execute('SELECT label FROM subjects WHERE id=?', (sid,)).fetchone()[0]}"
@@ -974,8 +982,8 @@ class ScienceDB:
                 if row:
                     out.append((sid, row[0], row[1]))
         terms = [w for w in norm(question).split() if w not in STOP and w not in CUE_WORDS and len(w) >= 3
-                 and not w.isdigit()]
-        if len(out) < n and terms and self.fts:
+                 and not w.isdigit() and w not in FIELD_WORDS]
+        if not out and terms and self.fts:            # by name found it: no look-alike titles beside it
             pref = [w[:5] for w in terms]
             want_def = re.search(r"\bdefin", question or "", re.I)
             for joiner in (" AND ", " OR "):
