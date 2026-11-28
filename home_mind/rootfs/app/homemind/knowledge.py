@@ -19,6 +19,11 @@ Wikipedia by meaning (txtai-wikipedia + e5-base, about 9.5 GB)
   A question then finds its articles by meaning ("can I eat raw cookie dough" finds Cookie dough and Salmonellosis)
   before the word search; the article text still comes from the ZIM.
 
+Science data (science.py: Wikidata, NIST CODATA and WebBook, ProofWiki, Materials Project)
+  Exact numbers and statements for math, science and engineering questions ("density of aluminum", "speed of light",
+  "state the Pythagorean theorem"), fetched by this machine and compiled into knowledge/science.db. Its lines go
+  before the Wikipedia passages, in a REFERENCE DATA block of their own.
+
 Everything lives in /data/knowledge, which is left out of Home Assistant backups (it can be downloaded again).
 """
 import asyncio
@@ -117,6 +122,8 @@ class Knowledge:
         self.status = self._load()
         self._open_wiki()
         self._open_sense()
+        from .science import Science
+        self.science = Science(self.dir, o, self.status, self._save, self.in_window, self._download)
 
     # ---- status --------------------------------------------------------------------------------------------------
     def _load(self):
@@ -142,6 +149,7 @@ class Knowledge:
         s["food_ready"] = self.food_ready()
         s["wiki_ready"] = self.archive is not None
         s["wiki_meaning_ready"] = self.sense is not None
+        s["science_ready"] = self.science.ready()
         return s
 
     def in_window(self, now=None):
@@ -706,20 +714,32 @@ class Knowledge:
                 out.append(q)
         return out
 
+    def data_lines(self, question, personal_ok=False):
+        """Exact values and statements from the science data (science.py), as '- label [source]: ...' lines."""
+        if not self.science.ready() or (not personal_ok and about_user(question)):
+            return []
+        return self.science.lines(question)
+
     def lookup(self, query, n=3):
-        """For a model's own search (the look-up tool, Claude over MCP): the best passages and the snapshot date."""
+        """For a model's own search (the look-up tool, Claude over MCP): exact data lines when the science data has
+        them, the best Wikipedia passages and the snapshot date."""
+        data = self.data_lines(query, personal_ok=True)
         if not self.archive:
+            if data:
+                return {"data": data, "passages": []}
             return {"error": "offline Wikipedia isn't downloaded yet"}
         ps = self.passages(query, n=n, chars=1200, personal_ok=True)
-        return {"snapshot": getattr(self, "wiki_date", ""), "passages": ps or [],
-                **({} if ps else {"note": "nothing on topic; try other words, like an article title"})}
+        return {"snapshot": getattr(self, "wiki_date", ""), "passages": ps or [], **({"data": data} if data else {}),
+                **({} if ps or data else {"note": "nothing on topic; try other words, like an article title"})}
 
     def reference_lines(self, question):
+        from .science import block
+        parts = [block(self.data_lines(question))]
         ps = self.passages(question)
-        if not ps:
-            return ""
-        return (f"REFERENCE (offline Wikipedia, {getattr(self, 'wiki_date', '')} snapshot; general facts, not about "
-                f"the user):\n" + "\n".join(f"- {p['title']}: {p['text']}" for p in ps))
+        if ps:
+            parts.append(f"REFERENCE (offline Wikipedia, {getattr(self, 'wiki_date', '')} snapshot; general facts, "
+                         f"not about the user):\n" + "\n".join(f"- {p['title']}: {p['text']}" for p in ps))
+        return "\n\n".join(p for p in parts if p)
 
     @staticmethod
     def sources(ctx, answer):
@@ -752,6 +772,10 @@ class Knowledge:
         if self.want_wiki and self.want_sense and self.archive and not self.sense and self.in_window() and \
                 self.status.get("wiki_sense", {}).get("state") != "error":
             self._task = asyncio.create_task(self._run(self.get_sense(), "wiki_sense"))
+            return
+        sc = self.status.get("science", {})
+        if self.science.due() and self.in_window() and time.time() - (sc.get("tried") or 0) > 6 * 3600:
+            self._task = asyncio.create_task(self._run(self.science.build(), "science"))
 
     # ---- keeping Wikipedia fresh ----------------------------------------------------------------------------------
     def wiki_age_days(self, now=None):
@@ -792,7 +816,8 @@ class Knowledge:
         if self._task and not self._task.done():
             return "busy"
         coro = self.build_food() if what == "food" else self.get_sense(force_window=True) if what == "wiki_sense" \
-            else self.get_wiki(force_window=True)
+            else self.science.build(force_window=True) if what == "science" \
+            else self.science.compile() if what == "science_compile" else self.get_wiki(force_window=True)
         self._task = asyncio.create_task(self._run(coro, what))
         return "started"
 

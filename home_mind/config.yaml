@@ -1,5 +1,5 @@
 name: Home Mind
-version: "0.45.7"
+version: "0.46.0"
 slug: home_mind
 description: A brain for small models — memory, model connections, updates and tests
 url: https://github.com/Yitz42/home-mind
@@ -60,6 +60,8 @@ options:
   knowledge_wikipedia: true
   knowledge_wiki_meaning: true
   knowledge_window: "00:00-07:00"
+  knowledge_science: true
+  materials_project_key: ""
   calendar_quiet:
     - calendar.hebcal_baltimore
     - calendar.hebcal_baltimore_2
@@ -215,6 +217,8 @@ schema:
   knowledge_food: bool
   knowledge_wikipedia: bool
   knowledge_wiki_meaning: bool?
+  knowledge_science: bool?
+  materials_project_key: password?
   knowledge_window: "match(^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])? *- *([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$)"
   calendar_quiet:
     - str

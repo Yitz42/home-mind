@@ -657,17 +657,19 @@ class Thinker:
             return ctx[:1600]
         if kind == "LOOKUP":
             kn = self.knowledge
-            if kn is None or not getattr(kn, "archive", None):
+            sci = getattr(getattr(kn, "science", None), "ready", lambda: False)() if kn is not None else False
+            if kn is None or (not getattr(kn, "archive", None) and not sci):
                 return "no encyclopedia on this machine yet: answer from what you know and say you aren't certain"
             try:
-                ps = await asyncio.to_thread(kn.passages, arg, 2, 700)
+                data = await asyncio.to_thread(kn.data_lines, arg, True) if sci else []
+                ps = await asyncio.to_thread(kn.passages, arg, 2, 700) if getattr(kn, "archive", None) else []
             except Exception as e:  # noqa: BLE001
                 return f"lookup failed: {type(e).__name__}"
-            if not ps:
+            if not ps and not data:
                 return "nothing found for that"
             from .mind import flag_instructions
             run["lookup"] = True
-            return flag_instructions("\n".join(f"{p['title']}: {p['text']}" for p in ps))[:1600]
+            return flag_instructions("\n".join(data + [f"{p['title']}: {p['text']}" for p in ps]))[:1600]
         return "unknown tool"
 
     # -- one model working on the task -----------------------------------------------------------------------------

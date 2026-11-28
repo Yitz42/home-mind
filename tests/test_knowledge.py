@@ -327,7 +327,8 @@ async def main():
     k5 = Knowledge(d, {})
     assert k5.sense is not None and k5.summary()["wiki_meaning_ready"]
     assert k5.sense.search("salmon egg", k=2)[0]["title"].startswith("Article ")
-    k6 = Knowledge(tempfile.mkdtemp(), {"knowledge_window": "00:00-23:59", "knowledge_food": False})
+    k6 = Knowledge(tempfile.mkdtemp(), {"knowledge_window": "00:00-23:59", "knowledge_food": False,
+                                        "knowledge_science": False})
     started = []
 
     async def fake_sense(force_window=False):
@@ -345,7 +346,7 @@ async def main():
     await asyncio.sleep(0)
     assert started == [False], started
     k7 = Knowledge(tempfile.mkdtemp(), {"knowledge_window": "00:00-23:59", "knowledge_food": False,
-                                        "knowledge_wiki_meaning": False})
+                                        "knowledge_wiki_meaning": False, "knowledge_science": False})
     k7.archive, k7.get_sense = object(), fake_sense
     await k7.tick()
     await asyncio.sleep(0)

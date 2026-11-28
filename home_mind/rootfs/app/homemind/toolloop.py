@@ -41,7 +41,9 @@ READ_TOOLS = [
 ]
 WIKI_TOOL = {"name": "wikipedia", "description": "Look a general topic up in the offline English Wikipedia (facts about "
                                      "the world, never about the household). Use a few search words, like an article "
-                                     "title; try other words if nothing comes back. Say an answer came from Wikipedia.",
+                                     "title; try other words if nothing comes back. Say an answer came from Wikipedia. "
+                                     "For science questions it also returns exact data lines (densities, melting "
+                                     "points, physical constants, theorem statements) with their source.",
              "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}
 WRITE_TOOLS = [
     {"name": "remember", "description": "Store a new note, only when the question asks to remember something.",
@@ -87,7 +89,8 @@ class ToolLoop:
         from .speakers import VIEWER
         # a guest or an unknown voice ("") never writes; None = no speaker information (the owner's own client)
         kn = getattr(self.app, "knowledge", None)
-        wiki = [WIKI_TOOL] if kn is not None and getattr(kn, "archive", None) is not None else []
+        wiki = [WIKI_TOOL] if kn is not None and (getattr(kn, "archive", None) is not None or
+                                                  getattr(getattr(kn, "science", None), "ready", lambda: False)()) else []
         return READ_TOOLS + wiki + (WRITE_TOOLS if self.writes and VIEWER.get() != "" else [])
 
     async def _run(self, name, a, question):

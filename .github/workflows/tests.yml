@@ -128,6 +128,8 @@ jobs:
         run: python tests/test_hub.py
       - name: Knowledge (food database, offline Wikipedia)
         run: python tests/test_knowledge.py
+      - name: Science data (CODATA, Wikidata, ProofWiki, WebBook, Materials Project)
+        run: python tests/test_science.py
       - name: Wikipedia by meaning (numpy encoder and Faiss reader against txtai)
         run: python tests/test_wikisense.py
       - name: Recipe nutrition converter (tools)

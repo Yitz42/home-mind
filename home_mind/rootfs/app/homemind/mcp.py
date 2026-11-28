@@ -130,7 +130,8 @@ TOOLS = [
      S({"meal": STR, "request": STR, "model": STR}, [])),
     ("mind_wiki", "Look a general topic up in the offline English Wikipedia on the Home Assistant machine (facts about the "
                   "world, not about the household): the best passages and the snapshot date. Use a few search words, "
-                  "like an article title.", S({"query": STR, "n": INT}, ["query"])),
+                  "like an article title. For science questions it also returns exact data lines (Wikidata, NIST, "
+                  "ProofWiki, Materials Project).", S({"query": STR, "n": INT}, ["query"])),
     ("mind_status", "Counts, version, packs, models.", S({})),
     ("mind_updates", "Check for updates (apply=true installs available packs).", S({"apply": BOOL})),
 ]

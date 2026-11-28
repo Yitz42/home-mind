@@ -1991,7 +1991,9 @@ class Mind:
             text = " ".join(streamed) if streamed else (spoken(text, ids={h["id"] for h in hits}) or text)
         try:        # the Wikipedia articles it drew on go on the source line (shown only, never logged as notes)
             from .knowledge import Knowledge
-            wiki_src = Knowledge.sources(ctx, text) if use_brain and not DONT_KNOW.search(text) else []
+            from . import science
+            wiki_src = (science.sources(ctx, text) + Knowledge.sources(ctx, text)) \
+                if use_brain and not DONT_KNOW.search(text) else []
         except Exception:  # noqa: BLE001
             wiki_src = []
         out = {"answer": text, "hits": hits, "procedures": [p["id"] for p in procs], "model": used, "ms": r["ms"],

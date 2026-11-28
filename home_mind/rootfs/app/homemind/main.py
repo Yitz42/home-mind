@@ -4936,10 +4936,22 @@ def build(app_state):
         res = await asyncio.to_thread(A.knowledge.search, qq, num(q.query.get("n"), "n", 3, 1, 20))
         return J({"results": [{"title": x["title"], "intro": (x["text"] or [""])[0][:500]} for x in res]})
 
+    @r.get("/api/knowledge/science")
+    async def knowledge_science(q):
+        qq = q.query.get("q", "")
+        sc = A.knowledge.science
+        if not qq:
+            return J({"ready": sc.ready(), "status": A.knowledge.status.get("science", {})})
+        subs = await asyncio.to_thread(sc.db.subjects, qq) if sc.ready() else []
+        return J({"ready": sc.ready(), "lines": await asyncio.to_thread(sc.lines, qq),
+                  "wanted": sc.db.wanted(qq) if sc.ready() else [],
+                  "subjects": [{"label": s[1], "kind": s[2], "source": s[3], "words": s[5], "how": s[6]}
+                               for s in subs[:8]]})
+
     @r.post("/api/knowledge/{op}")
     async def knowledge_op(q):
         op = q.match_info["op"]
-        if op in ("food", "wiki", "wiki_sense"):
+        if op in ("food", "wiki", "wiki_sense", "science", "science_compile"):
             return J({"state": A.knowledge.start_now(op)})
         return J({"error": "unknown"}, status=404)
 

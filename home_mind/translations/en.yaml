@@ -324,6 +324,12 @@ configuration:
   knowledge_window:
     name: Download window
     description: When the big Wikipedia download may run (HH:MM-HH:MM); it pauses outside and resumes the next night.
+  knowledge_science:
+    name: Science data
+    description: Download exact values and statements for math, science and engineering questions (NIST physical constants, a science part of Wikidata, ProofWiki theorems, NIST WebBook tables; about 100 MB, inside the download window). Kept out of backups.
+  materials_project_key:
+    name: Materials Project API key
+    description: Optional. With your own free key from materialsproject.org, computed properties of stable inorganic materials (band gap, density, moduli, crystal structure) are added to the science data.
   answer_edges:
     name: Repeat the best note before the question
     description: On long pages of notes, repeat the best current note right before the question (models read the start and end of a long page best). Off until the comparison script shows it helps your models.
