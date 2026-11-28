@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.46.1
+- **Science data: molar masses** are asked from Wikidata only for the substances already found, in small batches (the one big query timed out), and only kept for chemicals (not the mass of a planet).
+
 ## 0.46.0
 - **Science data:** exact values and statements for math, science and engineering questions, kept on the Home Assistant machine: NIST CODATA physical constants, a science subset of Wikidata (elements, compounds and materials and their measured properties, physics formulas, units), ProofWiki theorems and definitions (the NaturalProofs copy), the NIST WebBook's tables for the 1,500 most common compounds, and, with your own key in `materials_project_key`, the Materials Project's computed properties. Downloaded inside the download window and compiled into `knowledge/science.db`; the answer's source line names the data it used. The look-up tool and `mind_wiki` return the data lines too. Option `knowledge_science` (on); `POST /api/knowledge/science` starts it now; `GET /api/knowledge/science?q=…` shows matches.
 

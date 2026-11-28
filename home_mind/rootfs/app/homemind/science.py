@@ -671,18 +671,23 @@ def compile_raw(raw, path, have_mp=False):
     n_wd = 0
     if os.path.isdir(wd):
         for canon, labels, pid, restrict in WD_QUANTITY:
-            f = os.path.join(wd, "q_" + _slug(canon) + ".json")
-            if not os.path.exists(f):
+            files = sorted(os.path.join(wd, fn) for fn in os.listdir(wd)
+                           if re.fullmatch("q_" + re.escape(_slug(canon)) + r"(?:_\d{4})?\.json", fn))
+            if not files:
                 continue
             seen = {}
-            for row in _load_rows(f):
+            for row in (r for f in files for r in _load_rows(f)):
                 q = _qid(_b(row, "item"))
                 sid = wd_subject(q, _b(row, "itemLabel"), _b(row, "itemDescription"), _num(_b(row, "sl")) or 0)
                 if not sid or seen.get(sid, 0) >= 3:
                     continue
                 amt = _amount(_b(row, "amount"))
                 unit = unit_short(_b(row, "unitLabel"))
-                if canon == "molar mass" and unit in ("Da", "u", ""):
+                if canon == "molar mass":
+                    d_ = details.get(q, {})
+                    if unit not in ("Da", "u", "g/mol", "") or not (formula_key(_b(d_, "formula")) or
+                                                                   "chemical element" in (_b(d_, "kinds") or "")):
+                        continue                 # the mass of a planet or a person isn't a molar mass
                     unit = "g/mol"
                 cond = []
                 if _b(row, "tamt"):
@@ -1220,6 +1225,8 @@ class Science:
             if not p:
                 failed.append(canon + " (no property)")
                 continue
+            if restrict == "chem":
+                continue                         # asked for the items already found, after their names (below)
             if not os.path.exists(dest) or force:
                 extra = f"?item wdt:{props.get('chemical formula') or 'P274'} ?f . FILTER(?sl >= 3)" \
                     if restrict == "chem" else "FILTER(?sl >= 1)"
@@ -1308,6 +1315,29 @@ class Science:
                 failed.append(f"details {bi}: {str(e)[:80]}")
             self._part("wikidata", state="names", batch=bi + 1, batches=nb, items=len(items), failed=failed[-8:])
             await asyncio.sleep(0.5)
+        # a property everything has (mass): only for the items found above, in batches, so the query stays small
+        for canon, labs, pid, restrict in WD_QUANTITY:
+            p = props.get(canon)
+            if restrict != "chem" or not p:
+                continue
+            for bi in range(nb):
+                dest = os.path.join(wd, f"q_{_slug(canon)}_{bi:04d}.json")
+                if os.path.exists(dest) and not force:
+                    continue
+                batch = items[bi * DETAIL_BATCH:(bi + 1) * DETAIL_BATCH]
+                q = ("SELECT ?item ?amount ?unitLabel ?sl WHERE { VALUES ?item { " +
+                     " ".join("wd:" + x for x in batch) + " } ?item p:" + p + " ?st . ?st psv:" + p + " ?v . "
+                     "?v wikibase:quantityAmount ?amount . OPTIONAL { ?v wikibase:quantityUnit ?unit . } "
+                     "?st wikibase:rank ?rank . FILTER(?rank != wikibase:DeprecatedRank) "
+                     "OPTIONAL { ?item wikibase:sitelinks ?sl } "
+                     "SERVICE wikibase:label { bd:serviceParam wikibase:language \"en\". } }")
+                try:
+                    res = await self._sparql(s, q)
+                    with open(dest, "w") as f:
+                        json.dump(res, f)
+                except Exception as e:  # noqa: BLE001
+                    failed.append(f"{canon} {bi}: {str(e)[:80]}")
+                await asyncio.sleep(0.5)
         self._part("wikidata", state="done" if not failed else "done with gaps", items=len(items),
                    failed=failed[-8:], props={k: v for k, v in props.items()})
 
