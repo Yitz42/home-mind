@@ -11,6 +11,7 @@ A suite returns {"events": [...], "questions": [...]}; the runner plays the even
 questions. Events that store something carry a "ref" so the right item can be checked by id.
 """
 import math
+import calendar
 import random
 from datetime import date, datetime, timedelta
 import re
@@ -1250,7 +1251,7 @@ def typed(seed, n=6, day0=None):
         items.append({"thing": f"{nm} {a}", "serial": serial, "model": model, "wy": y, "wm": mo})
         events.append({"op": "remember", "text": f"{rng.choice(PEOPLE)} asked about the {rng.choice(COLORS)} rug."})
     today = _ask_at(day0, len(events), 3600, 0).date()
-    end_of = lambda it: date(it["wy"], it["wm"], 28)
+    end_of = lambda it: date(it["wy"], it["wm"], calendar.monthrange(it["wy"], it["wm"])[1])   # "until May": its end
     questions = []
     for it in rng.sample(items, 3):
         f = rng.choice(["serial", "model"])

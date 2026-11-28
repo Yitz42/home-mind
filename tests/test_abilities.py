@@ -156,6 +156,24 @@ async def main():
     check("summary line hides the secret", line and "sunflower88" not in line and f"#{x['id']}" in line, line)
     check("nothing merged", st2.get(y["id"])["status"] == "active")
 
+    # the typed suite gives the same score whatever day it runs on: "warranty until October" lasts to Oct 31, so a run
+    # started near a month's end (Nov 28 asks about Oct 29) must not count it as over on the 29th
+    class Clock:
+        def __init__(self, ts): self.ts = ts
+        def __getattr__(self, k): return getattr(time, k)
+        def time(self): return self.ts
+    m3, worst = M.Mind(tempfile.mkdtemp(), None), []
+    try:
+        for day in ("2026-11-28", "2026-11-30", "2026-03-30", "2027-01-30", "2026-07-15"):
+            M.time = Clock(datetime.fromisoformat(day + "T12:00").timestamp())
+            for seed in (1005, 1008, 1016):
+                r = await m3.run_test_now("typed", "brain", seed=seed)
+                if r["summary"]["accuracy"] < 1:
+                    worst.append((day, seed, r["summary"].get("by_type")))
+    finally:
+        M.time = time
+    check("typed suite scores the same on any day (month ends included)", not worst, worst)
+
     print("ABILITIES OK" if not FAILS else f"ABILITIES FAILED: {FAILS}")
     sys.exit(1 if FAILS else 0)
 
