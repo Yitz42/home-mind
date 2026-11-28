@@ -324,6 +324,7 @@ ROUTES = [
     ("GET", "/api/knowledge", []),
     ("GET", "/api/knowledge/food", ["upc", "q", "n"]),
     ("GET", "/api/knowledge/search", ["q", "passages", "n"]),
+    ("GET", "/api/knowledge/science", ["q"]),
     ("POST", "/api/knowledge/{op}", []),
     ("GET", "/api/patterns", ["days"]),
     ("POST", "/api/patterns/{op}", ["days", "stop", "factor", "what", "action"]),
