@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.46.3
+- **Science data:** molar masses from formulas now work for compounds like NaCl (an element's symbol is also read from its Wikidata description), and the WebBook's molar mass isn't repeated beside Wikidata's.
+
 ## 0.46.2
 - **Science data, from the first live build:** formulas read as plain math ("T = 1/2 m v^2"), not MathML; a compound's molar mass is worked out from its formula and the elements' atomic weights (Wikidata's "mass" of a compound is its monoisotopic mass, which was shown as the molar mass); "definition of a group" finds ProofWiki's page by its exact title; a one-word match takes only the best-known subject.
 

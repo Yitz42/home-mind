@@ -37,7 +37,7 @@ from html.parser import HTMLParser
 
 log = logging.getLogger("homemind.science")
 
-SCIENCE_VERSION = 3          # bump when compile() changes: the database is rebuilt from the raw files
+SCIENCE_VERSION = 4          # bump when compile() changes: the database is rebuilt from the raw files
 REFRESH_DAYS = 180           # Wikidata and CODATA are fetched again after this
 CODATA_URL = "https://physics.nist.gov/cuu/Constants/Table/allascii.txt"
 WDQS = "https://query.wikidata.org/sparql"
@@ -709,6 +709,9 @@ def compile_raw(raw, path, have_mp=False):
         if not fk and kind == "element":              # an element's symbol is its formula (links Materials Project)
             fk = next((a for a in (_b(d, "aliases") or "").split("|") if re.fullmatch(r"[A-Z][a-z]?", a)
                        and a in ELEMENTS), "")
+            m_ = re.search(r"\bsymbol ([A-Z][a-z]?)\b", _b(d, "desc") or descr or "")   # 'chemical element with
+            if not fk and m_ and m_.group(1) in ELEMENTS:                                 # symbol Na and ...'
+                fk = m_.group(1)
         sid = c.subject("wd:" + q, lab, kind, _b(d, "desc") or descr, float(_b(d, "sl") or rank or 0),
                         "Wikidata " + q, fk)
         if sid not in qs_rank:
@@ -889,7 +892,8 @@ def compile_raw(raw, path, have_mp=False):
             for prop, val, cond in page["facts"]:
                 c.fact(sid, prop, val, cond, "NIST WebBook")
                 n_wb += 1
-            if page["mw"]:
+            if page["mw"] and not c.db.execute("SELECT 1 FROM facts WHERE sid=? AND prop='molar mass'",
+                                               (sid,)).fetchone():
                 c.fact(sid, "molar mass", page["mw"] + " g/mol", "", "NIST WebBook")
     report["webbook"] = n_wb
 

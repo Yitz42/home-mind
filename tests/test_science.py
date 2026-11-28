@@ -58,7 +58,7 @@ DETAILS = [
      "sl": lit(250), "aliases": lit("Al|aluminum|element 13"), "kinds": lit("chemical element"), "cas": lit("7429-90-5")},
     {"item": uri("Q670"), "label": lit("silicon"), "desc": lit("chemical element with symbol Si"), "sl": lit(200),
      "aliases": lit("Si|element 14"), "kinds": lit("chemical element")},
-    {"item": uri("Q658"), "label": lit("sodium"), "sl": lit(200), "aliases": lit("Na"), "kinds": lit("chemical element")},
+    {"item": uri("Q658"), "label": lit("sodium"), "sl": lit(200), "desc": lit("chemical element with symbol Na and atomic number 11"), "kinds": lit("chemical element")},
     {"item": uri("Q688"), "label": lit("chlorine"), "sl": lit(200), "aliases": lit("Cl"), "kinds": lit("chemical element")},
     {"item": uri("Q283"), "label": lit("water"), "desc": lit("chemical compound"), "sl": lit(300),
      "aliases": lit("H2O|dihydrogen monoxide"), "formula": lit("H₂O"), "kinds": lit("chemical compound"),
