@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.46.2
+- **Science data, from the first live build:** formulas read as plain math ("T = 1/2 m v^2"), not MathML; a compound's molar mass is worked out from its formula and the elements' atomic weights (Wikidata's "mass" of a compound is its monoisotopic mass, which was shown as the molar mass); "definition of a group" finds ProofWiki's page by its exact title; a one-word match takes only the best-known subject.
+
 ## 0.46.1
 - **Science data: molar masses** are asked from Wikidata only for the substances already found, in small batches (the one big query timed out), and only kept for chemicals (not the mass of a planet). Defining formulas are asked for items with an article in two or more languages, without descriptions, so the answer is no longer cut off. Wikidata unit names like "joule per kilogram kelvin difference" read as J/(kg·K); a ProofWiki theorem found by its name comes without look-alike titles; "in math" and similar words no longer steer the theorem search.
 

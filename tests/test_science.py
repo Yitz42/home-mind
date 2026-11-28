@@ -58,6 +58,8 @@ DETAILS = [
      "sl": lit(250), "aliases": lit("Al|aluminum|element 13"), "kinds": lit("chemical element"), "cas": lit("7429-90-5")},
     {"item": uri("Q670"), "label": lit("silicon"), "desc": lit("chemical element with symbol Si"), "sl": lit(200),
      "aliases": lit("Si|element 14"), "kinds": lit("chemical element")},
+    {"item": uri("Q658"), "label": lit("sodium"), "sl": lit(200), "aliases": lit("Na"), "kinds": lit("chemical element")},
+    {"item": uri("Q688"), "label": lit("chlorine"), "sl": lit(200), "aliases": lit("Cl"), "kinds": lit("chemical element")},
     {"item": uri("Q283"), "label": lit("water"), "desc": lit("chemical compound"), "sl": lit(300),
      "aliases": lit("H2O|dihydrogen monoxide"), "formula": lit("H₂O"), "kinds": lit("chemical compound"),
      "cas": lit("7732-18-5")},
@@ -148,9 +150,12 @@ def write_raw(raw, with_mp=True):
     dump("q_melting_point.json", results([
         q_row("Q663", "aluminium", "+660.32", "degree Celsius", 250),
         q_row("Q2314", "sodium chloride", "+801", "degree Celsius", 120)]))
-    dump("q_molar_mass.json", results([q_row("Q2314", "sodium chloride", "+58.44", "dalton", 120)]))
+    dump("q_molar_mass.json", results([q_row("Q2314", "sodium chloride", "+57.959", "dalton", 120)]))
+    dump("q_molar_mass_0000.json", results([q_row("Q658", "sodium", "+22.98976928", "dalton", 200),
+                                             q_row("Q688", "chlorine", "+35.45", "dalton", 200)]))
     dump("t_defining_formula.json", results([
-        {"item": uri("Q29539"), "itemLabel": lit("density"), "val": lit("\\rho = \\frac{m}{V}"), "sl": lit(150)},
+        {"item": uri("Q29539"), "itemLabel": lit("density"), "val": lit('<math xmlns="http://www.w3.org/1998/Math/'
+         'MathML"><mrow><mi>&#x03C1;</mi><mo>=</mo><mfrac><mi>m</mi><mi>V</mi></mfrac></mrow></math>'), "sl": lit(150)},
         {"item": uri("Q11518"), "itemLabel": lit("Pythagorean theorem"), "val": lit("a^2 + b^2 = c^2"),
          "sl": lit(140)}]))
     dump("t_proofwiki_id.json", results([
@@ -231,7 +236,12 @@ def main():
     a = ask("melting point of NaCl")                                 # a chemical formula
     assert "sodium chloride" in a and "801 °C" in a, a
     a = ask("molar mass of table salt")
-    assert "58.44 g/mol" in a, a                                     # daltons shown as g/mol
+    assert "58.440 g/mol (from the formula)" in a and "57.959" not in a, a   # not Wikidata's monoisotopic mass
+    a = ask("formula for density")
+    assert "density [Wikidata Q29539]: defining formula ρ = m/V" in a, a
+    assert science.mathml_text('<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>T</mi><mo>=</mo><mfrac>'
+                               '<mn>1</mn><mn>2</mn></mfrac><mi>m</mi><msup><mi>v</mi><mn>2</mn></msup></math>') \
+        == "T = 1/2 m v^2"
     a = ask("boiling point of water")                                # from the WebBook, by CAS number
     assert "water [NIST WebBook]: boiling point 373.17 K" in a, a
     a = ask("critical temperature of water")
@@ -248,6 +258,8 @@ def main():
     assert "a^2 + b^2 = c^2" in a, a
     a = ask("what does fermat's little theorem say")
     assert "Fermat's Little Theorem [ProofWiki]" in a, a
+    a = ask("what is the definition of a prime number")
+    assert a.count("[ProofWiki]") == 1, a
     a = ask("definition of a prime number")
     assert "Prime Number [ProofWiki]: A prime number $p$ is a positive integer" in a, a
     assert science.unit_short("joule per kilogram kelvin difference") == "J/(kg·K)"

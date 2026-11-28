@@ -37,7 +37,7 @@ from html.parser import HTMLParser
 
 log = logging.getLogger("homemind.science")
 
-SCIENCE_VERSION = 2          # bump when compile() changes: the database is rebuilt from the raw files
+SCIENCE_VERSION = 3          # bump when compile() changes: the database is rebuilt from the raw files
 REFRESH_DAYS = 180           # Wikidata and CODATA are fetched again after this
 CODATA_URL = "https://physics.nist.gov/cuu/Constants/Table/allascii.txt"
 WDQS = "https://query.wikidata.org/sparql"
@@ -483,6 +483,59 @@ def _templates(t):
     return "".join(out)
 
 
+def mathml_text(m):
+    """Wikidata gives math values as MathML: turn it into a line of plain math ('T = (1)/(2) m v^2')."""
+    m = str(m or "").strip()
+    if not m.startswith("<math"):
+        return m
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(m)
+    except ET.ParseError:
+        return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", m))).strip()
+
+    def tag(e):
+        return e.tag.rsplit("}", 1)[-1]
+
+    def wrap(t):
+        return t if re.fullmatch(r"[\w.]+", t) else f"({t})"
+
+    def walk(e):
+        t, kids = tag(e), list(e)
+        if t in ("mi", "mn", "mtext", "ms"):
+            return (e.text or "").strip()
+        if t == "mo":
+            o = (e.text or "").strip()
+            return f" {o} " if o in ("=", "+", "<", ">", "≤", "≥", "≠", "≈", "→", "⇒", ":", "∈", "×") else o
+        if t == "mfrac" and len(kids) == 2:
+            return f"{wrap(walk(kids[0]))}/{wrap(walk(kids[1]))}"
+        if t == "msup" and len(kids) == 2:
+            return f"{walk(kids[0])}^{wrap(walk(kids[1]))}"
+        if t == "msub" and len(kids) == 2:
+            return f"{walk(kids[0])}_{wrap(walk(kids[1]))}"
+        if t == "msubsup" and len(kids) == 3:
+            return f"{walk(kids[0])}_{wrap(walk(kids[1]))}^{wrap(walk(kids[2]))}"
+        if t in ("munderover",) and len(kids) == 3:
+            return f"{walk(kids[0])}_{wrap(walk(kids[1]))}^{wrap(walk(kids[2]))} "
+        if t in ("munder", "mover") and len(kids) == 2:
+            return f"{walk(kids[0])}{'_' if t == 'munder' else '^'}{wrap(walk(kids[1]))}"
+        if t == "msqrt":
+            return f"sqrt({''.join(walk(k) for k in kids)})"
+        if t == "mroot" and len(kids) == 2:
+            return f"root{wrap(walk(kids[1]))}({walk(kids[0])})"
+        if t == "annotation" or t == "annotation-xml":
+            return ""
+        if t == "mtr":
+            return " ".join(x for x in (walk(k) for k in kids) if x)
+        if t == "mtable":
+            return "; ".join(x for x in (walk(k) for k in kids) if x)
+        if t == "semantics" and kids:
+            return walk(kids[0])
+        return " ".join(x for x in (walk(k) for k in kids) if x)
+    out = walk(root)
+    return re.sub(r"\s+", " ", out).replace("( ", "(").replace(" )", ")").strip()
+
+
 def clean_wikitext(lines):
     """NaturalProofs contents (wikitext lines) -> readable text that keeps the $LaTeX$."""
     if isinstance(lines, str):
@@ -688,10 +741,11 @@ def compile_raw(raw, path, have_mp=False):
                 amt = _amount(_b(row, "amount"))
                 unit = unit_short(_b(row, "unitLabel"))
                 if canon == "molar mass":
-                    d_ = details.get(q, {})
-                    if unit not in ("Da", "u", "g/mol", "") or not (formula_key(_b(d_, "formula")) or
-                                                                   "chemical element" in (_b(d_, "kinds") or "")):
-                        continue                 # the mass of a planet or a person isn't a molar mass
+                    # Wikidata's 'mass' of a compound is its monoisotopic mass, not the molar mass: only elements
+                    # (their atomic weight) are kept; compounds get theirs from the formula below
+                    if unit not in ("Da", "u", "g/mol", "") or "chemical element" not in \
+                            (_b(details.get(q, {}), "kinds") or ""):
+                        continue
                     unit = "g/mol"
                 cond = []
                 if _b(row, "tamt"):
@@ -711,7 +765,7 @@ def compile_raw(raw, path, have_mp=False):
             q = _qid(_b(row, "item"))
             sid = wd_subject(q, _b(row, "itemLabel"), _b(row, "itemDescription"), _num(_b(row, "sl")) or 0)
             if sid:
-                val = re.sub(r"\s+", " ", _b(row, "val")).strip()
+                val = mathml_text(re.sub(r"\s+", " ", _b(row, "val")).strip())[:400]
                 if val and not c.db.execute("SELECT 1 FROM facts WHERE sid=? AND prop='defining formula' AND value=?",
                                             (sid, val)).fetchone():
                     c.fact(sid, "defining formula", val, source="Wikidata")
@@ -730,6 +784,20 @@ def compile_raw(raw, path, have_mp=False):
                 c.fact(sid, "in SI units", f"1 {c.db.execute('SELECT label FROM subjects WHERE id=?', (sid,)).fetchone()[0]}"
                        f" = {_amount(_b(row, 'amount'))} {si}", source="Wikidata")
                 n_wd += 1
+    # molar mass from the chemical formula and the elements' atomic weights (from Wikidata's own element masses)
+    weights = {}
+    for fk_, num_ in c.db.execute("SELECT s.fkey, f.num FROM subjects s JOIN facts f ON f.sid = s.id "
+                                  "WHERE s.kind = 'element' AND f.prop = 'molar mass' AND f.num > 0 ORDER BY f.rowid"):
+        if fk_ and re.fullmatch(r"[A-Z][a-z]?", fk_) and fk_ not in weights:
+            weights[fk_] = num_
+    for sid_, fk_ in c.db.execute("SELECT id, fkey FROM subjects WHERE fkey != '' AND kind != 'element' "
+                                  "AND source LIKE 'Wikidata%'").fetchall():
+        parts = re.findall(r"([A-Z][a-z]?)(\d*)", fk_)
+        if parts and all(e in weights for e, _ in parts) and not c.db.execute(
+                "SELECT 1 FROM facts WHERE sid=? AND prop='molar mass'", (sid_,)).fetchone():
+            mm = sum(weights[e] * int(n or 1) for e, n in parts)
+            c.fact(sid_, "molar mass", f"{mm:.3f} g/mol", "from the formula", "Wikidata")
+            n_wd += 1
     report["wikidata"] = n_wd
 
     # -- ProofWiki (NaturalProofs) ----------------------------------------------------------------------------------
@@ -759,6 +827,7 @@ def compile_raw(raw, path, have_mp=False):
             sid = c.subject("pw:" + title, label, kind, "", 0.0, "ProofWiki")
             body = e["text"][:2500]
             c.doc(sid, label, body)
+            c.name(sid, "pw:" + norm(label), raw=True)
             n = norm(label)
             if kind == "theorem" and len(n.split()) >= 2 and THEOREM_WORDS.search(label):
                 c.name(sid, label)
@@ -934,7 +1003,7 @@ class ScienceDB:
                     continue
                 for j in range(i, i + size):
                     used[j] = True
-                for sid, label, kind, rank, source, fkey in rows[:2]:
+                for sid, label, kind, rank, source, fkey in rows[:1 if size == 1 else 2]:
                     if sid not in seen:
                         seen.add(sid)
                         found.append((sid, label, kind, source, fkey, size, "name"))
@@ -983,6 +1052,12 @@ class ScienceDB:
                     out.append((sid, row[0], row[1]))
         terms = [w for w in norm(question).split() if w not in STOP and w not in CUE_WORDS and len(w) >= 3
                  and not w.isdigit() and w not in FIELD_WORDS]
+        if not out and terms:                         # a title that is exactly the asked words ('group')
+            want_def = bool(re.search(r"\bdefin|\bwhat (?:is|are) (?:a|an)\b", question or "", re.I))
+            rows = self.db.execute("SELECT s.id, s.kind, d.title, d.body FROM names n JOIN subjects s ON s.id = n.sid "
+                                   "JOIN docs d ON d.sid = s.id WHERE n.norm = ?", ("pw:" + " ".join(terms),)).fetchall()
+            rows.sort(key=lambda r: (r[1] == "definition") != want_def)
+            out += [(r[0], r[2], r[3]) for r in rows[:1]]
         if not out and terms and self.fts:            # by name found it: no look-alike titles beside it
             pref = [w[:5] for w in terms]
             want_def = re.search(r"\bdefin", question or "", re.I)
